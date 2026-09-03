@@ -22,6 +22,8 @@ export interface Space {
   claudeAccountId?: string
   /** The space's own Jira connection. Absent means "use the default one from Settings". */
   jira?: JiraSettings
+  /** GitHub users/orgs whose PRs the review cockpit lists for this space. Empty means "detect from the space's repos". */
+  githubOwners?: string[]
   /** Per-space overrides; absent means the app default from Settings. */
   model?: string
   permissionMode?: PermissionMode

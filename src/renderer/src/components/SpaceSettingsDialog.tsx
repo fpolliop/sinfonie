@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { Plus, Trash2, FolderGit2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
@@ -115,7 +115,52 @@ export function SpaceSettingsDialog({ spaceId, onClose }: { spaceId: string; onC
         )}
       </section>
 
+      <GithubOwnersSection spaceId={space.id} configured={space.githubOwners ?? []} onChange={(owners) => go(() => api.invoke('spaces:update', space.id, { githubOwners: owners }))} />
+
       <JiraSection connId={space.id} title="Jira for this space" intro="Connect the Jira site this space's tickets live in. Leave it disconnected to use the default connection from Settings." />
     </Dialog>
+  )
+}
+
+/** Which GitHub users/orgs the review cockpit lists for this space. Detected from the repos, overridable. */
+function GithubOwnersSection({ spaceId, configured, onChange }: { spaceId: string; configured: string[]; onChange: (owners: string[]) => void }): React.JSX.Element {
+  const [orgs, setOrgs] = useState<string[]>([])
+  const [detected, setDetected] = useState<string[]>([])
+  useEffect(() => {
+    api.invoke('reviews:orgs').then(setOrgs).catch(() => setOrgs([]))
+    api.invoke('reviews:detectOwners', spaceId).then(setDetected).catch(() => setDetected([]))
+  }, [spaceId])
+  const all = Array.from(new Set([...detected, ...orgs, ...configured]))
+  const effective = configured.length ? configured : detected
+  const toggle = (o: string): void => {
+    const base = configured.length ? configured : detected
+    onChange(base.includes(o) ? base.filter((x) => x !== o) : [...base, o])
+  }
+  return (
+    <section className="mt-4">
+      <h3 className="mb-2 text-[12px] font-medium uppercase tracking-wide text-muted">GitHub for the review cockpit</h3>
+      <p className="mb-2 text-[11px] text-muted">
+        Pull requests from these owners appear in the cockpit while this space is active.{' '}
+        {configured.length ? (
+          <button className="text-accent hover:underline" onClick={() => onChange([])}>
+            Reset to detected
+          </button>
+        ) : (
+          'Detected from the space\'s repositories; tick to override.'
+        )}
+      </p>
+      <div className="flex flex-wrap gap-1.5">
+        {all.length === 0 && <span className="text-[12px] text-muted">Nothing detected yet. Add a repository with a GitHub remote, or sign in with gh.</span>}
+        {all.map((o) => {
+          const on = effective.includes(o)
+          return (
+            <button key={o} onClick={() => toggle(o)} className={on ? 'rounded-full border border-accent/50 bg-accent/15 px-2 py-0.5 text-[12px] text-accent' : 'rounded-full border border-border px-2 py-0.5 text-[12px] text-muted hover:text-text'}>
+              {o}
+              {detected.includes(o) && <span className="ml-1 opacity-60">·repo</span>}
+            </button>
+          )
+        })}
+      </div>
+    </section>
   )
 }

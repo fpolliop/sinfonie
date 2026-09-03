@@ -55,7 +55,7 @@ export function registerIpc(): void {
         // Empty strings mean "back to the app default".
         const target = s as unknown as Record<string, unknown>
         for (const [k, v] of Object.entries(patch)) {
-          if (v === '' || v === undefined || v === null) delete target[k]
+          if (v === '' || v === undefined || v === null || (Array.isArray(v) && v.length === 0)) delete target[k]
           else target[k] = v
         }
         out = s
@@ -267,7 +267,8 @@ export function registerIpc(): void {
   // ---- review cockpit ----
   const emitReview = (run: Parameters<typeof send<'review:changed'>>[1]): void => send('review:changed', run)
   handle('reviews:orgs', () => reviews.listOrgs())
-  handle('reviews:list', (owner, mode) => reviews.listPrs(owner, mode))
+  handle('reviews:list', (owners, mode) => reviews.listPrs(owners, mode))
+  handle('reviews:detectOwners', (spaceId) => reviews.detectOwners(spaceId))
   handle('reviews:runs', () => reviews.listRuns())
   handle('reviews:start', (pr, accountId) => reviews.startReview(pr, accountId, emitReview))
   handle('reviews:cancel', (key) => reviews.cancelReview(key))

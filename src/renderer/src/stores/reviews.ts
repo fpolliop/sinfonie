@@ -20,7 +20,9 @@ export const STATUS_FILTERS: { id: StatusFilter; label: string }[] = [
 
 interface ReviewsState {
   orgs: string[]
-  owner: string
+  /** Owners currently listed, and the space they came from. */
+  owners: string[]
+  spaceId: string | null
   mode: 'requested' | 'all'
   repoFilter: string
   statusFilter: StatusFilter
@@ -32,7 +34,8 @@ interface ReviewsState {
   loadingPrs: boolean
   error?: string
   init: () => Promise<void>
-  setOwner: (o: string) => void
+  /** Point the cockpit at a space: owners come from its settings or its repos. */
+  useSpace: (spaceId: string, configured: string[] | undefined) => Promise<void>
   setMode: (m: 'requested' | 'all') => void
   setRepoFilter: (r: string) => void
   setStatusFilter: (s: StatusFilter) => void
@@ -46,7 +49,8 @@ export const keyOf = (pr: ReviewPr): string => `${pr.nameWithOwner}#${pr.number}
 
 export const useReviews = create<ReviewsState>((set, get) => ({
   orgs: [],
-  owner: localStorage.getItem('orchestra.reviews.owner') ?? '',
+  owners: [],
+  spaceId: null,
   mode: (localStorage.getItem('orchestra.reviews.mode') as 'requested' | 'all') ?? 'requested',
   repoFilter: localStorage.getItem('orchestra.reviews.repo') ?? '',
   statusFilter: (localStorage.getItem('orchestra.reviews.status') as StatusFilter) ?? 'all',
@@ -62,17 +66,25 @@ export const useReviews = create<ReviewsState>((set, get) => ({
     set({ loadingOrgs: true, error: undefined })
     try {
       const [orgs, runs] = await Promise.all([api.invoke('reviews:orgs'), api.invoke('reviews:runs')])
-      const owner = get().owner && orgs.includes(get().owner) ? get().owner : orgs[0] ?? ''
-      set({ orgs, owner, runs: Object.fromEntries(runs.map((r) => [r.key, r])), loadingOrgs: false })
-      await get().refreshPrs()
+      set({ orgs, runs: Object.fromEntries(runs.map((r) => [r.key, r])), loadingOrgs: false })
     } catch (err) {
       set({ loadingOrgs: false, error: err instanceof Error ? err.message : String(err) })
     }
   },
-  setOwner: (owner) => {
-    localStorage.setItem('orchestra.reviews.owner', owner)
-    set({ owner })
-    void get().refreshPrs()
+  useSpace: async (spaceId, configured) => {
+    set({ spaceId, error: undefined })
+    let owners = configured?.length ? configured : []
+    if (owners.length === 0) {
+      try {
+        owners = await api.invoke('reviews:detectOwners', spaceId)
+      } catch (err) {
+        set({ error: err instanceof Error ? err.message : String(err) })
+      }
+    }
+    // A space with no repos and nothing configured: fall back to everything the user can see.
+    if (owners.length === 0) owners = get().orgs
+    set({ owners, prs: [] })
+    await get().refreshPrs()
   },
   setMode: (mode) => {
     localStorage.setItem('orchestra.reviews.mode', mode)
@@ -92,11 +104,11 @@ export const useReviews = create<ReviewsState>((set, get) => ({
     set({ sortDir })
   },
   refreshPrs: async () => {
-    const { owner, mode } = get()
-    if (!owner) return
+    const { owners, mode } = get()
+    if (owners.length === 0) return
     set({ loadingPrs: true, error: undefined })
     try {
-      const prs = await api.invoke('reviews:list', owner, mode)
+      const prs = await api.invoke('reviews:list', owners, mode)
       set({ prs, loadingPrs: false })
     } catch (err) {
       set({ loadingPrs: false, error: err instanceof Error ? err.message : String(err) })

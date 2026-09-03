@@ -30,7 +30,7 @@ export interface OrchestraInvoke {
   'settings:update': (patch: Partial<Settings>) => Settings
 
   'spaces:create': (name: string) => Space
-  'spaces:update': (id: string, patch: Partial<Pick<Space, 'name' | 'color' | 'claudeAccountId' | 'model' | 'permissionMode' | 'workspacesRoot'>>) => Space
+  'spaces:update': (id: string, patch: Partial<Pick<Space, 'name' | 'color' | 'claudeAccountId' | 'model' | 'permissionMode' | 'workspacesRoot' | 'githubOwners'>>) => Space
   'spaces:delete': (id: string) => void
   'workspaces:setSpace': (workspaceId: string, spaceId: string | null) => Workspace
   'repos:setSpace': (repoId: string, spaceId: string | null) => Repo
@@ -79,7 +79,9 @@ export interface OrchestraInvoke {
   'accounts:loginTerminal': (id: string) => string
 
   'reviews:orgs': () => string[]
-  'reviews:list': (owner: string, mode: 'requested' | 'all') => ReviewPr[]
+  'reviews:list': (owners: string[], mode: 'requested' | 'all') => ReviewPr[]
+  /** Owners detected from the origin remotes of a space's repos ('' = repos in no space). */
+  'reviews:detectOwners': (spaceId: string) => string[]
   'reviews:runs': () => ReviewRun[]
   'reviews:start': (pr: ReviewPr, accountId: string) => ReviewRun
   'reviews:cancel': (key: string) => void

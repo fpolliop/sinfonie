@@ -66,8 +66,26 @@ export async function listOrgs(): Promise<string[]> {
   return [me.trim(), ...orgs.split('\n').map((s) => s.trim()).filter(Boolean)]
 }
 
-export async function listPrs(owner: string, mode: 'requested' | 'all'): Promise<ReviewPr[]> {
-  const args = ['search', 'prs', '--owner', owner, '--state', 'open', '--limit', '100', '--sort', 'updated', '--json', 'number,title,repository,author,updatedAt,url,isDraft']
+/** Owners (user or org) of the origin remotes of a space's registered repos. */
+export async function detectOwners(spaceId: string): Promise<string[]> {
+  const repos = getStore().get().repos.filter((r) => (spaceId ? r.spaceId === spaceId : !r.spaceId))
+  const owners = new Set<string>()
+  for (const r of repos) {
+    try {
+      const url = await git(r.path).remote(['get-url', 'origin'])
+      const norm = normalizeRemote(String(url ?? ''))
+      const owner = norm.split('/')[0]
+      if (owner) owners.add(owner)
+    } catch {
+      /* no origin */
+    }
+  }
+  return Array.from(owners)
+}
+
+export async function listPrs(owners: string[], mode: 'requested' | 'all'): Promise<ReviewPr[]> {
+  if (owners.length === 0) return []
+  const args = ['search', 'prs', ...owners.flatMap((o) => ['--owner', o]), '--state', 'open', '--limit', '100', '--sort', 'updated', '--json', 'number,title,repository,author,updatedAt,url,isDraft']
   if (mode === 'requested') args.push('--review-requested', '@me')
   const raw = JSON.parse(await gh(args)) as { number: number; title: string; repository: { nameWithOwner: string }; author: { login: string }; updatedAt: string; url: string; isDraft: boolean }[]
   return raw.map((p) => ({ nameWithOwner: p.repository.nameWithOwner, number: p.number, title: p.title, author: p.author?.login ?? '', url: p.url, updatedAt: p.updatedAt, isDraft: p.isDraft }))

@@ -5,6 +5,7 @@ import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { useReviews, keyOf, STATUS_FILTERS, type StatusFilter } from '@/stores/reviews'
 import { AccountPicker } from './AccountPicker'
+import { SpaceSettingsDialog } from './SpaceSettingsDialog'
 import { Badge, Button, Spinner, inputCls } from './ui'
 import { timeAgo } from '@/lib/format'
 import type { ReviewFinding, ReviewPr, ReviewRun, ReviewSeverity, ReviewVerdict } from '@shared/types'
@@ -12,14 +13,30 @@ import type { ReviewFinding, ReviewPr, ReviewRun, ReviewSeverity, ReviewVerdict 
 const SEV_TONE: Record<ReviewSeverity, 'danger' | 'warn' | 'accent' | 'muted'> = { critical: 'danger', major: 'warn', minor: 'accent', nit: 'muted' }
 
 export function ReviewCockpit(): React.JSX.Element {
-  const { orgs, owner, mode, prs, runs, selectedKey, loadingOrgs, loadingPrs, error, init, setOwner, setMode, refreshPrs, select, repoFilter, statusFilter, sortDir, setRepoFilter, setStatusFilter, setSortDir } = useReviews()
+  const { owners, mode, prs, runs, selectedKey, loadingOrgs, loadingPrs, error, init, useSpace, setMode, refreshPrs, select, repoFilter, statusFilter, sortDir, setRepoFilter, setStatusFilter, setSortDir } = useReviews()
   const defaultAccount = useApp((s) => s.settings.defaultClaudeAccountId)
+  const spaces = useApp((s) => s.spaces)
+  const activeSpaceId = useApp((s) => s.activeSpaceId)
+  const space = spaces.find((s) => s.id === activeSpaceId)
+  const configuredOwners = space?.githubOwners
+  const [openSpaceSettings, setOpenSpaceSettings] = useState(false)
   const setError = useApp((s) => s.setError)
   const [accountId, setAccountId] = useState(defaultAccount)
 
   useEffect(() => {
     void init()
   }, [init])
+
+  // Follow the sidebar's space: its owners drive the PR list; its account is the review default.
+  const ownersKey = (configuredOwners ?? []).join(',')
+  useEffect(() => {
+    if (loadingOrgs) return
+    void useSpace(space?.id ?? '', configuredOwners)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [space?.id, ownersKey, loadingOrgs])
+  useEffect(() => {
+    setAccountId(space?.claudeAccountId ?? defaultAccount)
+  }, [space?.id, space?.claudeAccountId, defaultAccount])
 
   const repos = useMemo(() => Array.from(new Set(prs.map((p) => p.nameWithOwner))).sort(), [prs])
 
@@ -74,13 +91,11 @@ export function ReviewCockpit(): React.JSX.Element {
     <div className="flex h-full flex-col">
       <header className="drag flex h-[52px] shrink-0 items-center gap-3 border-b border-border px-4">
         <h1 className="text-[14px] font-semibold">Review cockpit</h1>
-        <select className="no-drag rounded-md border border-border bg-bg px-2 py-1 text-[12px]" value={owner} onChange={(e) => setOwner(e.target.value)} disabled={loadingOrgs}>
-          {orgs.map((o) => (
-            <option key={o} value={o}>
-              {o}
-            </option>
-          ))}
-        </select>
+        <button className="no-drag inline-flex items-center gap-1.5 rounded-full border border-border px-2 py-0.5 text-[11px] hover:bg-panel-2" title="Space settings: pick the GitHub orgs this space reviews" onClick={() => space && setOpenSpaceSettings(true)}>
+          <span className="h-2 w-2 rounded-full" style={{ background: space?.color ?? '#8b93a1' }} />
+          {space?.name ?? 'All'}
+          <span className="text-muted">· {owners.length ? owners.join(', ') : loadingOrgs ? '…' : 'no owners'}</span>
+        </button>
         <div className="no-drag flex rounded-md bg-panel p-0.5">
           {(['requested', 'all'] as const).map((m) => (
             <button key={m} onClick={() => setMode(m)} className={clsx('rounded px-2.5 py-0.5 text-[12px]', mode === m ? 'bg-panel-2' : 'text-muted')}>
@@ -95,6 +110,7 @@ export function ReviewCockpit(): React.JSX.Element {
         <AccountPicker value={accountId} onChange={setAccountId} className="no-drag" always />
       </header>
       {error && <div className="border-b border-danger/30 bg-danger/10 px-4 py-2 text-[12px] text-danger">{error}</div>}
+      {openSpaceSettings && space && <SpaceSettingsDialog spaceId={space.id} onClose={() => setOpenSpaceSettings(false)} />}
       <div className="flex items-center gap-2 border-b border-border px-3 py-1.5">
         <Filter size={13} className="text-muted" />
         <select className="max-w-[240px] rounded-md border border-border bg-bg px-1.5 py-1 text-[12px]" value={repoFilter} onChange={(e) => setRepoFilter(e.target.value)} title="Repository">
@@ -137,7 +153,11 @@ export function ReviewCockpit(): React.JSX.Element {
       <div className="flex min-h-0 flex-1">
         <aside className="w-[360px] shrink-0 overflow-auto border-r border-border">
           {loadingPrs && prs.length === 0 && <div className="p-4 text-[12px] text-muted">Loading pull requests…</div>}
-          {!loadingPrs && prs.length === 0 && <div className="p-4 text-[12px] text-muted">{mode === 'requested' ? 'No pull requests are waiting for your review.' : 'No open pull requests.'}</div>}
+          {!loadingPrs && prs.length === 0 && (
+            <div className="p-4 text-[12px] text-muted">
+              {owners.length === 0 ? 'This space has no GitHub owners yet. Add repositories to it, or pick orgs in the space settings.' : mode === 'requested' ? `No pull requests in ${owners.join(', ')} are waiting for your review.` : `No open pull requests in ${owners.join(', ')}.`}
+            </div>
+          )}
           {!loadingPrs && prs.length > 0 && filtered.length === 0 && <div className="p-4 text-[12px] text-muted">Nothing matches the current filters.</div>}
           {grouped.map(([repo, list]) => (
             <div key={repo}>
