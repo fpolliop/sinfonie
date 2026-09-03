@@ -2,6 +2,7 @@ import type {
   AgentEvent,
   ChatItem,
   JiraIssue,
+  JiraSettings,
   RepoPr,
   PermissionMode,
   RepoSafety,
@@ -34,7 +35,7 @@ export interface OrchestraInvoke {
   'workspaces:setSpace': (workspaceId: string, spaceId: string | null) => Workspace
   'repos:setSpace': (repoId: string, spaceId: string | null) => Repo
 
-  'repos:pickAndAdd': () => Repo | null
+  'repos:pickAndAdd': (spaceId?: string) => Repo | null
   'repos:remove': (repoId: string) => void
   'repos:branches': (repoId: string) => string[]
   'repos:reloadConfig': (repoId: string) => Repo
@@ -50,6 +51,8 @@ export interface OrchestraInvoke {
   'workspaces:runScript': (workspaceId: string, kind: 'setup' | 'run') => void
   'workspaces:stopScript': (workspaceId: string, kind: 'setup' | 'run') => void
   'workspaces:renameBranch': (workspaceId: string, branch: string) => Workspace
+  'workspaces:addRepo': (workspaceId: string, repoId: string, baseBranch: string) => Workspace
+  'workspaces:removeRepo': (workspaceId: string, repoId: string, opts: { deleteBranch: boolean }) => Workspace
 
   'git:status': (workspaceId: string) => RepoGitStatus[]
   'git:diff': (workspaceId: string, repoId: string, path?: string) => string
@@ -59,11 +62,13 @@ export interface OrchestraInvoke {
 
   'github:status': (workspaceId: string) => RepoPr[]
 
-  'jira:authenticate': () => Settings
-  'jira:disconnect': () => Settings
-  'jira:saveToken': (token: string) => Settings
-  'jira:search': (query: string) => JiraIssue[]
-  'jira:issue': (key: string) => JiraIssue
+  /** connId is a space id, or '' for the default connection in Settings. */
+  'jira:authenticate': (connId: string) => void
+  'jira:disconnect': (connId: string) => void
+  'jira:saveToken': (connId: string, token: string) => void
+  'jira:updateSettings': (connId: string, patch: Partial<JiraSettings>) => void
+  'jira:search': (connId: string, query: string) => JiraIssue[]
+  'jira:issue': (connId: string, key: string) => JiraIssue
 
   'shell:openExternal': (url: string) => void
 

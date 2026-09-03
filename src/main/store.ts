@@ -49,7 +49,7 @@ class Store {
           claudeAccounts: raw.settings?.claudeAccounts?.length ? raw.settings.claudeAccounts : DEFAULT_SETTINGS.claudeAccounts,
           defaultClaudeAccountId: raw.settings?.defaultClaudeAccountId ?? 'default'
         },
-        secrets: raw.secrets ?? {}
+        secrets: migrateSecrets(raw.secrets ?? {})
       }
     } catch (err) {
       console.error('Failed to read store, starting fresh', err)
@@ -78,6 +78,17 @@ class Store {
     this.listeners.add(listener)
     return () => this.listeners.delete(listener)
   }
+}
+
+/** Earlier builds stored the single Jira login under fixed names; they now live under the default connection. */
+function migrateSecrets(s: Record<string, string | undefined>): Record<string, string | undefined> {
+  const map: Record<string, string> = { jiraOAuthClient: 'jira:default:client', jiraOAuthTokens: 'jira:default:tokens', jiraOAuthVerifier: 'jira:default:verifier', jiraToken: 'jira:default:apitoken' }
+  const out = { ...s }
+  for (const [oldKey, newKey] of Object.entries(map)) {
+    if (out[oldKey] && !out[newKey]) out[newKey] = out[oldKey]
+    delete out[oldKey]
+  }
+  return out
 }
 
 let instance: Store | null = null

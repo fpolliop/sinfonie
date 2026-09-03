@@ -20,6 +20,8 @@ export interface Space {
   createdAt: string
   /** Account used by default for workspaces created in this space. */
   claudeAccountId?: string
+  /** The space's own Jira connection. Absent means "use the default one from Settings". */
+  jira?: JiraSettings
 }
 
 export const SPACE_COLORS = ['#7c9cff', '#4ade80', '#fbbf24', '#f472b6', '#22d3ee', '#a78bfa', '#fb923c', '#94a3b8']
@@ -195,8 +197,8 @@ export interface StoreData {
   repos: Repo[]
   workspaces: Workspace[]
   settings: Settings
-  /** Encrypted with Electron safeStorage, base64. Never sent to the renderer. */
-  secrets?: { jiraToken?: string; jiraOAuthClient?: string; jiraOAuthTokens?: string; jiraOAuthVerifier?: string }
+  /** Encrypted with Electron safeStorage, base64, keyed per connection. Never sent to the renderer. */
+  secrets?: Record<string, string | undefined>
 }
 
 export interface JiraIssue {
@@ -210,6 +212,13 @@ export interface JiraIssue {
   url: string
   /** Plain-text rendering of the description; only present on jira:issue. */
   description?: string
+}
+
+/** Which Jira connection a space resolves to: its own when set up, else '' (the default in Settings). */
+export function jiraConnectionFor(space: Space | undefined): string {
+  const j = space?.jira
+  if (!space || !j) return ''
+  return j.connected || Boolean(j.siteUrl && j.email && j.hasToken) ? space.id : ''
 }
 
 export interface WorkspaceJira {

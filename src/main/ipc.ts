@@ -82,20 +82,29 @@ export function registerIpc(): void {
   })
 
   // ---- repos ----
-  handle('repos:pickAndAdd', async () => {
+  handle('repos:pickAndAdd', async (spaceId) => {
     const r = await dialog.showOpenDialog({ properties: ['openDirectory'], title: 'Add a git repository' })
     if (r.canceled || r.filePaths.length === 0) return null
     const path = r.filePaths[0]
     if (!(await git.isGitRepo(path))) throw new Error(`${path} is not the root of a git repository`)
     const existing = getStore().get().repos.find((x) => x.path === path)
-    if (existing) return existing
+    if (existing) {
+      if (spaceId && existing.spaceId !== spaceId) {
+        getStore().update((d) => {
+          const x = d.repos.find((y) => y.id === existing.id)
+          if (x) x.spaceId = spaceId
+        })
+      }
+      return existing
+    }
     const repo: Repo = {
       id: nanoid(8),
       name: basename(path),
       path,
       defaultBranch: await git.detectDefaultBranch(path),
       config: git.readConductorConfig(path),
-      addedAt: new Date().toISOString()
+      addedAt: new Date().toISOString(),
+      ...(spaceId ? { spaceId } : {})
     }
     getStore().update((d) => d.repos.push(repo))
     return repo
@@ -141,6 +150,15 @@ export function registerIpc(): void {
   })
   handle('workspaces:rename', (id, name, opts) => workspaces.renameWorkspace(id, name, opts))
   handle('workspaces:renameBranch', (id, branch) => workspaces.renameWorkspaceBranch(id, branch))
+  handle('workspaces:addRepo', async (id, repoId, base) => {
+    const out = await workspaces.addRepoToWorkspace(id, repoId, base, emitScript)
+    agent.closeSession(id) // next message resumes with the new directory in scope
+    return out
+  })
+  handle('workspaces:removeRepo', async (id, repoId, opts) => {
+    agent.closeSession(id)
+    return workspaces.removeRepoFromWorkspace(id, repoId, opts, emitScript)
+  })
   handle('workspaces:openIn', (id, target) => {
     const ws = workspaces.getWorkspace(id)
     if (target === 'finder') shell.showItemInFolder(ws.rootPath)
@@ -218,11 +236,12 @@ export function registerIpc(): void {
     }
     return result
   })
-  handle('jira:authenticate', () => jira.authenticate())
-  handle('jira:disconnect', () => jira.disconnect())
-  handle('jira:saveToken', (token) => jira.saveToken(token))
-  handle('jira:search', (q) => jira.search(q))
-  handle('jira:issue', (key) => jira.issue(key))
+  handle('jira:authenticate', (conn) => jira.authenticate(conn))
+  handle('jira:disconnect', (conn) => jira.disconnect(conn))
+  handle('jira:saveToken', (conn, token) => jira.saveToken(conn, token))
+  handle('jira:updateSettings', (conn, patch) => jira.updateJiraSettings(conn, patch))
+  handle('jira:search', (conn, q) => jira.search(conn, q))
+  handle('jira:issue', (conn, key) => jira.issue(conn, key))
   handle('shell:openExternal', (url) => {
     if (/^https?:\/\//.test(url)) void shell.openExternal(url)
   })

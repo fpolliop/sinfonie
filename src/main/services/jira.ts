@@ -4,7 +4,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { UnauthorizedError, type OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js'
 import type { OAuthClientInformationMixed, OAuthClientMetadata, OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js'
-import type { JiraIssue, Settings, StoreData } from '@shared/types'
+import type { JiraIssue, JiraSettings } from '@shared/types'
 import { getStore } from '../store'
 
 /**
@@ -30,8 +30,7 @@ function decrypt(stored: string): string {
   if (stored.startsWith('plain:')) return Buffer.from(stored.slice(6), 'base64').toString('utf8')
   return stored
 }
-type SecretKey = keyof NonNullable<StoreData['secrets']>
-function readSecret<T>(key: SecretKey): T | undefined {
+function readSecret<T>(key: string): T | undefined {
   const raw = getStore().get().secrets?.[key]
   if (!raw) return undefined
   try {
@@ -43,16 +42,46 @@ function readSecret<T>(key: SecretKey): T | undefined {
 function writeSecret(key: string, value: unknown): void {
   getStore().update((d) => {
     d.secrets = d.secrets ?? {}
-    const s = d.secrets as Record<string, string | undefined>
-    if (value === undefined) delete s[key]
-    else s[key] = encrypt(JSON.stringify(value))
+    if (value === undefined) delete d.secrets[key]
+    else d.secrets[key] = encrypt(JSON.stringify(value))
   })
+}
+
+/** Where a connection's settings live: the global Settings for '', else the space. */
+export function jiraSettings(connId: string): JiraSettings {
+  const { settings, spaces } = getStore().get()
+  if (!connId) return settings.jira
+  const sp = spaces.find((x) => x.id === connId)
+  return sp?.jira ?? { connected: false, siteUrl: '', email: '', hasToken: false, defaultJql: settings.jira.defaultJql }
+}
+
+export function updateJiraSettings(connId: string, patch: Partial<JiraSettings>): void {
+  getStore().update((d) => {
+    if (!connId) {
+      Object.assign(d.settings.jira, patch)
+      return
+    }
+    const sp = d.spaces.find((x) => x.id === connId)
+    if (!sp) throw new Error('Unknown space')
+    sp.jira = { ...(sp.jira ?? { connected: false, siteUrl: '', email: '', hasToken: false, defaultJql: d.settings.jira.defaultJql }), ...patch }
+  })
+}
+
+/** Which connection a workspace should use: its space's own, when that space has one set up. */
+export function connectionForSpace(spaceId: string | undefined): string {
+  if (!spaceId) return ''
+  const j = jiraSettings(spaceId)
+  return j.connected || (j.siteUrl && j.email && j.hasToken) ? spaceId : ''
 }
 
 // ---------- OAuth provider backed by the store ----------
 
 class StoreOAuthProvider implements OAuthClientProvider {
   private verifier: string | undefined
+  constructor(private readonly connId: string) {}
+  private k(name: string): string {
+    return `jira:${this.connId || 'default'}:${name}`
+  }
   get redirectUrl(): string {
     return REDIRECT_URL
   }
@@ -66,62 +95,65 @@ class StoreOAuthProvider implements OAuthClientProvider {
     }
   }
   clientInformation(): OAuthClientInformationMixed | undefined {
-    return readSecret<OAuthClientInformationMixed>('jiraOAuthClient')
+    return readSecret<OAuthClientInformationMixed>(this.k('client'))
   }
   saveClientInformation(info: OAuthClientInformationMixed): void {
-    writeSecret('jiraOAuthClient', info)
+    writeSecret(this.k('client'), info)
   }
   tokens(): OAuthTokens | undefined {
-    return readSecret<OAuthTokens>('jiraOAuthTokens')
+    return readSecret<OAuthTokens>(this.k('tokens'))
   }
   saveTokens(tokens: OAuthTokens): void {
-    writeSecret('jiraOAuthTokens', tokens)
+    writeSecret(this.k('tokens'), tokens)
   }
   redirectToAuthorization(url: URL): void {
     void shell.openExternal(url.toString())
   }
   saveCodeVerifier(v: string): void {
     this.verifier = v
-    writeSecret('jiraOAuthVerifier', v)
+    writeSecret(this.k('verifier'), v)
   }
   codeVerifier(): string {
-    const v = this.verifier ?? readSecret<string>('jiraOAuthVerifier')
+    const v = this.verifier ?? readSecret<string>(this.k('verifier'))
     if (!v) throw new Error('Missing PKCE verifier; start the Jira login again')
     return v
   }
   invalidateCredentials(scope: 'all' | 'client' | 'tokens' | 'verifier' | 'discovery'): void {
-    if (scope === 'all' || scope === 'tokens') writeSecret('jiraOAuthTokens', undefined)
-    if (scope === 'all' || scope === 'client') writeSecret('jiraOAuthClient', undefined)
-    if (scope === 'all' || scope === 'verifier') writeSecret('jiraOAuthVerifier', undefined)
+    if (scope === 'all' || scope === 'tokens') writeSecret(this.k('tokens'), undefined)
+    if (scope === 'all' || scope === 'client') writeSecret(this.k('client'), undefined)
+    if (scope === 'all' || scope === 'verifier') writeSecret(this.k('verifier'), undefined)
   }
 }
 
 // ---------- MCP client ----------
 
-let client: Client | null = null
-let toolSchemas: Map<string, Record<string, unknown>> | null = null
-let cloudId: string | null = null
+interface Conn {
+  client: Client
+  tools: Map<string, Record<string, unknown>>
+  cloudId: string | null
+}
+const conns = new Map<string, Conn>()
 
-async function connect(): Promise<Client> {
-  if (client) return client
-  const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: new StoreOAuthProvider() })
+async function connect(connId: string): Promise<Conn> {
+  const existing = conns.get(connId)
+  if (existing) return existing
+  const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: new StoreOAuthProvider(connId) })
   const c = new Client({ name: 'orchestra', version: '0.1.0' })
   await c.connect(transport)
   const tools = await c.listTools()
-  toolSchemas = new Map(tools.tools.map((t) => [t.name, (t.inputSchema as { properties?: Record<string, unknown> }).properties ?? {}]))
-  client = c
-  return c
+  const conn: Conn = { client: c, tools: new Map(tools.tools.map((t) => [t.name, (t.inputSchema as { properties?: Record<string, unknown> }).properties ?? {}])), cloudId: null }
+  conns.set(connId, conn)
+  return conn
 }
 
-function dropClient(): void {
-  void client?.close().catch(() => undefined)
-  client = null
-  toolSchemas = null
-  cloudId = null
+function dropClient(connId: string): void {
+  const c = conns.get(connId)
+  if (c) void c.client.close().catch(() => undefined)
+  conns.delete(connId)
 }
 
-async function callTool<T = unknown>(name: string, args: Record<string, unknown>): Promise<T> {
-  const c = await connect()
+async function callTool<T = unknown>(connId: string, name: string, args: Record<string, unknown>): Promise<T> {
+  const { client: c } = await connect(connId)
   const res = await c.callTool({ name, arguments: args })
   const content = (res.content ?? []) as { type: string; text?: string }[]
   const text = content
@@ -137,26 +169,22 @@ async function callTool<T = unknown>(name: string, args: Record<string, unknown>
 }
 
 /** Which tool exposes what: Atlassian names its tools by verb; look them up so a rename upstream fails loudly instead of silently. */
-function toolNamed(...candidates: string[]): string {
-  for (const n of candidates) if (toolSchemas?.has(n)) return n
-  throw new Error(`Atlassian MCP has no tool named ${candidates.join(' or ')}. Available: ${Array.from(toolSchemas?.keys() ?? []).join(', ')}`)
+function toolNamed(conn: Conn, ...candidates: string[]): string {
+  for (const n of candidates) if (conn.tools.has(n)) return n
+  throw new Error(`Atlassian MCP has no tool named ${candidates.join(' or ')}. Available: ${Array.from(conn.tools.keys()).join(', ')}`)
 }
 
-async function ensureCloudId(): Promise<string> {
-  if (cloudId) return cloudId
-  await connect()
-  const raw = await callTool<unknown>(toolNamed('getAccessibleAtlassianResources'), {})
+async function ensureCloudId(connId: string): Promise<string> {
+  const conn = await connect(connId)
+  if (conn.cloudId) return conn.cloudId
+  const raw = await callTool<unknown>(connId, toolNamed(conn, 'getAccessibleAtlassianResources'), {})
   const list = (Array.isArray(raw) ? raw : (raw as { resources?: unknown[] })?.resources ?? []) as { id: string; url?: string; name?: string }[]
   if (list.length === 0) throw new Error('Your Atlassian account has no Jira sites.')
-  const { settings } = getStore().get()
-  const want = settings.jira.siteUrl.replace(/\/+$/, '')
+  const want = jiraSettings(connId).siteUrl.replace(/\/+$/, '')
   const pick = (want && list.find((r) => r.url?.replace(/\/+$/, '') === want)) || list[0]
-  cloudId = pick.id
-  getStore().update((d) => {
-    d.settings.jira.siteUrl = pick.url ?? d.settings.jira.siteUrl
-    d.settings.jira.siteName = pick.name ?? d.settings.jira.siteName
-  })
-  return cloudId
+  conn.cloudId = pick.id
+  updateJiraSettings(connId, { siteUrl: pick.url ?? jiraSettings(connId).siteUrl, siteName: pick.name ?? jiraSettings(connId).siteName })
+  return conn.cloudId
 }
 
 // ---------- public API ----------
@@ -164,13 +192,13 @@ async function ensureCloudId(): Promise<string> {
 let pendingCallback: { server: Server; resolve: (code: string) => void; reject: (e: Error) => void } | null = null
 
 /** Opens the browser for approval and resolves once tokens are stored. */
-export async function authenticate(): Promise<Settings> {
-  dropClient()
+export async function authenticate(connId: string): Promise<void> {
+  dropClient(connId)
   if (pendingCallback) {
     pendingCallback.server.close()
     pendingCallback = null
   }
-  const provider = new StoreOAuthProvider()
+  const provider = new StoreOAuthProvider(connId)
   provider.invalidateCredentials('tokens')
 
   const code = await new Promise<string>((resolve, reject) => {
@@ -227,89 +255,81 @@ export async function authenticate(): Promise<Settings> {
     const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider })
     await transport.finishAuth(code)
   }
-  await ensureCloudId()
-  return getStore().update((d) => {
-    d.settings.jira.connected = true
-    d.settings.jira.connectedAt = new Date().toISOString()
-  }).settings
+  updateJiraSettings(connId, { connected: true, connectedAt: new Date().toISOString() })
+  await ensureCloudId(connId)
 }
 
-export function disconnect(): Settings {
-  dropClient()
-  new StoreOAuthProvider().invalidateCredentials('all')
-  return getStore().update((d) => {
-    d.settings.jira.connected = false
-    delete d.settings.jira.connectedAt
-    delete d.settings.jira.siteName
-  }).settings
+export function disconnect(connId: string): void {
+  dropClient(connId)
+  new StoreOAuthProvider(connId).invalidateCredentials('all')
+  updateJiraSettings(connId, { connected: false, connectedAt: undefined, siteName: undefined })
 }
 
-export function saveToken(token: string): Settings {
-  return getStore().update((d) => {
-    d.secrets = d.secrets ?? {}
-    if (token.trim()) {
-      d.secrets.jiraToken = encrypt(token.trim())
-      d.settings.jira.hasToken = true
-    } else {
-      delete d.secrets.jiraToken
-      d.settings.jira.hasToken = false
-    }
-  }).settings
+export function saveToken(connId: string, token: string): void {
+  const key = `jira:${connId || 'default'}:apitoken`
+  if (token.trim()) {
+    writeSecret(key, token.trim())
+    updateJiraSettings(connId, { hasToken: true })
+  } else {
+    writeSecret(key, undefined)
+    updateJiraSettings(connId, { hasToken: false })
+  }
 }
 
 const FIELDS = ['summary', 'status', 'issuetype', 'priority', 'assignee', 'updated']
 
-function buildJql(query: string): string {
+function buildJql(connId: string, query: string): string {
   const q = query.trim()
-  const { settings } = getStore().get()
-  if (!q) return settings.jira.defaultJql
+  if (!q) return jiraSettings(connId).defaultJql || getStore().get().settings.jira.defaultJql
   if (/^[A-Z][A-Z0-9_]*-\d+$/i.test(q)) return `key = "${q.toUpperCase()}"`
   return `text ~ "${q.replace(/"/g, '\\"')}*" AND statusCategory != Done ORDER BY updated DESC`
 }
 
-function useOAuth(): boolean {
-  return getStore().get().settings.jira.connected
+function useOAuth(connId: string): boolean {
+  return jiraSettings(connId).connected
 }
 
 /** Empty query lists the configured default JQL; an issue key looks it up; anything else is a text search. */
-export async function search(query: string): Promise<JiraIssue[]> {
-  const jql = buildJql(query)
-  if (useOAuth()) {
-    const id = await ensureCloudId()
-    const raw = await callTool<{ issues?: RawIssue[] }>(toolNamed('searchJiraIssuesUsingJql'), { cloudId: id, jql, fields: FIELDS, maxResults: 30 })
-    const base = getStore().get().settings.jira.siteUrl.replace(/\/+$/, '')
+export async function search(connId: string, query: string): Promise<JiraIssue[]> {
+  const jql = buildJql(connId, query)
+  if (useOAuth(connId)) {
+    const id = await ensureCloudId(connId)
+    const conn = await connect(connId)
+    const raw = await callTool<{ issues?: RawIssue[] }>(connId, toolNamed(conn, 'searchJiraIssuesUsingJql'), { cloudId: id, jql, fields: FIELDS, maxResults: 30 })
+    const base = jiraSettings(connId).siteUrl.replace(/\/+$/, '')
     return (raw.issues ?? []).map((r) => toIssue(base, r))
   }
-  const { base } = restClient()
-  const data = await restGet<{ issues: RawIssue[] }>(`/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&fields=${FIELDS.join(',')}&maxResults=30`)
+  const { base } = restClient(connId)
+  const data = await restGet<{ issues: RawIssue[] }>(connId, `/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&fields=${FIELDS.join(',')}&maxResults=30`)
   return (data.issues ?? []).map((r) => toIssue(base, r))
 }
 
-export async function issue(key: string): Promise<JiraIssue> {
-  if (useOAuth()) {
-    const id = await ensureCloudId()
-    const r = await callTool<RawIssue>(toolNamed('getJiraIssue'), { cloudId: id, issueIdOrKey: key, fields: [...FIELDS, 'description'] })
-    const base = getStore().get().settings.jira.siteUrl.replace(/\/+$/, '')
+export async function issue(connId: string, key: string): Promise<JiraIssue> {
+  if (useOAuth(connId)) {
+    const id = await ensureCloudId(connId)
+    const conn = await connect(connId)
+    const r = await callTool<RawIssue>(connId, toolNamed(conn, 'getJiraIssue'), { cloudId: id, issueIdOrKey: key, fields: [...FIELDS, 'description'] })
+    const base = jiraSettings(connId).siteUrl.replace(/\/+$/, '')
     return { ...toIssue(base, r), description: adfToText(r.fields?.description) }
   }
-  const { base } = restClient()
-  const r = await restGet<RawIssue>(`/rest/api/3/issue/${encodeURIComponent(key)}?fields=${FIELDS.join(',')},description`)
+  const { base } = restClient(connId)
+  const r = await restGet<RawIssue>(connId, `/rest/api/3/issue/${encodeURIComponent(key)}?fields=${FIELDS.join(',')},description`)
   return { ...toIssue(base, r), description: adfToText(r.fields?.description) }
 }
 
 // ---------- REST fallback (API token) ----------
 
-function restClient(): { base: string; headers: Record<string, string> } {
-  const { settings, secrets } = getStore().get()
-  const { siteUrl, email } = settings.jira
-  if (!siteUrl || !email || !secrets?.jiraToken) throw new Error('Jira is not connected. Use "Authenticate with Jira" in Settings, or add a site URL, email and API token.')
+function restClient(connId: string): { base: string; headers: Record<string, string> } {
+  const { siteUrl, email } = jiraSettings(connId)
+  const token = readSecret<string>(`jira:${connId || 'default'}:apitoken`)
+  if (!siteUrl || !email || !token) throw new Error('Jira is not connected. Use "Authenticate with Jira" in Settings or the space settings, or add a site URL, email and API token.')
   const base = siteUrl.replace(/\/+$/, '')
-  const auth = Buffer.from(`${email}:${decrypt(secrets.jiraToken)}`, 'utf8').toString('base64')
+  const auth = Buffer.from(`${email}:${token}`, 'utf8').toString('base64')
   return { base, headers: { Authorization: `Basic ${auth}`, Accept: 'application/json' } }
 }
 
-async function restGet<T>(path: string): Promise<T> {
-  const { base, headers } = restClient()
+async function restGet<T>(connId: string, path: string): Promise<T> {
+  const { base, headers } = restClient(connId)
   const res = await fetch(`${base}${path}`, { headers })
   if (!res.ok) {
     const text = await res.text().catch(() => '')

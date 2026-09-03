@@ -4,6 +4,7 @@ import { InlineRename } from './InlineRename'
 import { StagePicker } from './StagePicker'
 import { SpacePicker } from './SpacePicker'
 import type { RepoSafety } from '@shared/types'
+import { ManageReposDialog } from './ManageReposDialog'
 import clsx from 'clsx'
 import { Folder, Code2, TerminalSquare, Archive, Trash2, MoreHorizontal, Pencil, GitBranch, ExternalLink, RefreshCw, AlertTriangle } from 'lucide-react'
 import { useGithub } from '@/stores/github'
@@ -32,6 +33,7 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
   const [archiveDlg, setArchiveDlg] = useState<null | 'archive' | 'delete'>(null)
   const [jiraRefreshing, setJiraRefreshing] = useState(false)
   const [moveDlg, setMoveDlg] = useState(false)
+  const [reposDlg, setReposDlg] = useState(false)
   const [renameDlg, setRenameDlg] = useState<null | 'branch'>(null)
   const [editingTitle, setEditingTitle] = useState(false)
   const prs = useGithub((s) => s.byWorkspace[workspaceId]?.repos)
@@ -162,6 +164,7 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
               <MenuItem icon={<Code2 size={14} />} label="Open in Cursor" onClick={() => run(() => api.invoke('workspaces:openIn', ws.id, 'cursor'))} />
               <MenuItem icon={<TerminalSquare size={14} />} label="Open in Terminal" onClick={() => run(() => api.invoke('workspaces:openIn', ws.id, 'terminal'))} />
               <div className="my-1 border-t border-border" />
+              <MenuItem icon={<Folder size={14} />} label="Manage repositories…" onClick={() => setReposDlg(true)} disabled={ws.status !== 'ready'} />
               <MenuItem icon={<Pencil size={14} />} label="Rename workspace" onClick={() => setEditingTitle(true)} />
               <MenuItem icon={<GitBranch size={14} />} label="Rename branch only (all repos)" onClick={() => setRenameDlg('branch')} disabled={ws.status !== 'ready'} />
               <div className="my-1 border-t border-border" />
@@ -195,6 +198,7 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
       </div>
 
       {archiveDlg && <ArchiveDialog workspaceId={ws.id} name={ws.name} mode={archiveDlg} onClose={() => setArchiveDlg(null)} />}
+      {reposDlg && <ManageReposDialog workspaceId={ws.id} onClose={() => setReposDlg(false)} />}
       {moveDlg && (
         <Dialog title="Move to space" onClose={() => setMoveDlg(false)} width={380}>
           <SpacePicker

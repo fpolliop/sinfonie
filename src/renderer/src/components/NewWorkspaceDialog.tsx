@@ -8,7 +8,7 @@ import { Badge, Button, Dialog, Field, inputCls } from './ui'
 import { AccountPicker } from './AccountPicker'
 import { SpacePicker } from './SpacePicker'
 import { shortPath } from '@/lib/format'
-import type { JiraIssue, WorkspaceJira } from '@shared/types'
+import { jiraConnectionFor, type JiraIssue, type WorkspaceJira } from '@shared/types'
 
 /** "SD-3281" + "Relevance ranked packages" -> "sd-3281-relevance-ranked-packages" */
 export function suggestName(issue: { key: string; summary: string }): string {
@@ -43,7 +43,8 @@ export function NewWorkspaceDialog({ onClose }: { onClose: () => void }): React.
   const [name, setName] = useState('')
   const [jira, setJira] = useState<WorkspaceJira | null>(null)
   const [accountId, setAccountId] = useState(space?.claudeAccountId ?? settings.defaultClaudeAccountId)
-  const jiraReady = settings.jira.connected || Boolean(settings.jira.siteUrl && settings.jira.email && settings.jira.hasToken)
+  const jiraConn = jiraConnectionFor(space)
+  const jiraReady = jiraConn ? true : settings.jira.connected || Boolean(settings.jira.siteUrl && settings.jira.email && settings.jira.hasToken)
   const [picks, setPicks] = useState<Record<string, Pick>>({})
   const [primary, setPrimary] = useState<string>('')
   const [busy, setBusy] = useState(false)
@@ -96,7 +97,7 @@ export function NewWorkspaceDialog({ onClose }: { onClose: () => void }): React.
       if (jira) {
         // Pre-fill the first message with the ticket so the agent starts from the real spec.
         try {
-          const full = await api.invoke('jira:issue', jira.key)
+          const full = await api.invoke('jira:issue', jiraConn, jira.key)
           setDraft(ws.id, `Implement ${full.key}: ${full.summary}\n${full.url}\n\n${(full.description ?? '').trim() || '(no description in Jira)'}\n\nStart by reading the relevant code in each repo and propose a plan before changing anything.`)
         } catch {
           setDraft(ws.id, `Implement ${jira.key}: ${jira.summary}\n${jira.url}`)
@@ -112,6 +113,8 @@ export function NewWorkspaceDialog({ onClose }: { onClose: () => void }): React.
   return (
     <Dialog title="New workspace" onClose={onClose} width={560}>
       <JiraPicker
+        key={jiraConn}
+        connId={jiraConn}
         enabled={jiraReady}
         selected={jira}
         onSelect={(issue) => {
@@ -196,7 +199,7 @@ export function NewWorkspaceDialog({ onClose }: { onClose: () => void }): React.
   )
 }
 
-function JiraPicker({ enabled, selected, onSelect, onConfigure }: { enabled: boolean; selected: WorkspaceJira | null; onSelect: (i: JiraIssue | null) => void; onConfigure: () => void }): React.JSX.Element {
+function JiraPicker({ connId, enabled, selected, onSelect, onConfigure }: { connId: string; enabled: boolean; selected: WorkspaceJira | null; onSelect: (i: JiraIssue | null) => void; onConfigure: () => void }): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<JiraIssue[]>([])
@@ -208,7 +211,7 @@ function JiraPicker({ enabled, selected, onSelect, onConfigure }: { enabled: boo
     setLoading(true)
     setError(null)
     try {
-      setResults(await api.invoke('jira:search', q))
+      setResults(await api.invoke('jira:search', connId, q))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {

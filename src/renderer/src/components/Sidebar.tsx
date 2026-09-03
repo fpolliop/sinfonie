@@ -9,6 +9,7 @@ import { renameWorkspace } from '@/lib/rename'
 import { Spinner } from './ui'
 import { ContextMenu, type MenuEntry } from './ContextMenu'
 import { InlineRename } from './InlineRename'
+import { SpaceSettingsDialog } from './SpaceSettingsDialog'
 import { STAGE_DOT, stageLabel } from './StagePicker'
 import type { Workspace } from '@shared/types'
 
@@ -17,6 +18,7 @@ export function Sidebar(): React.JSX.Element {
   const chats = useChat((s) => s.chats)
   const [spaceMenu, setSpaceMenu] = useState<{ x: number; y: number; id: string } | null>(null)
   const [renaming, setRenaming] = useState<string | null>(null)
+  const [spaceSettings, setSpaceSettings] = useState<string | null>(null)
   const swipe = useRef({ acc: 0, lockedUntil: 0 })
   const byTime = (a: Workspace, b: Workspace): number => (b.lastMessageAt ?? b.createdAt).localeCompare(a.lastMessageAt ?? a.createdAt)
   const active = workspaces.filter((w) => w.status !== 'archived').sort(byTime)
@@ -89,6 +91,11 @@ export function Sidebar(): React.JSX.Element {
             <span className="truncate">{currentName}</span>
           )}
           <span className="normal-case text-muted/70">{items.length}</span>
+          {currentId && (
+            <button className="ml-auto rounded p-0.5 opacity-0 hover:bg-panel-2 hover:text-text group-hover:opacity-100" title="Space settings" onClick={() => setSpaceSettings(currentId)}>
+              <Settings size={12} />
+            </button>
+          )}
         </div>
         {items.map(row)}
         {items.length === 0 && (
@@ -109,12 +116,14 @@ export function Sidebar(): React.JSX.Element {
         )}
       </div>
       <SpaceDots ids={ids} currentId={currentId} onPick={setActiveSpace} onAdd={() => setShowSettings(true)} />
+      {spaceSettings && <SpaceSettingsDialog spaceId={spaceSettings} onClose={() => setSpaceSettings(null)} />}
       {spaceMenu && (
         <ContextMenu
           x={spaceMenu.x}
           y={spaceMenu.y}
           onClose={() => setSpaceMenu(null)}
           entries={[
+            { label: 'Space settings…', icon: <Settings size={14} />, onClick: () => setSpaceSettings(spaceMenu.id) },
             { label: 'Rename space…', icon: <Pencil size={14} />, onClick: () => setRenaming(spaceMenu.id) },
             { label: 'New workspace here', icon: <Plus size={14} />, onClick: () => setShowNewWorkspace(true, spaceMenu.id) },
             { separator: true },

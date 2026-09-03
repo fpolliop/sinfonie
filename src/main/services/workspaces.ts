@@ -181,8 +181,49 @@ export function advanceStage(workspaceId: string, stage: WorkspaceStage): void {
 export async function refreshJiraStatus(workspaceId: string): Promise<Workspace> {
   const ws = getWorkspace(workspaceId)
   if (!ws.jira) return ws
-  const issue = await jira.issue(ws.jira.key)
+  const issue = await jira.issue(jira.connectionForSpace(ws.spaceId), ws.jira.key)
   return patchWorkspace(workspaceId, { jiraStatus: issue.status, jiraStatusAt: new Date().toISOString(), jira: { ...ws.jira, summary: issue.summary || ws.jira.summary } })
+}
+
+/** Add another repository to a live workspace: worktree on the workspace branch, setup script, done. */
+export async function addRepoToWorkspace(workspaceId: string, repoId: string, baseBranch: string, emit: Emit): Promise<Workspace> {
+  const ws = getWorkspace(workspaceId)
+  if (ws.status !== 'ready') throw new Error('Workspace is not ready')
+  if (ws.repos.some((r) => r.repoId === repoId)) throw new Error('That repository is already in this workspace')
+  const repo = getRepo(repoId)
+  const branch = ws.repos[0]?.branch ?? ws.slug
+  const wr: WorkspaceRepo = { repoId, repoName: repo.name, worktreePath: join(ws.rootPath, repo.name), branch, baseBranch: baseBranch || repo.defaultBranch }
+  if (existsSync(wr.worktreePath)) throw new Error(`${wr.worktreePath} already exists`)
+  await git.createWorktree(repo.path, wr.worktreePath, wr.branch, wr.baseBranch)
+  const out = patchWorkspace(ws.id, { repos: [...ws.repos, wr] })
+  const cmd = repo.config?.scripts?.setup
+  if (cmd) await runScript(out, repo, wr.worktreePath, 'setup', cmd, emit)
+  return out
+}
+
+export async function removeRepoFromWorkspace(workspaceId: string, repoId: string, opts: { deleteBranch: boolean }, emit: Emit): Promise<Workspace> {
+  const ws = getWorkspace(workspaceId)
+  const wr = ws.repos.find((r) => r.repoId === repoId)
+  if (!wr) throw new Error('Repository is not in this workspace')
+  if (ws.repos.length === 1) throw new Error('A workspace needs at least one repository; archive it instead')
+  let repo: Repo | null = null
+  try {
+    repo = getRepo(repoId)
+  } catch {
+    /* removed from the app */
+  }
+  if (repo) {
+    const cmd = repo.config?.scripts?.archive
+    if (cmd && existsSync(wr.worktreePath)) await runScript(ws, repo, wr.worktreePath, 'archive', cmd, emit)
+    try {
+      await git.removeWorktree(repo.path, wr.worktreePath, wr.branch, opts.deleteBranch)
+    } catch (err) {
+      console.warn('worktree removal failed, falling back to rm', err)
+    }
+  }
+  if (existsSync(wr.worktreePath)) rmSync(wr.worktreePath, { recursive: true, force: true })
+  const repos = ws.repos.filter((r) => r.repoId !== repoId)
+  return patchWorkspace(ws.id, { repos, primaryRepoId: ws.primaryRepoId === repoId ? repos[0].repoId : ws.primaryRepoId })
 }
 
 export function deleteWorkspaceRecord(workspaceId: string): void {
