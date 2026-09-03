@@ -9,6 +9,7 @@ import * as git from './services/git'
 import * as workspaces from './services/workspaces'
 import * as agent from './services/agent'
 import * as terminal from './services/terminal'
+import { clearTranscript, flushAllTranscripts, getTranscript, recordEvent } from './services/transcripts'
 import { runScript, stopScript, workspaceEnv } from './services/scripts'
 
 function send<C extends keyof OrchestraEvents>(channel: C, payload: OrchestraEvents[C]): void {
@@ -23,7 +24,10 @@ function handle<C extends keyof OrchestraInvoke>(
 }
 
 const emitScript = (e: Parameters<typeof send<'script:output'>>[1]): void => send('script:output', e)
-const emitAgent = (e: Parameters<typeof send<'agent:event'>>[1]): void => send('agent:event', e)
+const emitAgent = (e: Parameters<typeof send<'agent:event'>>[1]): void => {
+  recordEvent(e)
+  send('agent:event', e)
+}
 const emitPermission = (e: Parameters<typeof send<'agent:permission'>>[1]): void => send('agent:permission', e)
 
 export function registerIpc(): void {
@@ -78,6 +82,7 @@ export function registerIpc(): void {
   })
   handle('workspaces:delete', (id) => {
     agent.closeSession(id)
+    clearTranscript(id)
     workspaces.deleteWorkspaceRecord(id)
   })
   handle('workspaces:rename', (id, name) => workspaces.renameWorkspace(id, name))
@@ -143,7 +148,11 @@ export function registerIpc(): void {
   handle('agent:send', (id, text) => agent.sendMessage(id, text, emitAgent, emitPermission))
   handle('agent:interrupt', (id) => agent.interrupt(id))
   handle('agent:permission', (r) => agent.answerPermission(r))
-  handle('agent:reset', (id) => agent.resetSession(id))
+  handle('agent:reset', (id) => {
+    agent.resetSession(id)
+    clearTranscript(id)
+  })
+  handle('chat:load', (id) => ({ items: getTranscript(id), busy: agent.isBusy(id) }))
   handle('agent:setMode', (id, mode) => agent.setMode(id, mode))
 
   // ---- terminal ----
@@ -164,6 +173,7 @@ export function registerIpc(): void {
   handle('terminal:dispose', (tid) => terminal.disposeTerminal(tid))
 
   app.on('before-quit', () => {
+    flushAllTranscripts()
     agent.closeAllSessions()
     terminal.disposeAllTerminals()
   })

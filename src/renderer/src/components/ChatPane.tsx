@@ -13,7 +13,11 @@ const AUTOSCROLL_KEY = 'orchestra.autoscroll'
 
 export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.Element {
   const chat = useChat((s) => s.chats[workspaceId])
-  const { send, interrupt, reset, setDraft } = useChat()
+  const { send, interrupt, reset, setDraft, load } = useChat()
+
+  useEffect(() => {
+    void load(workspaceId)
+  }, [workspaceId, load])
   const ws = useApp((s) => s.workspaces.find((w) => w.id === workspaceId))
   const scrollRef = useRef<HTMLDivElement>(null)
   const items = chat?.items ?? []

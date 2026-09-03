@@ -152,6 +152,7 @@ export interface ChatTurnResult {
 /** Events the agent service emits to the renderer. Kept deliberately small. */
 export type AgentEvent =
   | { type: 'init'; workspaceId: string; sessionId: string; model: string; cwd: string }
+  | { type: 'user_message'; workspaceId: string; itemId: string; text: string; createdAt: string }
   | { type: 'assistant_start'; workspaceId: string; itemId: string }
   | { type: 'text_delta'; workspaceId: string; itemId: string; text: string }
   | { type: 'thinking_delta'; workspaceId: string; itemId: string; text: string }

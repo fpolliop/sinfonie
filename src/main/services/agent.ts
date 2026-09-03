@@ -251,6 +251,7 @@ async function pump(session: Session, emit: EmitEvent): Promise<void> {
 export function sendMessage(workspaceId: string, text: string, emit: EmitEvent, emitPermission: EmitPermission): void {
   const session = getOrCreateSession(workspaceId, emit, emitPermission)
   session.busy = true
+  emit({ type: 'user_message', workspaceId, itemId: nanoid(8), text, createdAt: new Date().toISOString() })
   emit({ type: 'status', workspaceId, busy: true })
   session.push({
     type: 'user',
@@ -273,6 +274,10 @@ export async function setMode(workspaceId: string, mode: PermissionMode): Promis
     }
   }
   return ws
+}
+
+export function isBusy(workspaceId: string): boolean {
+  return sessions.get(workspaceId)?.busy ?? false
 }
 
 export async function interrupt(workspaceId: string): Promise<void> {

@@ -1,0 +1,46 @@
+import type { AgentEvent, ChatItem, ChatToolBlock } from './types'
+
+/**
+ * Pure reducer turning agent events into a transcript. Used by the main
+ * process to persist conversations and by the renderer to render them, so
+ * both sides always agree on what a conversation looks like.
+ */
+export function applyEvent(items: ChatItem[], e: AgentEvent): ChatItem[] {
+  switch (e.type) {
+    case 'user_message':
+      return [...items, { id: e.itemId, role: 'user', blocks: [{ type: 'text', text: e.text }], createdAt: e.createdAt }]
+    case 'assistant_start':
+      return [...items, { id: e.itemId, role: 'assistant', blocks: [], createdAt: new Date().toISOString() }]
+    case 'text_delta':
+    case 'thinking_delta': {
+      const kind = e.type === 'text_delta' ? 'text' : 'thinking'
+      return updateItem(items, e.itemId, (it) => {
+        const last = it.blocks[it.blocks.length - 1]
+        if (last && last.type === kind) return { ...it, blocks: [...it.blocks.slice(0, -1), { type: kind, text: last.text + e.text }] }
+        return { ...it, blocks: [...it.blocks, { type: kind, text: e.text }] }
+      })
+    }
+    case 'tool_start':
+      return updateItem(items, e.itemId, (it) => ({
+        ...it,
+        blocks: [...it.blocks, { type: 'tool', toolUseId: e.toolUseId, name: e.name, input: undefined, done: false } as ChatToolBlock]
+      }))
+    case 'tool_input':
+      return updateItem(items, e.itemId, (it) => ({
+        ...it,
+        blocks: it.blocks.map((b) => (b.type === 'tool' && b.toolUseId === e.toolUseId ? { ...b, input: e.input } : b))
+      }))
+    case 'tool_result':
+      return items.map((it) =>
+        it.role !== 'assistant'
+          ? it
+          : { ...it, blocks: it.blocks.map((b) => (b.type === 'tool' && b.toolUseId === e.toolUseId ? { ...b, result: e.result, isError: e.isError, done: true } : b)) }
+      )
+    default:
+      return items
+  }
+}
+
+function updateItem(items: ChatItem[], itemId: string, fn: (it: ChatItem) => ChatItem): ChatItem[] {
+  return items.map((it) => (it.id === itemId ? fn(it) : it))
+}
