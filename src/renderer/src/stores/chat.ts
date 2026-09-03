@@ -13,6 +13,7 @@ interface WorkspaceChat {
   lastResult?: ChatTurnResult
   error?: string
   draft: string
+  queue: { id: string; text: string }[]
 }
 
 interface ChatState {
@@ -24,6 +25,7 @@ interface ChatState {
   load: (workspaceId: string) => Promise<void>
   send: (workspaceId: string, text: string) => Promise<void>
   interrupt: (workspaceId: string) => Promise<void>
+  unqueue: (workspaceId: string, id: string) => Promise<void>
   reset: (workspaceId: string) => Promise<void>
   setDraft: (workspaceId: string, draft: string) => void
   answerPermission: (requestId: string, decision: 'allow' | 'always' | 'deny') => Promise<void>
@@ -32,7 +34,7 @@ interface ChatState {
 }
 
 let subscribed = false
-const empty = (): WorkspaceChat => ({ items: [], loaded: false, busy: false, draft: '' })
+const empty = (): WorkspaceChat => ({ items: [], loaded: false, busy: false, draft: '', queue: [] })
 
 function updateChat(state: ChatState, id: string, fn: (c: WorkspaceChat) => WorkspaceChat): Partial<ChatState> {
   const c = state.chats[id] ?? empty()
@@ -59,8 +61,8 @@ export const useChat = create<ChatState>((set, get) => ({
   send: async (id, text) => {
     const trimmed = text.trim()
     if (!trimmed) return
-    // The user item itself arrives back as a user_message event, so main and renderer stay identical.
-    set((s) => updateChat(s, id, (c) => ({ ...c, busy: true, error: undefined, draft: '' })))
+    // The user item itself arrives back as a user_message event (or a queue event while a turn runs).
+    set((s) => updateChat(s, id, (c) => ({ ...c, busy: c.busy || true, error: undefined, draft: '' })))
     try {
       await api.invoke('agent:send', id, trimmed)
     } catch (err) {
@@ -68,6 +70,7 @@ export const useChat = create<ChatState>((set, get) => ({
     }
   },
   interrupt: async (id) => api.invoke('agent:interrupt', id),
+  unqueue: async (id, mid) => api.invoke('agent:unqueue', id, mid),
   reset: async (id) => {
     await api.invoke('agent:reset', id)
     set((s) => updateChat(s, id, () => ({ ...empty(), loaded: true })))
@@ -91,6 +94,9 @@ export const useChat = create<ChatState>((set, get) => ({
           break
         case 'status':
           next = { ...next, busy: e.busy }
+          break
+        case 'queue':
+          next = { ...next, queue: e.items }
           break
         case 'assistant_start':
           next = { ...next, busy: true }

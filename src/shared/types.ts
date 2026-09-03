@@ -387,6 +387,7 @@ export type AgentEvent =
   | { type: 'init'; workspaceId: string; sessionId: string; model: string; cwd: string }
   | { type: 'user_message'; workspaceId: string; itemId: string; text: string; createdAt: string }
   | { type: 'notice'; workspaceId: string; itemId: string; level: 'info' | 'warn' | 'error'; text: string; createdAt: string }
+  | { type: 'queue'; workspaceId: string; items: { id: string; text: string }[] }
   | { type: 'assistant_start'; workspaceId: string; itemId: string }
   | { type: 'text_delta'; workspaceId: string; itemId: string; text: string }
   | { type: 'thinking_delta'; workspaceId: string; itemId: string; text: string }

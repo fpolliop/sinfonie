@@ -100,6 +100,7 @@ export interface OrchestraInvoke {
   'agent:interrupt': (workspaceId: string) => void
   'agent:permission': (response: PermissionResponse) => void
   'agent:answerQuestion': (response: QuestionResponse) => void
+  'agent:unqueue': (workspaceId: string, id: string) => void
   'agent:reset': (workspaceId: string) => void
   'agent:setMode': (workspaceId: string, mode: PermissionMode) => Workspace
   'chat:load': (workspaceId: string) => { items: ChatItem[]; busy: boolean }

@@ -15,7 +15,7 @@ const AUTOSCROLL_KEY = 'orchestra.autoscroll'
 export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.Element {
   const chat = useChat((s) => s.chats[workspaceId])
   const questions = useChat((s) => s.questions.filter((q) => q.workspaceId === workspaceId))
-  const { send, interrupt, reset, setDraft, load } = useChat()
+  const { send, interrupt, reset, setDraft, load, unqueue } = useChat()
 
   useEffect(() => {
     void load(workspaceId)
@@ -25,6 +25,7 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
   const items = chat?.items ?? []
   const busy = chat?.busy ?? false
   const draft = chat?.draft ?? ''
+  const queue = chat?.queue ?? []
   const disabled = ws?.status !== 'ready'
   const settingsModel = useApp((s) => s.settings.model)
   const settingsMode = useApp((s) => s.settings.permissionMode)
@@ -53,8 +54,9 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
     if (el && autoScroll) el.scrollTop = el.scrollHeight
   }, [items, autoScroll, questions.length])
 
+  // While a turn runs, Enter queues the message; main delivers it when the turn ends.
   const onSubmit = (): void => {
-    if (busy || disabled) return
+    if (disabled || !draft.trim()) return
     void send(workspaceId, draft)
   }
 
@@ -87,6 +89,19 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
       </div>
       <div className="border-t border-border px-4 py-3">
         <div className="mx-auto max-w-3xl">
+          {queue.length > 0 && (
+            <div className="mb-2 flex flex-col gap-1">
+              {queue.map((m) => (
+                <div key={m.id} className="flex items-center gap-2 rounded-md border border-dashed border-border px-2.5 py-1 text-[12px] text-muted">
+                  <span className="shrink-0 text-[10px] uppercase tracking-wide">queued</span>
+                  <span className="truncate">{m.text}</span>
+                  <button className="ml-auto shrink-0 hover:text-danger" title="Remove from queue" onClick={() => void unqueue(workspaceId, m.id)}>
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           <div className="rounded-xl border border-border bg-panel focus-within:border-accent">
             <textarea
               value={draft}
@@ -102,7 +117,7 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
                 }
               }}
               rows={3}
-              placeholder={disabled ? 'Workspace is not ready' : 'Describe the change across your repos… (Enter to send, Shift+Enter for newline)'}
+              placeholder={disabled ? 'Workspace is not ready' : busy ? 'Type to queue a message for when this turn ends… (Enter to queue)' : 'Describe the change across your repos… (Enter to send, Shift+Enter for newline)'}
               className="w-full resize-none bg-transparent px-3 pt-3 text-[13px] outline-none placeholder:text-muted"
             />
             <div className="flex items-center gap-2 px-2 pb-2">
@@ -123,9 +138,14 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
                 <RotateCcw size={13} /> New session
               </Button>
               {busy ? (
-                <Button size="sm" variant="danger" onClick={() => void interrupt(workspaceId)}>
-                  <Square size={12} /> Stop
-                </Button>
+                <>
+                  <Button size="sm" onClick={onSubmit} disabled={disabled || !draft.trim()} title="Deliver when the current turn ends">
+                    <Send size={12} /> Queue
+                  </Button>
+                  <Button size="sm" variant="danger" onClick={() => void interrupt(workspaceId)}>
+                    <Square size={12} /> Stop
+                  </Button>
+                </>
               ) : (
                 <Button size="sm" variant="primary" onClick={onSubmit} disabled={disabled || !draft.trim()}>
                   <Send size={12} /> Send

@@ -31,6 +31,10 @@ interface Session {
   busy: boolean
   /** Last lines the CLI wrote to stderr, shown when a turn fails without a better explanation. */
   stderr: string[]
+  /** Messages typed while a turn was running; delivered one per turn, in order. */
+  queue: { id: string; text: string }[]
+  /** Set by Stop so the resulting error result is reported as a stop, not a failure. */
+  interrupted: boolean
 }
 
 /** Everything the SDK sends (minus streaming deltas) goes to a per-workspace log for diagnosis. */
@@ -246,7 +250,7 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
     if (stderrLines.length > 40) stderrLines.splice(0, stderrLines.length - 40)
   }
   const q = query({ prompt: input.iterable, options })
-  const session: Session = { workspaceId, q, push: input.push, end: input.end, abort, busy: false, stderr: stderrLines }
+  const session: Session = { workspaceId, q, push: input.push, end: input.end, abort, busy: false, stderr: stderrLines, queue: [], interrupted: false }
   sessions.set(workspaceId, session)
   void pump(session, emit)
   return session
@@ -369,7 +373,10 @@ async function pump(session: Session, emit: EmitEvent): Promise<void> {
           const errs = 'errors' in msg && Array.isArray(msg.errors) ? (msg.errors as string[]).join('\n') : ''
           const denials = 'permission_denials' in msg && Array.isArray(msg.permission_denials) ? msg.permission_denials.length : 0
           let errorText: string | undefined
-          if (isError) {
+          if (session.interrupted) {
+            session.interrupted = false
+            notice('info', 'You stopped the response.')
+          } else if (isError) {
             const parts = [errs || (msg.subtype === 'success' ? (msg.result || '').slice(0, 500) : msg.subtype.replace(/_/g, ' '))]
             if (msg.stop_reason) parts.push(`stop reason: ${msg.stop_reason}`)
             if (denials) parts.push(`${denials} tool call${denials === 1 ? '' : 's'} denied`)
@@ -385,6 +392,12 @@ async function pump(session: Session, emit: EmitEvent): Promise<void> {
           turnText = 0
           turnTools = 0
           turnStop = null
+          // Deliver the next queued message, if any, as its own turn.
+          const next = session.queue.shift()
+          if (next) {
+            emit({ type: 'queue', workspaceId, items: [...session.queue] })
+            deliver(session, next.text, emit)
+          }
           emit({
             type: 'result',
             result: {
@@ -420,9 +433,8 @@ async function pump(session: Session, emit: EmitEvent): Promise<void> {
   }
 }
 
-export async function sendMessage(workspaceId: string, text: string, emit: EmitEvent, emitPermission: EmitPermission): Promise<void> {
-  const mcp = sessions.has(workspaceId) ? {} : await mcpServersFor(getWorkspace(workspaceId))
-  const session = getOrCreateSession(workspaceId, emit, emitPermission, mcp)
+function deliver(session: Session, text: string, emit: EmitEvent): void {
+  const { workspaceId } = session
   session.busy = true
   emit({ type: 'user_message', workspaceId, itemId: nanoid(8), text, createdAt: new Date().toISOString() })
   emit({ type: 'status', workspaceId, busy: true })
@@ -431,6 +443,25 @@ export async function sendMessage(workspaceId: string, text: string, emit: EmitE
     message: { role: 'user', content: [{ type: 'text', text }] },
     parent_tool_use_id: null
   })
+}
+
+export async function sendMessage(workspaceId: string, text: string, emit: EmitEvent, emitPermission: EmitPermission): Promise<void> {
+  const mcp = sessions.has(workspaceId) ? {} : await mcpServersFor(getWorkspace(workspaceId))
+  const session = getOrCreateSession(workspaceId, emit, emitPermission, mcp)
+  if (session.busy) {
+    // Like the CLI: typed mid-turn, delivered when the current turn ends.
+    session.queue.push({ id: nanoid(6), text })
+    emit({ type: 'queue', workspaceId, items: [...session.queue] })
+    return
+  }
+  deliver(session, text, emit)
+}
+
+export function unqueue(workspaceId: string, id: string, emit: EmitEvent): void {
+  const s = sessions.get(workspaceId)
+  if (!s) return
+  s.queue = s.queue.filter((m) => m.id !== id)
+  emit({ type: 'queue', workspaceId, items: [...s.queue] })
 }
 
 /** Switch the mode for future sessions and, when one is live, for the running session too. */
@@ -456,6 +487,7 @@ export function isBusy(workspaceId: string): boolean {
 export async function interrupt(workspaceId: string): Promise<void> {
   const s = sessions.get(workspaceId)
   if (!s) return
+  s.interrupted = true
   try {
     await s.q.interrupt()
   } catch (err) {

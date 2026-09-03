@@ -317,6 +317,7 @@ export function registerIpc(): void {
   handle('agent:interrupt', (id) => agent.interrupt(id))
   handle('agent:permission', (r) => agent.answerPermission(r))
   handle('agent:answerQuestion', (r) => agent.answerQuestion(r))
+  handle('agent:unqueue', (id, mid) => agent.unqueue(id, mid, emitAgent))
   handle('agent:reset', (id) => {
     agent.resetSession(id)
     clearTranscript(id)
