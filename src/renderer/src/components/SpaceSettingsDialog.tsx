@@ -126,6 +126,11 @@ export function SpaceSettingsDialog({ spaceId, onClose }: { spaceId: string; onC
         intro="Available to Claude in every workspace of this space, on top of the app-level servers in Settings. New sessions pick up changes; use New session in a chat to apply them."
         servers={space.mcpServers ?? []}
         onChange={(mcpServers) => go(() => api.invoke('spaces:update', space.id, { mcpServers }))}
+        strict={{
+          value: space.strictMcp ?? Boolean(settings.strictMcp),
+          inherited: space.strictMcp === undefined,
+          onToggle: (v) => go(() => api.invoke('spaces:update', space.id, { strictMcp: v }))
+        }}
         jira={{
           connected: Boolean(jiraConnectionFor(space)) || settings.jira.connected,
           exposed: space.exposeJiraMcp !== false,

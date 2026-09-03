@@ -48,6 +48,8 @@ export interface Space {
   mcpServers?: McpServerSpec[]
   /** Hand Claude the Atlassian MCP using this space's Jira login. Default on when Jira is connected. */
   exposeJiraMcp?: boolean
+  /** Ignore MCP servers from Claude Code's own config (claude.ai connectors, plugins, ~/.claude.json). Absent = app default. */
+  strictMcp?: boolean
   /** Per-space overrides; absent means the app default from Settings. */
   model?: string
   permissionMode?: PermissionMode
@@ -172,6 +174,8 @@ export interface Settings {
   defaultClaudeAccountId: string
   /** MCP servers available in every space. */
   mcpServers?: McpServerSpec[]
+  /** Default for spaces: only use MCP servers configured in Orchestra. */
+  strictMcp?: boolean
 }
 
 // ---- Review cockpit ----

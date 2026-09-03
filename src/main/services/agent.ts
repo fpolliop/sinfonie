@@ -35,6 +35,8 @@ interface Session {
   queue: { id: string; text: string }[]
   /** Set by Stop so the resulting error result is reported as a stop, not a failure. */
   interrupted: boolean
+  /** Names of the MCP servers Orchestra passed to this session. */
+  mcpNames: string[]
 }
 
 /** Everything the SDK sends (minus streaming deltas) goes to a per-workspace log for diagnosis. */
@@ -78,6 +80,8 @@ function describeError(code: string | undefined): string {
 }
 
 const sessions = new Map<string, Session>()
+/** Workspaces that already got the inherited-MCP notice this app run. */
+const mcpNoticeShown = new Set<string>()
 const pendingPermissions = new Map<string, (r: PermissionResponse) => void>()
 
 /** An async iterable we can push into from outside; the SDK consumes it as the prompt stream. */
@@ -230,6 +234,7 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
     canUseTool,
     systemPrompt: { type: 'preset', preset: 'claude_code', append: systemPromptFor(ws) + (Object.keys(mcpServers).length ? `\nMCP servers available in this workspace: ${Object.keys(mcpServers).join(', ')}.` : '') },
     ...(Object.keys(mcpServers).length ? { mcpServers } : {}),
+    ...(space?.strictMcp ?? settings.strictMcp ? { strictMcpConfig: true } : {}),
     settingSources: ['user', 'project', 'local'],
     env: {
       ...process.env,
@@ -250,7 +255,7 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
     if (stderrLines.length > 40) stderrLines.splice(0, stderrLines.length - 40)
   }
   const q = query({ prompt: input.iterable, options })
-  const session: Session = { workspaceId, q, push: input.push, end: input.end, abort, busy: false, stderr: stderrLines, queue: [], interrupted: false }
+  const session: Session = { workspaceId, q, push: input.push, end: input.end, abort, busy: false, stderr: stderrLines, queue: [], interrupted: false, mcpNames: Object.keys(mcpServers) }
   sessions.set(workspaceId, session)
   void pump(session, emit)
   return session
@@ -292,8 +297,16 @@ async function pump(session: Session, emit: EmitEvent): Promise<void> {
               if (w) w.sessionId = msg.session_id
             })
             emit({ type: 'init', workspaceId, sessionId: msg.session_id, model: msg.model, cwd: msg.cwd })
-            for (const m of msg.mcp_servers) {
-              if (m.status !== 'connected' && m.status !== 'pending') notice('warn', `MCP server "${m.name}" is ${m.status}.`)
+            // Servers Orchestra configured get a warning each; everything inherited from Claude Code's own
+            // config (claude.ai connectors, plugins) is folded into one quiet line, once per app run.
+            const ours = new Set(session.mcpNames)
+            const bad = msg.mcp_servers.filter((m) => m.status !== 'connected' && m.status !== 'pending')
+            for (const m of bad) if (ours.has(m.name)) notice('warn', `MCP server "${m.name}" is ${m.status}.`)
+            const inherited = bad.filter((m) => !ours.has(m.name))
+            if (inherited.length && !mcpNoticeShown.has(workspaceId)) {
+              mcpNoticeShown.add(workspaceId)
+              const names = inherited.map((m) => `${m.name} (${m.status})`).join(', ')
+              notice('info', `${inherited.length} MCP server${inherited.length === 1 ? '' : 's'} from your Claude Code config ${inherited.length === 1 ? 'is' : 'are'} not available: ${names}. Turn on "Only Orchestra's MCP servers" in the space settings to stop loading them.`)
             }
           } else if (msg.subtype === 'api_retry') {
             notice('warn', `${describeError(msg.error)} Retrying (${msg.attempt}/${msg.max_retries}) in ${Math.round(msg.retry_delay_ms / 1000)}s…`)

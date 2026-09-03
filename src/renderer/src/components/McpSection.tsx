@@ -23,7 +23,7 @@ function kvText(o?: Record<string, string>): string {
  * Edits a list of MCP servers. Used in a space's settings (servers for that
  * space) and in app Settings (servers for every space).
  */
-export function McpSection({ servers, onChange, title, intro, jira }: { servers: McpServerSpec[]; onChange: (s: McpServerSpec[]) => void; title: string; intro: string; jira?: { connected: boolean; exposed: boolean; onToggle: (v: boolean) => void } }): React.JSX.Element {
+export function McpSection({ servers, onChange, title, intro, jira, strict }: { servers: McpServerSpec[]; onChange: (s: McpServerSpec[]) => void; title: string; intro: string; jira?: { connected: boolean; exposed: boolean; onToggle: (v: boolean) => void }; strict?: { value: boolean; inherited?: boolean; onToggle: (v: boolean) => void } }): React.JSX.Element {
   const setError = useApp((s) => s.setError)
   const [adding, setAdding] = useState(false)
   const [draft, setDraft] = useState<McpServerSpec>({ id: '', name: '', transport: 'http', enabled: true })
@@ -76,6 +76,15 @@ export function McpSection({ servers, onChange, title, intro, jira }: { servers:
       </div>
       <p className="mb-2 text-[11px] text-muted">{intro}</p>
 
+      {strict && (
+        <label className="mb-2 flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-[12px]">
+          <input type="checkbox" checked={strict.value} onChange={(e) => strict.onToggle(e.target.checked)} />
+          <span className="flex-1">
+            Only Orchestra's MCP servers
+            <span className="block text-[11px] text-muted">Skip the servers Claude Code loads on its own: claude.ai connectors, plugins and ~/.claude.json. Those often show as "needs auth" here because their login lives in the CLI.{strict.inherited ? ' (app default)' : ''}</span>
+          </span>
+        </label>
+      )}
       {jira && (
         <label className="mb-2 flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-[12px]">
           <input type="checkbox" checked={jira.exposed} disabled={!jira.connected} onChange={(e) => jira.onToggle(e.target.checked)} />

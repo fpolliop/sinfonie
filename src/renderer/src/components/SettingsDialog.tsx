@@ -245,6 +245,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }): React.JSX.
         intro="Available to Claude in all workspaces. Add space-specific servers in each space's settings."
         servers={settings.mcpServers ?? []}
         onChange={(mcpServers) => go(() => update({ mcpServers }))}
+        strict={{ value: Boolean(settings.strictMcp), onToggle: (v) => go(() => update({ strictMcp: v })) }}
       />
       <JiraSection connId="" title="Default Jira" intro="Fallback for spaces without their own Jira connection. Set each space's Jira in its space settings." />
     </Dialog>

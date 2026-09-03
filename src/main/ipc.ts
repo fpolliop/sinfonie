@@ -70,6 +70,7 @@ export function registerIpc(): void {
         const target = s as unknown as Record<string, unknown>
         for (const [k, v] of Object.entries(patch)) {
           if (v === '' || v === undefined || v === null || (Array.isArray(v) && v.length === 0 && k !== 'mcpServers')) delete target[k]
+          else if (v === false && k === 'strictMcp') delete target[k]
           else target[k] = v
         }
         out = s
