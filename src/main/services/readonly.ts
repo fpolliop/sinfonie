@@ -21,6 +21,8 @@ export function isReadOnlyCommand(cmd: string): boolean {
       if (!sub || !RO_GIT.has(sub)) return false
       if ((sub === 'branch' || sub === 'tag' || sub === 'remote' || sub === 'worktree' || sub === 'stash' || sub === 'config') && words.some((w) => /^(-d|-D|-m|-M|add|remove|prune|set-url|drop|pop|apply|push|--unset|--add)$/.test(w) || /^--(delete|move|force|edit)/.test(w))) return false
       if (sub === 'config' && !words.includes('--get') && !words.includes('--list') && !words.includes('-l')) return false
+      // stash and worktree only read with an explicit list/show; bare `git stash` writes.
+      if ((sub === 'stash' || sub === 'worktree') && !words.slice(words.indexOf(sub) + 1).some((w) => w === 'list' || w === 'show')) return false
       continue
     }
     if (bin === 'sed' && !words.includes('-n') && !words.some((w) => /^-n/.test(w))) return false
