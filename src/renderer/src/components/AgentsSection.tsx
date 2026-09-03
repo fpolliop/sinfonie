@@ -3,8 +3,8 @@ import clsx from 'clsx'
 import { Plus, Trash2, Users, RotateCcw, ChevronRight } from 'lucide-react'
 import { Badge, Button, Field, inputCls } from './ui'
 import { DEFAULT_CREW, PERMISSION_MODES, type AgentSpec } from '@shared/types'
+import { ModelSelect } from './ModelSelect'
 
-const MODELS = ['haiku', 'sonnet', 'opus', 'fable', 'claude-haiku-4-5', 'claude-sonnet-5', 'claude-opus-5', 'claude-fable-5-1']
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
 
 /**
@@ -67,17 +67,12 @@ export function AgentsSection({ agents, onChange, title, intro, inherited, onRes
               </div>
               {isOpen && (
                 <div className="border-t border-border px-3 py-3">
-                  <div className="grid grid-cols-[1fr_150px_120px] gap-3">
+                  <div className="grid grid-cols-[1fr_220px_120px] gap-3">
                     <Field label="Name" hint="Also the type the orchestrator uses to call it.">
                       <input className={inputCls} value={a.name} onChange={(e) => update(a.id, { name: e.target.value.replace(/\s+/g, '-').toLowerCase() })} />
                     </Field>
                     <Field label="Model">
-                      <input className={inputCls} list={`models-${a.id}`} value={a.model} onChange={(e) => update(a.id, { model: e.target.value })} />
-                      <datalist id={`models-${a.id}`}>
-                        {MODELS.map((m) => (
-                          <option key={m} value={m} />
-                        ))}
-                      </datalist>
+                      <ModelSelect value={a.model} onChange={(model) => update(a.id, { model })} />
                     </Field>
                     <Field label="Effort">
                       <select className={inputCls} value={a.effort ?? ''} onChange={(e) => update(a.id, { effort: (e.target.value || undefined) as AgentSpec['effort'] })}>

@@ -9,6 +9,7 @@ import { LoginTerminal } from './LoginTerminal'
 import { JiraSection } from './JiraSection'
 import { McpSection } from './McpSection'
 import { AgentsSection, DEFAULT_CREW } from './AgentsSection'
+import { ModelSelect } from './ModelSelect'
 import { SpaceSettingsDialog } from './SpaceSettingsDialog'
 import { SPACE_COLORS } from '@shared/types'
 
@@ -224,8 +225,8 @@ export function SettingsDialog({ onClose }: { onClose: () => void }): React.JSX.
           <Field label="Base port" hint="Each workspace gets a block of 10 ports starting here.">
             <input type="number" className={inputCls} defaultValue={settings.basePort} onBlur={(e) => go(() => update({ basePort: Number(e.target.value) || 55000 }))} />
           </Field>
-          <Field label="Model" hint="Claude model alias or full id for new sessions.">
-            <input className={inputCls} defaultValue={settings.model} onBlur={(e) => e.target.value !== settings.model && go(() => update({ model: e.target.value }))} />
+          <Field label="Model" hint="The orchestrator model for spaces that don't set their own.">
+            <ModelSelect value={settings.model} onChange={(model) => go(() => update({ model }))} />
           </Field>
         </div>
         <Field label="Permission mode" hint="Each chat can still switch its own mode from the composer or with Shift+Tab.">
