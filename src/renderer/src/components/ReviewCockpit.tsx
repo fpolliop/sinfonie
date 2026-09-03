@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import clsx from 'clsx'
-import { RefreshCw, ExternalLink, Play, Square, Trash2, Send, CheckSquare, Square as SquareIcon, Sparkles, ChevronRight } from 'lucide-react'
+import { RefreshCw, ExternalLink, Play, Square, Trash2, Send, CheckSquare, Square as SquareIcon, Sparkles, ChevronRight, ArrowDownWideNarrow, ArrowUpNarrowWide, Filter } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
-import { useReviews, keyOf } from '@/stores/reviews'
+import { useReviews, keyOf, STATUS_FILTERS, type StatusFilter } from '@/stores/reviews'
 import { AccountPicker } from './AccountPicker'
 import { Badge, Button, Spinner, inputCls } from './ui'
 import { timeAgo } from '@/lib/format'
@@ -12,7 +12,7 @@ import type { ReviewFinding, ReviewPr, ReviewRun, ReviewSeverity, ReviewVerdict 
 const SEV_TONE: Record<ReviewSeverity, 'danger' | 'warn' | 'accent' | 'muted'> = { critical: 'danger', major: 'warn', minor: 'accent', nit: 'muted' }
 
 export function ReviewCockpit(): React.JSX.Element {
-  const { orgs, owner, mode, prs, runs, selectedKey, loadingOrgs, loadingPrs, error, init, setOwner, setMode, refreshPrs, select } = useReviews()
+  const { orgs, owner, mode, prs, runs, selectedKey, loadingOrgs, loadingPrs, error, init, setOwner, setMode, refreshPrs, select, repoFilter, statusFilter, sortDir, setRepoFilter, setStatusFilter, setSortDir } = useReviews()
   const defaultAccount = useApp((s) => s.settings.defaultClaudeAccountId)
   const setError = useApp((s) => s.setError)
   const [accountId, setAccountId] = useState(defaultAccount)
@@ -21,11 +21,42 @@ export function ReviewCockpit(): React.JSX.Element {
     void init()
   }, [init])
 
+  const repos = useMemo(() => Array.from(new Set(prs.map((p) => p.nameWithOwner))).sort(), [prs])
+
+  const matchesStatus = (pr: ReviewPr, f: StatusFilter): boolean => {
+    const run = runs[keyOf(pr)]
+    switch (f) {
+      case 'all':
+        return true
+      case 'ready':
+        return !pr.isDraft
+      case 'draft':
+        return pr.isDraft
+      case 'unreviewed':
+        return !run || run.status === 'cancelled'
+      case 'running':
+        return run?.status === 'preparing' || run?.status === 'running'
+      case 'reviewed':
+        return run?.status === 'done'
+      case 'submitted':
+        return run?.status === 'submitted'
+      case 'failed':
+        return run?.status === 'error'
+    }
+  }
+
+  const filtered = useMemo(() => {
+    const list = prs.filter((p) => (!repoFilter || p.nameWithOwner === repoFilter) && matchesStatus(p, statusFilter))
+    list.sort((a, b) => (sortDir === 'desc' ? b.updatedAt.localeCompare(a.updatedAt) : a.updatedAt.localeCompare(b.updatedAt)))
+    return list
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prs, runs, repoFilter, statusFilter, sortDir])
+
   const grouped = useMemo(() => {
     const m = new Map<string, ReviewPr[]>()
-    for (const p of prs) m.set(p.nameWithOwner, [...(m.get(p.nameWithOwner) ?? []), p])
+    for (const p of filtered) m.set(p.nameWithOwner, [...(m.get(p.nameWithOwner) ?? []), p])
     return Array.from(m.entries()).sort((a, b) => a[0].localeCompare(b[0]))
-  }, [prs])
+  }, [filtered])
 
   const selectedPr = prs.find((p) => keyOf(p) === selectedKey) ?? runs[selectedKey ?? '']?.pr
   const selectedRun = selectedKey ? runs[selectedKey] : undefined
@@ -64,10 +95,50 @@ export function ReviewCockpit(): React.JSX.Element {
         <AccountPicker value={accountId} onChange={setAccountId} className="no-drag" always />
       </header>
       {error && <div className="border-b border-danger/30 bg-danger/10 px-4 py-2 text-[12px] text-danger">{error}</div>}
+      <div className="flex items-center gap-2 border-b border-border px-3 py-1.5">
+        <Filter size={13} className="text-muted" />
+        <select className="max-w-[240px] rounded-md border border-border bg-bg px-1.5 py-1 text-[12px]" value={repoFilter} onChange={(e) => setRepoFilter(e.target.value)} title="Repository">
+          <option value="">All repositories{repos.length ? ` (${repos.length})` : ''}</option>
+          {repos.map((r) => (
+            <option key={r} value={r}>
+              {r.split('/')[1]}
+            </option>
+          ))}
+        </select>
+        <select className="rounded-md border border-border bg-bg px-1.5 py-1 text-[12px]" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as StatusFilter)} title="Status">
+          {STATUS_FILTERS.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.label}
+            </option>
+          ))}
+        </select>
+        <button
+          onClick={() => setSortDir(sortDir === 'desc' ? 'asc' : 'desc')}
+          className="inline-flex items-center gap-1 rounded-md border border-border bg-bg px-2 py-1 text-[12px] hover:bg-panel-2"
+          title={sortDir === 'desc' ? 'Newest first. Click for oldest first.' : 'Oldest first. Click for newest first.'}
+        >
+          {sortDir === 'desc' ? <ArrowDownWideNarrow size={13} /> : <ArrowUpNarrowWide size={13} />} Updated {sortDir === 'desc' ? 'newest' : 'oldest'} first
+        </button>
+        <span className="ml-auto text-[11px] text-muted">
+          {filtered.length} of {prs.length}
+        </span>
+        {(repoFilter || statusFilter !== 'all') && (
+          <button
+            className="text-[11px] text-accent hover:underline"
+            onClick={() => {
+              setRepoFilter('')
+              setStatusFilter('all')
+            }}
+          >
+            Clear
+          </button>
+        )}
+      </div>
       <div className="flex min-h-0 flex-1">
         <aside className="w-[360px] shrink-0 overflow-auto border-r border-border">
           {loadingPrs && prs.length === 0 && <div className="p-4 text-[12px] text-muted">Loading pull requests…</div>}
           {!loadingPrs && prs.length === 0 && <div className="p-4 text-[12px] text-muted">{mode === 'requested' ? 'No pull requests are waiting for your review.' : 'No open pull requests.'}</div>}
+          {!loadingPrs && prs.length > 0 && filtered.length === 0 && <div className="p-4 text-[12px] text-muted">Nothing matches the current filters.</div>}
           {grouped.map(([repo, list]) => (
             <div key={repo}>
               <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-panel px-3 py-1.5 text-[11px] font-medium uppercase tracking-wide text-muted">
