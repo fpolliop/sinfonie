@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { ChevronRight, Square, RotateCcw, Send, ShieldCheck, XCircle, AlertTriangle, Info, History, Users, GitFork } from 'lucide-react'
+import { ChevronRight, Square, RotateCcw, Send, ShieldCheck, XCircle, AlertTriangle, Info, History, Users, GitFork, ListTree, ArrowLeft } from 'lucide-react'
 import { api } from '@/lib/api'
 import { PERMISSION_MODES, type PermissionMode } from '@shared/types'
 import { QuestionCard } from './QuestionCard'
@@ -12,15 +12,16 @@ import { Markdown } from '@/lib/markdown'
 import { Button, Spinner } from './ui'
 import type { ChatBlock, ChatItem, ChatToolBlock } from '@shared/types'
 
-/** Which delegation the side panel is showing. Module-level store keeps it simple across components. */
-const useSubPanel = (() => {
+/** Right panel state: closed, the activity overview, or one delegation's detail. */
+type PanelView = { kind: 'closed' } | { kind: 'activity' } | { kind: 'delegation'; id: string }
+const usePanel = (() => {
   let listeners: (() => void)[] = []
-  let current: string | null = null
-  const set = (id: string | null): void => {
-    current = id
+  let current: PanelView = { kind: 'closed' }
+  const set = (v: PanelView): void => {
+    current = v
     listeners.forEach((l) => l())
   }
-  return (): [string | null, (id: string | null) => void] => {
+  return (): [PanelView, (v: PanelView) => void] => {
     const [, force] = useState(0)
     useEffect(() => {
       const l = (): void => force((n) => n + 1)
@@ -32,7 +33,6 @@ const useSubPanel = (() => {
     return [current, set]
   }
 })()
-
 
 export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.Element {
   const chat = useChat((s) => s.chats[workspaceId])
@@ -215,7 +215,7 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
         </div>
       </div>
     </div>
-    <SubagentPanel items={items} />
+    <SubagentPanel items={items} model={chat?.model ?? settingsModel} />
     </div>
   )
 }
@@ -280,12 +280,11 @@ function agentTypeOf(d: ChatToolBlock): string {
 }
 
 function CrewBar({ items, busy, model, crewNames }: { items: ChatItem[]; busy: boolean; model: string; crewNames: string[] }): React.JSX.Element | null {
-  const [, openPanel] = useSubPanel()
-  const [showDone, setShowDone] = useState(false)
+  const [, setPanel] = usePanel()
+  const openPanel = (id: string): void => setPanel({ kind: 'delegation', id })
   const delegations = items.flatMap((it) => (it.role === 'assistant' ? it.blocks.filter((b): b is ChatToolBlock => b.type === 'tool' && (b.name === 'Agent' || b.name === 'Task')) : []))
   const running = delegations.filter((d) => !d.done)
-  const finished = delegations.filter((d) => d.done)
-  const done = finished.length
+  const done = delegations.filter((d) => d.done).length
   if (!busy && delegations.length === 0 && crewNames.length === 0) return null
   const typeOf = agentTypeOf
   return (
@@ -301,32 +300,9 @@ function CrewBar({ items, busy, model, crewNames }: { items: ChatItem[]; busy: b
           {d.sub && <span className="opacity-70">{d.sub.toolCalls} calls{d.sub.lastTool ? ` · ${d.sub.lastTool}` : ''}</span>}
         </button>
       ))}
-      {done > 0 && (
-        <span className="relative">
-          <button className="text-muted hover:text-text" onClick={() => setShowDone(!showDone)}>
-            {done} delegation{done === 1 ? '' : 's'} done ▾
-          </button>
-          {showDone && (
-            <div className="absolute bottom-6 left-0 z-20 w-72 rounded-lg border border-border bg-panel p-1 shadow-xl" onMouseLeave={() => setShowDone(false)}>
-              {finished.map((d) => (
-                <button
-                  key={d.toolUseId}
-                  className="flex w-full items-center gap-2 rounded px-2 py-1 text-left hover:bg-panel-2"
-                  onClick={() => {
-                    openPanel(d.toolUseId)
-                    setShowDone(false)
-                  }}
-                >
-                  <span className={clsx('h-1.5 w-1.5 rounded-full', d.isError ? 'bg-danger' : 'bg-ok')} />
-                  <span className="font-medium">{typeOf(d)}</span>
-                  {d.sub?.model && <span className="font-mono text-muted">{shortModel(d.sub.model)}</span>}
-                  <span className="ml-auto text-muted">{d.sub?.toolCalls ?? 0} calls</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </span>
-      )}
+      <button onClick={() => setPanel({ kind: 'activity' })} className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-muted hover:text-text" title="Activity: who did what in this session">
+        <ListTree size={11} /> Activity{done > 0 ? ` · ${done} done` : ''}
+      </button>
       {crewNames.length > 0 && running.length === 0 && (
         <span className="ml-auto text-muted" title="Crew available to the orchestrator this session">
           crew: {crewNames.join(', ')}
@@ -425,25 +401,134 @@ function SubagentSteps({ block, compact }: { block: ChatToolBlock; compact?: boo
   )
 }
 
-/** Right-hand panel following one delegation live. */
-function SubagentPanel({ items }: { items: ChatItem[] }): React.JSX.Element | null {
-  const [id, setId] = useSubPanel()
-  if (!id) return null
-  const block = items.flatMap((it) => (it.role === 'assistant' ? it.blocks : [])).find((b): b is ChatToolBlock => b.type === 'tool' && b.toolUseId === id)
-  if (!block) return null
+/** Per-actor summary and delegation history, or one delegation's live detail. */
+function SubagentPanel({ items, model }: { items: ChatItem[]; model: string }): React.JSX.Element | null {
+  const [view, setView] = usePanel()
+  if (view.kind === 'closed') return null
+  const assistant = items.filter((it) => it.role === 'assistant')
+  const allTools = assistant.flatMap((it) => it.blocks.filter((b): b is ChatToolBlock => b.type === 'tool'))
+  const delegations = allTools.filter((b) => b.name === 'Agent' || b.name === 'Task')
+
+  if (view.kind === 'delegation') {
+    const block = delegations.find((b) => b.toolUseId === view.id)
+    if (!block) return null
+    return (
+      <aside className="flex w-[440px] shrink-0 flex-col border-l border-border bg-panel">
+        <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+          <button className="text-muted hover:text-text" onClick={() => setView({ kind: 'activity' })} title="Back to activity">
+            <ArrowLeft size={14} />
+          </button>
+          <Users size={14} className="text-accent" />
+          <span className="text-[13px] font-semibold">{agentTypeOf(block)}</span>
+          {block.sub?.model && <span className="rounded bg-panel-2 px-1 py-px font-mono text-[10px] text-muted">{shortModel(block.sub.model)}</span>}
+          <span className="ml-auto text-[11px]">{block.done ? (block.isError ? <span className="text-danger">error</span> : <span className="text-ok">done</span>) : <span className="inline-flex items-center gap-1 text-warn"><Spinner /> running</span>}</span>
+          <button className="ml-1 text-muted hover:text-text" onClick={() => setView({ kind: 'closed' })} aria-label="Close">
+            ✕
+          </button>
+        </div>
+        <div className="flex-1 overflow-auto p-3">
+          <SubagentSteps block={block} />
+        </div>
+      </aside>
+    )
+  }
+
+  // ---- activity overview ----
+  const countBy = (names: string[]): [string, number][] => {
+    const m = new Map<string, number>()
+    for (const n of names) m.set(n, (m.get(n) ?? 0) + 1)
+    return Array.from(m.entries()).sort((a, b) => b[1] - a[1])
+  }
+  const orchestratorTools = countBy(allTools.filter((b) => !(b.name === 'Agent' || b.name === 'Task')).map((b) => b.name))
+  const thinking = assistant.reduce((n, it) => n + it.blocks.filter((b) => b.type === 'thinking').length, 0)
+  const byAgent = new Map<string, ChatToolBlock[]>()
+  for (const d of delegations) byAgent.set(agentTypeOf(d), [...(byAgent.get(agentTypeOf(d)) ?? []), d])
+  const active = delegations.filter((d) => !d.done)
+  const history = delegations.filter((d) => d.done).reverse()
+  const verbFor = (d: ChatToolBlock): string => {
+    const desc = (d.input as Record<string, unknown>)?.description
+    return typeof desc === 'string' ? desc : 'task'
+  }
+  const Row = ({ d }: { d: ChatToolBlock }): React.JSX.Element => (
+    <button onClick={() => setView({ kind: 'delegation', id: d.toolUseId })} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-panel-2">
+      {d.done ? <span className={clsx('h-1.5 w-1.5 shrink-0 rounded-full', d.isError ? 'bg-danger' : 'bg-ok')} /> : <Spinner />}
+      <span className="shrink-0 text-[12px] font-medium">{agentTypeOf(d)}</span>
+      <span className="min-w-0 flex-1 truncate text-[12px] text-muted" title={verbFor(d)}>{verbFor(d)}</span>
+      {d.sub?.model && <span className="shrink-0 font-mono text-[10px] text-muted">{shortModel(d.sub.model)}</span>}
+      <span className="shrink-0 text-[11px] text-muted">{d.sub?.toolCalls ?? 0} calls</span>
+    </button>
+  )
   return (
-    <aside className="flex w-[420px] shrink-0 flex-col border-l border-border bg-panel">
+    <aside className="flex w-[440px] shrink-0 flex-col border-l border-border bg-panel">
       <div className="flex items-center gap-2 border-b border-border px-3 py-2">
-        <Users size={14} className="text-accent" />
-        <span className="text-[13px] font-semibold">{agentTypeOf(block)}</span>
-        {block.sub?.model && <span className="rounded bg-panel-2 px-1 py-px font-mono text-[10px] text-muted">{shortModel(block.sub.model)}</span>}
-        <span className="ml-auto text-[11px]">{block.done ? (block.isError ? <span className="text-danger">error</span> : <span className="text-ok">done</span>) : <span className="inline-flex items-center gap-1 text-warn"><Spinner /> running</span>}</span>
-        <button className="ml-1 text-muted hover:text-text" onClick={() => setId(null)} aria-label="Close">
+        <ListTree size={14} className="text-accent" />
+        <span className="text-[13px] font-semibold">Activity</span>
+        <button className="ml-auto text-muted hover:text-text" onClick={() => setView({ kind: 'closed' })} aria-label="Close">
           ✕
         </button>
       </div>
       <div className="flex-1 overflow-auto p-3">
-        <SubagentSteps block={block} />
+        <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted">Who did what</div>
+        <div className="mb-4 flex flex-col gap-1.5">
+          <div className="rounded-lg border border-border px-3 py-2">
+            <div className="flex items-center gap-2 text-[12px]">
+              <Users size={12} className="text-accent" />
+              <span className="font-medium">orchestrator</span>
+              <span className="font-mono text-[10px] text-muted">{shortModel(model)}</span>
+              <span className="ml-auto text-[11px] text-muted">{assistant.length} turn{assistant.length === 1 ? '' : 's'}</span>
+            </div>
+            <div className="mt-1 flex flex-wrap gap-1 text-[11px] text-muted">
+              {thinking > 0 && <span className="rounded bg-panel-2 px-1.5 py-px">think ×{thinking}</span>}
+              {delegations.length > 0 && <span className="rounded bg-panel-2 px-1.5 py-px">delegate ×{delegations.length}</span>}
+              {orchestratorTools.map(([n, c]) => (
+                <span key={n} className="rounded bg-panel-2 px-1.5 py-px">
+                  {n} ×{c}
+                </span>
+              ))}
+            </div>
+          </div>
+          {Array.from(byAgent.entries()).map(([name, list]) => {
+            const calls = list.reduce((n, d) => n + (d.sub?.toolCalls ?? 0), 0)
+            const model = list.find((d) => d.sub?.model)?.sub?.model
+            const running = list.filter((d) => !d.done).length
+            const failed = list.filter((d) => d.done && d.isError).length
+            return (
+              <div key={name} className="rounded-lg border border-border px-3 py-2">
+                <div className="flex items-center gap-2 text-[12px]">
+                  <span className="font-medium">{name}</span>
+                  {model && <span className="font-mono text-[10px] text-muted">{shortModel(model)}</span>}
+                  <span className="ml-auto text-[11px] text-muted">
+                    {list.length} delegation{list.length === 1 ? '' : 's'}
+                    {running ? ` · ${running} running` : ''}
+                    {failed ? ` · ${failed} failed` : ''}
+                  </span>
+                </div>
+                <div className="mt-1 text-[11px] text-muted">{calls} tool call{calls === 1 ? '' : 's'} in total</div>
+              </div>
+            )
+          })}
+          {delegations.length === 0 && <div className="text-[12px] text-muted">No delegations yet in this session.</div>}
+        </div>
+        {active.length > 0 && (
+          <>
+            <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-warn">Active</div>
+            <div className="mb-4 flex flex-col">
+              {active.map((d) => (
+                <Row key={d.toolUseId} d={d} />
+              ))}
+            </div>
+          </>
+        )}
+        {history.length > 0 && (
+          <>
+            <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted">History</div>
+            <div className="flex flex-col">
+              {history.map((d) => (
+                <Row key={d.toolUseId} d={d} />
+              ))}
+            </div>
+          </>
+        )}
       </div>
     </aside>
   )
@@ -451,7 +536,8 @@ function SubagentPanel({ items }: { items: ChatItem[] }): React.JSX.Element | nu
 
 function ToolCall({ block }: { block: ChatToolBlock }): React.JSX.Element {
   const [open, setOpen] = useState(false)
-  const [, openPanel] = useSubPanel()
+  const [, setPanel] = usePanel()
+  const openPanel = (id: string): void => setPanel({ kind: 'delegation', id })
   const input = (block.input ?? {}) as Record<string, unknown>
   const isAgent = block.name === 'Agent' || block.name === 'Task'
   const headline =
