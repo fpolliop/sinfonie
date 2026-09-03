@@ -7,6 +7,7 @@ import { WorkspaceView } from './components/WorkspaceView'
 import { NewWorkspaceDialog } from './components/NewWorkspaceDialog'
 import { SettingsDialog } from './components/SettingsDialog'
 import { PermissionPrompt } from './components/PermissionPrompt'
+import { BranchRenamePrompt } from './components/BranchRenamePrompt'
 import { Button } from './components/ui'
 
 export default function App(): React.JSX.Element {
@@ -46,6 +47,7 @@ export default function App(): React.JSX.Element {
       {showNewWorkspace && <NewWorkspaceDialog onClose={() => setShowNewWorkspace(false)} />}
       {showSettings && <SettingsDialog onClose={() => setShowSettings(false)} />}
       <PermissionPrompt />
+      <BranchRenamePrompt />
       {error && (
         <div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-lg border border-danger/40 bg-panel px-4 py-2 text-[12px] shadow-xl">
           <span className="text-danger">{error}</span>

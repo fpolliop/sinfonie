@@ -15,6 +15,7 @@ interface AppState {
   showSettings: boolean
   showArchived: boolean
   error: string | null
+  branchPrompt: { workspaceId: string; name: string; newSlug: string; currentBranch: string } | null
 
   load: () => Promise<void>
   applyStore: (d: StoreData) => void
@@ -24,6 +25,7 @@ interface AppState {
   setShowSettings: (v: boolean) => void
   setShowArchived: (v: boolean) => void
   setError: (e: string | null) => void
+  setBranchPrompt: (p: AppState['branchPrompt']) => void
 }
 
 export const useApp = create<AppState>((set, get) => ({
@@ -37,6 +39,7 @@ export const useApp = create<AppState>((set, get) => ({
   showSettings: false,
   showArchived: false,
   error: null,
+  branchPrompt: null,
 
   load: async () => {
     const d = await api.invoke('store:get')
@@ -58,7 +61,8 @@ export const useApp = create<AppState>((set, get) => ({
   setShowNewWorkspace: (v) => set({ showNewWorkspace: v }),
   setShowSettings: (v) => set({ showSettings: v }),
   setShowArchived: (v) => set({ showArchived: v }),
-  setError: (error) => set({ error })
+  setError: (error) => set({ error }),
+  setBranchPrompt: (branchPrompt) => set({ branchPrompt })
 }))
 
 export function useSelectedWorkspace(): Workspace | undefined {

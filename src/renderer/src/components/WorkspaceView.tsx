@@ -1,4 +1,6 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
+import { renameWorkspace } from '@/lib/rename'
+import { InlineRename } from './InlineRename'
 import clsx from 'clsx'
 import { Folder, Code2, TerminalSquare, Archive, Trash2, MoreHorizontal, Pencil, GitBranch, ExternalLink } from 'lucide-react'
 import { useGithub } from '@/stores/github'
@@ -25,8 +27,17 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
   const { tab, setTab, setError } = useApp()
   const [menu, setMenu] = useState(false)
   const [archiveDlg, setArchiveDlg] = useState(false)
-  const [renameDlg, setRenameDlg] = useState<null | 'name' | 'branch'>(null)
+  const [renameDlg, setRenameDlg] = useState<null | 'branch'>(null)
+  const [editingTitle, setEditingTitle] = useState(false)
   const prs = useGithub((s) => s.byWorkspace[workspaceId]?.repos)
+  useEffect(() => {
+    // The sidebar's context menu asks the open workspace view to show its archive dialog.
+    const onArchive = (e: Event): void => {
+      if ((e as CustomEvent<string>).detail === workspaceId) setArchiveDlg(true)
+    }
+    window.addEventListener('orchestra:archive', onArchive)
+    return () => window.removeEventListener('orchestra:archive', onArchive)
+  }, [workspaceId])
   if (!ws) return <div />
 
   const run = async (fn: () => Promise<unknown>): Promise<void> => {
@@ -42,7 +53,23 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
       <header className="drag flex h-[52px] shrink-0 items-center gap-3 border-b border-border px-4">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <h1 className="truncate text-[14px] font-semibold">{ws.name}</h1>
+            {editingTitle ? (
+              <div className="no-drag w-72">
+                <InlineRename
+                  value={ws.name}
+                  className="text-[14px] font-semibold"
+                  onSave={(v) => {
+                    setEditingTitle(false)
+                    void renameWorkspace(ws, v)
+                  }}
+                  onCancel={() => setEditingTitle(false)}
+                />
+              </div>
+            ) : (
+              <h1 className="no-drag cursor-text truncate text-[14px] font-semibold" title="Double-click to rename" onDoubleClick={() => setEditingTitle(true)}>
+                {ws.name}
+              </h1>
+            )}
             {ws.status === 'creating' && <Badge tone="warn">creating</Badge>}
             {ws.status === 'error' && <Badge tone="danger">error</Badge>}
             {ws.status === 'archived' && <Badge>archived</Badge>}
@@ -94,8 +121,8 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
               <MenuItem icon={<Code2 size={14} />} label="Open in Cursor" onClick={() => run(() => api.invoke('workspaces:openIn', ws.id, 'cursor'))} />
               <MenuItem icon={<TerminalSquare size={14} />} label="Open in Terminal" onClick={() => run(() => api.invoke('workspaces:openIn', ws.id, 'terminal'))} />
               <div className="my-1 border-t border-border" />
-              <MenuItem icon={<Pencil size={14} />} label="Rename workspace" onClick={() => setRenameDlg('name')} />
-              <MenuItem icon={<GitBranch size={14} />} label="Rename branch (all repos)" onClick={() => setRenameDlg('branch')} disabled={ws.status === 'archived'} />
+              <MenuItem icon={<Pencil size={14} />} label="Rename workspace" onClick={() => setEditingTitle(true)} />
+              <MenuItem icon={<GitBranch size={14} />} label="Rename branch only (all repos)" onClick={() => setRenameDlg('branch')} disabled={ws.status !== 'ready'} />
               <div className="my-1 border-t border-border" />
               {ws.status !== 'archived' ? (
                 <MenuItem icon={<Archive size={14} />} label="Archive workspace" onClick={() => setArchiveDlg(true)} danger />
@@ -124,16 +151,7 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
       </div>
 
       {archiveDlg && <ArchiveDialog workspaceId={ws.id} name={ws.name} repoCount={ws.repos.length} onClose={() => setArchiveDlg(false)} />}
-      {renameDlg && (
-        <RenameDialog
-          kind={renameDlg}
-          initial={renameDlg === 'name' ? ws.name : ws.repos[0]?.branch ?? ''}
-          currentBranch={ws.repos[0]?.branch ?? ''}
-          canRenameBranches={ws.status === 'ready'}
-          onClose={() => setRenameDlg(null)}
-          onSubmit={(v, renameBranches) => run(() => (renameDlg === 'name' ? api.invoke('workspaces:rename', ws.id, v, { renameBranches }) : api.invoke('workspaces:renameBranch', ws.id, v)))}
-        />
-      )}
+      {renameDlg && <BranchDialog initial={ws.repos[0]?.branch ?? ''} onClose={() => setRenameDlg(null)} onSubmit={(v) => run(() => api.invoke('workspaces:renameBranch', ws.id, v))} />}
     </div>
   )
 }
@@ -179,48 +197,32 @@ function ArchiveDialog({ workspaceId, name, repoCount, onClose }: { workspaceId:
   )
 }
 
-function slugPreview(name: string): string {
-  return name.toLowerCase().trim().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'workspace'
-}
-
-function RenameDialog({ kind, initial, currentBranch, canRenameBranches, onClose, onSubmit }: { kind: 'name' | 'branch'; initial: string; currentBranch: string; canRenameBranches: boolean; onClose: () => void; onSubmit: (v: string, renameBranches: boolean) => Promise<void> }): React.JSX.Element {
+function BranchDialog({ initial, onClose, onSubmit }: { initial: string; onClose: () => void; onSubmit: (v: string) => Promise<void> }): React.JSX.Element {
   const [value, setValue] = useState(initial)
-  const [renameBranches, setRenameBranches] = useState(true)
   const [busy, setBusy] = useState(false)
-  const newSlug = slugPreview(value)
-  const branchWouldChange = kind === 'name' && canRenameBranches && newSlug !== currentBranch
   return (
-    <Dialog title={kind === 'name' ? 'Rename workspace' : 'Rename branch in every repo'} onClose={onClose} width={460}>
+    <Dialog title="Rename branch in every repo" onClose={onClose} width={440}>
       <form
         onSubmit={async (e) => {
           e.preventDefault()
           setBusy(true)
           try {
-            await onSubmit(value, branchWouldChange && renameBranches)
+            await onSubmit(value)
             onClose()
           } finally {
             setBusy(false)
           }
         }}
       >
-        <Field label={kind === 'name' ? 'Workspace name' : 'Branch name'}>
+        <Field label="Branch name" hint="Applies to every repo in this workspace. Branches already on GitHub are renamed there too. The workspace name stays as it is.">
           <input autoFocus className={inputCls} value={value} onChange={(e) => setValue(e.target.value)} />
         </Field>
-        {branchWouldChange && (
-          <label className="mb-4 flex items-start gap-2 rounded-md border border-border bg-bg p-3 text-[12px]">
-            <input type="checkbox" className="mt-0.5" checked={renameBranches} onChange={(e) => setRenameBranches(e.target.checked)} />
-            <span>
-              Also rename the branch in every repo from <code className="rounded bg-panel-2 px-1">{currentBranch}</code> to <code className="rounded bg-panel-2 px-1">{newSlug}</code>.
-              <span className="block text-muted">Branches already on GitHub are renamed there too, so open pull requests follow along. The folder on disk keeps its name.</span>
-            </span>
-          </label>
-        )}
         <div className="flex justify-end gap-2">
           <Button type="button" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" variant="primary" disabled={busy || !value.trim()}>
-            {busy ? 'Renaming…' : 'Save'}
+          <Button type="submit" variant="primary" disabled={busy || !value.trim() || value.trim() === initial}>
+            {busy ? 'Renaming…' : 'Rename'}
           </Button>
         </div>
       </form>
