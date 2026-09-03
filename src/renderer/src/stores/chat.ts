@@ -89,10 +89,11 @@ export const useChat = create<ChatState>((set, get) => ({
           next = { ...next, busy: true }
           break
         case 'result':
-          next = { ...next, busy: false, lastResult: e.result, error: e.result.isError ? e.result.errorText : undefined }
+          // Failures are rendered as system items in the transcript now.
+          next = { ...next, busy: false, lastResult: e.result, error: undefined }
           break
         case 'error':
-          next = { ...next, busy: false, error: e.message }
+          next = { ...next, busy: false }
           break
       }
       return { chats: { ...s.chats, [id]: next } }

@@ -319,7 +319,7 @@ export interface TerminalDataEvent {
 
 // ---- Chat ----
 
-export type ChatRole = 'user' | 'assistant'
+export type ChatRole = 'user' | 'assistant' | 'system'
 
 export interface ChatTextBlock {
   type: 'text'
@@ -345,6 +345,8 @@ export interface ChatItem {
   role: ChatRole
   blocks: ChatBlock[]
   createdAt: string
+  /** For system items: how loud to render it. */
+  level?: 'info' | 'warn' | 'error'
 }
 
 export interface ChatTurnResult {
@@ -360,6 +362,7 @@ export interface ChatTurnResult {
 export type AgentEvent =
   | { type: 'init'; workspaceId: string; sessionId: string; model: string; cwd: string }
   | { type: 'user_message'; workspaceId: string; itemId: string; text: string; createdAt: string }
+  | { type: 'notice'; workspaceId: string; itemId: string; level: 'info' | 'warn' | 'error'; text: string; createdAt: string }
   | { type: 'assistant_start'; workspaceId: string; itemId: string }
   | { type: 'text_delta'; workspaceId: string; itemId: string; text: string }
   | { type: 'thinking_delta'; workspaceId: string; itemId: string; text: string }

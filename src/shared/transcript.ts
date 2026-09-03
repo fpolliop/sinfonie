@@ -9,6 +9,8 @@ export function applyEvent(items: ChatItem[], e: AgentEvent): ChatItem[] {
   switch (e.type) {
     case 'user_message':
       return [...items, { id: e.itemId, role: 'user', blocks: [{ type: 'text', text: e.text }], createdAt: e.createdAt }]
+    case 'notice':
+      return [...items, { id: e.itemId, role: 'system', level: e.level, blocks: [{ type: 'text', text: e.text }], createdAt: e.createdAt }]
     case 'assistant_start':
       return [...items, { id: e.itemId, role: 'assistant', blocks: [], createdAt: new Date().toISOString() }]
     case 'text_delta':

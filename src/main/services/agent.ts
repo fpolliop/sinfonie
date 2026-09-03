@@ -1,6 +1,9 @@
 import { query, type Options, type Query, type SDKMessage, type SDKUserMessage, type PermissionResult } from '@anthropic-ai/claude-agent-sdk'
 import { nanoid } from 'nanoid'
 import type { AgentEvent, PermissionMode, PermissionRequest, PermissionResponse, Workspace } from '@shared/types'
+import { app } from 'electron'
+import { appendFileSync, existsSync, mkdirSync } from 'fs'
+import { join } from 'path'
 import { getStore } from '../store'
 import { getWorkspace, patchWorkspace } from './workspaces'
 import { accountEnv } from './accounts'
@@ -15,6 +18,48 @@ interface Session {
   end: () => void
   abort: AbortController
   busy: boolean
+  /** Last lines the CLI wrote to stderr, shown when a turn fails without a better explanation. */
+  stderr: string[]
+}
+
+/** Everything the SDK sends (minus streaming deltas) goes to a per-workspace log for diagnosis. */
+export function agentLogPath(workspaceId: string): string {
+  const dir = join(app.getPath('userData'), 'logs')
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+  return join(dir, `agent-${workspaceId}.jsonl`)
+}
+function logMsg(workspaceId: string, msg: SDKMessage): void {
+  if (msg.type === 'stream_event' && msg.event.type !== 'message_start' && msg.event.type !== 'message_delta' && msg.event.type !== 'message_stop') return
+  try {
+    const { type } = msg
+    const subtype = 'subtype' in msg ? msg.subtype : undefined
+    const brief: Record<string, unknown> = { ts: new Date().toISOString(), type, subtype }
+    if (msg.type === 'assistant') brief.error = msg.error, (brief.stop_reason = msg.message.stop_reason), (brief.blocks = msg.message.content.map((b) => b.type))
+    if (msg.type === 'result') brief.is_error = msg.is_error, (brief.stop_reason = msg.stop_reason), (brief.errors = 'errors' in msg ? msg.errors : undefined), (brief.num_turns = msg.num_turns)
+    if (msg.type === 'stream_event' && msg.event.type === 'message_delta') brief.stop_reason = msg.event.delta.stop_reason
+    if (msg.type === 'system' && msg.subtype !== 'init') brief.detail = JSON.stringify(msg).slice(0, 600)
+    if (msg.type === 'auth_status' || msg.type === 'rate_limit_event') brief.detail = JSON.stringify(msg).slice(0, 600)
+    appendFileSync(agentLogPath(workspaceId), JSON.stringify(brief) + '\n')
+  } catch {
+    /* logging must never break the session */
+  }
+}
+
+const ERROR_TEXT: Record<string, string> = {
+  authentication_failed: 'Claude Code is not logged in for this account. Open Settings → Claude accounts and log in.',
+  oauth_org_not_allowed: 'This login is not allowed to use the API for this organization.',
+  account_on_hold: 'The Claude account is on hold.',
+  billing_error: 'Billing problem on the Claude account.',
+  rate_limit: 'Rate limit reached. Wait a bit and try again.',
+  overloaded: 'The API is overloaded right now.',
+  invalid_request: 'The API rejected the request as invalid.',
+  model_not_found: 'The configured model was not found. Check the model name in Settings.',
+  server_error: 'The API returned a server error.',
+  max_output_tokens: 'The reply hit the maximum output length and was cut off.',
+  unknown: 'Unknown API error.'
+}
+function describeError(code: string | undefined): string {
+  return (code && ERROR_TEXT[code]) || `API error${code ? ` (${code})` : ''}`
 }
 
 const sessions = new Map<string, Session>()
@@ -129,12 +174,19 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
       ORCHESTRA_WORKSPACE_ROOT: ws.rootPath,
       ORCHESTRA_PORT: String(ws.port)
     },
-    stderr: (d) => console.error(`[agent ${ws.slug}]`, d.trimEnd()),
     ...(ws.sessionId ? { resume: ws.sessionId } : {})
   }
 
+  const stderrLines: string[] = []
+  options.stderr = (d) => {
+    console.error(`[agent ${ws.slug}]`, d.trimEnd())
+    for (const line of d.split('\n')) {
+      if (line.trim()) stderrLines.push(line.trim())
+    }
+    if (stderrLines.length > 40) stderrLines.splice(0, stderrLines.length - 40)
+  }
   const q = query({ prompt: input.iterable, options })
-  const session: Session = { workspaceId, q, push: input.push, end: input.end, abort, busy: false }
+  const session: Session = { workspaceId, q, push: input.push, end: input.end, abort, busy: false, stderr: stderrLines }
   sessions.set(workspaceId, session)
   void pump(session, emit)
   return session
@@ -147,9 +199,28 @@ async function pump(session: Session, emit: EmitEvent): Promise<void> {
   // Map content-block index -> tool_use id for the in-flight assistant message.
   const toolIds = new Map<number, string>()
   const toolJson = new Map<number, string>()
+  // What this turn produced so far, so an empty turn can be called out.
+  let turnText = 0
+  let turnTools = 0
+  let turnStop: string | null = null
+  const notice = (level: 'info' | 'warn' | 'error', text: string): void =>
+    emit({ type: 'notice', workspaceId, itemId: nanoid(8), level, text, createdAt: new Date().toISOString() })
   try {
     for await (const msg of session.q as AsyncIterable<SDKMessage>) {
+      logMsg(workspaceId, msg)
       switch (msg.type) {
+        case 'assistant':
+          if (msg.error && !msg.parent_tool_use_id) notice('error', describeError(msg.error))
+          break
+        case 'auth_status':
+          if (msg.error) notice('error', `Authentication: ${msg.error}`)
+          break
+        case 'rate_limit_event': {
+          const r = msg.rate_limit_info
+          if (r.status === 'rejected') notice('error', `Rate limit hit (${r.rateLimitType ?? 'usage'})${r.resetsAt ? `, resets ${new Date(r.resetsAt * 1000).toLocaleTimeString()}` : ''}.`)
+          else if (r.status === 'allowed_warning' && r.utilization != null) notice('warn', `Approaching the ${r.rateLimitType ?? 'usage'} limit: ${Math.round(r.utilization * 100)}% used.`)
+          break
+        }
         case 'system':
           if (msg.subtype === 'init') {
             getStore().update((d) => {
@@ -157,6 +228,18 @@ async function pump(session: Session, emit: EmitEvent): Promise<void> {
               if (w) w.sessionId = msg.session_id
             })
             emit({ type: 'init', workspaceId, sessionId: msg.session_id, model: msg.model, cwd: msg.cwd })
+          } else if (msg.subtype === 'api_retry') {
+            notice('warn', `${describeError(msg.error)} Retrying (${msg.attempt}/${msg.max_retries}) in ${Math.round(msg.retry_delay_ms / 1000)}s…`)
+          } else if (msg.subtype === 'model_refusal_no_fallback') {
+            notice('error', `The model declined this request${msg.api_refusal_category ? ` (${msg.api_refusal_category})` : ''}. ${msg.api_refusal_explanation ?? msg.content ?? ''}`.trim())
+          } else if (msg.subtype === 'model_refusal_fallback') {
+            notice('info', `Switched from ${msg.original_model} to ${msg.fallback_model} after a refusal.`)
+          } else if (msg.subtype === 'notification') {
+            if (msg.priority === 'high' || msg.priority === 'immediate') notice('warn', msg.text)
+          } else if (msg.subtype === 'status') {
+            if (msg.compact_result === 'failed') notice('warn', `Context compaction failed${msg.compact_error ? `: ${msg.compact_error}` : ''}.`)
+          } else if (msg.subtype === 'permission_denied') {
+            notice('warn', `${msg.tool_name} was denied: ${msg.message}`)
           }
           break
         case 'stream_event': {
@@ -168,16 +251,19 @@ async function pump(session: Session, emit: EmitEvent): Promise<void> {
             toolJson.clear()
             session.busy = true
             emit({ type: 'assistant_start', workspaceId, itemId })
+          } else if (ev.type === 'message_delta') {
+            turnStop = ev.delta.stop_reason ?? turnStop
           } else if (ev.type === 'content_block_start') {
             const block = ev.content_block
             if (block.type === 'tool_use') {
+              turnTools++
               toolIds.set(ev.index, block.id)
               toolJson.set(ev.index, '')
               emit({ type: 'tool_start', workspaceId, itemId, toolUseId: block.id, name: block.name })
             }
           } else if (ev.type === 'content_block_delta') {
             const delta = ev.delta
-            if (delta.type === 'text_delta') emit({ type: 'text_delta', workspaceId, itemId, text: delta.text })
+            if (delta.type === 'text_delta') turnText += delta.text.length, emit({ type: 'text_delta', workspaceId, itemId, text: delta.text })
             else if (delta.type === 'thinking_delta') emit({ type: 'thinking_delta', workspaceId, itemId, text: delta.thinking })
             else if (delta.type === 'input_json_delta') toolJson.set(ev.index, (toolJson.get(ev.index) ?? '') + delta.partial_json)
           } else if (ev.type === 'content_block_stop') {
@@ -216,9 +302,26 @@ async function pump(session: Session, emit: EmitEvent): Promise<void> {
         }
         case 'result': {
           session.busy = false
-          const isError = msg.subtype !== 'success'
+          const isError = msg.subtype !== 'success' || msg.is_error
           const errs = 'errors' in msg && Array.isArray(msg.errors) ? (msg.errors as string[]).join('\n') : ''
-          const errorText = isError ? errs || (msg as { subtype: string }).subtype : undefined
+          const denials = 'permission_denials' in msg && Array.isArray(msg.permission_denials) ? msg.permission_denials.length : 0
+          let errorText: string | undefined
+          if (isError) {
+            const parts = [errs || (msg.subtype === 'success' ? (msg.result || '').slice(0, 500) : msg.subtype.replace(/_/g, ' '))]
+            if (msg.stop_reason) parts.push(`stop reason: ${msg.stop_reason}`)
+            if (denials) parts.push(`${denials} tool call${denials === 1 ? '' : 's'} denied`)
+            if (!errs && session.stderr.length) parts.push(`stderr: ${session.stderr.slice(-5).join(' | ')}`)
+            errorText = parts.join(' · ')
+            notice('error', `The turn failed: ${errorText}`)
+          } else if (turnText === 0 && turnTools === 0) {
+            const why = turnStop ?? msg.stop_reason
+            notice('warn', `Claude ended the turn without replying${why ? ` (stop reason: ${why})` : ''}. Try sending the message again; if it keeps happening, start a new session.`)
+          } else if (turnStop === 'max_tokens' || msg.stop_reason === 'max_tokens') {
+            notice('warn', 'The reply was cut off at the maximum output length.')
+          }
+          turnText = 0
+          turnTools = 0
+          turnStop = null
           emit({
             type: 'result',
             result: {
@@ -243,7 +346,11 @@ async function pump(session: Session, emit: EmitEvent): Promise<void> {
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    if (!session.abort.signal.aborted) emit({ type: 'error', workspaceId, message })
+    if (!session.abort.signal.aborted) {
+      const tail = session.stderr.slice(-5).join(' | ')
+      notice('error', `The session ended unexpectedly: ${message}${tail ? ` · stderr: ${tail}` : ''}`)
+      emit({ type: 'error', workspaceId, message })
+    }
   } finally {
     sessions.delete(workspaceId)
     emit({ type: 'status', workspaceId, busy: false })

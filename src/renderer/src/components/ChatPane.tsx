@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { ChevronRight, Square, RotateCcw, Send, ArrowDownToLine, ShieldCheck } from 'lucide-react'
+import { ChevronRight, Square, RotateCcw, Send, ArrowDownToLine, ShieldCheck, XCircle, AlertTriangle, Info } from 'lucide-react'
 import { api } from '@/lib/api'
 import { PERMISSION_MODES, type PermissionMode } from '@shared/types'
 import { useChat } from '@/stores/chat'
@@ -154,6 +154,16 @@ function ModePicker({ mode, onChange }: { mode: PermissionMode; onChange: (m: Pe
 }
 
 function Message({ item }: { item: ChatItem }): React.JSX.Element {
+  if (item.role === 'system') {
+    const text = item.blocks.map((b) => (b.type === 'text' ? b.text : '')).join('')
+    const level = item.level ?? 'info'
+    return (
+      <div className={clsx('flex items-start gap-2 rounded-md border px-3 py-2 text-[12px]', level === 'error' ? 'border-danger/40 bg-danger/10 text-danger' : level === 'warn' ? 'border-warn/40 bg-warn/10 text-warn' : 'border-border bg-panel text-muted')}>
+        {level === 'error' ? <XCircle size={14} className="mt-0.5 shrink-0" /> : level === 'warn' ? <AlertTriangle size={14} className="mt-0.5 shrink-0" /> : <Info size={14} className="mt-0.5 shrink-0" />}
+        <span className="whitespace-pre-wrap">{text}</span>
+      </div>
+    )
+  }
   if (item.role === 'user') {
     const text = item.blocks.map((b) => (b.type === 'text' ? b.text : '')).join('')
     return (
