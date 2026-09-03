@@ -15,6 +15,8 @@ export function applyEvent(items: ChatItem[], e: AgentEvent): ChatItem[] {
       return [...items, { id: e.itemId, role: 'assistant', blocks: [], createdAt: new Date().toISOString() }]
     case 'text_delta':
     case 'thinking_delta': {
+      // Models that omit reasoning stream empty thinking deltas; nothing to show for those.
+      if (e.type === 'thinking_delta' && !e.text) return items
       const kind = e.type === 'text_delta' ? 'text' : 'thinking'
       return updateItem(items, e.itemId, (it) => {
         const last = it.blocks[it.blocks.length - 1]

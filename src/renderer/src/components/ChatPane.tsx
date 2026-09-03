@@ -231,7 +231,7 @@ function Message({ item }: { item: ChatItem }): React.JSX.Element {
 
 function Block({ block }: { block: ChatBlock }): React.JSX.Element | null {
   if (block.type === 'text') return block.text.trim() ? <Markdown text={block.text} /> : null
-  if (block.type === 'thinking') return <Collapsible label="Thinking" muted body={block.text} />
+  if (block.type === 'thinking') return block.text.trim() ? <Collapsible label="Thinking" muted body={block.text} /> : null
   return <ToolCall block={block} />
 }
 

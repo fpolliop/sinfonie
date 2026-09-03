@@ -259,6 +259,8 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
     permissionMode: mode,
     ...(mode === 'bypassPermissions' ? { allowDangerouslySkipPermissions: true } : {}),
     model: space?.model || settings.model,
+    // Opus 5 / Fable hide reasoning by default; ask for the readable summary so the Thinking block has content.
+    thinking: { type: 'adaptive', display: 'summarized' },
     includePartialMessages: true,
     abortController: abort,
     canUseTool,
