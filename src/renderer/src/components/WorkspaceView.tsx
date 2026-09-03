@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { renameWorkspace } from '@/lib/rename'
 import { InlineRename } from './InlineRename'
 import { StagePicker } from './StagePicker'
+import { SpacePicker } from './SpacePicker'
 import type { RepoSafety } from '@shared/types'
 import clsx from 'clsx'
 import { Folder, Code2, TerminalSquare, Archive, Trash2, MoreHorizontal, Pencil, GitBranch, ExternalLink, RefreshCw, AlertTriangle } from 'lucide-react'
@@ -30,6 +31,7 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
   const [menu, setMenu] = useState(false)
   const [archiveDlg, setArchiveDlg] = useState<null | 'archive' | 'delete'>(null)
   const [jiraRefreshing, setJiraRefreshing] = useState(false)
+  const [moveDlg, setMoveDlg] = useState(false)
   const [renameDlg, setRenameDlg] = useState<null | 'branch'>(null)
   const [editingTitle, setEditingTitle] = useState(false)
   const prs = useGithub((s) => s.byWorkspace[workspaceId]?.repos)
@@ -39,8 +41,15 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
       const d = (e as CustomEvent<{ id: string; mode: 'archive' | 'delete' }>).detail
       if (d.id === workspaceId) setArchiveDlg(d.mode)
     }
+    const onMove = (e: Event): void => {
+      if ((e as CustomEvent<string>).detail === workspaceId) setMoveDlg(true)
+    }
     window.addEventListener('orchestra:archive', onArchive)
-    return () => window.removeEventListener('orchestra:archive', onArchive)
+    window.addEventListener('orchestra:moveSpace', onMove)
+    return () => {
+      window.removeEventListener('orchestra:archive', onArchive)
+      window.removeEventListener('orchestra:moveSpace', onMove)
+    }
   }, [workspaceId])
   const jiraKey = ws?.jira?.key
   const jiraStatusAt = ws?.jiraStatusAt
@@ -93,6 +102,7 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
               </h1>
             )}
             <StagePicker stage={ws.stage} disabled={ws.status === 'archived'} onChange={(stage) => run(() => api.invoke('workspaces:setStage', ws.id, stage))} />
+            <SpacePicker pill value={ws.spaceId ?? ''} onChange={(id) => run(() => api.invoke('workspaces:setSpace', ws.id, id || null))} />
             {ws.status === 'creating' && <Badge tone="warn">creating</Badge>}
             {ws.status === 'error' && <Badge tone="danger">error</Badge>}
             {ws.status === 'archived' && <Badge>archived</Badge>}
@@ -185,6 +195,17 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
       </div>
 
       {archiveDlg && <ArchiveDialog workspaceId={ws.id} name={ws.name} mode={archiveDlg} onClose={() => setArchiveDlg(null)} />}
+      {moveDlg && (
+        <Dialog title="Move to space" onClose={() => setMoveDlg(false)} width={380}>
+          <SpacePicker
+            value={ws.spaceId ?? ''}
+            onChange={(id) => {
+              run(() => api.invoke('workspaces:setSpace', ws.id, id || null))
+              setMoveDlg(false)
+            }}
+          />
+        </Dialog>
+      )}
       {renameDlg && <BranchDialog initial={ws.repos[0]?.branch ?? ''} onClose={() => setRenameDlg(null)} onSubmit={(v) => run(() => api.invoke('workspaces:renameBranch', ws.id, v))} />}
     </div>
   )

@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import clsx from 'clsx'
-import { Plus, Settings, Archive, GitBranch, Pencil, Folder, Code2, TerminalSquare, Trash2, GitPullRequest } from 'lucide-react'
+import { Plus, Settings, Archive, GitBranch, Pencil, Folder, Code2, TerminalSquare, Trash2, GitPullRequest, Layers } from 'lucide-react'
 import { useApp } from '@/stores/app'
 import { useChat } from '@/stores/chat'
 import { timeAgo } from '@/lib/format'
@@ -13,10 +13,23 @@ import { STAGE_DOT, stageLabel } from './StagePicker'
 import type { Workspace } from '@shared/types'
 
 export function Sidebar(): React.JSX.Element {
-  const { workspaces, selectedId, select, setShowNewWorkspace, setShowSettings, showArchived, setShowArchived, view, setView } = useApp()
+  const { workspaces, spaces, selectedId, select, setShowNewWorkspace, setShowSettings, showArchived, setShowArchived, view, setView, collapsedSpaces, toggleSpace, setError } = useApp()
   const chats = useChat((s) => s.chats)
-  const active = workspaces.filter((w) => w.status !== 'archived').sort((a, b) => (b.lastMessageAt ?? b.createdAt).localeCompare(a.lastMessageAt ?? a.createdAt))
+  const [spaceMenu, setSpaceMenu] = useState<{ x: number; y: number; id: string } | null>(null)
+  const [renaming, setRenaming] = useState<string | null>(null)
+  const byTime = (a: Workspace, b: Workspace): number => (b.lastMessageAt ?? b.createdAt).localeCompare(a.lastMessageAt ?? a.createdAt)
+  const active = workspaces.filter((w) => w.status !== 'archived').sort(byTime)
   const archived = workspaces.filter((w) => w.status === 'archived')
+  const run = (fn: () => Promise<unknown>): void => {
+    fn().catch((err) => setError(err instanceof Error ? err.message : String(err)))
+  }
+
+  const groups: { id: string; name: string; color: string; items: Workspace[] }[] = [
+    ...spaces.map((s) => ({ id: s.id, name: s.name, color: s.color, items: active.filter((w) => w.spaceId === s.id) })),
+    { id: '', name: spaces.length ? 'No space' : 'Workspaces', color: '#8b93a1', items: active.filter((w) => !w.spaceId || !spaces.some((s) => s.id === w.spaceId)) }
+  ].filter((g) => g.id !== '' || g.items.length > 0 || spaces.length === 0)
+
+  const row = (w: Workspace): React.JSX.Element => <WorkspaceRow key={w.id} ws={w} selected={view === 'workspace' && w.id === selectedId} busy={Boolean(chats[w.id]?.busy)} onClick={() => select(w.id)} />
 
   return (
     <aside className="flex w-[260px] shrink-0 flex-col border-r border-border bg-panel">
@@ -32,26 +45,77 @@ export function Sidebar(): React.JSX.Element {
         <button onClick={() => setView('reviews')} className={clsx('mb-2 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] font-medium', view === 'reviews' ? 'bg-panel-2' : 'hover:bg-panel-2/60')}>
           <GitPullRequest size={14} className="text-accent" /> Review cockpit
         </button>
-        <SectionLabel>Workspaces</SectionLabel>
-        {active.length === 0 && <div className="px-2 py-3 text-[12px] text-muted">No workspaces yet.</div>}
-        {active.map((w) => (
-          <WorkspaceRow key={w.id} ws={w} selected={view === 'workspace' && w.id === selectedId} busy={Boolean(chats[w.id]?.busy)} onClick={() => select(w.id)} />
-        ))}
+        {groups.map((g) => {
+          const collapsed = Boolean(collapsedSpaces[g.id || '__none']) && g.id !== ''
+          return (
+            <div key={g.id || '__none'} className="mb-1">
+              <div
+                className="group flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted hover:text-text"
+                onContextMenu={(e) => {
+                  if (!g.id) return
+                  e.preventDefault()
+                  setSpaceMenu({ x: e.clientX, y: e.clientY, id: g.id })
+                }}
+              >
+                <button className="flex min-w-0 flex-1 items-center gap-1.5 text-left" onClick={() => g.id && toggleSpace(g.id)} onDoubleClick={() => g.id && setRenaming(g.id)}>
+                  <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: g.color }} />
+                  {renaming === g.id ? (
+                    <InlineRename
+                      value={g.name}
+                      className="normal-case tracking-normal"
+                      onSave={(v) => {
+                        setRenaming(null)
+                        run(() => api.invoke('spaces:update', g.id, { name: v }))
+                      }}
+                      onCancel={() => setRenaming(null)}
+                    />
+                  ) : (
+                    <span className="truncate">{g.name}</span>
+                  )}
+                  <span className="normal-case text-muted/70">{g.items.length}</span>
+                  {g.id && <span className="ml-auto">{collapsed ? '▸' : '▾'}</span>}
+                </button>
+                <button className="rounded p-0.5 opacity-0 hover:bg-panel-2 group-hover:opacity-100" title={`New workspace in ${g.name}`} onClick={() => setShowNewWorkspace(true, g.id)}>
+                  <Plus size={12} />
+                </button>
+              </div>
+              {!collapsed && g.items.map(row)}
+              {!collapsed && g.items.length === 0 && <div className="px-2 py-1.5 text-[12px] text-muted">{g.id ? 'No workspaces yet.' : 'No workspaces yet.'}</div>}
+            </div>
+          )
+        })}
+        <button className="mt-1 flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-[12px] text-muted hover:bg-panel-2/60 hover:text-text" onClick={() => setShowSettings(true)}>
+          <Plus size={12} /> New space
+        </button>
         {archived.length > 0 && (
           <>
             <button className="mt-3 flex w-full items-center gap-1.5 px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted hover:text-text" onClick={() => setShowArchived(!showArchived)}>
               <Archive size={12} /> Archived ({archived.length}) {showArchived ? '▾' : '▸'}
             </button>
-            {showArchived && archived.map((w) => <WorkspaceRow key={w.id} ws={w} selected={view === 'workspace' && w.id === selectedId} busy={false} onClick={() => select(w.id)} />)}
+            {showArchived && archived.map(row)}
           </>
         )}
       </div>
+      {spaceMenu && (
+        <ContextMenu
+          x={spaceMenu.x}
+          y={spaceMenu.y}
+          onClose={() => setSpaceMenu(null)}
+          entries={[
+            { label: 'Rename space…', icon: <Pencil size={14} />, onClick: () => setRenaming(spaceMenu.id) },
+            { label: 'New workspace here', icon: <Plus size={14} />, onClick: () => setShowNewWorkspace(true, spaceMenu.id) },
+            { separator: true },
+            {
+              label: 'Delete space',
+              icon: <Trash2 size={14} />,
+              danger: true,
+              onClick: () => run(() => api.invoke('spaces:delete', spaceMenu.id))
+            }
+          ]}
+        />
+      )}
     </aside>
   )
-}
-
-function SectionLabel({ children }: { children: React.ReactNode }): React.JSX.Element {
-  return <div className="px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted">{children}</div>
 }
 
 function WorkspaceRow({ ws, selected, busy, onClick }: { ws: Workspace; selected: boolean; busy: boolean; onClick: () => void }): React.JSX.Element {
@@ -64,6 +128,7 @@ function WorkspaceRow({ ws, selected, busy, onClick }: { ws: Workspace; selected
   }
   const entries: MenuEntry[] = [
     { label: 'Rename…', icon: <Pencil size={14} />, onClick: () => setEditing(true) },
+    { label: 'Move to space…', icon: <Layers size={14} />, onClick: () => window.dispatchEvent(new CustomEvent('orchestra:moveSpace', { detail: ws.id })) },
     { separator: true },
     { label: 'Reveal in Finder', icon: <Folder size={14} />, onClick: () => run(() => api.invoke('workspaces:openIn', ws.id, 'finder')), disabled: ws.status === 'archived' },
     { label: 'Open in VS Code', icon: <Code2 size={14} />, onClick: () => run(() => api.invoke('workspaces:openIn', ws.id, 'vscode')), disabled: ws.status === 'archived' },

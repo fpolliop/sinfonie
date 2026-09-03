@@ -12,10 +12,23 @@ export interface ConductorConfig {
   runScriptMode?: 'concurrent' | 'sequential'
 }
 
+/** A group of workspaces and repositories, e.g. "Personal", "Lumepic", "Howdy". */
+export interface Space {
+  id: string
+  name: string
+  color: string
+  createdAt: string
+  /** Account used by default for workspaces created in this space. */
+  claudeAccountId?: string
+}
+
+export const SPACE_COLORS = ['#7c9cff', '#4ade80', '#fbbf24', '#f472b6', '#22d3ee', '#a78bfa', '#fb923c', '#94a3b8']
+
 export interface Repo {
   id: string
   name: string
   path: string
+  spaceId?: string
   defaultBranch: string
   config: ConductorConfig | null
   addedAt: string
@@ -70,6 +83,7 @@ export interface Workspace {
   permissionMode?: PermissionMode
   jira?: WorkspaceJira
   stage: WorkspaceStage
+  spaceId?: string
   claudeAccountId?: string
   /** Last known status of the linked Jira ticket, refreshed when the workspace is opened. */
   jiraStatus?: string
@@ -177,6 +191,7 @@ export interface ReviewRun {
 }
 
 export interface StoreData {
+  spaces: Space[]
   repos: Repo[]
   workspaces: Workspace[]
   settings: Settings
@@ -209,6 +224,7 @@ export interface CreateWorkspaceInput {
   primaryRepoId?: string
   jira?: WorkspaceJira
   claudeAccountId?: string
+  spaceId?: string
 }
 
 // ---- GitHub ----

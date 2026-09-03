@@ -6,6 +6,71 @@ import { Badge, Button, Dialog, Field, inputCls } from './ui'
 import { shortPath } from '@/lib/format'
 import { PERMISSION_MODES } from '@shared/types'
 import { LoginTerminal } from './LoginTerminal'
+import { SPACE_COLORS } from '@shared/types'
+
+function SpacesSection(): React.JSX.Element {
+  const { spaces, workspaces, repos, settings, setError } = useApp()
+  const [name, setName] = useState('')
+  const go = async (fn: () => Promise<unknown>): Promise<void> => {
+    try {
+      await fn()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+  const add = (): void => {
+    if (!name.trim()) return
+    void go(() => api.invoke('spaces:create', name)).then(() => setName(''))
+  }
+  return (
+    <section className="mt-5">
+      <h3 className="mb-2 text-[12px] font-medium uppercase tracking-wide text-muted">Spaces</h3>
+      <p className="mb-3 text-[11px] text-muted">Group workspaces and repositories, e.g. Personal, Lumepic, Howdy. Assign repos to a space below in the Repositories list.</p>
+      <div className="mb-3 flex flex-col gap-1.5">
+        {spaces.map((s) => {
+          const nWs = workspaces.filter((w) => w.spaceId === s.id && w.status !== 'archived').length
+          const nRepos = repos.filter((r) => r.spaceId === s.id).length
+          return (
+            <div key={s.id} className="flex items-center gap-3 rounded-lg border border-border px-3 py-2">
+              <label className="relative h-4 w-4 shrink-0 cursor-pointer rounded-full" style={{ background: s.color }} title="Colour">
+                <select className="absolute inset-0 cursor-pointer opacity-0" value={s.color} onChange={(e) => go(() => api.invoke('spaces:update', s.id, { color: e.target.value }))}>
+                  {SPACE_COLORS.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <input className="min-w-0 flex-1 bg-transparent text-[13px] font-medium outline-none" defaultValue={s.name} onBlur={(e) => e.target.value.trim() && e.target.value !== s.name && go(() => api.invoke('spaces:update', s.id, { name: e.target.value.trim() }))} />
+              <span className="shrink-0 text-[11px] text-muted">
+                {nWs} workspace{nWs === 1 ? '' : 's'} · {nRepos} repo{nRepos === 1 ? '' : 's'}
+              </span>
+              {settings.claudeAccounts.length > 1 && (
+                <select className="rounded-md border border-border bg-bg px-1.5 py-1 text-[11px]" value={s.claudeAccountId ?? ''} onChange={(e) => go(() => api.invoke('spaces:update', s.id, { claudeAccountId: e.target.value || undefined }))} title="Default Claude account for this space">
+                  <option value="">Default account</option>
+                  {settings.claudeAccounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <button title="Delete space (workspaces and repos are kept)" className="rounded p-1 text-muted hover:text-danger" onClick={() => go(() => api.invoke('spaces:delete', s.id))}>
+                <Trash2 size={13} />
+              </button>
+            </div>
+          )
+        })}
+      </div>
+      <div className="flex gap-2">
+        <input className={inputCls} placeholder="New space, e.g. Lumepic" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} />
+        <Button variant="primary" disabled={!name.trim()} onClick={add}>
+          <Plus size={13} /> Add space
+        </Button>
+      </div>
+    </section>
+  )
+}
 
 function AccountsSection(): React.JSX.Element {
   const { settings, setError } = useApp()
@@ -208,7 +273,7 @@ function JiraSection(): React.JSX.Element {
 }
 
 export function SettingsDialog({ onClose }: { onClose: () => void }): React.JSX.Element {
-  const { repos, settings, setError, workspaces } = useApp()
+  const { repos, settings, setError, workspaces, spaces } = useApp()
   const [busy, setBusy] = useState(false)
   const go = async (fn: () => Promise<unknown>): Promise<void> => {
     setBusy(true)
@@ -245,6 +310,16 @@ export function SettingsDialog({ onClose }: { onClose: () => void }): React.JSX.
                   </div>
                   <div className="truncate text-[11px] text-muted">{shortPath(r.path)}</div>
                 </div>
+                {spaces.length > 0 && (
+                  <select className="rounded-md border border-border bg-bg px-1.5 py-1 text-[11px]" value={r.spaceId ?? ''} onChange={(e) => go(() => api.invoke('repos:setSpace', r.id, e.target.value || null))} title="Space">
+                    <option value="">No space</option>
+                    {spaces.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
                 <button title="Reload conductor.json" className="rounded p-1 text-muted hover:text-text" onClick={() => go(() => api.invoke('repos:reloadConfig', r.id))}>
                   <RefreshCw size={13} />
                 </button>
@@ -282,6 +357,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }): React.JSX.
         <p className="text-[11px] text-muted">Model and permission mode apply to sessions started after the change. Use "New session" in a chat to restart one.</p>
       </section>
 
+      <SpacesSection />
       <AccountsSection />
       <JiraSection />
     </Dialog>

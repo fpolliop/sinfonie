@@ -17,6 +17,7 @@ import type {
   RepoGitStatus,
   ScriptOutputEvent,
   Settings,
+  Space,
   StoreData,
   TerminalDataEvent,
   Workspace
@@ -26,6 +27,12 @@ import type {
 export interface OrchestraInvoke {
   'store:get': () => StoreData
   'settings:update': (patch: Partial<Settings>) => Settings
+
+  'spaces:create': (name: string) => Space
+  'spaces:update': (id: string, patch: Partial<Pick<Space, 'name' | 'color' | 'claudeAccountId'>>) => Space
+  'spaces:delete': (id: string) => void
+  'workspaces:setSpace': (workspaceId: string, spaceId: string | null) => Workspace
+  'repos:setSpace': (repoId: string, spaceId: string | null) => Repo
 
   'repos:pickAndAdd': () => Repo | null
   'repos:remove': (repoId: string) => void

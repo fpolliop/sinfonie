@@ -34,11 +34,12 @@ class Store {
 
   private load(): StoreData {
     if (!existsSync(this.file)) {
-      return { repos: [], workspaces: [], settings: { ...DEFAULT_SETTINGS } }
+      return { spaces: [], repos: [], workspaces: [], settings: { ...DEFAULT_SETTINGS } }
     }
     try {
       const raw = JSON.parse(readFileSync(this.file, 'utf8')) as Partial<StoreData>
       return {
+        spaces: raw.spaces ?? [],
         repos: raw.repos ?? [],
         workspaces: (raw.workspaces ?? []).map((w) => ({ ...w, stage: w.stage ?? 'in-progress' })),
         settings: {
@@ -52,7 +53,7 @@ class Store {
       }
     } catch (err) {
       console.error('Failed to read store, starting fresh', err)
-      return { repos: [], workspaces: [], settings: { ...DEFAULT_SETTINGS } }
+      return { spaces: [], repos: [], workspaces: [], settings: { ...DEFAULT_SETTINGS } }
     }
   }
 

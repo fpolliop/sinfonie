@@ -6,6 +6,7 @@ import { useApp } from '@/stores/app'
 import { useChat } from '@/stores/chat'
 import { Badge, Button, Dialog, Field, inputCls } from './ui'
 import { AccountPicker } from './AccountPicker'
+import { SpacePicker } from './SpacePicker'
 import { shortPath } from '@/lib/format'
 import type { JiraIssue, WorkspaceJira } from '@shared/types'
 
@@ -32,11 +33,16 @@ interface Pick {
 }
 
 export function NewWorkspaceDialog({ onClose }: { onClose: () => void }): React.JSX.Element {
-  const { repos, select, setShowSettings, setError, settings } = useApp()
+  const { repos: allRepos, spaces, select, setShowSettings, setError, settings, newWorkspaceSpaceId } = useApp()
+  const [spaceId, setSpaceId] = useState(newWorkspaceSpaceId)
+  const [showAllRepos, setShowAllRepos] = useState(false)
+  const space = spaces.find((s) => s.id === spaceId)
+  const spaceRepos = spaceId ? allRepos.filter((r) => r.spaceId === spaceId) : allRepos
+  const repos = showAllRepos || spaceRepos.length === 0 ? allRepos : spaceRepos
   const setDraft = useChat((s) => s.setDraft)
   const [name, setName] = useState('')
   const [jira, setJira] = useState<WorkspaceJira | null>(null)
-  const [accountId, setAccountId] = useState(settings.defaultClaudeAccountId)
+  const [accountId, setAccountId] = useState(space?.claudeAccountId ?? settings.defaultClaudeAccountId)
   const jiraReady = settings.jira.connected || Boolean(settings.jira.siteUrl && settings.jira.email && settings.jira.hasToken)
   const [picks, setPicks] = useState<Record<string, Pick>>({})
   const [primary, setPrimary] = useState<string>('')
@@ -82,7 +88,8 @@ export function NewWorkspaceDialog({ onClose }: { onClose: () => void }): React.
         repos: selected.map((s) => ({ repoId: s.repoId, baseBranch: s.baseBranch })),
         primaryRepoId: primary || selected[0].repoId,
         ...(jira ? { jira } : {}),
-        claudeAccountId: accountId
+        claudeAccountId: accountId,
+        ...(spaceId ? { spaceId } : {})
       })
       select(ws.id)
       onClose()
@@ -120,7 +127,24 @@ export function NewWorkspaceDialog({ onClose }: { onClose: () => void }): React.
       <Field label="Name" hint="Becomes the branch name in every selected repo and the folder name on disk.">
         <input autoFocus className={inputCls} placeholder="e.g. checkout-redesign" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && submit()} />
       </Field>
-      <div className="mb-1 text-[12px] font-medium text-muted">Repositories</div>
+      {spaces.length > 0 && (
+        <div className="mb-3 flex items-center gap-3">
+          <SpacePicker
+            value={spaceId}
+            onChange={(id) => {
+              setSpaceId(id)
+              const sp = spaces.find((s) => s.id === id)
+              if (sp?.claudeAccountId) setAccountId(sp.claudeAccountId)
+            }}
+          />
+          {spaceId && spaceRepos.length > 0 && spaceRepos.length < allRepos.length && (
+            <label className="flex items-center gap-1 text-[11px] text-muted">
+              <input type="checkbox" checked={showAllRepos} onChange={(e) => setShowAllRepos(e.target.checked)} /> show repos from other spaces
+            </label>
+          )}
+        </div>
+      )}
+      <div className="mb-1 text-[12px] font-medium text-muted">Repositories{space && !showAllRepos && spaceRepos.length > 0 ? ` in ${space.name}` : ''}</div>
       {repos.length === 0 && (
         <div className="mb-3 rounded-md border border-border p-3 text-muted">
           No repositories added yet.{' '}

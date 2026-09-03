@@ -3,7 +3,8 @@ import { basename } from 'path'
 import { spawn } from 'child_process'
 import { nanoid } from 'nanoid'
 import type { OrchestraEvents, OrchestraInvoke } from '@shared/ipc'
-import type { Repo, RepoGitStatus } from '@shared/types'
+import type { Repo, RepoGitStatus, Space } from '@shared/types'
+import { SPACE_COLORS } from '@shared/types'
 import { getStore } from './store'
 import * as git from './services/git'
 import * as workspaces from './services/workspaces'
@@ -39,6 +40,46 @@ export function registerIpc(): void {
 
   handle('store:get', () => getStore().public())
   handle('settings:update', (patch) => getStore().update((d) => Object.assign(d.settings, patch)).settings)
+
+  // ---- spaces ----
+  handle('spaces:create', (name) => {
+    const space: Space = { id: nanoid(6), name: name.trim() || 'Space', color: SPACE_COLORS[getStore().get().spaces.length % SPACE_COLORS.length], createdAt: new Date().toISOString() }
+    getStore().update((d) => d.spaces.push(space))
+    return space
+  })
+  handle('spaces:update', (id, patch) => {
+    let out: Space | undefined
+    getStore().update((d) => {
+      const s = d.spaces.find((x) => x.id === id)
+      if (s) {
+        Object.assign(s, patch)
+        out = s
+      }
+    })
+    if (!out) throw new Error('Unknown space')
+    return out
+  })
+  handle('spaces:delete', (id) => {
+    getStore().update((d) => {
+      d.spaces = d.spaces.filter((s) => s.id !== id)
+      for (const w of d.workspaces) if (w.spaceId === id) delete w.spaceId
+      for (const r of d.repos) if (r.spaceId === id) delete r.spaceId
+    })
+  })
+  handle('workspaces:setSpace', (wid, spaceId) => workspaces.patchWorkspace(wid, { spaceId: spaceId ?? undefined }))
+  handle('repos:setSpace', (rid, spaceId) => {
+    let out: Repo | undefined
+    getStore().update((d) => {
+      const r = d.repos.find((x) => x.id === rid)
+      if (r) {
+        if (spaceId) r.spaceId = spaceId
+        else delete r.spaceId
+        out = r
+      }
+    })
+    if (!out) throw new Error('Unknown repo')
+    return out
+  })
 
   // ---- repos ----
   handle('repos:pickAndAdd', async () => {

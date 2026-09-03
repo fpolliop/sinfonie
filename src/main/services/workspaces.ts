@@ -94,7 +94,8 @@ export async function createWorkspace(input: CreateWorkspaceInput, emit: Emit): 
     stage: 'in-progress',
     createdAt: new Date().toISOString(),
     ...(input.jira ? { jira: input.jira } : {}),
-    ...(input.claudeAccountId ? { claudeAccountId: input.claudeAccountId } : {})
+    ...(input.claudeAccountId ? { claudeAccountId: input.claudeAccountId } : {}),
+    ...(input.spaceId ? { spaceId: input.spaceId } : {})
   }
   getStore().update((d) => d.workspaces.push(ws))
 
