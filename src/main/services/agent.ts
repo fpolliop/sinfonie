@@ -7,6 +7,8 @@ import { join } from 'path'
 import { getStore } from '../store'
 import { getWorkspace, patchWorkspace } from './workspaces'
 import { accountEnv } from './accounts'
+import * as jira from './jira'
+import type { McpServerSpec } from '@shared/types'
 
 type EmitEvent = (e: AgentEvent) => void
 type EmitPermission = (r: PermissionRequest) => void
@@ -114,7 +116,32 @@ function systemPromptFor(ws: Workspace): string {
   return lines.join('\n')
 }
 
-function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission: EmitPermission): Session {
+function toSdkMcp(spec: McpServerSpec): NonNullable<Options['mcpServers']>[string] | null {
+  if (spec.transport === 'stdio') return spec.command ? { type: 'stdio', command: spec.command, args: spec.args ?? [], env: spec.env } : null
+  if (!spec.url) return null
+  return { type: spec.transport, url: spec.url, headers: spec.headers }
+}
+
+/** App-level servers, then the space's, then the space's Jira login as the Atlassian MCP. */
+async function mcpServersFor(ws: Workspace): Promise<Record<string, NonNullable<Options['mcpServers']>[string]>> {
+  const { settings, spaces } = getStore().get()
+  const space = spaces.find((s) => s.id === ws.spaceId)
+  const out: Record<string, NonNullable<Options['mcpServers']>[string]> = {}
+  for (const spec of [...(settings.mcpServers ?? []), ...(space?.mcpServers ?? [])]) {
+    if (!spec.enabled) continue
+    const cfg = toSdkMcp(spec)
+    if (cfg) out[spec.name] = cfg
+  }
+  const connId = jira.connectionForSpace(ws.spaceId)
+  const expose = space ? space.exposeJiraMcp !== false : true
+  if (expose && !out.jira) {
+    const token = await jira.accessToken(connId)
+    if (token) out.jira = { type: 'http', url: jira.JIRA_MCP_URL, headers: { Authorization: `Bearer ${token}` } }
+  }
+  return out
+}
+
+function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission: EmitPermission, mcpServers: Record<string, NonNullable<Options['mcpServers']>[string]>): Session {
   const existing = sessions.get(workspaceId)
   if (existing) return existing
 
@@ -166,7 +193,8 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
     includePartialMessages: true,
     abortController: abort,
     canUseTool,
-    systemPrompt: { type: 'preset', preset: 'claude_code', append: systemPromptFor(ws) },
+    systemPrompt: { type: 'preset', preset: 'claude_code', append: systemPromptFor(ws) + (Object.keys(mcpServers).length ? `\nMCP servers available in this workspace: ${Object.keys(mcpServers).join(', ')}.` : '') },
+    ...(Object.keys(mcpServers).length ? { mcpServers } : {}),
     settingSources: ['user', 'project', 'local'],
     env: {
       ...process.env,
@@ -229,6 +257,9 @@ async function pump(session: Session, emit: EmitEvent): Promise<void> {
               if (w) w.sessionId = msg.session_id
             })
             emit({ type: 'init', workspaceId, sessionId: msg.session_id, model: msg.model, cwd: msg.cwd })
+            for (const m of msg.mcp_servers) {
+              if (m.status !== 'connected' && m.status !== 'pending') notice('warn', `MCP server "${m.name}" is ${m.status}.`)
+            }
           } else if (msg.subtype === 'api_retry') {
             notice('warn', `${describeError(msg.error)} Retrying (${msg.attempt}/${msg.max_retries}) in ${Math.round(msg.retry_delay_ms / 1000)}s…`)
           } else if (msg.subtype === 'model_refusal_no_fallback') {
@@ -358,8 +389,9 @@ async function pump(session: Session, emit: EmitEvent): Promise<void> {
   }
 }
 
-export function sendMessage(workspaceId: string, text: string, emit: EmitEvent, emitPermission: EmitPermission): void {
-  const session = getOrCreateSession(workspaceId, emit, emitPermission)
+export async function sendMessage(workspaceId: string, text: string, emit: EmitEvent, emitPermission: EmitPermission): Promise<void> {
+  const mcp = sessions.has(workspaceId) ? {} : await mcpServersFor(getWorkspace(workspaceId))
+  const session = getOrCreateSession(workspaceId, emit, emitPermission, mcp)
   session.busy = true
   emit({ type: 'user_message', workspaceId, itemId: nanoid(8), text, createdAt: new Date().toISOString() })
   emit({ type: 'status', workspaceId, busy: true })

@@ -3,7 +3,19 @@ import { basename } from 'path'
 import { spawn } from 'child_process'
 import { nanoid } from 'nanoid'
 import type { OrchestraEvents, OrchestraInvoke } from '@shared/ipc'
-import type { Repo, RepoGitStatus, Space } from '@shared/types'
+import type { McpServerSpec, Repo, RepoGitStatus, Space } from '@shared/types'
+import { existsSync, readFileSync } from 'fs'
+import { join } from 'path'
+import { homedir } from 'os'
+
+interface RawMcp {
+  type?: string
+  url?: string
+  headers?: Record<string, string>
+  command?: string
+  args?: string[]
+  env?: Record<string, string>
+}
 import { SPACE_COLORS } from '@shared/types'
 import { getStore } from './store'
 import * as git from './services/git'
@@ -55,7 +67,7 @@ export function registerIpc(): void {
         // Empty strings mean "back to the app default".
         const target = s as unknown as Record<string, unknown>
         for (const [k, v] of Object.entries(patch)) {
-          if (v === '' || v === undefined || v === null || (Array.isArray(v) && v.length === 0)) delete target[k]
+          if (v === '' || v === undefined || v === null || (Array.isArray(v) && v.length === 0 && k !== 'mcpServers')) delete target[k]
           else target[k] = v
         }
         out = s
@@ -84,6 +96,27 @@ export function registerIpc(): void {
     })
     if (!out) throw new Error('Unknown repo')
     return out
+  })
+
+  handle('mcp:importable', () => {
+    // Claude Code keeps user-scope servers at the top level and project-scope ones under projects[path].mcpServers.
+    const file = join(homedir(), '.claude.json')
+    if (!existsSync(file)) return []
+    const raw = JSON.parse(readFileSync(file, 'utf8')) as { mcpServers?: Record<string, RawMcp>; projects?: Record<string, { mcpServers?: Record<string, RawMcp> }> }
+    const found = new Map<string, RawMcp>()
+    for (const [n, c] of Object.entries(raw.mcpServers ?? {})) found.set(n, c)
+    for (const p of Object.values(raw.projects ?? {})) for (const [n, c] of Object.entries(p.mcpServers ?? {})) if (!found.has(n)) found.set(n, c)
+    return Array.from(found.entries()).map(([name, c]) => ({
+      id: nanoid(6),
+      name,
+      transport: (c.type === 'http' || c.type === 'sse' ? c.type : 'stdio') as McpServerSpec['transport'],
+      url: c.url,
+      headers: c.headers,
+      command: c.command,
+      args: c.args,
+      env: c.env,
+      enabled: true
+    }))
   })
 
   // ---- repos ----

@@ -4,6 +4,8 @@ import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { Badge, Button, Dialog, Field, inputCls } from './ui'
 import { JiraSection } from './JiraSection'
+import { McpSection } from './McpSection'
+import { jiraConnectionFor } from '@shared/types'
 import { shortPath } from '@/lib/format'
 import { SPACE_COLORS, PERMISSION_MODES } from '@shared/types'
 
@@ -118,6 +120,18 @@ export function SpaceSettingsDialog({ spaceId, onClose }: { spaceId: string; onC
       <GithubOwnersSection spaceId={space.id} configured={space.githubOwners ?? []} onChange={(owners) => go(() => api.invoke('spaces:update', space.id, { githubOwners: owners }))} />
 
       <JiraSection connId={space.id} title="Jira for this space" intro="Connect the Jira site this space's tickets live in. Leave it disconnected to use the default connection from Settings." />
+
+      <McpSection
+        title="MCP servers for this space"
+        intro="Available to Claude in every workspace of this space, on top of the app-level servers in Settings. New sessions pick up changes; use New session in a chat to apply them."
+        servers={space.mcpServers ?? []}
+        onChange={(mcpServers) => go(() => api.invoke('spaces:update', space.id, { mcpServers }))}
+        jira={{
+          connected: Boolean(jiraConnectionFor(space)) || settings.jira.connected,
+          exposed: space.exposeJiraMcp !== false,
+          onToggle: (v) => go(() => api.invoke('spaces:update', space.id, { exposeJiraMcp: v }))
+        }}
+      />
     </Dialog>
   )
 }

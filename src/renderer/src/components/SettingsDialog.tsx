@@ -7,6 +7,7 @@ import { shortPath } from '@/lib/format'
 import { PERMISSION_MODES } from '@shared/types'
 import { LoginTerminal } from './LoginTerminal'
 import { JiraSection } from './JiraSection'
+import { McpSection } from './McpSection'
 import { SpaceSettingsDialog } from './SpaceSettingsDialog'
 import { SPACE_COLORS } from '@shared/types'
 
@@ -239,6 +240,12 @@ export function SettingsDialog({ onClose }: { onClose: () => void }): React.JSX.
       </section>
 
       <AccountsSection />
+      <McpSection
+        title="MCP servers for every space"
+        intro="Available to Claude in all workspaces. Add space-specific servers in each space's settings."
+        servers={settings.mcpServers ?? []}
+        onChange={(mcpServers) => go(() => update({ mcpServers }))}
+      />
       <JiraSection connId="" title="Default Jira" intro="Fallback for spaces without their own Jira connection. Set each space's Jira in its space settings." />
     </Dialog>
   )

@@ -12,6 +12,19 @@ export interface ConductorConfig {
   runScriptMode?: 'concurrent' | 'sequential'
 }
 
+/** An MCP server Claude can use in workspaces of a space (or everywhere, when set at app level). */
+export interface McpServerSpec {
+  id: string
+  name: string
+  transport: 'http' | 'sse' | 'stdio'
+  url?: string
+  headers?: Record<string, string>
+  command?: string
+  args?: string[]
+  env?: Record<string, string>
+  enabled: boolean
+}
+
 /** A group of workspaces and repositories, e.g. "Personal", "Lumepic", "Howdy". */
 export interface Space {
   id: string
@@ -24,6 +37,9 @@ export interface Space {
   jira?: JiraSettings
   /** GitHub users/orgs whose PRs the review cockpit lists for this space. Empty means "detect from the space's repos". */
   githubOwners?: string[]
+  mcpServers?: McpServerSpec[]
+  /** Hand Claude the Atlassian MCP using this space's Jira login. Default on when Jira is connected. */
+  exposeJiraMcp?: boolean
   /** Per-space overrides; absent means the app default from Settings. */
   model?: string
   permissionMode?: PermissionMode
@@ -145,6 +161,8 @@ export interface Settings {
   jira: JiraSettings
   claudeAccounts: ClaudeAccount[]
   defaultClaudeAccountId: string
+  /** MCP servers available in every space. */
+  mcpServers?: McpServerSpec[]
 }
 
 // ---- Review cockpit ----

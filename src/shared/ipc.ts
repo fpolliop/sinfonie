@@ -3,6 +3,7 @@ import type {
   ChatItem,
   JiraIssue,
   JiraSettings,
+  McpServerSpec,
   RepoPr,
   PermissionMode,
   RepoSafety,
@@ -30,7 +31,9 @@ export interface OrchestraInvoke {
   'settings:update': (patch: Partial<Settings>) => Settings
 
   'spaces:create': (name: string) => Space
-  'spaces:update': (id: string, patch: Partial<Pick<Space, 'name' | 'color' | 'claudeAccountId' | 'model' | 'permissionMode' | 'workspacesRoot' | 'githubOwners'>>) => Space
+  'spaces:update': (id: string, patch: Partial<Pick<Space, 'name' | 'color' | 'claudeAccountId' | 'model' | 'permissionMode' | 'workspacesRoot' | 'githubOwners' | 'mcpServers' | 'exposeJiraMcp'>>) => Space
+  /** MCP servers found in Claude Code's own config (~/.claude.json), for importing. */
+  'mcp:importable': () => McpServerSpec[]
   'spaces:delete': (id: string) => void
   'workspaces:setSpace': (workspaceId: string, spaceId: string | null) => Workspace
   'repos:setSpace': (repoId: string, spaceId: string | null) => Repo

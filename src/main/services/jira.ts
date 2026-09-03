@@ -259,6 +259,20 @@ export async function authenticate(connId: string): Promise<void> {
   await ensureCloudId(connId)
 }
 
+/** A currently valid Atlassian access token for this connection (connecting refreshes it when needed). */
+export async function accessToken(connId: string): Promise<string | null> {
+  if (!jiraSettings(connId).connected) return null
+  try {
+    await connect(connId)
+  } catch (err) {
+    console.warn('Jira MCP connect for token failed', err)
+    return null
+  }
+  return new StoreOAuthProvider(connId).tokens()?.access_token ?? null
+}
+
+export { MCP_URL as JIRA_MCP_URL }
+
 export function disconnect(connId: string): void {
   dropClient(connId)
   new StoreOAuthProvider(connId).invalidateCredentials('all')
