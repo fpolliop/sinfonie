@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { ChevronRight, Square, RotateCcw, Send, ShieldCheck, XCircle, AlertTriangle, Info, History, Users } from 'lucide-react'
+import { ChevronRight, Square, RotateCcw, Send, ShieldCheck, XCircle, AlertTriangle, Info, History, Users, GitFork } from 'lucide-react'
 import { api } from '@/lib/api'
 import { PERMISSION_MODES, type PermissionMode } from '@shared/types'
 import { QuestionCard } from './QuestionCard'
 import { ResumeDialog } from './ResumeDialog'
+import { Dialog, Field, inputCls } from './ui'
 import { useChat } from '@/stores/chat'
 import { useApp } from '@/stores/app'
 import { Markdown } from '@/lib/markdown'
@@ -34,6 +35,7 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
   const setError = useApp((s) => s.setError)
   const mode: PermissionMode = ws?.permissionMode ?? settingsMode
   const [resumeDlg, setResumeDlg] = useState(false)
+  const [forkDlg, setForkDlg] = useState(false)
   // Follow new output only while the view is already at the bottom; scrolling up detaches.
   const [atBottom, setAtBottom] = useState(true)
   const [unseen, setUnseen] = useState(false)
@@ -76,6 +78,7 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
   return (
     <div className="flex h-full flex-col">
       {resumeDlg && <ResumeDialog workspaceId={workspaceId} onClose={() => setResumeDlg(false)} />}
+      {forkDlg && ws && <ForkDialog wsId={ws.id} wsName={ws.name} branch={ws.repos[0]?.branch ?? ''} onClose={() => setForkDlg(false)} />}
       <div ref={scrollRef} onScroll={onScroll} className="relative flex-1 overflow-auto px-6 py-4">
         {items.length === 0 && (
           <div className="mx-auto mt-16 max-w-md text-center text-muted">
@@ -154,6 +157,9 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
                 )}
               </span>
               <span className="ml-auto" />
+              <Button size="sm" variant="ghost" title="New workspace with a copy of this conversation (like /fork)" onClick={() => setForkDlg(true)} disabled={busy || disabled}>
+                <GitFork size={13} /> Fork
+              </Button>
               <Button size="sm" variant="ghost" title="Continue a past Claude Code session here (like /resume)" onClick={() => setResumeDlg(true)} disabled={busy}>
                 <History size={13} /> Resume
               </Button>
@@ -233,6 +239,44 @@ function Block({ block }: { block: ChatBlock }): React.JSX.Element | null {
   if (block.type === 'text') return block.text.trim() ? <Markdown text={block.text} /> : null
   if (block.type === 'thinking') return block.text.trim() ? <Collapsible label="Thinking" muted body={block.text} /> : null
   return <ToolCall block={block} />
+}
+
+function ForkDialog({ wsId, wsName, branch, onClose }: { wsId: string; wsName: string; branch: string; onClose: () => void }): React.JSX.Element {
+  const [name, setName] = useState(`${wsName} fork`)
+  const [busy, setBusy] = useState(false)
+  const select = useApp((s) => s.select)
+  const setError = useApp((s) => s.setError)
+  const submit = async (): Promise<void> => {
+    if (!name.trim()) return
+    setBusy(true)
+    try {
+      const ws = await api.invoke('workspaces:fork', wsId, name.trim())
+      select(ws.id)
+      onClose()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <Dialog title="Fork this conversation" onClose={onClose} width={460}>
+      <p className="mb-3 text-[12px] text-muted">
+        Creates a new workspace with a worktree per repo, each on a new branch cut from <code className="rounded bg-panel-2 px-1">{branch}</code> as it is now, and a forked copy of the Claude session so the new chat keeps this context. Uncommitted changes stay here.
+      </p>
+      <Field label="New workspace name" hint="Also the new branch name.">
+        <input autoFocus className={inputCls} value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && void submit()} />
+      </Field>
+      <div className="flex justify-end gap-2">
+        <Button onClick={onClose} disabled={busy}>
+          Cancel
+        </Button>
+        <Button variant="primary" onClick={submit} disabled={busy || !name.trim()}>
+          <GitFork size={13} /> {busy ? 'Forking…' : 'Fork'}
+        </Button>
+      </div>
+    </Dialog>
+  )
 }
 
 function shortModel(m: string): string {

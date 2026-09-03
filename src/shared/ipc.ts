@@ -110,6 +110,8 @@ export interface OrchestraInvoke {
   /** Claude Code sessions to resume into a workspace: its own worktrees first, or every project. */
   'sessions:list': (workspaceId: string, scope: 'workspace' | 'all', query: string) => SessionSummary[]
   'sessions:resume': (workspaceId: string, sessionId: string) => { messages: number }
+  /** New workspace on branches cut from this one, with a forked copy of its conversation. */
+  'workspaces:fork': (workspaceId: string, name: string) => Workspace
   'agent:reset': (workspaceId: string) => void
   'agent:setMode': (workspaceId: string, mode: PermissionMode) => Workspace
   'chat:load': (workspaceId: string) => { items: ChatItem[]; busy: boolean }

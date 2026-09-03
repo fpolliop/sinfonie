@@ -349,6 +349,7 @@ export function registerIpc(): void {
   handle('agent:unqueue', (id, mid) => agent.unqueue(id, mid, emitAgent))
   handle('sessions:list', (id, scope, q) => sessionsSvc.listResumable(id, scope, q))
   handle('sessions:resume', (id, sid) => sessionsSvc.resumeInto(id, sid))
+  handle('workspaces:fork', (id, name) => sessionsSvc.forkWorkspace(id, name, emitScript))
   handle('agent:reset', (id) => {
     agent.resetSession(id)
     clearTranscript(id)

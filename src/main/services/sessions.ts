@@ -1,4 +1,4 @@
-import { getSessionMessages, listSessions } from '@anthropic-ai/claude-agent-sdk'
+import { forkSession, getSessionMessages, listSessions } from '@anthropic-ai/claude-agent-sdk'
 import { copyFileSync, existsSync, mkdirSync, readdirSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
@@ -8,7 +8,9 @@ import { getStore } from '../store'
 import { getWorkspace, patchWorkspace } from './workspaces'
 import { accountEnv } from './accounts'
 import { closeSession } from './agent'
-import { replaceTranscript } from './transcripts'
+import { getTranscript, replaceTranscript } from './transcripts'
+import { createWorkspace } from './workspaces'
+import type { ScriptOutputEvent } from '@shared/types'
 
 /** Run fn with CLAUDE_CONFIG_DIR pointed at the workspace's account, so the SDK reads that account's sessions. */
 async function withAccountEnv<T>(accountId: string | undefined, fn: () => Promise<T>): Promise<T> {
@@ -144,4 +146,45 @@ export async function resumeInto(workspaceId: string, sessionId: string): Promis
   ])
   void getStore
   return { messages: items.length }
+}
+
+/**
+ * Fork like the CLI's /fork, but across a whole workspace: a new workspace whose
+ * branches start where this one's are now, plus a forked copy of the Claude
+ * session so the new chat continues with the same context.
+ */
+export async function forkWorkspace(workspaceId: string, name: string, emit: (e: ScriptOutputEvent) => void): Promise<ReturnType<typeof getWorkspace>> {
+  const src = getWorkspace(workspaceId)
+  if (src.status !== 'ready') throw new Error('Only a ready workspace can be forked')
+  const created = await createWorkspace(
+    {
+      name,
+      // Cut each new branch from the source workspace's current branch, so the code state carries over.
+      repos: src.repos.map((r) => ({ repoId: r.repoId, baseBranch: r.branch })),
+      primaryRepoId: src.primaryRepoId,
+      spaceId: src.spaceId,
+      claudeAccountId: src.claudeAccountId,
+      jira: src.jira
+    },
+    emit
+  )
+  if (created.status !== 'ready') return created
+  patchWorkspace(created.id, { stage: src.stage, labelIds: src.labelIds, permissionMode: src.permissionMode })
+
+  const items = getTranscript(workspaceId).map((it) => ({ ...it, id: nanoid(8) }))
+  let note = `Forked from "${src.name}". Branches start from ${src.repos.map((r) => `${r.repoName}@${r.branch}`).join(', ')}.`
+  if (src.sessionId) {
+    try {
+      const { sessionId } = await withAccountEnv(src.claudeAccountId, () => forkSession(src.sessionId!, { title: name }))
+      const messages = await withAccountEnv(src.claudeAccountId, () => getSessionMessages(sessionId))
+      const cwd = (messages.find((m) => typeof (m as { cwd?: unknown }).cwd === 'string') as { cwd?: string } | undefined)?.cwd
+      makeResumableFrom(created, sessionId, cwd)
+      patchWorkspace(created.id, { sessionId })
+      note += ' The conversation continues here with its full context.'
+    } catch (err) {
+      note += ` The Claude session could not be forked (${err instanceof Error ? err.message : String(err)}); the transcript is copied for reference and the next message starts fresh.`
+    }
+  }
+  replaceTranscript(created.id, [...items, { id: nanoid(8), role: 'system', level: 'info', blocks: [{ type: 'text', text: note }], createdAt: new Date().toISOString() }])
+  return getWorkspace(created.id)
 }
