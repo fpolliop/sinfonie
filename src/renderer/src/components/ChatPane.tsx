@@ -32,6 +32,11 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
   const disabled = ws?.status !== 'ready'
   const settingsModel = useApp((s) => s.settings.model)
   const settingsMode = useApp((s) => s.settings.permissionMode)
+  const crewNames = useApp((s) => {
+    const sp = s.spaces.find((x) => x.id === ws?.spaceId)
+    if (sp?.useCrew === false) return []
+    return (sp?.agents ?? s.settings.agents).filter((a) => a.enabled).map((a) => `${a.name} (${a.model})`)
+  })
   const setError = useApp((s) => s.setError)
   const mode: PermissionMode = ws?.permissionMode ?? settingsMode
   const [resumeDlg, setResumeDlg] = useState(false)
@@ -124,6 +129,7 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
               ))}
             </div>
           )}
+          <CrewBar items={items} busy={busy} model={chat?.model ?? settingsModel} crewNames={crewNames} />
           <div className="rounded-xl border border-border bg-panel focus-within:border-accent">
             <textarea
               value={draft}
@@ -239,6 +245,39 @@ function Block({ block }: { block: ChatBlock }): React.JSX.Element | null {
   if (block.type === 'text') return block.text.trim() ? <Markdown text={block.text} /> : null
   if (block.type === 'thinking') return block.text.trim() ? <Collapsible label="Thinking" muted body={block.text} /> : null
   return <ToolCall block={block} />
+}
+
+/** Who is doing what: the orchestrator, delegations in flight, and how many are done. */
+function CrewBar({ items, busy, model, crewNames }: { items: ChatItem[]; busy: boolean; model: string; crewNames: string[] }): React.JSX.Element | null {
+  const delegations = items.flatMap((it) => (it.role === 'assistant' ? it.blocks.filter((b): b is ChatToolBlock => b.type === 'tool' && (b.name === 'Agent' || b.name === 'Task')) : []))
+  const running = delegations.filter((d) => !d.done)
+  const done = delegations.length - running.length
+  if (!busy && delegations.length === 0 && crewNames.length === 0) return null
+  const typeOf = (d: ChatToolBlock): string => {
+    const i = (d.input ?? {}) as Record<string, unknown>
+    return typeof i.subagent_type === 'string' ? i.subagent_type : typeof i.description === 'string' ? i.description.slice(0, 30) : 'agent'
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 px-1 pb-2 text-[11px]">
+      <span className={clsx('inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5', busy ? 'border-accent/50 text-accent' : 'border-border text-muted')} title="The model you are talking to. It plans, delegates and integrates.">
+        {busy && running.length === 0 ? <Spinner /> : <Users size={11} />}
+        orchestrator <span className="font-mono opacity-70">{shortModel(model)}</span>
+      </span>
+      {running.map((d) => (
+        <span key={d.toolUseId} className="inline-flex items-center gap-1.5 rounded-full border border-warn/50 bg-warn/10 px-2 py-0.5 text-warn" title={typeof (d.input as Record<string, unknown>)?.description === 'string' ? String((d.input as Record<string, unknown>).description) : ''}>
+          <Spinner /> {typeOf(d)}
+          {d.sub?.model && <span className="font-mono opacity-70">{shortModel(d.sub.model)}</span>}
+          {d.sub && <span className="opacity-70">{d.sub.toolCalls} calls{d.sub.lastTool ? ` · ${d.sub.lastTool}` : ''}</span>}
+        </span>
+      ))}
+      {done > 0 && <span className="text-muted">{done} delegation{done === 1 ? '' : 's'} done</span>}
+      {crewNames.length > 0 && running.length === 0 && (
+        <span className="ml-auto text-muted" title="Crew available to the orchestrator this session">
+          crew: {crewNames.join(', ')}
+        </span>
+      )}
+    </div>
+  )
 }
 
 function ForkDialog({ wsId, wsName, branch, onClose }: { wsId: string; wsName: string; branch: string; onClose: () => void }): React.JSX.Element {

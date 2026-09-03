@@ -180,7 +180,7 @@ function crewFor(ws: Workspace): { agents: NonNullable<Options['agents']>; promp
   if (specs.length === 0) return { agents: {}, prompt: '' }
   const prompt = [
     '',
-    'You are the orchestrator of a crew. Delegate with the Agent tool when a subtask is well-specified and a cheaper or more focused agent can do it; keep planning, judgment and integration yourself. Your crew:',
+    'You are the orchestrator of a crew. Keep planning, judgment and integration yourself, and delegate the rest with the Agent tool (subagent_type = the crew member name). Reading more than a couple of files to answer a question is a job for the explorer, not you: it is far cheaper. Running tests or type-checks is a job for the tester. A well-specified change inside one repository goes to the implementer. Before committing, have the reviewer look at the diff. Your crew:',
     ...specs.map((a) => `- ${a.name} (${a.model}${a.effort ? `, ${a.effort} effort` : ''}): ${a.description}`),
     'When delegating, state the worktree path, the exact goal, and what a finished answer looks like. Run independent delegations in parallel. Never let two agents edit the same repository at the same time.'
   ].join('\n')
