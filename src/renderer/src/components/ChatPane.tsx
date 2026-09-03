@@ -32,11 +32,13 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
   const disabled = ws?.status !== 'ready'
   const settingsModel = useApp((s) => s.settings.model)
   const settingsMode = useApp((s) => s.settings.permissionMode)
-  const crewNames = useApp((s) => {
-    const sp = s.spaces.find((x) => x.id === ws?.spaceId)
-    if (sp?.useCrew === false) return []
-    return (sp?.agents ?? s.settings.agents).filter((a) => a.enabled).map((a) => `${a.name} (${a.model})`)
-  })
+  // Select stable references, derive outside the selector (a fresh array per read loops React).
+  const space = useApp((s) => s.spaces.find((x) => x.id === ws?.spaceId))
+  const defaultAgents = useApp((s) => s.settings.agents)
+  const crewNames = useMemo(() => {
+    if (space?.useCrew === false) return []
+    return (space?.agents ?? defaultAgents).filter((a) => a.enabled).map((a) => `${a.name} (${a.model})`)
+  }, [space, defaultAgents])
   const setError = useApp((s) => s.setError)
   const mode: PermissionMode = ws?.permissionMode ?? settingsMode
   const [resumeDlg, setResumeDlg] = useState(false)
