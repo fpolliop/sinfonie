@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react'
 import clsx from 'clsx'
-import { Plus, Settings, Archive, GitBranch, Pencil, Folder, Code2, TerminalSquare, Trash2, GitPullRequest, Layers, ListTree, CalendarClock, ArrowDownWideNarrow, ArrowUpNarrowWide } from 'lucide-react'
+import { Plus, Settings, Archive, Pencil, Folder, Code2, TerminalSquare, Trash2, GitPullRequest, Layers, ArrowDownWideNarrow, ArrowUpNarrowWide, Filter, ChevronRight } from 'lucide-react'
 import { WORKSPACE_STAGES } from '@shared/types'
 import { LabelChip, labelsFor } from './LabelPicker'
 import { useApp, spaceOrder } from '@/stores/app'
@@ -21,6 +21,7 @@ export function Sidebar(): React.JSX.Element {
   const [spaceMenu, setSpaceMenu] = useState<{ x: number; y: number; id: string } | null>(null)
   const [renaming, setRenaming] = useState<string | null>(null)
   const [spaceSettings, setSpaceSettings] = useState<string | null>(null)
+  const [showFilter, setShowFilter] = useState(() => (labelFilter[activeSpaceId] ?? []).length > 0)
   const swipe = useRef({ acc: 0, lockedUntil: 0 })
   const byActivity = (a: Workspace, b: Workspace): number => (b.lastMessageAt ?? b.createdAt).localeCompare(a.lastMessageAt ?? a.createdAt)
   const byStart = (a: Workspace, b: Workspace): number => (sidebarDateDir === 'desc' ? b.createdAt.localeCompare(a.createdAt) : a.createdAt.localeCompare(b.createdAt))
@@ -43,7 +44,7 @@ export function Sidebar(): React.JSX.Element {
   const run = (fn: () => Promise<unknown>): void => {
     fn().catch((err) => setError(err instanceof Error ? err.message : String(err)))
   }
-  const row = (w: Workspace): React.JSX.Element => <WorkspaceRow key={w.id} ws={w} selected={view === 'workspace' && w.id === selectedId} busy={Boolean(chats[w.id]?.busy)} onClick={() => select(w.id)} />
+  const row = (w: Workspace, grouped: boolean): React.JSX.Element => <WorkspaceRow key={w.id} ws={w} grouped={grouped} selected={view === 'workspace' && w.id === selectedId} busy={Boolean(chats[w.id]?.busy)} onClick={() => select(w.id)} />
 
   // Two-finger horizontal swipe switches spaces, with a short lock so one gesture moves one step.
   const onWheel = (e: React.WheelEvent): void => {
@@ -75,7 +76,7 @@ export function Sidebar(): React.JSX.Element {
       </div>
       <div key={currentId} className="space-enter flex-1 overflow-auto px-2 pb-2">
         <div
-          className="group flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted"
+          className="group flex h-8 items-center gap-2 px-2"
           onContextMenu={(e) => {
             if (!currentId) return
             e.preventDefault()
@@ -83,11 +84,10 @@ export function Sidebar(): React.JSX.Element {
           }}
           onDoubleClick={() => currentId && setRenaming(currentId)}
         >
-          <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: currentColor }} />
+          <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: currentColor }} />
           {renaming === currentId && currentId ? (
             <InlineRename
               value={currentName}
-              className="normal-case tracking-normal"
               onSave={(v) => {
                 setRenaming(null)
                 run(() => api.invoke('spaces:update', currentId, { name: v }))
@@ -95,66 +95,71 @@ export function Sidebar(): React.JSX.Element {
               onCancel={() => setRenaming(null)}
             />
           ) : (
-            <span className="truncate">{currentName}</span>
+            <span className="truncate text-[13px] font-semibold">{currentName}</span>
           )}
-          <span className="normal-case text-muted/70">{items.length}</span>
+          <span className="text-[12px] text-muted">{inSpace.length}</span>
           {currentId && (
-            <button className="ml-auto rounded p-0.5 opacity-0 hover:bg-panel-2 hover:text-text group-hover:opacity-100" title="Space settings" onClick={() => setSpaceSettings(currentId)}>
-              <Settings size={12} />
+            <button className="ml-auto rounded p-1 text-muted opacity-0 hover:bg-panel-2 hover:text-text group-hover:opacity-100" title="Space settings" onClick={() => setSpaceSettings(currentId)}>
+              <Settings size={13} />
             </button>
           )}
         </div>
-        <div className="mb-1 flex items-center gap-1 px-1">
-          <div className="flex rounded-md bg-bg p-0.5">
-            <button onClick={() => setSidebarView('status')} title="Group by status" className={clsx('rounded px-1.5 py-0.5', sidebarView === 'status' ? 'bg-panel-2 text-text' : 'text-muted hover:text-text')}>
-              <ListTree size={12} />
+        <div className="mb-2 flex items-center gap-1 px-2">
+          <div className="flex rounded-md bg-bg p-0.5 text-[11px]">
+            <button onClick={() => setSidebarView('status')} className={clsx('rounded px-2 py-0.5', sidebarView === 'status' ? 'bg-panel-2 text-text' : 'text-muted hover:text-text')}>
+              Status
             </button>
-            <button onClick={() => setSidebarView('date')} title="List by start date" className={clsx('rounded px-1.5 py-0.5', sidebarView === 'date' ? 'bg-panel-2 text-text' : 'text-muted hover:text-text')}>
-              <CalendarClock size={12} />
+            <button onClick={() => setSidebarView('date')} className={clsx('rounded px-2 py-0.5', sidebarView === 'date' ? 'bg-panel-2 text-text' : 'text-muted hover:text-text')}>
+              Date
             </button>
           </div>
-          <span className="text-[11px] text-muted">{sidebarView === 'status' ? 'By status' : 'By start date'}</span>
           {sidebarView === 'date' && (
-            <button onClick={() => setSidebarDateDir(sidebarDateDir === 'desc' ? 'asc' : 'desc')} title={sidebarDateDir === 'desc' ? 'Newest first. Click for oldest first.' : 'Oldest first. Click for newest first.'} className="ml-auto rounded p-0.5 text-muted hover:text-text">
+            <button onClick={() => setSidebarDateDir(sidebarDateDir === 'desc' ? 'asc' : 'desc')} title={sidebarDateDir === 'desc' ? 'Newest first' : 'Oldest first'} className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-muted hover:bg-panel-2 hover:text-text">
               {sidebarDateDir === 'desc' ? <ArrowDownWideNarrow size={12} /> : <ArrowUpNarrowWide size={12} />}
+              {sidebarDateDir === 'desc' ? 'newest' : 'oldest'}
+            </button>
+          )}
+          {spaceLabels.length > 0 && (
+            <button onClick={() => setShowFilter(!showFilter)} className={clsx('ml-auto inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px]', selectedLabels.length ? 'bg-accent/15 text-accent' : 'text-muted hover:bg-panel-2 hover:text-text')} title="Filter by label">
+              <Filter size={12} />
+              {selectedLabels.length ? selectedLabels.length : ''}
             </button>
           )}
         </div>
-        {spaceLabels.length > 0 && (
-          <div className="mb-1.5 flex flex-wrap items-center gap-1 px-1">
+        {showFilter && spaceLabels.length > 0 && (
+          <div className="mb-2 flex flex-wrap items-center gap-1 rounded-md border border-border bg-bg p-2">
             {spaceLabels.map((l) => {
               const on = selectedLabels.includes(l.id)
               return (
-                <button key={l.id} onClick={() => toggleLabelFilter(currentId, l.id)} className={clsx('rounded-full transition-opacity', on ? 'opacity-100 ring-1 ring-offset-1 ring-offset-panel' : 'opacity-50 hover:opacity-90')} style={on ? { ['--tw-ring-color' as string]: l.color } : undefined} title={on ? 'Remove from filter' : 'Filter by this label'}>
+                <button key={l.id} onClick={() => toggleLabelFilter(currentId, l.id)} className={clsx('rounded-full transition-opacity', on ? 'opacity-100' : 'opacity-45 hover:opacity-90')} title={on ? 'Remove from filter' : 'Show only workspaces with this label'}>
                   <LabelChip label={l} small />
                 </button>
               )
             })}
             {selectedLabels.length > 0 && (
-              <button className="text-[10px] text-muted hover:text-text" onClick={() => clearLabelFilter(currentId)}>
-                clear
+              <button className="ml-auto text-[11px] text-muted hover:text-text" onClick={() => clearLabelFilter(currentId)}>
+                Clear
               </button>
             )}
           </div>
         )}
         {sidebarView === 'status'
-          ? WORKSPACE_STAGES.map((st) => {
+          ? WORKSPACE_STAGES.filter((st) => items.some((w) => w.stage === st.id)).map((st) => {
               const group = items.filter((w) => w.stage === st.id)
               const collapsed = Boolean(collapsedStages[st.id])
               return (
-                <div key={st.id} className="mb-1">
-                  <button onClick={() => toggleStage(st.id)} className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium text-muted hover:text-text">
+                <div key={st.id} className="mb-2">
+                  <button onClick={() => toggleStage(st.id)} className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted hover:text-text">
+                    <ChevronRight size={11} className={clsx('shrink-0 transition-transform', !collapsed && 'rotate-90')} />
                     <span className={clsx('h-1.5 w-1.5 shrink-0 rounded-full', STAGE_DOT[st.id])} />
                     {st.label}
-                    <span className="text-muted/70">{group.length}</span>
-                    <span className="ml-auto">{collapsed ? '▸' : '▾'}</span>
+                    <span className="normal-case text-muted/60">{group.length}</span>
                   </button>
-                  {!collapsed && group.map(row)}
-                  {!collapsed && group.length === 0 && <div className="px-3 pb-1 text-[11px] text-muted/60">—</div>}
+                  {!collapsed && group.map((w) => row(w, true))}
                 </div>
               )
             })
-          : items.map(row)}
+          : items.map((w) => row(w, false))}
         {items.length === 0 && inSpace.length > 0 && <div className="px-2 py-3 text-[12px] text-muted">No workspaces match the selected labels.</div>}
         {inSpace.length === 0 && (
           <div className="px-2 py-3 text-[12px] text-muted">
@@ -169,7 +174,7 @@ export function Sidebar(): React.JSX.Element {
             <button className="mt-3 flex w-full items-center gap-1.5 px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted hover:text-text" onClick={() => setShowArchived(!showArchived)}>
               <Archive size={12} /> Archived ({archived.length}) {showArchived ? '▾' : '▸'}
             </button>
-            {showArchived && archived.map(row)}
+            {showArchived && archived.map((w) => row(w, false))}
           </>
         )}
       </div>
@@ -222,7 +227,7 @@ function SpaceDots({ ids, currentId, onPick, onAdd }: { ids: string[]; currentId
   )
 }
 
-function WorkspaceRow({ ws, selected, busy, onClick }: { ws: Workspace; selected: boolean; busy: boolean; onClick: () => void }): React.JSX.Element {
+function WorkspaceRow({ ws, grouped, selected, busy, onClick }: { ws: Workspace; grouped: boolean; selected: boolean; busy: boolean; onClick: () => void }): React.JSX.Element {
   const branch = ws.repos[0]?.branch
   const allLabels = useApp((s) => s.labels)
   const rowLabels = (ws.labelIds ?? []).map((id) => allLabels.find((l) => l.id === id)).filter((l): l is NonNullable<typeof l> => Boolean(l))
@@ -277,9 +282,10 @@ function WorkspaceRow({ ws, selected, busy, onClick }: { ws: Workspace; selected
           setMenu({ x: e.clientX, y: e.clientY })
         }}
         onKeyDown={(e) => e.key === 'Enter' && onClick()}
-        className={clsx('mb-0.5 flex w-full cursor-default flex-col gap-0.5 rounded-md px-2 py-1.5 text-left transition-colors', selected ? 'bg-panel-2' : 'hover:bg-panel-2/60', ws.status === 'archived' && 'opacity-60')}
+        className={clsx('group/row mb-0.5 flex w-full cursor-default flex-col gap-0.5 rounded-md px-2 py-1.5 text-left transition-colors', selected ? 'bg-panel-2' : 'hover:bg-panel-2/60', ws.status === 'archived' && 'opacity-60')}
       >
         <div className="flex items-center gap-2">
+          {!grouped && <span className={clsx('h-1.5 w-1.5 shrink-0 rounded-full', STAGE_DOT[ws.stage])} title={stageLabel(ws.stage)} />}
           {editing ? (
             <InlineRename
               value={ws.name}
@@ -290,37 +296,27 @@ function WorkspaceRow({ ws, selected, busy, onClick }: { ws: Workspace; selected
               onCancel={() => setEditing(false)}
             />
           ) : (
-            <span className="truncate text-[13px] font-medium" title="Double-click to rename">
+            <span className="truncate text-[13px] font-medium" title={`${ws.name}\nbranch: ${branch}`}>
               {ws.name}
             </span>
           )}
           <span className="ml-auto shrink-0">
-            {busy || ws.status === 'creating' || ws.status === 'archiving' ? <Spinner /> : ws.status === 'error' ? <span className="inline-block h-2 w-2 rounded-full bg-danger" /> : null}
+            {busy || ws.status === 'creating' || ws.status === 'archiving' ? <Spinner /> : ws.status === 'error' ? <span className="inline-block h-2 w-2 rounded-full bg-danger" title={ws.error} /> : null}
           </span>
         </div>
         <div className="flex items-center gap-1.5 text-[11px] text-muted">
-          <GitBranch size={11} />
-          <span className="truncate">{branch}</span>
+          {ws.jira && (
+            <span className="shrink-0 text-accent" title={`${ws.jira.key}: ${ws.jira.summary}${ws.jiraStatus ? ` · ${ws.jiraStatus}` : ''}`}>
+              {ws.jira.key}
+            </span>
+          )}
+          {rowLabels.slice(0, 2).map((l) => (
+            <LabelChip key={l.id} label={l} small />
+          ))}
+          {rowLabels.length > 2 && <span>+{rowLabels.length - 2}</span>}
           <span className="ml-auto shrink-0">
             {ws.repos.length} repo{ws.repos.length === 1 ? '' : 's'} · {timeAgo(ws.lastMessageAt ?? ws.createdAt)}
           </span>
-        </div>
-        {rowLabels.length > 0 && (
-          <div className="flex flex-wrap gap-1">
-            {rowLabels.map((l) => (
-              <LabelChip key={l.id} label={l} small />
-            ))}
-          </div>
-        )}
-        <div className="flex items-center gap-1.5 text-[11px]">
-          <span className={clsx('h-1.5 w-1.5 shrink-0 rounded-full', STAGE_DOT[ws.stage])} />
-          <span className="text-muted">{stageLabel(ws.stage)}</span>
-          {ws.jira && (
-            <span className="ml-auto flex min-w-0 items-center gap-1 text-muted" title={`${ws.jira.key}: ${ws.jira.summary}`}>
-              <span className="shrink-0 text-accent">{ws.jira.key}</span>
-              {ws.jiraStatus && <span className="truncate rounded bg-panel-2 px-1 py-px">{ws.jiraStatus}</span>}
-            </span>
-          )}
         </div>
       </div>
       {menu && <ContextMenu x={menu.x} y={menu.y} entries={entries} onClose={() => setMenu(null)} />}
