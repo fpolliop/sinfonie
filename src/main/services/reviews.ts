@@ -10,6 +10,7 @@ import type { ReviewFinding, ReviewPr, ReviewRun, ReviewVerdict } from '@shared/
 import { getStore } from '../store'
 import { accountEnv } from './accounts'
 import { git } from './git'
+import { isReadOnlyCommand } from './readonly'
 
 const exec = promisify(execFile)
 type Emit = (run: ReviewRun) => void
@@ -234,13 +235,18 @@ async function execute(run: ReviewRun, emit: Emit): Promise<void> {
     const { dir, base } = await checkout(run.pr, run.key, emit)
     update(run.key, { checkoutPath: dir, status: 'running', phase: 'Reading the diff' }, emit)
     const { settings } = getStore().get()
-    const allowed = ['Read', 'Grep', 'Glob', 'LS', 'Bash(git diff:*)', 'Bash(git log:*)', 'Bash(git show:*)', 'Bash(git blame:*)', 'Bash(git status:*)']
+    const allowed = ['Read', 'Grep', 'Glob', 'LS']
     const options: Options = {
       cwd: dir,
       permissionMode: 'default',
       allowedTools: allowed,
-      // Anything not on the allow list is refused: the review must not change the checkout.
-      canUseTool: async (tool) => ({ behavior: 'deny', message: `${tool} is not available during a review; use Read, Grep, Glob and read-only git commands.` }),
+      // Shell commands are checked for being read-only; anything else is refused so the review cannot change the checkout.
+      canUseTool: async (tool, input) => {
+        if (tool === 'Bash' && typeof (input as { command?: unknown }).command === 'string' && isReadOnlyCommand((input as { command: string }).command)) {
+          return { behavior: 'allow', updatedInput: input }
+        }
+        return { behavior: 'deny', message: `${tool} is not available during a review${tool === 'Bash' ? ' unless the command is read-only (git diff/log/show/blame/fetch, grep, head, cat…)' : ''}; use Read, Grep, Glob and read-only git commands.` }
+      },
       model: settings.model,
       maxTurns: 80,
       abortController: abort,

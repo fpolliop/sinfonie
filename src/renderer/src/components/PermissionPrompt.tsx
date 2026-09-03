@@ -2,6 +2,7 @@ import React from 'react'
 import { useChat } from '@/stores/chat'
 import { useApp } from '@/stores/app'
 import { Button } from './ui'
+import { api } from '@/lib/api'
 
 /** Renders the oldest pending tool-permission request as a modal. */
 export function PermissionPrompt(): React.JSX.Element | null {
@@ -11,6 +12,15 @@ export function PermissionPrompt(): React.JSX.Element | null {
   if (!req) return null
   const input = req.input as Record<string, unknown>
   const summary = typeof input.command === 'string' ? input.command : typeof input.file_path === 'string' ? input.file_path : JSON.stringify(input, null, 2)
+  const allowAll = async (): Promise<void> => {
+    // Switch the workspace to Auto (a classifier approves the rest), then let this call through.
+    try {
+      await api.invoke('agent:setMode', req.workspaceId, 'auto')
+    } catch (err) {
+      useApp.getState().setError(err instanceof Error ? err.message : String(err))
+    }
+    await answer(req.requestId, 'allow')
+  }
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30 pb-8 no-drag">
       <div className="w-[560px] max-w-[92vw] rounded-xl border border-warn/40 bg-panel p-4 shadow-2xl">
@@ -25,6 +35,9 @@ export function PermissionPrompt(): React.JSX.Element | null {
             Deny
           </Button>
           {req.canAlwaysAllow && <Button onClick={() => answer(req.requestId, 'always')}>Always allow</Button>}
+          <Button onClick={allowAll} title="Approve this and switch the workspace to Auto mode for the rest of the session">
+            Allow all · Auto
+          </Button>
           <Button variant="primary" autoFocus onClick={() => answer(req.requestId, 'allow')}>
             Allow once
           </Button>
