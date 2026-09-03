@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { ChevronRight, Square, RotateCcw, Send, ArrowDownToLine, ShieldCheck, XCircle, AlertTriangle, Info } from 'lucide-react'
 import { api } from '@/lib/api'
@@ -14,7 +14,9 @@ const AUTOSCROLL_KEY = 'orchestra.autoscroll'
 
 export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.Element {
   const chat = useChat((s) => s.chats[workspaceId])
-  const questions = useChat((s) => s.questions.filter((q) => q.workspaceId === workspaceId))
+  const allQuestions = useChat((s) => s.questions)
+  // Filter outside the selector: a selector that returns a fresh array re-renders forever.
+  const questions = useMemo(() => allQuestions.filter((q) => q.workspaceId === workspaceId), [allQuestions, workspaceId])
   const { send, interrupt, reset, setDraft, load, unqueue } = useChat()
 
   useEffect(() => {
