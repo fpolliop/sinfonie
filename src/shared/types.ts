@@ -25,6 +25,14 @@ export interface McpServerSpec {
   enabled: boolean
 }
 
+/** A tag for workspaces. Belongs to a space, or to every space when spaceId is absent. */
+export interface Label {
+  id: string
+  name: string
+  color: string
+  spaceId?: string
+}
+
 /** A group of workspaces and repositories, e.g. "Personal", "Lumepic", "Howdy". */
 export interface Space {
   id: string
@@ -107,6 +115,7 @@ export interface Workspace {
   permissionMode?: PermissionMode
   jira?: WorkspaceJira
   stage: WorkspaceStage
+  labelIds?: string[]
   spaceId?: string
   claudeAccountId?: string
   /** Last known status of the linked Jira ticket, refreshed when the workspace is opened. */
@@ -218,6 +227,7 @@ export interface ReviewRun {
 
 export interface StoreData {
   spaces: Space[]
+  labels: Label[]
   repos: Repo[]
   workspaces: Workspace[]
   settings: Settings

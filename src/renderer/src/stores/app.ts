@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Repo, Settings, Space, StoreData, Workspace } from '@shared/types'
+import type { Label, Repo, Settings, Space, StoreData, Workspace } from '@shared/types'
 import { api } from '@/lib/api'
 
 export type Tab = 'chat' | 'changes' | 'prs' | 'terminal' | 'run'
@@ -7,6 +7,11 @@ export type Tab = 'chat' | 'changes' | 'prs' | 'terminal' | 'run'
 interface AppState {
   loaded: boolean
   spaces: Space[]
+  labels: Label[]
+  /** Sidebar label filter, per space id ('' = ungrouped). A workspace must carry every selected label. */
+  labelFilter: Record<string, string[]>
+  toggleLabelFilter: (spaceId: string, labelId: string) => void
+  clearLabelFilter: (spaceId: string) => void
   repos: Repo[]
   collapsedSpaces: Record<string, boolean>
   toggleSpace: (id: string) => void
@@ -50,6 +55,22 @@ interface AppState {
 export const useApp = create<AppState>((set, get) => ({
   loaded: false,
   spaces: [],
+  labels: [],
+  labelFilter: JSON.parse(localStorage.getItem('orchestra.labelFilter') ?? '{}'),
+  toggleLabelFilter: (spaceId, labelId) =>
+    set((s) => {
+      const cur = s.labelFilter[spaceId] ?? []
+      const next = cur.includes(labelId) ? cur.filter((x) => x !== labelId) : [...cur, labelId]
+      const labelFilter = { ...s.labelFilter, [spaceId]: next }
+      localStorage.setItem('orchestra.labelFilter', JSON.stringify(labelFilter))
+      return { labelFilter }
+    }),
+  clearLabelFilter: (spaceId) =>
+    set((s) => {
+      const labelFilter = { ...s.labelFilter, [spaceId]: [] }
+      localStorage.setItem('orchestra.labelFilter', JSON.stringify(labelFilter))
+      return { labelFilter }
+    }),
   repos: [],
   collapsedSpaces: JSON.parse(localStorage.getItem('orchestra.collapsedSpaces') ?? '{}'),
   toggleSpace: (id) =>
@@ -109,7 +130,7 @@ export const useApp = create<AppState>((set, get) => ({
   applyStore: (d) => {
     const selected = get().selectedId
     const stillThere = d.workspaces.some((w) => w.id === selected)
-    set({ spaces: d.spaces, repos: d.repos, workspaces: d.workspaces, settings: d.settings, selectedId: stillThere ? selected : null })
+    set({ spaces: d.spaces, labels: d.labels, repos: d.repos, workspaces: d.workspaces, settings: d.settings, selectedId: stillThere ? selected : null })
   },
   select: (id) => {
     if (id) localStorage.setItem('orchestra.selected', id)

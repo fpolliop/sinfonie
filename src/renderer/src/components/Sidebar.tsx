@@ -2,6 +2,7 @@ import React, { useRef, useState } from 'react'
 import clsx from 'clsx'
 import { Plus, Settings, Archive, GitBranch, Pencil, Folder, Code2, TerminalSquare, Trash2, GitPullRequest, Layers, ListTree, CalendarClock, ArrowDownWideNarrow, ArrowUpNarrowWide } from 'lucide-react'
 import { WORKSPACE_STAGES } from '@shared/types'
+import { LabelChip, labelsFor } from './LabelPicker'
 import { useApp, spaceOrder } from '@/stores/app'
 import { useChat } from '@/stores/chat'
 import { timeAgo } from '@/lib/format'
@@ -15,7 +16,7 @@ import { STAGE_DOT, stageLabel } from './StagePicker'
 import type { Workspace } from '@shared/types'
 
 export function Sidebar(): React.JSX.Element {
-  const { workspaces, spaces, selectedId, select, setShowNewWorkspace, setShowSettings, showArchived, setShowArchived, view, setView, setError, activeSpaceId, setActiveSpace, stepSpace, sidebarView, sidebarDateDir, collapsedStages, setSidebarView, setSidebarDateDir, toggleStage } = useApp()
+  const { workspaces, spaces, labels, labelFilter, toggleLabelFilter, clearLabelFilter, selectedId, select, setShowNewWorkspace, setShowSettings, showArchived, setShowArchived, view, setView, setError, activeSpaceId, setActiveSpace, stepSpace, sidebarView, sidebarDateDir, collapsedStages, setSidebarView, setSidebarDateDir, toggleStage } = useApp()
   const chats = useChat((s) => s.chats)
   const [spaceMenu, setSpaceMenu] = useState<{ x: number; y: number; id: string } | null>(null)
   const [renaming, setRenaming] = useState<string | null>(null)
@@ -33,7 +34,11 @@ export function Sidebar(): React.JSX.Element {
   const current = spaces.find((s) => s.id === currentId)
   const currentName = current?.name ?? (spaces.length ? 'Other' : 'Workspaces')
   const currentColor = current?.color ?? '#8b93a1'
-  const items = currentId ? active.filter((w) => w.spaceId === currentId) : active.filter(isUngrouped)
+  const spaceLabels = labelsFor(labels, currentId || undefined)
+  const selectedLabels = (labelFilter[currentId] ?? []).filter((id) => spaceLabels.some((l) => l.id === id))
+  const matchesLabels = (w: Workspace): boolean => selectedLabels.every((id) => w.labelIds?.includes(id))
+  const inSpace = currentId ? active.filter((w) => w.spaceId === currentId) : active.filter(isUngrouped)
+  const items = inSpace.filter(matchesLabels)
   const archived = workspaces.filter((w) => w.status === 'archived').filter((w) => (currentId ? w.spaceId === currentId : isUngrouped(w)))
   const run = (fn: () => Promise<unknown>): void => {
     fn().catch((err) => setError(err instanceof Error ? err.message : String(err)))
@@ -115,6 +120,23 @@ export function Sidebar(): React.JSX.Element {
             </button>
           )}
         </div>
+        {spaceLabels.length > 0 && (
+          <div className="mb-1.5 flex flex-wrap items-center gap-1 px-1">
+            {spaceLabels.map((l) => {
+              const on = selectedLabels.includes(l.id)
+              return (
+                <button key={l.id} onClick={() => toggleLabelFilter(currentId, l.id)} className={clsx('rounded-full transition-opacity', on ? 'opacity-100 ring-1 ring-offset-1 ring-offset-panel' : 'opacity-50 hover:opacity-90')} style={on ? { ['--tw-ring-color' as string]: l.color } : undefined} title={on ? 'Remove from filter' : 'Filter by this label'}>
+                  <LabelChip label={l} small />
+                </button>
+              )
+            })}
+            {selectedLabels.length > 0 && (
+              <button className="text-[10px] text-muted hover:text-text" onClick={() => clearLabelFilter(currentId)}>
+                clear
+              </button>
+            )}
+          </div>
+        )}
         {sidebarView === 'status'
           ? WORKSPACE_STAGES.map((st) => {
               const group = items.filter((w) => w.stage === st.id)
@@ -133,7 +155,8 @@ export function Sidebar(): React.JSX.Element {
               )
             })
           : items.map(row)}
-        {items.length === 0 && (
+        {items.length === 0 && inSpace.length > 0 && <div className="px-2 py-3 text-[12px] text-muted">No workspaces match the selected labels.</div>}
+        {inSpace.length === 0 && (
           <div className="px-2 py-3 text-[12px] text-muted">
             No workspaces in {currentName} yet.{' '}
             <button className="text-accent hover:underline" onClick={() => setShowNewWorkspace(true, currentId)}>
@@ -201,6 +224,8 @@ function SpaceDots({ ids, currentId, onPick, onAdd }: { ids: string[]; currentId
 
 function WorkspaceRow({ ws, selected, busy, onClick }: { ws: Workspace; selected: boolean; busy: boolean; onClick: () => void }): React.JSX.Element {
   const branch = ws.repos[0]?.branch
+  const allLabels = useApp((s) => s.labels)
+  const rowLabels = (ws.labelIds ?? []).map((id) => allLabels.find((l) => l.id === id)).filter((l): l is NonNullable<typeof l> => Boolean(l))
   const [editing, setEditing] = useState(false)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const { setError, setShowArchived } = useApp()
@@ -280,6 +305,13 @@ function WorkspaceRow({ ws, selected, busy, onClick }: { ws: Workspace; selected
             {ws.repos.length} repo{ws.repos.length === 1 ? '' : 's'} · {timeAgo(ws.lastMessageAt ?? ws.createdAt)}
           </span>
         </div>
+        {rowLabels.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {rowLabels.map((l) => (
+              <LabelChip key={l.id} label={l} small />
+            ))}
+          </div>
+        )}
         <div className="flex items-center gap-1.5 text-[11px]">
           <span className={clsx('h-1.5 w-1.5 shrink-0 rounded-full', STAGE_DOT[ws.stage])} />
           <span className="text-muted">{stageLabel(ws.stage)}</span>

@@ -3,6 +3,7 @@ import { renameWorkspace } from '@/lib/rename'
 import { InlineRename } from './InlineRename'
 import { StagePicker } from './StagePicker'
 import { SpacePicker } from './SpacePicker'
+import { LabelPicker } from './LabelPicker'
 import type { RepoSafety } from '@shared/types'
 import { ManageReposDialog } from './ManageReposDialog'
 import clsx from 'clsx'
@@ -105,6 +106,7 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
             )}
             <StagePicker stage={ws.stage} disabled={ws.status === 'archived'} onChange={(stage) => run(() => api.invoke('workspaces:setStage', ws.id, stage))} />
             <SpacePicker pill value={ws.spaceId ?? ''} onChange={(id) => run(() => api.invoke('workspaces:setSpace', ws.id, id || null))} />
+            <LabelPicker ws={ws} />
             {ws.status === 'creating' && <Badge tone="warn">creating</Badge>}
             {ws.status === 'error' && <Badge tone="danger">error</Badge>}
             {ws.status === 'archived' && <Badge>archived</Badge>}

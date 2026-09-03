@@ -3,6 +3,7 @@ import type {
   ChatItem,
   JiraIssue,
   JiraSettings,
+  Label,
   McpServerSpec,
   RepoPr,
   PermissionMode,
@@ -39,6 +40,10 @@ export interface OrchestraInvoke {
   'mcp:importable': () => McpServerSpec[]
   'spaces:delete': (id: string) => void
   'workspaces:setSpace': (workspaceId: string, spaceId: string | null) => Workspace
+  'labels:create': (name: string, color: string, spaceId: string | null) => Label
+  'labels:update': (id: string, patch: Partial<Pick<Label, 'name' | 'color'>>) => Label
+  'labels:delete': (id: string) => void
+  'workspaces:setLabels': (workspaceId: string, labelIds: string[]) => Workspace
   'repos:setSpace': (repoId: string, spaceId: string | null) => Repo
 
   'repos:pickAndAdd': (spaceId?: string) => Repo | null

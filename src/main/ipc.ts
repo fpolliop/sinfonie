@@ -3,7 +3,7 @@ import { basename } from 'path'
 import { spawn } from 'child_process'
 import { nanoid } from 'nanoid'
 import type { OrchestraEvents, OrchestraInvoke } from '@shared/ipc'
-import type { McpServerSpec, Repo, RepoGitStatus, Space } from '@shared/types'
+import type { Label, McpServerSpec, Repo, RepoGitStatus, Space } from '@shared/types'
 import { existsSync, readFileSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
@@ -86,6 +86,32 @@ export function registerIpc(): void {
     })
   })
   handle('workspaces:setSpace', (wid, spaceId) => workspaces.patchWorkspace(wid, { spaceId: spaceId ?? undefined }))
+  handle('workspaces:setLabels', (wid, labelIds) => workspaces.patchWorkspace(wid, { labelIds }))
+
+  // ---- labels ----
+  handle('labels:create', (name, color, spaceId) => {
+    const label: Label = { id: nanoid(6), name: name.trim() || 'label', color, ...(spaceId ? { spaceId } : {}) }
+    getStore().update((d) => d.labels.push(label))
+    return label
+  })
+  handle('labels:update', (id, patch) => {
+    let out: Label | undefined
+    getStore().update((d) => {
+      const l = d.labels.find((x) => x.id === id)
+      if (l) {
+        Object.assign(l, patch)
+        out = l
+      }
+    })
+    if (!out) throw new Error('Unknown label')
+    return out
+  })
+  handle('labels:delete', (id) => {
+    getStore().update((d) => {
+      d.labels = d.labels.filter((l) => l.id !== id)
+      for (const w of d.workspaces) if (w.labelIds?.includes(id)) w.labelIds = w.labelIds.filter((x) => x !== id)
+    })
+  })
   handle('repos:setSpace', (rid, spaceId) => {
     let out: Repo | undefined
     getStore().update((d) => {
