@@ -1,8 +1,8 @@
 import { query, type Options, type Query, type SDKMessage, type SDKUserMessage, type PermissionResult } from '@anthropic-ai/claude-agent-sdk'
 import { nanoid } from 'nanoid'
-import type { AgentEvent, PermissionRequest, PermissionResponse, Workspace } from '@shared/types'
+import type { AgentEvent, PermissionMode, PermissionRequest, PermissionResponse, Workspace } from '@shared/types'
 import { getStore } from '../store'
-import { getRepo, getWorkspace } from './workspaces'
+import { getWorkspace, patchWorkspace } from './workspaces'
 
 type EmitEvent = (e: AgentEvent) => void
 type EmitPermission = (r: PermissionRequest) => void
@@ -109,10 +109,12 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
     return r
   }
 
+  const mode = ws.permissionMode ?? settings.permissionMode
   const options: Options = {
     cwd: primary.worktreePath,
     additionalDirectories: others,
-    permissionMode: settings.permissionMode,
+    permissionMode: mode,
+    ...(mode === 'bypassPermissions' ? { allowDangerouslySkipPermissions: true } : {}),
     model: settings.model,
     includePartialMessages: true,
     abortController: abort,
@@ -255,6 +257,22 @@ export function sendMessage(workspaceId: string, text: string, emit: EmitEvent, 
     message: { role: 'user', content: [{ type: 'text', text }] },
     parent_tool_use_id: null
   })
+}
+
+/** Switch the mode for future sessions and, when one is live, for the running session too. */
+export async function setMode(workspaceId: string, mode: PermissionMode): Promise<Workspace> {
+  const ws = patchWorkspace(workspaceId, { permissionMode: mode })
+  const s = sessions.get(workspaceId)
+  if (s) {
+    if (mode === 'bypassPermissions') {
+      // The SDK only honours bypass when the session was started with the dangerous flag,
+      // so restart the session; the stored session id makes the next message resume it.
+      closeSession(workspaceId)
+    } else {
+      await s.q.setPermissionMode(mode)
+    }
+  }
+  return ws
 }
 
 export async function interrupt(workspaceId: string): Promise<void> {

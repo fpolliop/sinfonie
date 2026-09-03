@@ -46,13 +46,26 @@ export interface Workspace {
   /** Claude Code session id, so the chat can be resumed across app restarts. */
   sessionId?: string
   lastMessageAt?: string
+  /** Per-workspace override of the settings default; changed live from the chat. */
+  permissionMode?: PermissionMode
 }
+
+/** Same modes as the Claude Code CLI (Shift+Tab cycles them there and here). */
+export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'auto' | 'bypassPermissions'
+
+export const PERMISSION_MODES: { id: PermissionMode; label: string; hint: string }[] = [
+  { id: 'default', label: 'Ask', hint: 'Prompts before risky tools' },
+  { id: 'acceptEdits', label: 'Accept edits', hint: 'Auto-approves file edits, asks for the rest' },
+  { id: 'plan', label: 'Plan', hint: 'Read-only: explores and plans, no changes' },
+  { id: 'auto', label: 'Auto', hint: 'A classifier approves or denies prompts' },
+  { id: 'bypassPermissions', label: 'Bypass', hint: 'Never asks. Use with care' }
+]
 
 export interface Settings {
   workspacesRoot: string
   basePort: number
   model: string
-  permissionMode: 'default' | 'acceptEdits' | 'plan'
+  permissionMode: PermissionMode
 }
 
 export interface StoreData {

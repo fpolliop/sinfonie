@@ -4,6 +4,7 @@ import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { Badge, Button, Dialog, Field, inputCls } from './ui'
 import { shortPath } from '@/lib/format'
+import { PERMISSION_MODES } from '@shared/types'
 
 export function SettingsDialog({ onClose }: { onClose: () => void }): React.JSX.Element {
   const { repos, settings, setError, workspaces } = useApp()
@@ -68,11 +69,13 @@ export function SettingsDialog({ onClose }: { onClose: () => void }): React.JSX.
             <input className={inputCls} defaultValue={settings.model} onBlur={(e) => e.target.value !== settings.model && go(() => update({ model: e.target.value }))} />
           </Field>
         </div>
-        <Field label="Permission mode" hint="default asks before risky tools; acceptEdits auto-approves file edits; plan only plans.">
+        <Field label="Default permission mode" hint="Used for new workspaces. Each chat can switch its own mode from the composer or with Shift+Tab.">
           <select className={inputCls} value={settings.permissionMode} onChange={(e) => go(() => update({ permissionMode: e.target.value as typeof settings.permissionMode }))}>
-            <option value="default">default</option>
-            <option value="acceptEdits">acceptEdits</option>
-            <option value="plan">plan</option>
+            {PERMISSION_MODES.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label} — {m.hint}
+              </option>
+            ))}
           </select>
         </Field>
         <p className="text-[11px] text-muted">Model and permission mode apply to sessions started after the change. Use "New session" in a chat to restart one.</p>

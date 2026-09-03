@@ -87,18 +87,18 @@ export function NewWorkspaceDialog({ onClose }: { onClose: () => void }): React.
           const p = picks[r.id]
           return (
             <div key={r.id} className={clsx('rounded-lg border px-3 py-2', p ? 'border-accent/50 bg-accent/5' : 'border-border')}>
-              <div className="flex items-center gap-2">
-                <input type="checkbox" checked={Boolean(p)} onChange={() => void toggle(r.id)} />
-                <div className="min-w-0">
-                  <div className="text-[13px] font-medium">{r.name}</div>
+              <div className="flex items-center gap-3">
+                <input type="checkbox" className="shrink-0" checked={Boolean(p)} onChange={() => void toggle(r.id)} />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[13px] font-medium">{r.name}</div>
                   <div className="truncate text-[11px] text-muted">{shortPath(r.path)}</div>
                 </div>
                 {p && (
-                  <div className="ml-auto flex items-center gap-2">
-                    <label className="flex items-center gap-1 text-[11px] text-muted">
+                  <div className="flex shrink-0 items-center gap-3">
+                    <label className="flex cursor-pointer items-center gap-1.5 whitespace-nowrap text-[11px] text-muted" title="Claude Code's working directory">
                       <input type="radio" name="primary" checked={primary === r.id} onChange={() => setPrimary(r.id)} /> primary
                     </label>
-                    <select className="rounded-md border border-border bg-bg px-1.5 py-1 text-[12px]" value={p.baseBranch} onChange={(e) => setPicks((s) => ({ ...s, [r.id]: { ...p, baseBranch: e.target.value } }))}>
+                    <select className="max-w-[180px] rounded-md border border-border bg-bg px-1.5 py-1 text-[12px]" value={p.baseBranch} onChange={(e) => setPicks((s) => ({ ...s, [r.id]: { ...p, baseBranch: e.target.value } }))}>
                       {(p.branches.length ? p.branches : [p.baseBranch]).map((b) => (
                         <option key={b} value={b}>
                           from {b}

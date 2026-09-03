@@ -25,6 +25,7 @@ interface ChatState {
   subscribe: () => void
 }
 
+let subscribed = false
 const empty = (): WorkspaceChat => ({ items: [], busy: false, draft: '' })
 
 function updateChat(state: ChatState, id: string, fn: (c: WorkspaceChat) => WorkspaceChat): Partial<ChatState> {
@@ -142,6 +143,9 @@ export const useChat = create<ChatState>((set, get) => ({
   },
 
   subscribe: () => {
+    // React StrictMode runs effects twice in dev; a second listener would double every event.
+    if (subscribed) return
+    subscribed = true
     api.on('agent:event', (e) => get().handleEvent(e))
     api.on('agent:permission', (p) => set((s) => ({ permissions: [...s.permissions, p] })))
   }

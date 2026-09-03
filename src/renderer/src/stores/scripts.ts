@@ -3,6 +3,8 @@ import type { ScriptOutputEvent } from '@shared/types'
 import { api } from '@/lib/api'
 import { stripAnsi } from '@/lib/format'
 
+let subscribed = false
+
 interface ScriptRun {
   output: string
   running: boolean
@@ -20,6 +22,8 @@ export const useScripts = create<ScriptsState>((set, get) => ({
   runs: {},
   key: (w, r, k) => `${w}:${r}:${k}`,
   subscribe: () => {
+    if (subscribed) return
+    subscribed = true
     api.on('script:output', (e: ScriptOutputEvent) => {
       const k = get().key(e.workspaceId, e.repoId, e.kind)
       set((s) => {

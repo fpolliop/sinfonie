@@ -144,6 +144,7 @@ export function registerIpc(): void {
   handle('agent:interrupt', (id) => agent.interrupt(id))
   handle('agent:permission', (r) => agent.answerPermission(r))
   handle('agent:reset', (id) => agent.resetSession(id))
+  handle('agent:setMode', (id, mode) => agent.setMode(id, mode))
 
   // ---- terminal ----
   handle('terminal:create', (id, repoId) => {

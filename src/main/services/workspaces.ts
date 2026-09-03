@@ -47,7 +47,7 @@ export function getWorkspace(workspaceId: string): Workspace {
   return ws
 }
 
-function patchWorkspace(id: string, patch: Partial<Workspace>): Workspace {
+export function patchWorkspace(id: string, patch: Partial<Workspace>): Workspace {
   let out: Workspace | undefined
   getStore().update((d) => {
     const ws = d.workspaces.find((w) => w.id === id)

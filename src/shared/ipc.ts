@@ -1,5 +1,6 @@
 import type {
   AgentEvent,
+  PermissionMode,
   CreateWorkspaceInput,
   PermissionRequest,
   PermissionResponse,
@@ -41,6 +42,7 @@ export interface OrchestraInvoke {
   'agent:interrupt': (workspaceId: string) => void
   'agent:permission': (response: PermissionResponse) => void
   'agent:reset': (workspaceId: string) => void
+  'agent:setMode': (workspaceId: string, mode: PermissionMode) => Workspace
 
   'terminal:create': (workspaceId: string, repoId: string) => string
   'terminal:write': (terminalId: string, data: string) => void

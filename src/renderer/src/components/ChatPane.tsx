@@ -1,11 +1,15 @@
 import React, { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { ChevronRight, Square, RotateCcw, Send } from 'lucide-react'
+import { ChevronRight, Square, RotateCcw, Send, ArrowDownToLine, ShieldCheck } from 'lucide-react'
+import { api } from '@/lib/api'
+import { PERMISSION_MODES, type PermissionMode } from '@shared/types'
 import { useChat } from '@/stores/chat'
 import { useApp } from '@/stores/app'
 import { Markdown } from '@/lib/markdown'
 import { Button, Spinner } from './ui'
 import type { ChatBlock, ChatItem, ChatToolBlock } from '@shared/types'
+
+const AUTOSCROLL_KEY = 'orchestra.autoscroll'
 
 export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.Element {
   const chat = useChat((s) => s.chats[workspaceId])
@@ -17,11 +21,31 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
   const draft = chat?.draft ?? ''
   const disabled = ws?.status !== 'ready'
   const settingsModel = useApp((s) => s.settings.model)
+  const settingsMode = useApp((s) => s.settings.permissionMode)
+  const setError = useApp((s) => s.setError)
+  const mode: PermissionMode = ws?.permissionMode ?? settingsMode
+  const [autoScroll, setAutoScroll] = useState(() => localStorage.getItem(AUTOSCROLL_KEY) !== 'off')
 
+  const toggleAutoScroll = (): void => {
+    const next = !autoScroll
+    setAutoScroll(next)
+    localStorage.setItem(AUTOSCROLL_KEY, next ? 'on' : 'off')
+    if (next && scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+  }
+
+  const changeMode = (next: PermissionMode): void => {
+    api.invoke('agent:setMode', workspaceId, next).catch((err) => setError(err instanceof Error ? err.message : String(err)))
+  }
+  const cycleMode = (): void => {
+    const i = PERMISSION_MODES.findIndex((m) => m.id === mode)
+    changeMode(PERMISSION_MODES[(i + 1) % PERMISSION_MODES.length].id)
+  }
+
+  // Follow the conversation while it streams. Off means the view stays where the user put it.
   useEffect(() => {
     const el = scrollRef.current
-    if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 160) el.scrollTop = el.scrollHeight
-  }, [items])
+    if (el && autoScroll) el.scrollTop = el.scrollHeight
+  }, [items, autoScroll])
 
   const onSubmit = (): void => {
     if (busy || disabled) return
@@ -63,6 +87,9 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault()
                   onSubmit()
+                } else if (e.key === 'Tab' && e.shiftKey) {
+                  e.preventDefault()
+                  cycleMode()
                 }
               }}
               rows={3}
@@ -70,6 +97,14 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
               className="w-full resize-none bg-transparent px-3 pt-3 text-[13px] outline-none placeholder:text-muted"
             />
             <div className="flex items-center gap-2 px-2 pb-2">
+              <ModePicker mode={mode} onChange={changeMode} />
+              <button
+                onClick={toggleAutoScroll}
+                title={autoScroll ? 'Auto-scroll on: follows new output. Click to turn off.' : 'Auto-scroll off: view stays put. Click to turn on.'}
+                className={clsx('inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px]', autoScroll ? 'bg-accent/15 text-accent' : 'text-muted hover:text-text')}
+              >
+                <ArrowDownToLine size={12} /> Auto-scroll
+              </button>
               <span className="text-[11px] text-muted">
                 {chat?.model ?? `model: ${settingsModel}`}
                 {chat?.lastResult && <> · last turn ${chat.lastResult.costUsd.toFixed(3)} · {(chat.lastResult.durationMs / 1000).toFixed(1)}s</>}
@@ -92,6 +127,25 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
         </div>
       </div>
     </div>
+  )
+}
+
+function ModePicker({ mode, onChange }: { mode: PermissionMode; onChange: (m: PermissionMode) => void }): React.JSX.Element {
+  const current = PERMISSION_MODES.find((m) => m.id === mode) ?? PERMISSION_MODES[0]
+  const tone = mode === 'bypassPermissions' ? 'text-danger bg-danger/15' : mode === 'plan' ? 'text-warn bg-warn/15' : mode === 'default' ? 'text-muted bg-panel-2' : 'text-ok bg-ok/15'
+  return (
+    <label className={clsx('relative inline-flex cursor-pointer items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-medium', tone)} title={`${current.hint}. Shift+Tab cycles modes.`}>
+      <ShieldCheck size={12} />
+      <span>{current.label}</span>
+      <span className="opacity-60">▾</span>
+      <select className="absolute inset-0 cursor-pointer opacity-0" value={mode} onChange={(e) => onChange(e.target.value as PermissionMode)}>
+        {PERMISSION_MODES.map((m) => (
+          <option key={m.id} value={m.id}>
+            {m.label} — {m.hint}
+          </option>
+        ))}
+      </select>
+    </label>
   )
 }
 
