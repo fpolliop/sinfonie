@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
 import type { Settings, StoreData } from '@shared/types'
+import { DEFAULT_CREW } from '@shared/types'
 
 type Listener = (data: StoreData) => void
 
@@ -11,6 +12,7 @@ const DEFAULT_SETTINGS: Settings = {
   basePort: 55000,
   model: 'claude-opus-5',
   permissionMode: 'default',
+  agents: DEFAULT_CREW,
   claudeAccounts: [{ id: 'default', name: 'Default (~/.claude)', configDir: null }],
   defaultClaudeAccountId: 'default',
   jira: { connected: false, siteUrl: '', email: '', hasToken: false, defaultJql: 'assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC' }
@@ -48,7 +50,8 @@ class Store {
           ...(raw.settings ?? {}),
           jira: { ...DEFAULT_SETTINGS.jira, ...(raw.settings?.jira ?? {}) },
           claudeAccounts: raw.settings?.claudeAccounts?.length ? raw.settings.claudeAccounts : DEFAULT_SETTINGS.claudeAccounts,
-          defaultClaudeAccountId: raw.settings?.defaultClaudeAccountId ?? 'default'
+          defaultClaudeAccountId: raw.settings?.defaultClaudeAccountId ?? 'default',
+          agents: raw.settings?.agents?.length ? raw.settings.agents : DEFAULT_CREW
         },
         secrets: migrateSecrets(raw.secrets ?? {})
       }

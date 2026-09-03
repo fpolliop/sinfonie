@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { ChevronRight, Square, RotateCcw, Send, ShieldCheck, XCircle, AlertTriangle, Info, History } from 'lucide-react'
+import { ChevronRight, Square, RotateCcw, Send, ShieldCheck, XCircle, AlertTriangle, Info, History, Users } from 'lucide-react'
 import { api } from '@/lib/api'
 import { PERMISSION_MODES, type PermissionMode } from '@shared/types'
 import { QuestionCard } from './QuestionCard'
@@ -143,7 +143,15 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
               <ModePicker mode={mode} onChange={changeMode} />
               <span className="text-[11px] text-muted">
                 {chat?.model ?? `model: ${settingsModel}`}
-                {chat?.lastResult && <> · last turn ${chat.lastResult.costUsd.toFixed(3)} · {(chat.lastResult.durationMs / 1000).toFixed(1)}s</>}
+                {chat?.lastResult && (
+                  <>
+                    {' '}
+                    · session ${chat.lastResult.costUsd.toFixed(2)} · {(chat.lastResult.durationMs / 1000).toFixed(1)}s
+                    {chat.lastResult.byModel && chat.lastResult.byModel.length > 1 && (
+                      <span title="Cost split by model for this session"> ({chat.lastResult.byModel.map((m) => `${shortModel(m.model)} $${m.costUsd.toFixed(2)}`).join(', ')})</span>
+                    )}
+                  </>
+                )}
               </span>
               <span className="ml-auto" />
               <Button size="sm" variant="ghost" title="Continue a past Claude Code session here (like /resume)" onClick={() => setResumeDlg(true)} disabled={busy}>
@@ -227,18 +235,38 @@ function Block({ block }: { block: ChatBlock }): React.JSX.Element | null {
   return <ToolCall block={block} />
 }
 
+function shortModel(m: string): string {
+  return m.replace(/^claude-/, '').replace(/\[.*\]$/, '')
+}
+
 function ToolCall({ block }: { block: ChatToolBlock }): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const input = (block.input ?? {}) as Record<string, unknown>
+  const isAgent = block.name === 'Agent' || block.name === 'Task'
   const headline =
     typeof input.command === 'string' ? input.command : typeof input.file_path === 'string' ? input.file_path : typeof input.pattern === 'string' ? input.pattern : typeof input.description === 'string' ? input.description : ''
+  const agentType = typeof input.subagent_type === 'string' ? input.subagent_type : 'agent'
   return (
-    <div className={clsx('rounded-md border text-[12px]', block.isError ? 'border-danger/40' : 'border-border')}>
+    <div className={clsx('rounded-md border text-[12px]', block.isError ? 'border-danger/40' : isAgent ? 'border-accent/40' : 'border-border')}>
       <button onClick={() => setOpen(!open)} className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left hover:bg-panel">
         <ChevronRight size={12} className={clsx('shrink-0 transition-transform', open && 'rotate-90')} />
-        <span className="font-medium">{block.name}</span>
-        <span className="truncate font-mono text-muted">{headline}</span>
-        <span className="ml-auto shrink-0">{block.done ? (block.isError ? <span className="text-danger">error</span> : <span className="text-ok">done</span>) : <Spinner />}</span>
+        {isAgent ? (
+          <>
+            <Users size={12} className="shrink-0 text-accent" />
+            <span className="font-medium text-accent">{agentType}</span>
+            {block.sub?.model && <span className="rounded bg-panel-2 px-1 py-px font-mono text-[10px] text-muted">{shortModel(block.sub.model)}</span>}
+            <span className="truncate text-muted">{headline}</span>
+            <span className="ml-auto shrink-0 text-muted">
+              {block.sub ? `${block.sub.toolCalls} tool call${block.sub.toolCalls === 1 ? '' : 's'}${!block.done && block.sub.lastTool ? ` · ${block.sub.lastTool}` : ''}` : ''}
+            </span>
+          </>
+        ) : (
+          <>
+            <span className="font-medium">{block.name}</span>
+            <span className="truncate font-mono text-muted">{headline}</span>
+          </>
+        )}
+        <span className="ml-2 shrink-0">{block.done ? (block.isError ? <span className="text-danger">error</span> : <span className="text-ok">done</span>) : <Spinner />}</span>
       </button>
       {open && (
         <div className="border-t border-border bg-bg px-2.5 py-2 font-mono text-[11px]">

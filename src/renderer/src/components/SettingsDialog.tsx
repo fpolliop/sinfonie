@@ -8,6 +8,7 @@ import { PERMISSION_MODES } from '@shared/types'
 import { LoginTerminal } from './LoginTerminal'
 import { JiraSection } from './JiraSection'
 import { McpSection } from './McpSection'
+import { AgentsSection, DEFAULT_CREW } from './AgentsSection'
 import { SpaceSettingsDialog } from './SpaceSettingsDialog'
 import { SPACE_COLORS } from '@shared/types'
 
@@ -240,6 +241,14 @@ export function SettingsDialog({ onClose }: { onClose: () => void }): React.JSX.
       </section>
 
       <AccountsSection />
+      <AgentsSection
+        title="Default crew"
+        intro="The subagents spaces get unless they define their own. Orchestrator = the chat model; these handle delegated subtasks with cheaper or more focused models."
+        agents={settings.agents}
+        onChange={(agents) => go(() => update({ agents }))}
+        onResetToDefaults={() => go(() => update({ agents: DEFAULT_CREW }))}
+      />
+
       <McpSection
         title="MCP servers for every space"
         intro="Available to Claude in all workspaces. Add space-specific servers in each space's settings."

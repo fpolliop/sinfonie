@@ -32,6 +32,19 @@ export function applyEvent(items: ChatItem[], e: AgentEvent): ChatItem[] {
         ...it,
         blocks: it.blocks.map((b) => (b.type === 'tool' && b.toolUseId === e.toolUseId ? { ...b, input: e.input } : b))
       }))
+    case 'subagent':
+      return items.map((it) =>
+        it.role !== 'assistant'
+          ? it
+          : {
+              ...it,
+              blocks: it.blocks.map((b) =>
+                b.type === 'tool' && b.toolUseId === e.parentToolUseId
+                  ? { ...b, sub: { model: e.model ?? b.sub?.model, toolCalls: (b.sub?.toolCalls ?? 0) + e.tools.length, lastTool: e.tools[e.tools.length - 1] ?? b.sub?.lastTool, text: e.text ?? b.sub?.text } }
+                  : b
+              )
+            }
+      )
     case 'tool_result':
       return items.map((it) =>
         it.role !== 'assistant'

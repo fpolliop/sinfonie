@@ -158,6 +158,35 @@ async function mcpServersFor(ws: Workspace): Promise<Record<string, NonNullable<
   return out
 }
 
+/** The crew as SDK agent definitions, plus the paragraph that tells the orchestrator how to use it. */
+function crewFor(ws: Workspace): { agents: NonNullable<Options['agents']>; prompt: string } {
+  const { settings, spaces } = getStore().get()
+  const space = spaces.find((s) => s.id === ws.spaceId)
+  if (space?.useCrew === false) return { agents: {}, prompt: '' }
+  const specs = (space?.agents ?? settings.agents).filter((a) => a.enabled && a.name.trim())
+  const agents: NonNullable<Options['agents']> = {}
+  for (const a of specs) {
+    agents[a.name] = {
+      description: a.description,
+      prompt: a.prompt,
+      model: a.model,
+      ...(a.effort ? { effort: a.effort } : {}),
+      ...(a.tools?.length ? { tools: a.tools } : {}),
+      ...(a.disallowedTools?.length ? { disallowedTools: a.disallowedTools } : {}),
+      ...(a.maxTurns ? { maxTurns: a.maxTurns } : {}),
+      ...(a.permissionMode ? { permissionMode: a.permissionMode } : {})
+    }
+  }
+  if (specs.length === 0) return { agents: {}, prompt: '' }
+  const prompt = [
+    '',
+    'You are the orchestrator of a crew. Delegate with the Agent tool when a subtask is well-specified and a cheaper or more focused agent can do it; keep planning, judgment and integration yourself. Your crew:',
+    ...specs.map((a) => `- ${a.name} (${a.model}${a.effort ? `, ${a.effort} effort` : ''}): ${a.description}`),
+    'When delegating, state the worktree path, the exact goal, and what a finished answer looks like. Run independent delegations in parallel. Never let two agents edit the same repository at the same time.'
+  ].join('\n')
+  return { agents, prompt }
+}
+
 function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission: EmitPermission, mcpServers: Record<string, NonNullable<Options['mcpServers']>[string]>): Session {
   const existing = sessions.get(workspaceId)
   if (existing) return existing
@@ -223,6 +252,7 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
   }
 
   const mode = ws.permissionMode ?? space?.permissionMode ?? settings.permissionMode
+  const crew = crewFor(ws)
   const options: Options = {
     cwd: primary.worktreePath,
     additionalDirectories: others,
@@ -232,7 +262,8 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
     includePartialMessages: true,
     abortController: abort,
     canUseTool,
-    systemPrompt: { type: 'preset', preset: 'claude_code', append: systemPromptFor(ws) + (Object.keys(mcpServers).length ? `\nMCP servers available in this workspace: ${Object.keys(mcpServers).join(', ')}.` : '') },
+    systemPrompt: { type: 'preset', preset: 'claude_code', append: systemPromptFor(ws) + (Object.keys(mcpServers).length ? `\nMCP servers available in this workspace: ${Object.keys(mcpServers).join(', ')}.` : '') + crew.prompt },
+    ...(Object.keys(crew.agents).length ? { agents: crew.agents } : {}),
     ...(Object.keys(mcpServers).length ? { mcpServers } : {}),
     ...(space?.strictMcp ?? settings.strictMcp ? { strictMcpConfig: true } : {}),
     settingSources: ['user', 'project', 'local'],
@@ -280,6 +311,15 @@ async function pump(session: Session, emit: EmitEvent): Promise<void> {
       switch (msg.type) {
         case 'assistant':
           if (msg.error && !msg.parent_tool_use_id) notice('error', describeError(msg.error))
+          if (msg.parent_tool_use_id) {
+            const tools = msg.message.content.filter((b) => b.type === 'tool_use').map((b) => (b as { name: string }).name)
+            const text = msg.message.content
+              .filter((b) => b.type === 'text')
+              .map((b) => (b as { text: string }).text)
+              .join('')
+              .slice(0, 400)
+            emit({ type: 'subagent', workspaceId, parentToolUseId: msg.parent_tool_use_id, model: msg.message.model, tools, ...(text ? { text } : {}) })
+          }
           break
         case 'auth_status':
           if (msg.error) notice('error', `Authentication: ${msg.error}`)
@@ -419,7 +459,10 @@ async function pump(session: Session, emit: EmitEvent): Promise<void> {
               durationMs: msg.duration_ms,
               numTurns: msg.num_turns,
               isError,
-              errorText
+              errorText,
+              byModel: Object.entries(msg.modelUsage ?? {})
+                .map(([model, u]) => ({ model, costUsd: u.costUSD, outputTokens: u.outputTokens }))
+                .sort((a, b) => b.costUsd - a.costUsd)
             }
           })
           emit({ type: 'status', workspaceId, busy: false })

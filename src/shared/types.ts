@@ -33,6 +33,72 @@ export interface Label {
   spaceId?: string
 }
 
+/**
+ * A member of the crew: a subagent the orchestrator can delegate to, with its
+ * own model, effort and tool surface. Maps onto the Agent SDK's AgentDefinition.
+ */
+export interface AgentSpec {
+  id: string
+  /** Also the subagent_type the orchestrator uses to call it. */
+  name: string
+  description: string
+  prompt: string
+  model: string
+  effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+  /** Allow-list of tools; empty means everything the orchestrator has. */
+  tools?: string[]
+  disallowedTools?: string[]
+  maxTurns?: number
+  permissionMode?: PermissionMode
+  enabled: boolean
+}
+
+export const DEFAULT_CREW: AgentSpec[] = [
+  {
+    id: 'explorer',
+    name: 'explorer',
+    description: 'Fast, cheap codebase exploration: find where something lives, how a function is used, which files a change touches. Read-only.',
+    prompt: 'You explore code and report back. Answer the question precisely with file paths and line numbers, quoting the relevant snippets. Do not propose changes unless asked, and do not modify anything.',
+    model: 'haiku',
+    effort: 'low',
+    tools: ['Read', 'Grep', 'Glob', 'LS', 'Bash(git log:*)', 'Bash(git diff:*)', 'Bash(git show:*)', 'Bash(git blame:*)'],
+    maxTurns: 30,
+    enabled: true
+  },
+  {
+    id: 'implementer',
+    name: 'implementer',
+    description: 'Implements a well-specified change inside one repository: the task must say which worktree, which files or area, and what done looks like.',
+    prompt: 'You implement exactly the change described, inside the worktree you are given. Read the surrounding code first, keep the diff minimal and consistent with the codebase, run the relevant tests or type-check if they are cheap, and finish with a short summary of what you changed and anything the caller should double-check.',
+    model: 'sonnet',
+    effort: 'high',
+    maxTurns: 80,
+    enabled: true
+  },
+  {
+    id: 'tester',
+    name: 'tester',
+    description: 'Runs tests, linters and type-checks and reports failures with the exact error output. Does not fix anything.',
+    prompt: 'Run the requested checks from the worktree you are given and report the results: which command, pass or fail, and the relevant error output trimmed to what matters. Do not edit files.',
+    model: 'haiku',
+    effort: 'medium',
+    tools: ['Read', 'Grep', 'Glob', 'Bash'],
+    maxTurns: 20,
+    enabled: true
+  },
+  {
+    id: 'reviewer',
+    name: 'reviewer',
+    description: 'Careful review of a diff before it is committed: correctness, edge cases, security, tests. Read-only, thorough.',
+    prompt: 'Review the change like a senior engineer who will be paged if it breaks. Read the diff and the surrounding code. Report findings ordered by severity with file and line, what is wrong, why it matters, and the fix. Say clearly whether it is safe to commit. Do not modify anything.',
+    model: 'opus',
+    effort: 'xhigh',
+    tools: ['Read', 'Grep', 'Glob', 'LS', 'Bash(git diff:*)', 'Bash(git log:*)', 'Bash(git show:*)'],
+    maxTurns: 40,
+    enabled: true
+  }
+]
+
 /** A group of workspaces and repositories, e.g. "Personal", "Lumepic", "Howdy". */
 export interface Space {
   id: string
@@ -50,6 +116,10 @@ export interface Space {
   exposeJiraMcp?: boolean
   /** Ignore MCP servers from Claude Code's own config (claude.ai connectors, plugins, ~/.claude.json). Absent = app default. */
   strictMcp?: boolean
+  /** This space's crew. Absent = the app defaults in Settings. */
+  agents?: AgentSpec[]
+  /** Give the orchestrator its crew at all. Default on. */
+  useCrew?: boolean
   /** Per-space overrides; absent means the app default from Settings. */
   model?: string
   permissionMode?: PermissionMode
@@ -176,6 +246,8 @@ export interface Settings {
   mcpServers?: McpServerSpec[]
   /** Default for spaces: only use MCP servers configured in Orchestra. */
   strictMcp?: boolean
+  /** Default crew for spaces without their own. */
+  agents: AgentSpec[]
 }
 
 // ---- Review cockpit ----
@@ -375,6 +447,8 @@ export interface ChatToolBlock {
   result?: string
   isError?: boolean
   done: boolean
+  /** For Agent delegations: what the subagent has done so far. */
+  sub?: { model?: string; toolCalls: number; lastTool?: string; text?: string }
 }
 export type ChatBlock = ChatTextBlock | ChatThinkingBlock | ChatToolBlock
 
@@ -394,6 +468,8 @@ export interface ChatTurnResult {
   numTurns: number
   isError: boolean
   errorText?: string
+  /** Running cost of the session split by model, from the SDK's modelUsage. */
+  byModel?: { model: string; costUsd: number; outputTokens: number }[]
 }
 
 /** Events the agent service emits to the renderer. Kept deliberately small. */
@@ -402,6 +478,7 @@ export type AgentEvent =
   | { type: 'user_message'; workspaceId: string; itemId: string; text: string; createdAt: string }
   | { type: 'notice'; workspaceId: string; itemId: string; level: 'info' | 'warn' | 'error'; text: string; createdAt: string }
   | { type: 'queue'; workspaceId: string; items: { id: string; text: string }[] }
+  | { type: 'subagent'; workspaceId: string; parentToolUseId: string; model?: string; tools: string[]; text?: string }
   | { type: 'assistant_start'; workspaceId: string; itemId: string }
   | { type: 'text_delta'; workspaceId: string; itemId: string; text: string }
   | { type: 'thinking_delta'; workspaceId: string; itemId: string; text: string }

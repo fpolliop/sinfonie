@@ -5,6 +5,7 @@ import { useApp } from '@/stores/app'
 import { Badge, Button, Dialog, Field, inputCls } from './ui'
 import { JiraSection } from './JiraSection'
 import { McpSection } from './McpSection'
+import { AgentsSection, DEFAULT_CREW } from './AgentsSection'
 import { jiraConnectionFor } from '@shared/types'
 import { shortPath } from '@/lib/format'
 import { SPACE_COLORS, PERMISSION_MODES } from '@shared/types'
@@ -120,6 +121,16 @@ export function SpaceSettingsDialog({ spaceId, onClose }: { spaceId: string; onC
       <GithubOwnersSection spaceId={space.id} configured={space.githubOwners ?? []} onChange={(owners) => go(() => api.invoke('spaces:update', space.id, { githubOwners: owners }))} />
 
       <JiraSection connId={space.id} title="Jira for this space" intro="Connect the Jira site this space's tickets live in. Leave it disconnected to use the default connection from Settings." />
+
+      <AgentsSection
+        title="Crew for this space"
+        intro="Subagents the chat's orchestrator can delegate to, each with its own model and effort. Cheaper models for exploration and tests, frontier models for planning and review. Applies to sessions started after the change."
+        agents={space.agents ?? settings.agents}
+        inherited={!space.agents}
+        onChange={(agents) => go(() => api.invoke('spaces:update', space.id, { agents }))}
+        onResetToDefaults={() => go(() => api.invoke('spaces:update', space.id, { agents: DEFAULT_CREW }))}
+        useCrew={{ value: space.useCrew !== false, onToggle: (v) => go(() => api.invoke('spaces:update', space.id, { useCrew: v })) }}
+      />
 
       <McpSection
         title="MCP servers for this space"

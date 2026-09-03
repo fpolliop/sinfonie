@@ -111,7 +111,7 @@ export const useApp = create<AppState>((set, get) => ({
     setActiveSpace(ids[(i + dir + ids.length) % ids.length])
   },
   workspaces: [],
-  settings: { workspacesRoot: '', basePort: 55000, model: 'claude-opus-5', permissionMode: 'default', jira: { connected: false, siteUrl: '', email: '', hasToken: false, defaultJql: '' }, claudeAccounts: [{ id: 'default', name: 'Default', configDir: null }], defaultClaudeAccountId: 'default' },
+  settings: { workspacesRoot: '', basePort: 55000, model: 'claude-opus-5', permissionMode: 'default', jira: { connected: false, siteUrl: '', email: '', hasToken: false, defaultJql: '' }, claudeAccounts: [{ id: 'default', name: 'Default', configDir: null }], defaultClaudeAccountId: 'default', agents: [] },
   view: (localStorage.getItem('orchestra.view') as 'workspace' | 'reviews') ?? 'workspace',
   selectedId: localStorage.getItem('orchestra.selected'),
   tab: 'chat',
