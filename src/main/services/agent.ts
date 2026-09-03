@@ -119,7 +119,8 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
   if (existing) return existing
 
   const ws = getWorkspace(workspaceId)
-  const { settings } = getStore().get()
+  const { settings, spaces } = getStore().get()
+  const space = spaces.find((s) => s.id === ws.spaceId)
   const primary = ws.repos.find((r) => r.repoId === ws.primaryRepoId) ?? ws.repos[0]
   const others = ws.repos.filter((r) => r !== primary).map((r) => r.worktreePath)
   const abort = new AbortController()
@@ -155,13 +156,13 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
     return r
   }
 
-  const mode = ws.permissionMode ?? settings.permissionMode
+  const mode = ws.permissionMode ?? space?.permissionMode ?? settings.permissionMode
   const options: Options = {
     cwd: primary.worktreePath,
     additionalDirectories: others,
     permissionMode: mode,
     ...(mode === 'bypassPermissions' ? { allowDangerouslySkipPermissions: true } : {}),
-    model: settings.model,
+    model: space?.model || settings.model,
     includePartialMessages: true,
     abortController: abort,
     canUseTool,

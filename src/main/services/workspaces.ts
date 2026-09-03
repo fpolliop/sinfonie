@@ -68,9 +68,10 @@ export function patchWorkspace(id: string, patch: Partial<Workspace>): Workspace
  */
 export async function createWorkspace(input: CreateWorkspaceInput, emit: Emit): Promise<Workspace> {
   if (input.repos.length === 0) throw new Error('Pick at least one repository')
-  const { settings } = getStore().get()
+  const { settings, spaces } = getStore().get()
+  const space = spaces.find((s) => s.id === input.spaceId)
   const slug = uniqueSlug(slugify(input.name))
-  const rootPath = join(settings.workspacesRoot, slug)
+  const rootPath = join(space?.workspacesRoot || settings.workspacesRoot, slug)
   const repos = input.repos.map((r) => getRepo(r.repoId))
   const primaryRepoId = input.primaryRepoId ?? input.repos[0].repoId
 
@@ -95,7 +96,8 @@ export async function createWorkspace(input: CreateWorkspaceInput, emit: Emit): 
     createdAt: new Date().toISOString(),
     ...(input.jira ? { jira: input.jira } : {}),
     ...(input.claudeAccountId ? { claudeAccountId: input.claudeAccountId } : {}),
-    ...(input.spaceId ? { spaceId: input.spaceId } : {})
+    ...(input.spaceId ? { spaceId: input.spaceId } : {}),
+    ...(space?.permissionMode ? { permissionMode: space.permissionMode } : {})
   }
   getStore().update((d) => d.workspaces.push(ws))
 

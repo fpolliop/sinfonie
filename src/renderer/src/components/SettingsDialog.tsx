@@ -26,9 +26,9 @@ function SpacesSection(): React.JSX.Element {
     void go(() => api.invoke('spaces:create', name)).then(() => setName(''))
   }
   return (
-    <section className="mt-5">
+    <section>
       <h3 className="mb-2 text-[12px] font-medium uppercase tracking-wide text-muted">Spaces</h3>
-      <p className="mb-3 text-[11px] text-muted">Group workspaces and repositories, e.g. Personal, Lumepic, Howdy. Assign repos to a space below in the Repositories list.</p>
+      <p className="mb-3 text-[11px] text-muted">Each space owns its repositories, Jira connection, Claude account, model, permission mode and workspaces folder. Open one to configure it.</p>
       <div className="mb-3 flex flex-col gap-1.5">
         {spaces.map((s) => {
           const nWs = workspaces.filter((w) => w.spaceId === s.id && w.status !== 'archived').length
@@ -167,10 +167,11 @@ export function SettingsDialog({ onClose }: { onClose: () => void }): React.JSX.
   const update = (patch: Partial<typeof settings>): Promise<unknown> => api.invoke('settings:update', patch)
 
   return (
-    <Dialog title="Settings" onClose={onClose} width={600}>
-      <section className="mb-5">
+    <Dialog title="Settings" onClose={onClose} width={640}>
+      <SpacesSection />
+      <section className="mb-5 mt-5">
         <div className="mb-2 flex items-center">
-          <h3 className="text-[12px] font-medium uppercase tracking-wide text-muted">Repositories</h3>
+          <h3 className="text-[12px] font-medium uppercase tracking-wide text-muted">All repositories</h3>
           <Button size="sm" variant="primary" className="ml-auto" disabled={busy} onClick={() => go(() => api.invoke('repos:pickAndAdd'))}>
             <Plus size={13} /> Add repository
           </Button>
@@ -212,7 +213,8 @@ export function SettingsDialog({ onClose }: { onClose: () => void }): React.JSX.
       </section>
 
       <section>
-        <h3 className="mb-2 text-[12px] font-medium uppercase tracking-wide text-muted">Workspaces</h3>
+        <h3 className="mb-2 text-[12px] font-medium uppercase tracking-wide text-muted">App defaults</h3>
+        <p className="mb-3 text-[11px] text-muted">Used by spaces that don't set their own. Open a space's settings (gear next to its name in the sidebar) to override per space.</p>
         <Field label="Workspaces folder" hint="Each workspace becomes <folder>/<name>/<repo> so all worktrees of a feature sit together.">
           <input className={inputCls} defaultValue={settings.workspacesRoot} onBlur={(e) => e.target.value !== settings.workspacesRoot && go(() => update({ workspacesRoot: e.target.value }))} />
         </Field>
@@ -224,7 +226,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }): React.JSX.
             <input className={inputCls} defaultValue={settings.model} onBlur={(e) => e.target.value !== settings.model && go(() => update({ model: e.target.value }))} />
           </Field>
         </div>
-        <Field label="Default permission mode" hint="Used for new workspaces. Each chat can switch its own mode from the composer or with Shift+Tab.">
+        <Field label="Permission mode" hint="Each chat can still switch its own mode from the composer or with Shift+Tab.">
           <select className={inputCls} value={settings.permissionMode} onChange={(e) => go(() => update({ permissionMode: e.target.value as typeof settings.permissionMode }))}>
             {PERMISSION_MODES.map((m) => (
               <option key={m.id} value={m.id}>
@@ -236,9 +238,8 @@ export function SettingsDialog({ onClose }: { onClose: () => void }): React.JSX.
         <p className="text-[11px] text-muted">Model and permission mode apply to sessions started after the change. Use "New session" in a chat to restart one.</p>
       </section>
 
-      <SpacesSection />
       <AccountsSection />
-      <JiraSection connId="" />
+      <JiraSection connId="" title="Default Jira" intro="Fallback for spaces without their own Jira connection. Set each space's Jira in its space settings." />
     </Dialog>
   )
 }

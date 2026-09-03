@@ -5,7 +5,7 @@ import { useApp } from '@/stores/app'
 import { Badge, Button, Dialog, Field, inputCls } from './ui'
 import { JiraSection } from './JiraSection'
 import { shortPath } from '@/lib/format'
-import { SPACE_COLORS } from '@shared/types'
+import { SPACE_COLORS, PERMISSION_MODES } from '@shared/types'
 
 /** Everything a space owns: its name and colour, its repositories, its Claude account, its Jira. */
 export function SpaceSettingsDialog({ spaceId, onClose }: { spaceId: string; onClose: () => void }): React.JSX.Element | null {
@@ -37,10 +37,30 @@ export function SpaceSettingsDialog({ spaceId, onClose }: { spaceId: string; onC
           </div>
         </Field>
       </div>
-      {settings.claudeAccounts.length > 1 && (
-        <Field label="Claude account for new workspaces">
+      <section className="mb-2 rounded-lg border border-border p-3">
+        <div className="mb-2 text-[12px] font-medium uppercase tracking-wide text-muted">Defaults for this space</div>
+        <p className="mb-3 text-[11px] text-muted">Empty fields use the app defaults from Settings. Applies to workspaces created here; the model and mode also apply to existing chats when their session restarts.</p>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Model" hint={`App default: ${settings.model}`}>
+            <input className={inputCls} placeholder={settings.model} defaultValue={space.model ?? ''} onBlur={(e) => (e.target.value.trim() || '') !== (space.model ?? '') && go(() => api.invoke('spaces:update', space.id, { model: e.target.value.trim() }))} />
+          </Field>
+          <Field label="Permission mode" hint={`App default: ${PERMISSION_MODES.find((m) => m.id === settings.permissionMode)?.label ?? settings.permissionMode}`}>
+            <select className={inputCls} value={space.permissionMode ?? ''} onChange={(e) => go(() => api.invoke('spaces:update', space.id, { permissionMode: (e.target.value || undefined) as never }))}>
+              <option value="">App default</option>
+              {PERMISSION_MODES.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.label} — {m.hint}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </div>
+        <Field label="Workspaces folder" hint={`App default: ${settings.workspacesRoot}. Each workspace becomes <folder>/<name>/<repo>.`}>
+          <input className={inputCls} placeholder={settings.workspacesRoot} defaultValue={space.workspacesRoot ?? ''} onBlur={(e) => (e.target.value.trim() || '') !== (space.workspacesRoot ?? '') && go(() => api.invoke('spaces:update', space.id, { workspacesRoot: e.target.value.trim() }))} />
+        </Field>
+        <Field label="Claude account" hint={settings.claudeAccounts.length > 1 ? 'Used for new workspaces in this space.' : 'Add more accounts in Settings → Claude accounts to choose here.'}>
           <select className={inputCls} value={space.claudeAccountId ?? ''} onChange={(e) => go(() => api.invoke('spaces:update', space.id, { claudeAccountId: e.target.value || undefined }))}>
-            <option value="">App default</option>
+            <option value="">App default ({settings.claudeAccounts.find((a) => a.id === settings.defaultClaudeAccountId)?.name ?? 'Default'})</option>
             {settings.claudeAccounts.map((a) => (
               <option key={a.id} value={a.id}>
                 {a.name}
@@ -48,7 +68,7 @@ export function SpaceSettingsDialog({ spaceId, onClose }: { spaceId: string; onC
             ))}
           </select>
         </Field>
-      )}
+      </section>
 
       <section className="mt-2">
         <div className="mb-2 flex items-center">

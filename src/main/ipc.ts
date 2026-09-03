@@ -52,7 +52,12 @@ export function registerIpc(): void {
     getStore().update((d) => {
       const s = d.spaces.find((x) => x.id === id)
       if (s) {
-        Object.assign(s, patch)
+        // Empty strings mean "back to the app default".
+        const target = s as unknown as Record<string, unknown>
+        for (const [k, v] of Object.entries(patch)) {
+          if (v === '' || v === undefined || v === null) delete target[k]
+          else target[k] = v
+        }
         out = s
       }
     })

@@ -22,6 +22,10 @@ export interface Space {
   claudeAccountId?: string
   /** The space's own Jira connection. Absent means "use the default one from Settings". */
   jira?: JiraSettings
+  /** Per-space overrides; absent means the app default from Settings. */
+  model?: string
+  permissionMode?: PermissionMode
+  workspacesRoot?: string
 }
 
 export const SPACE_COLORS = ['#7c9cff', '#4ade80', '#fbbf24', '#f472b6', '#22d3ee', '#a78bfa', '#fb923c', '#94a3b8']

@@ -30,7 +30,7 @@ export interface OrchestraInvoke {
   'settings:update': (patch: Partial<Settings>) => Settings
 
   'spaces:create': (name: string) => Space
-  'spaces:update': (id: string, patch: Partial<Pick<Space, 'name' | 'color' | 'claudeAccountId'>>) => Space
+  'spaces:update': (id: string, patch: Partial<Pick<Space, 'name' | 'color' | 'claudeAccountId' | 'model' | 'permissionMode' | 'workspacesRoot'>>) => Space
   'spaces:delete': (id: string) => void
   'workspaces:setSpace': (workspaceId: string, spaceId: string | null) => Workspace
   'repos:setSpace': (repoId: string, spaceId: string | null) => Repo
