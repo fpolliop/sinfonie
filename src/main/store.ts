@@ -38,7 +38,7 @@ class Store {
       const raw = JSON.parse(readFileSync(this.file, 'utf8')) as Partial<StoreData>
       return {
         repos: raw.repos ?? [],
-        workspaces: raw.workspaces ?? [],
+        workspaces: (raw.workspaces ?? []).map((w) => ({ ...w, stage: w.stage ?? 'in-progress' })),
         settings: { ...DEFAULT_SETTINGS, ...(raw.settings ?? {}), jira: { ...DEFAULT_SETTINGS.jira, ...(raw.settings?.jira ?? {}) } },
         secrets: raw.secrets ?? {}
       }

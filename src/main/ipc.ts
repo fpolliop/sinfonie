@@ -78,10 +78,19 @@ export function registerIpc(): void {
 
   // ---- workspaces ----
   handle('workspaces:create', (input) => workspaces.createWorkspace(input, emitScript))
-  handle('workspaces:archive', (id, opts) => {
+  handle('workspaces:archive', async (id, opts) => {
     agent.closeSession(id)
-    return workspaces.archiveWorkspace(id, opts, emitScript)
+    const ws = await workspaces.archiveWorkspace(id, opts, emitScript)
+    if (opts.forget) {
+      clearTranscript(id)
+      workspaces.deleteWorkspaceRecord(id)
+      return null
+    }
+    return ws
   })
+  handle('workspaces:safety', (id) => workspaces.safetyReport(id))
+  handle('workspaces:setStage', (id, stage) => workspaces.setStage(id, stage))
+  handle('workspaces:refreshJira', (id) => workspaces.refreshJiraStatus(id))
   handle('workspaces:delete', (id) => {
     agent.closeSession(id)
     clearTranscript(id)
@@ -144,7 +153,12 @@ export function registerIpc(): void {
       let out = ''
       child.stdout.on('data', (d) => (out += d))
       child.stderr.on('data', (d) => (out += d))
-      child.on('close', (code) => (code === 0 ? resolve(out.trim()) : reject(new Error(out.trim() || `gh exited ${code}`))))
+      child.on('close', (code) => {
+        if (code === 0) {
+          workspaces.advanceStage(id, 'in-review')
+          resolve(out.trim())
+        } else reject(new Error(out.trim() || `gh exited ${code}`))
+      })
       child.on('error', reject)
     })
   })
@@ -152,7 +166,14 @@ export function registerIpc(): void {
   // ---- github / jira / shell ----
   handle('github:status', async (id) => {
     const ws = workspaces.getWorkspace(id)
-    return Promise.all(ws.repos.map((wr) => repoPrStatus(wr.repoId, wr.worktreePath, wr.branch)))
+    const result = await Promise.all(ws.repos.map((wr) => repoPrStatus(wr.repoId, wr.worktreePath, wr.branch)))
+    // Let PR state pull the stage forward: any PR means review, all PRs merged means done.
+    const prs = result.map((r) => r.pr).filter((p): p is NonNullable<typeof p> => Boolean(p))
+    if (prs.length > 0 && ws.status === 'ready') {
+      if (prs.every((p) => p.state === 'MERGED')) workspaces.advanceStage(id, 'done')
+      else if (prs.some((p) => p.state === 'OPEN')) workspaces.advanceStage(id, 'in-review')
+    }
+    return result
   })
   handle('jira:authenticate', () => jira.authenticate())
   handle('jira:disconnect', () => jira.disconnect())

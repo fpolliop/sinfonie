@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react'
 import { renameWorkspace } from '@/lib/rename'
 import { InlineRename } from './InlineRename'
+import { StagePicker } from './StagePicker'
+import type { RepoSafety } from '@shared/types'
 import clsx from 'clsx'
-import { Folder, Code2, TerminalSquare, Archive, Trash2, MoreHorizontal, Pencil, GitBranch, ExternalLink } from 'lucide-react'
+import { Folder, Code2, TerminalSquare, Archive, Trash2, MoreHorizontal, Pencil, GitBranch, ExternalLink, RefreshCw, AlertTriangle } from 'lucide-react'
 import { useGithub } from '@/stores/github'
 import { useApp, type Tab } from '@/stores/app'
 import { api } from '@/lib/api'
@@ -26,19 +28,39 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
   const ws = useApp((s) => s.workspaces.find((w) => w.id === workspaceId))
   const { tab, setTab, setError } = useApp()
   const [menu, setMenu] = useState(false)
-  const [archiveDlg, setArchiveDlg] = useState(false)
+  const [archiveDlg, setArchiveDlg] = useState<null | 'archive' | 'delete'>(null)
+  const [jiraRefreshing, setJiraRefreshing] = useState(false)
   const [renameDlg, setRenameDlg] = useState<null | 'branch'>(null)
   const [editingTitle, setEditingTitle] = useState(false)
   const prs = useGithub((s) => s.byWorkspace[workspaceId]?.repos)
   useEffect(() => {
     // The sidebar's context menu asks the open workspace view to show its archive dialog.
     const onArchive = (e: Event): void => {
-      if ((e as CustomEvent<string>).detail === workspaceId) setArchiveDlg(true)
+      const d = (e as CustomEvent<{ id: string; mode: 'archive' | 'delete' }>).detail
+      if (d.id === workspaceId) setArchiveDlg(d.mode)
     }
     window.addEventListener('orchestra:archive', onArchive)
     return () => window.removeEventListener('orchestra:archive', onArchive)
   }, [workspaceId])
+  const jiraKey = ws?.jira?.key
+  const jiraStatusAt = ws?.jiraStatusAt
+  useEffect(() => {
+    // Refresh the ticket status when the workspace opens, unless it was checked in the last five minutes.
+    if (!jiraKey) return
+    if (jiraStatusAt && Date.now() - new Date(jiraStatusAt).getTime() < 5 * 60 * 1000) return
+    api.invoke('workspaces:refreshJira', workspaceId).catch(() => undefined)
+  }, [workspaceId, jiraKey, jiraStatusAt])
   if (!ws) return <div />
+  const refreshJira = async (): Promise<void> => {
+    setJiraRefreshing(true)
+    try {
+      await api.invoke('workspaces:refreshJira', ws.id)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setJiraRefreshing(false)
+    }
+  }
 
   const run = async (fn: () => Promise<unknown>): Promise<void> => {
     try {
@@ -70,6 +92,7 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
                 {ws.name}
               </h1>
             )}
+            <StagePicker stage={ws.stage} disabled={ws.status === 'archived'} onChange={(stage) => run(() => api.invoke('workspaces:setStage', ws.id, stage))} />
             {ws.status === 'creating' && <Badge tone="warn">creating</Badge>}
             {ws.status === 'error' && <Badge tone="danger">error</Badge>}
             {ws.status === 'archived' && <Badge>archived</Badge>}
@@ -77,9 +100,17 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
           <div className="flex items-center gap-1 text-[11px] text-muted">
             <GitBranch size={11} /> <span className="truncate">{ws.repos[0]?.branch}</span> · port {ws.port}
             {ws.jira && (
-              <button className="no-drag ml-1 inline-flex items-center gap-1 text-accent hover:underline" title={ws.jira.summary} onClick={() => void api.invoke('shell:openExternal', ws.jira!.url)}>
-                {ws.jira.key} <ExternalLink size={10} />
-              </button>
+              <span className="no-drag ml-1 inline-flex items-center gap-1">
+                <button className="inline-flex items-center gap-1 text-accent hover:underline" title={ws.jira.summary} onClick={() => void api.invoke('shell:openExternal', ws.jira!.url)}>
+                  {ws.jira.key} <ExternalLink size={10} />
+                </button>
+                <span className="rounded bg-panel-2 px-1.5 py-px text-[10px] text-text" title={ws.jiraStatusAt ? `Jira status, checked ${new Date(ws.jiraStatusAt).toLocaleTimeString()}` : 'Jira status'}>
+                  {ws.jiraStatus ?? '…'}
+                </span>
+                <button className="text-muted hover:text-text" title="Refresh Jira status" onClick={() => void refreshJira()}>
+                  <RefreshCw size={10} className={clsx(jiraRefreshing && 'animate-spin')} />
+                </button>
+              </span>
             )}
           </div>
         </div>
@@ -125,7 +156,10 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
               <MenuItem icon={<GitBranch size={14} />} label="Rename branch only (all repos)" onClick={() => setRenameDlg('branch')} disabled={ws.status !== 'ready'} />
               <div className="my-1 border-t border-border" />
               {ws.status !== 'archived' ? (
-                <MenuItem icon={<Archive size={14} />} label="Archive workspace" onClick={() => setArchiveDlg(true)} danger />
+                <>
+                  <MenuItem icon={<Archive size={14} />} label="Archive workspace…" onClick={() => setArchiveDlg('archive')} />
+                  <MenuItem icon={<Trash2 size={14} />} label="Delete workspace…" onClick={() => setArchiveDlg('delete')} danger />
+                </>
               ) : (
                 <MenuItem icon={<Trash2 size={14} />} label="Remove from list" onClick={() => run(() => api.invoke('workspaces:delete', ws.id))} danger />
               )}
@@ -150,7 +184,7 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
         </div>
       </div>
 
-      {archiveDlg && <ArchiveDialog workspaceId={ws.id} name={ws.name} repoCount={ws.repos.length} onClose={() => setArchiveDlg(false)} />}
+      {archiveDlg && <ArchiveDialog workspaceId={ws.id} name={ws.name} mode={archiveDlg} onClose={() => setArchiveDlg(null)} />}
       {renameDlg && <BranchDialog initial={ws.repos[0]?.branch ?? ''} onClose={() => setRenameDlg(null)} onSubmit={(v) => run(() => api.invoke('workspaces:renameBranch', ws.id, v))} />}
     </div>
   )
@@ -164,14 +198,28 @@ function MenuItem({ icon, label, onClick, danger, disabled }: { icon: React.Reac
   )
 }
 
-function ArchiveDialog({ workspaceId, name, repoCount, onClose }: { workspaceId: string; name: string; repoCount: number; onClose: () => void }): React.JSX.Element {
-  const [deleteBranches, setDeleteBranches] = useState(false)
+function ArchiveDialog({ workspaceId, name, mode, onClose }: { workspaceId: string; name: string; mode: 'archive' | 'delete'; onClose: () => void }): React.JSX.Element {
+  const [deleteBranches, setDeleteBranches] = useState(mode === 'delete')
   const [busy, setBusy] = useState(false)
+  const [safety, setSafety] = useState<RepoSafety[] | null>(null)
+  const [ack, setAck] = useState(false)
   const setError = useApp((s) => s.setError)
+  const select = useApp((s) => s.select)
+
+  useEffect(() => {
+    api
+      .invoke('workspaces:safety', workspaceId)
+      .then(setSafety)
+      .catch((err) => setSafety([{ repoId: '', repoName: 'check failed', uncommitted: 0, unpushed: 0, hasUpstream: false, error: err instanceof Error ? err.message : String(err) }]))
+  }, [workspaceId])
+
+  const risky = (safety ?? []).filter((r) => r.uncommitted > 0 || r.unpushed > 0 || r.error)
+  const hasRisk = risky.length > 0
   const submit = async (): Promise<void> => {
     setBusy(true)
     try {
-      await api.invoke('workspaces:archive', workspaceId, { deleteBranches })
+      const out = await api.invoke('workspaces:archive', workspaceId, { deleteBranches, forget: mode === 'delete' })
+      if (!out) select(null)
       onClose()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -180,17 +228,50 @@ function ArchiveDialog({ workspaceId, name, repoCount, onClose }: { workspaceId:
     }
   }
   return (
-    <Dialog title={`Archive "${name}"`} onClose={onClose} width={440}>
+    <Dialog title={`${mode === 'delete' ? 'Delete' : 'Archive'} "${name}"`} onClose={onClose} width={480}>
       <p className="mb-3 text-muted">
-        This removes the {repoCount} worktree{repoCount === 1 ? '' : 's'} and the workspace folder from disk, and runs each repo's archive script first. Commits that were pushed are safe. Uncommitted changes are lost.
+        {mode === 'delete'
+          ? 'Removes every worktree and the workspace folder from disk, runs each repo\'s archive script first, and forgets the workspace and its chat.'
+          : 'Removes every worktree and the workspace folder from disk and runs each repo\'s archive script first. The workspace stays in the archived list with its chat.'}
       </p>
+
+      <div className="mb-3 rounded-lg border border-border">
+        <div className="border-b border-border px-3 py-1.5 text-[11px] font-medium uppercase tracking-wide text-muted">What would be lost</div>
+        {safety === null && <div className="px-3 py-2 text-[12px] text-muted">Checking worktrees…</div>}
+        {safety?.map((r) => {
+          const bad = r.uncommitted > 0 || r.unpushed > 0 || r.error
+          return (
+            <div key={r.repoId} className="flex items-center gap-2 px-3 py-1.5 text-[12px]">
+              {bad ? <AlertTriangle size={13} className="shrink-0 text-warn" /> : <span className="inline-block h-[13px] w-[13px] shrink-0 text-center text-ok">✓</span>}
+              <span className="font-medium">{r.repoName}</span>
+              <span className={clsx('ml-auto text-right', bad ? 'text-warn' : 'text-muted')}>
+                {r.error
+                  ? r.error
+                  : bad
+                    ? [r.uncommitted > 0 && `${r.uncommitted} uncommitted file${r.uncommitted === 1 ? '' : 's'}`, r.unpushed > 0 && `${r.unpushed} commit${r.unpushed === 1 ? '' : 's'} not pushed${r.hasUpstream ? '' : ' (branch never pushed)'}`].filter(Boolean).join(' · ')
+                    : 'clean and pushed'}
+              </span>
+            </div>
+          )
+        })}
+      </div>
+
+      {hasRisk && (
+        <label className="mb-3 flex items-start gap-2 rounded-md border border-warn/40 bg-warn/10 p-3 text-[12px]">
+          <input type="checkbox" className="mt-0.5" checked={ack} onChange={(e) => setAck(e.target.checked)} />
+          <span>
+            I understand the changes listed above will be <strong>permanently lost</strong>. Commit and push first if you want to keep them.
+          </span>
+        </label>
+      )}
+
       <label className="mb-4 flex items-center gap-2 text-[13px]">
         <input type="checkbox" checked={deleteBranches} onChange={(e) => setDeleteBranches(e.target.checked)} /> Also delete the local branches
       </label>
       <div className="flex justify-end gap-2">
         <Button onClick={onClose}>Cancel</Button>
-        <Button variant="danger" onClick={submit} disabled={busy}>
-          {busy ? 'Archiving…' : 'Archive'}
+        <Button variant="danger" onClick={submit} disabled={busy || safety === null || (hasRisk && !ack)}>
+          {busy ? (mode === 'delete' ? 'Deleting…' : 'Archiving…') : mode === 'delete' ? 'Delete workspace' : 'Archive'}
         </Button>
       </div>
     </Dialog>

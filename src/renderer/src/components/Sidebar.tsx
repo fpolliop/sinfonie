@@ -9,6 +9,7 @@ import { renameWorkspace } from '@/lib/rename'
 import { Spinner } from './ui'
 import { ContextMenu, type MenuEntry } from './ContextMenu'
 import { InlineRename } from './InlineRename'
+import { STAGE_DOT, stageLabel } from './StagePicker'
 import type { Workspace } from '@shared/types'
 
 export function Sidebar(): React.JSX.Element {
@@ -66,17 +67,27 @@ function WorkspaceRow({ ws, selected, busy, onClick }: { ws: Workspace; selected
     { label: 'Open in Cursor', icon: <Code2 size={14} />, onClick: () => run(() => api.invoke('workspaces:openIn', ws.id, 'cursor')), disabled: ws.status === 'archived' },
     { label: 'Open in Terminal', icon: <TerminalSquare size={14} />, onClick: () => run(() => api.invoke('workspaces:openIn', ws.id, 'terminal')), disabled: ws.status === 'archived' },
     { separator: true },
-    ws.status === 'archived'
-      ? { label: 'Remove from list', icon: <Trash2 size={14} />, danger: true, onClick: () => run(() => api.invoke('workspaces:delete', ws.id)) }
-      : {
-          label: 'Archive…',
-          icon: <Archive size={14} />,
-          danger: true,
-          onClick: () => {
-            onClick()
-            window.dispatchEvent(new CustomEvent('orchestra:archive', { detail: ws.id }))
+    ...(ws.status === 'archived'
+      ? [{ label: 'Remove from list', icon: <Trash2 size={14} />, danger: true, onClick: () => run(() => api.invoke('workspaces:delete', ws.id)) }]
+      : [
+          {
+            label: 'Archive…',
+            icon: <Archive size={14} />,
+            onClick: () => {
+              onClick()
+              window.dispatchEvent(new CustomEvent('orchestra:archive', { detail: { id: ws.id, mode: 'archive' } }))
+            }
+          },
+          {
+            label: 'Delete…',
+            icon: <Trash2 size={14} />,
+            danger: true,
+            onClick: () => {
+              onClick()
+              window.dispatchEvent(new CustomEvent('orchestra:archive', { detail: { id: ws.id, mode: 'delete' } }))
+            }
           }
-        }
+        ])
   ]
   void setShowArchived
   return (
@@ -119,6 +130,16 @@ function WorkspaceRow({ ws, selected, busy, onClick }: { ws: Workspace; selected
           <span className="ml-auto shrink-0">
             {ws.repos.length} repo{ws.repos.length === 1 ? '' : 's'} · {timeAgo(ws.lastMessageAt ?? ws.createdAt)}
           </span>
+        </div>
+        <div className="flex items-center gap-1.5 text-[11px]">
+          <span className={clsx('h-1.5 w-1.5 shrink-0 rounded-full', STAGE_DOT[ws.stage])} />
+          <span className="text-muted">{stageLabel(ws.stage)}</span>
+          {ws.jira && (
+            <span className="ml-auto flex min-w-0 items-center gap-1 text-muted" title={`${ws.jira.key}: ${ws.jira.summary}`}>
+              <span className="shrink-0 text-accent">{ws.jira.key}</span>
+              {ws.jiraStatus && <span className="truncate rounded bg-panel-2 px-1 py-px">{ws.jiraStatus}</span>}
+            </span>
+          )}
         </div>
       </div>
       {menu && <ContextMenu x={menu.x} y={menu.y} entries={entries} onClose={() => setMenu(null)} />}

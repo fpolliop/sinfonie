@@ -4,6 +4,8 @@ import type {
   JiraIssue,
   RepoPr,
   PermissionMode,
+  RepoSafety,
+  WorkspaceStage,
   CreateWorkspaceInput,
   PermissionRequest,
   PermissionResponse,
@@ -27,7 +29,10 @@ export interface OrchestraInvoke {
   'repos:reloadConfig': (repoId: string) => Repo
 
   'workspaces:create': (input: CreateWorkspaceInput) => Workspace
-  'workspaces:archive': (workspaceId: string, opts: { deleteBranches: boolean }) => Workspace
+  'workspaces:archive': (workspaceId: string, opts: { deleteBranches: boolean; forget?: boolean }) => Workspace | null
+  'workspaces:safety': (workspaceId: string) => RepoSafety[]
+  'workspaces:setStage': (workspaceId: string, stage: WorkspaceStage) => Workspace
+  'workspaces:refreshJira': (workspaceId: string) => Workspace
   'workspaces:delete': (workspaceId: string) => void
   'workspaces:rename': (workspaceId: string, name: string, opts: { renameBranches: boolean }) => Workspace
   'workspaces:openIn': (workspaceId: string, app: 'finder' | 'vscode' | 'cursor' | 'terminal') => void

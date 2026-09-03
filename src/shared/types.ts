@@ -31,6 +31,26 @@ export interface WorkspaceRepo {
 
 export type WorkspaceStatus = 'creating' | 'ready' | 'error' | 'archiving' | 'archived'
 
+/** Where the work is, as the user sees it. Distinct from `status`, which is the app's own lifecycle. */
+export type WorkspaceStage = 'todo' | 'in-progress' | 'in-review' | 'done'
+
+export const WORKSPACE_STAGES: { id: WorkspaceStage; label: string }[] = [
+  { id: 'todo', label: 'To do' },
+  { id: 'in-progress', label: 'In progress' },
+  { id: 'in-review', label: 'In review' },
+  { id: 'done', label: 'Done' }
+]
+
+/** Pre-flight for archive/delete: what would be lost. */
+export interface RepoSafety {
+  repoId: string
+  repoName: string
+  uncommitted: number
+  unpushed: number
+  hasUpstream: boolean
+  error?: string
+}
+
 export interface Workspace {
   id: string
   name: string
@@ -49,6 +69,10 @@ export interface Workspace {
   /** Per-workspace override of the settings default; changed live from the chat. */
   permissionMode?: PermissionMode
   jira?: WorkspaceJira
+  stage: WorkspaceStage
+  /** Last known status of the linked Jira ticket, refreshed when the workspace is opened. */
+  jiraStatus?: string
+  jiraStatusAt?: string
 }
 
 /** Same modes as the Claude Code CLI (Shift+Tab cycles them there and here). */

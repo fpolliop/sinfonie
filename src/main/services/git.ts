@@ -113,6 +113,24 @@ export async function renameBranch(worktreePath: string, newBranch: string): Pro
   await git(worktreePath).raw(['branch', '-m', newBranch])
 }
 
+/** Commits on HEAD that no remote has: relative to the upstream when tracked, else to origin/<base>. */
+export async function unpushedCount(worktreePath: string, baseBranch: string): Promise<{ count: number; hasUpstream: boolean }> {
+  const g = git(worktreePath)
+  const tracked = await hasUpstream(worktreePath)
+  const ref = tracked ? '@{upstream}' : `origin/${baseBranch}`
+  try {
+    const out = await g.raw(['rev-list', '--count', `${ref}..HEAD`])
+    return { count: Number(out.trim()) || 0, hasUpstream: tracked }
+  } catch {
+    try {
+      const out = await g.raw(['rev-list', '--count', `${baseBranch}..HEAD`])
+      return { count: Number(out.trim()) || 0, hasUpstream: tracked }
+    } catch {
+      return { count: 0, hasUpstream: tracked }
+    }
+  }
+}
+
 export async function hasUpstream(worktreePath: string): Promise<boolean> {
   try {
     await git(worktreePath).raw(['rev-parse', '--abbrev-ref', '@{upstream}'])

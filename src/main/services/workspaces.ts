@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync, rmSync } from 'fs'
 import { join } from 'path'
 import { nanoid } from 'nanoid'
-import type { CreateWorkspaceInput, Repo, ScriptOutputEvent, Workspace, WorkspaceRepo } from '@shared/types'
+import type { CreateWorkspaceInput, Repo, RepoSafety, ScriptOutputEvent, Workspace, WorkspaceRepo, WorkspaceStage } from '@shared/types'
+import * as jira from './jira'
 import { getStore } from '../store'
 import * as git from './git'
 import { runScript, stopAllScripts } from './scripts'
@@ -90,6 +91,7 @@ export async function createWorkspace(input: CreateWorkspaceInput, emit: Emit): 
     primaryRepoId,
     port: allocatePort(),
     status: 'creating',
+    stage: 'in-progress',
     createdAt: new Date().toISOString(),
     ...(input.jira ? { jira: input.jira } : {})
   }
@@ -145,6 +147,40 @@ export async function archiveWorkspace(
   }
   if (existsSync(ws.rootPath)) rmSync(ws.rootPath, { recursive: true, force: true })
   return patchWorkspace(ws.id, { status: 'archived', archivedAt: new Date().toISOString() })
+}
+
+/** What archiving would throw away, per repo. */
+export async function safetyReport(workspaceId: string): Promise<RepoSafety[]> {
+  const ws = getWorkspace(workspaceId)
+  return Promise.all(
+    ws.repos.map(async (wr) => {
+      if (!existsSync(wr.worktreePath)) return { repoId: wr.repoId, repoName: wr.repoName, uncommitted: 0, unpushed: 0, hasUpstream: false }
+      try {
+        const [st, up] = await Promise.all([git.status(wr.worktreePath), git.unpushedCount(wr.worktreePath, wr.baseBranch)])
+        return { repoId: wr.repoId, repoName: wr.repoName, uncommitted: st.files.length, unpushed: up.count, hasUpstream: up.hasUpstream }
+      } catch (err) {
+        return { repoId: wr.repoId, repoName: wr.repoName, uncommitted: 0, unpushed: 0, hasUpstream: false, error: err instanceof Error ? err.message : String(err) }
+      }
+    })
+  )
+}
+
+export function setStage(workspaceId: string, stage: WorkspaceStage): Workspace {
+  return patchWorkspace(workspaceId, { stage })
+}
+
+/** Only ever moves forward, so a manual choice is not undone by a refresh. */
+export function advanceStage(workspaceId: string, stage: WorkspaceStage): void {
+  const order: WorkspaceStage[] = ['todo', 'in-progress', 'in-review', 'done']
+  const ws = getWorkspace(workspaceId)
+  if (order.indexOf(stage) > order.indexOf(ws.stage)) patchWorkspace(workspaceId, { stage })
+}
+
+export async function refreshJiraStatus(workspaceId: string): Promise<Workspace> {
+  const ws = getWorkspace(workspaceId)
+  if (!ws.jira) return ws
+  const issue = await jira.issue(ws.jira.key)
+  return patchWorkspace(workspaceId, { jiraStatus: issue.status, jiraStatusAt: new Date().toISOString(), jira: { ...ws.jira, summary: issue.summary || ws.jira.summary } })
 }
 
 export function deleteWorkspaceRecord(workspaceId: string): void {
