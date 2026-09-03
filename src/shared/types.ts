@@ -63,6 +63,11 @@ export const PERMISSION_MODES: { id: PermissionMode; label: string; hint: string
 ]
 
 export interface JiraSettings {
+  /** OAuth through Atlassian's MCP server: the preferred path. */
+  connected: boolean
+  connectedAt?: string
+  siteName?: string
+  /** Site URL: filled in by OAuth, or typed for the API-token fallback. */
   siteUrl: string
   email: string
   /** Set when an API token is stored (encrypted) in the store. */
@@ -84,7 +89,7 @@ export interface StoreData {
   workspaces: Workspace[]
   settings: Settings
   /** Encrypted with Electron safeStorage, base64. Never sent to the renderer. */
-  secrets?: { jiraToken?: string }
+  secrets?: { jiraToken?: string; jiraOAuthClient?: string; jiraOAuthTokens?: string; jiraOAuthVerifier?: string }
 }
 
 export interface JiraIssue {

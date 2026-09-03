@@ -43,6 +43,8 @@ export interface OrchestraInvoke {
 
   'github:status': (workspaceId: string) => RepoPr[]
 
+  'jira:authenticate': () => Settings
+  'jira:disconnect': () => Settings
   'jira:saveToken': (token: string) => Settings
   'jira:search': (query: string) => JiraIssue[]
   'jira:issue': (key: string) => JiraIssue

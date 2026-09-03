@@ -154,6 +154,8 @@ export function registerIpc(): void {
     const ws = workspaces.getWorkspace(id)
     return Promise.all(ws.repos.map((wr) => repoPrStatus(wr.repoId, wr.worktreePath, wr.branch)))
   })
+  handle('jira:authenticate', () => jira.authenticate())
+  handle('jira:disconnect', () => jira.disconnect())
   handle('jira:saveToken', (token) => jira.saveToken(token))
   handle('jira:search', (q) => jira.search(q))
   handle('jira:issue', (key) => jira.issue(key))

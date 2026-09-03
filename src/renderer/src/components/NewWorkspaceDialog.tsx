@@ -35,7 +35,7 @@ export function NewWorkspaceDialog({ onClose }: { onClose: () => void }): React.
   const setDraft = useChat((s) => s.setDraft)
   const [name, setName] = useState('')
   const [jira, setJira] = useState<WorkspaceJira | null>(null)
-  const jiraReady = Boolean(settings.jira.siteUrl && settings.jira.email && settings.jira.hasToken)
+  const jiraReady = settings.jira.connected || Boolean(settings.jira.siteUrl && settings.jira.email && settings.jira.hasToken)
   const [picks, setPicks] = useState<Record<string, Pick>>({})
   const [primary, setPrimary] = useState<string>('')
   const [busy, setBusy] = useState(false)

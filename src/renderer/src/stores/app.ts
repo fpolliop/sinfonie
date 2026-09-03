@@ -32,7 +32,7 @@ export const useApp = create<AppState>((set, get) => ({
   loaded: false,
   repos: [],
   workspaces: [],
-  settings: { workspacesRoot: '', basePort: 55000, model: 'claude-opus-5', permissionMode: 'default', jira: { siteUrl: '', email: '', hasToken: false, defaultJql: '' } },
+  settings: { workspacesRoot: '', basePort: 55000, model: 'claude-opus-5', permissionMode: 'default', jira: { connected: false, siteUrl: '', email: '', hasToken: false, defaultJql: '' } },
   selectedId: localStorage.getItem('orchestra.selected'),
   tab: 'chat',
   showNewWorkspace: false,

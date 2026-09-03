@@ -11,7 +11,7 @@ const DEFAULT_SETTINGS: Settings = {
   basePort: 55000,
   model: 'claude-opus-5',
   permissionMode: 'default',
-  jira: { siteUrl: '', email: '', hasToken: false, defaultJql: 'assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC' }
+  jira: { connected: false, siteUrl: '', email: '', hasToken: false, defaultJql: 'assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC' }
 }
 
 /**
