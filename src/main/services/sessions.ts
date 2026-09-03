@@ -1,4 +1,4 @@
-import { forkSession, getSessionMessages, listSessions } from '@anthropic-ai/claude-agent-sdk'
+import { forkSession, getSessionInfo, getSessionMessages, listSessions } from '@anthropic-ai/claude-agent-sdk'
 import { copyFileSync, existsSync, mkdirSync, readdirSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
@@ -135,7 +135,7 @@ function makeResumableFrom(ws: ReturnType<typeof getWorkspace>, sessionId: strin
 export async function resumeInto(workspaceId: string, sessionId: string): Promise<{ messages: number }> {
   const ws = getWorkspace(workspaceId)
   const messages = await withAccountEnv(ws.claudeAccountId, () => getSessionMessages(sessionId))
-  const cwd = (messages.find((m) => typeof (m as { cwd?: unknown }).cwd === 'string') as { cwd?: string } | undefined)?.cwd
+  const cwd = (await withAccountEnv(ws.claudeAccountId, () => getSessionInfo(sessionId)))?.cwd
   makeResumableFrom(ws, sessionId, cwd)
   const items = toItems(messages as Parameters<typeof toItems>[0]).map((it) => ({ ...it, id: it.id || nanoid(8) }))
   closeSession(workspaceId)
@@ -176,8 +176,7 @@ export async function forkWorkspace(workspaceId: string, name: string, emit: (e:
   if (src.sessionId) {
     try {
       const { sessionId } = await withAccountEnv(src.claudeAccountId, () => forkSession(src.sessionId!, { title: name }))
-      const messages = await withAccountEnv(src.claudeAccountId, () => getSessionMessages(sessionId))
-      const cwd = (messages.find((m) => typeof (m as { cwd?: unknown }).cwd === 'string') as { cwd?: string } | undefined)?.cwd
+      const cwd = (await withAccountEnv(src.claudeAccountId, () => getSessionInfo(sessionId)))?.cwd
       makeResumableFrom(created, sessionId, cwd)
       patchWorkspace(created.id, { sessionId })
       note += ' The conversation continues here with its full context.'
