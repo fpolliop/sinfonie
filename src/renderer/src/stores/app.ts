@@ -13,6 +13,13 @@ interface AppState {
   /** The space the sidebar is showing; '' is the ungrouped bucket. */
   activeSpaceId: string
   setActiveSpace: (id: string) => void
+  /** Sidebar layout: workspaces grouped by stage, or a flat list by start date. */
+  sidebarView: 'status' | 'date'
+  sidebarDateDir: 'desc' | 'asc'
+  collapsedStages: Record<string, boolean>
+  setSidebarView: (v: 'status' | 'date') => void
+  setSidebarDateDir: (d: 'desc' | 'asc') => void
+  toggleStage: (id: string) => void
   /** Move to the previous/next space in the dot bar, wrapping around. */
   stepSpace: (dir: 1 | -1) => void
   /** Space the New workspace dialog should default to: the selected workspace's, else the last used. */
@@ -53,6 +60,23 @@ export const useApp = create<AppState>((set, get) => ({
     }),
   newWorkspaceSpaceId: localStorage.getItem('orchestra.lastSpace') ?? '',
   activeSpaceId: localStorage.getItem('orchestra.activeSpace') ?? '',
+  sidebarView: (localStorage.getItem('orchestra.sidebarView') as 'status' | 'date') ?? 'status',
+  sidebarDateDir: (localStorage.getItem('orchestra.sidebarDateDir') as 'desc' | 'asc') ?? 'desc',
+  collapsedStages: JSON.parse(localStorage.getItem('orchestra.collapsedStages') ?? '{}'),
+  setSidebarView: (sidebarView) => {
+    localStorage.setItem('orchestra.sidebarView', sidebarView)
+    set({ sidebarView })
+  },
+  setSidebarDateDir: (sidebarDateDir) => {
+    localStorage.setItem('orchestra.sidebarDateDir', sidebarDateDir)
+    set({ sidebarDateDir })
+  },
+  toggleStage: (id) =>
+    set((s) => {
+      const collapsedStages = { ...s.collapsedStages, [id]: !s.collapsedStages[id] }
+      localStorage.setItem('orchestra.collapsedStages', JSON.stringify(collapsedStages))
+      return { collapsedStages }
+    }),
   setActiveSpace: (id) => {
     localStorage.setItem('orchestra.activeSpace', id)
     localStorage.setItem('orchestra.lastSpace', id)

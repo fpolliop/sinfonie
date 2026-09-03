@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react'
 import clsx from 'clsx'
-import { Plus, Settings, Archive, GitBranch, Pencil, Folder, Code2, TerminalSquare, Trash2, GitPullRequest, Layers } from 'lucide-react'
+import { Plus, Settings, Archive, GitBranch, Pencil, Folder, Code2, TerminalSquare, Trash2, GitPullRequest, Layers, ListTree, CalendarClock, ArrowDownWideNarrow, ArrowUpNarrowWide } from 'lucide-react'
+import { WORKSPACE_STAGES } from '@shared/types'
 import { useApp, spaceOrder } from '@/stores/app'
 import { useChat } from '@/stores/chat'
 import { timeAgo } from '@/lib/format'
@@ -14,14 +15,15 @@ import { STAGE_DOT, stageLabel } from './StagePicker'
 import type { Workspace } from '@shared/types'
 
 export function Sidebar(): React.JSX.Element {
-  const { workspaces, spaces, selectedId, select, setShowNewWorkspace, setShowSettings, showArchived, setShowArchived, view, setView, setError, activeSpaceId, setActiveSpace, stepSpace } = useApp()
+  const { workspaces, spaces, selectedId, select, setShowNewWorkspace, setShowSettings, showArchived, setShowArchived, view, setView, setError, activeSpaceId, setActiveSpace, stepSpace, sidebarView, sidebarDateDir, collapsedStages, setSidebarView, setSidebarDateDir, toggleStage } = useApp()
   const chats = useChat((s) => s.chats)
   const [spaceMenu, setSpaceMenu] = useState<{ x: number; y: number; id: string } | null>(null)
   const [renaming, setRenaming] = useState<string | null>(null)
   const [spaceSettings, setSpaceSettings] = useState<string | null>(null)
   const swipe = useRef({ acc: 0, lockedUntil: 0 })
-  const byTime = (a: Workspace, b: Workspace): number => (b.lastMessageAt ?? b.createdAt).localeCompare(a.lastMessageAt ?? a.createdAt)
-  const active = workspaces.filter((w) => w.status !== 'archived').sort(byTime)
+  const byActivity = (a: Workspace, b: Workspace): number => (b.lastMessageAt ?? b.createdAt).localeCompare(a.lastMessageAt ?? a.createdAt)
+  const byStart = (a: Workspace, b: Workspace): number => (sidebarDateDir === 'desc' ? b.createdAt.localeCompare(a.createdAt) : a.createdAt.localeCompare(b.createdAt))
+  const active = workspaces.filter((w) => w.status !== 'archived').sort(sidebarView === 'date' ? byStart : byActivity)
   const isUngrouped = (w: Workspace): boolean => !w.spaceId || !spaces.some((s) => s.id === w.spaceId)
   const ids = spaceOrder(
     spaces.map((s) => s.id),
@@ -97,7 +99,40 @@ export function Sidebar(): React.JSX.Element {
             </button>
           )}
         </div>
-        {items.map(row)}
+        <div className="mb-1 flex items-center gap-1 px-1">
+          <div className="flex rounded-md bg-bg p-0.5">
+            <button onClick={() => setSidebarView('status')} title="Group by status" className={clsx('rounded px-1.5 py-0.5', sidebarView === 'status' ? 'bg-panel-2 text-text' : 'text-muted hover:text-text')}>
+              <ListTree size={12} />
+            </button>
+            <button onClick={() => setSidebarView('date')} title="List by start date" className={clsx('rounded px-1.5 py-0.5', sidebarView === 'date' ? 'bg-panel-2 text-text' : 'text-muted hover:text-text')}>
+              <CalendarClock size={12} />
+            </button>
+          </div>
+          <span className="text-[11px] text-muted">{sidebarView === 'status' ? 'By status' : 'By start date'}</span>
+          {sidebarView === 'date' && (
+            <button onClick={() => setSidebarDateDir(sidebarDateDir === 'desc' ? 'asc' : 'desc')} title={sidebarDateDir === 'desc' ? 'Newest first. Click for oldest first.' : 'Oldest first. Click for newest first.'} className="ml-auto rounded p-0.5 text-muted hover:text-text">
+              {sidebarDateDir === 'desc' ? <ArrowDownWideNarrow size={12} /> : <ArrowUpNarrowWide size={12} />}
+            </button>
+          )}
+        </div>
+        {sidebarView === 'status'
+          ? WORKSPACE_STAGES.map((st) => {
+              const group = items.filter((w) => w.stage === st.id)
+              const collapsed = Boolean(collapsedStages[st.id])
+              return (
+                <div key={st.id} className="mb-1">
+                  <button onClick={() => toggleStage(st.id)} className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium text-muted hover:text-text">
+                    <span className={clsx('h-1.5 w-1.5 shrink-0 rounded-full', STAGE_DOT[st.id])} />
+                    {st.label}
+                    <span className="text-muted/70">{group.length}</span>
+                    <span className="ml-auto">{collapsed ? '▸' : '▾'}</span>
+                  </button>
+                  {!collapsed && group.map(row)}
+                  {!collapsed && group.length === 0 && <div className="px-3 pb-1 text-[11px] text-muted/60">—</div>}
+                </div>
+              )
+            })
+          : items.map(row)}
         {items.length === 0 && (
           <div className="px-2 py-3 text-[12px] text-muted">
             No workspaces in {currentName} yet.{' '}
