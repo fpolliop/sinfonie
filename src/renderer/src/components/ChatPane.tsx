@@ -433,31 +433,7 @@ function SubagentPanel({ items, model }: { items: ChatItem[]; model: string }): 
     )
   }
 
-  // ---- activity overview ----
-  const countBy = (names: string[]): [string, number][] => {
-    const m = new Map<string, number>()
-    for (const n of names) m.set(n, (m.get(n) ?? 0) + 1)
-    return Array.from(m.entries()).sort((a, b) => b[1] - a[1])
-  }
-  const orchestratorTools = countBy(allTools.filter((b) => !(b.name === 'Agent' || b.name === 'Task')).map((b) => b.name))
-  const thinking = assistant.reduce((n, it) => n + it.blocks.filter((b) => b.type === 'thinking').length, 0)
-  const byAgent = new Map<string, ChatToolBlock[]>()
-  for (const d of delegations) byAgent.set(agentTypeOf(d), [...(byAgent.get(agentTypeOf(d)) ?? []), d])
-  const active = delegations.filter((d) => !d.done)
-  const history = delegations.filter((d) => d.done).reverse()
-  const verbFor = (d: ChatToolBlock): string => {
-    const desc = (d.input as Record<string, unknown>)?.description
-    return typeof desc === 'string' ? desc : 'task'
-  }
-  const Row = ({ d }: { d: ChatToolBlock }): React.JSX.Element => (
-    <button onClick={() => setView({ kind: 'delegation', id: d.toolUseId })} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-panel-2">
-      {d.done ? <span className={clsx('h-1.5 w-1.5 shrink-0 rounded-full', d.isError ? 'bg-danger' : 'bg-ok')} /> : <Spinner />}
-      <span className="shrink-0 text-[12px] font-medium">{agentTypeOf(d)}</span>
-      <span className="min-w-0 flex-1 truncate text-[12px] text-muted" title={verbFor(d)}>{verbFor(d)}</span>
-      {d.sub?.model && <span className="shrink-0 font-mono text-[10px] text-muted">{shortModel(d.sub.model)}</span>}
-      <span className="shrink-0 text-[11px] text-muted">{d.sub?.toolCalls ?? 0} calls</span>
-    </button>
-  )
+  // ---- activity tree ----
   return (
     <aside className="flex w-[440px] shrink-0 flex-col border-l border-border bg-panel">
       <div className="flex items-center gap-2 border-b border-border px-3 py-2">
@@ -467,70 +443,144 @@ function SubagentPanel({ items, model }: { items: ChatItem[]; model: string }): 
           ✕
         </button>
       </div>
-      <div className="flex-1 overflow-auto p-3">
-        <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted">Who did what</div>
-        <div className="mb-4 flex flex-col gap-1.5">
-          <div className="rounded-lg border border-border px-3 py-2">
-            <div className="flex items-center gap-2 text-[12px]">
-              <Users size={12} className="text-accent" />
-              <span className="font-medium">orchestrator</span>
-              <span className="font-mono text-[10px] text-muted">{shortModel(model)}</span>
-              <span className="ml-auto text-[11px] text-muted">{assistant.length} turn{assistant.length === 1 ? '' : 's'}</span>
+      <div className="flex-1 overflow-auto p-2">
+        <ActivityTree items={items} model={model} onOpen={(id) => setView({ kind: 'delegation', id })} />
+      </div>
+    </aside>
+  )
+}
+
+/**
+ * Orchestrator → agents → tasks → steps, each level collapsible. Active tasks
+ * start expanded so their live steps are visible; finished ones start closed.
+ */
+function ActivityTree({ items, model, onOpen }: { items: ChatItem[]; model: string; onOpen: (id: string) => void }): React.JSX.Element {
+  const [open, setOpen] = useState<Record<string, boolean>>({})
+  const isOpen = (key: string, fallback: boolean): boolean => open[key] ?? fallback
+  const toggle = (key: string, fallback: boolean): void => setOpen((o) => ({ ...o, [key]: !isOpen(key, fallback) }))
+
+  const assistant = items.filter((it) => it.role === 'assistant')
+  const allTools = assistant.flatMap((it) => it.blocks.filter((b): b is ChatToolBlock => b.type === 'tool'))
+  const delegations = allTools.filter((b) => b.name === 'Agent' || b.name === 'Task')
+  const own = allTools.filter((b) => !(b.name === 'Agent' || b.name === 'Task'))
+  const thinking = assistant.reduce((n, it) => n + it.blocks.filter((b) => b.type === 'thinking').length, 0)
+  const countBy = (names: string[]): [string, number][] => {
+    const m = new Map<string, number>()
+    for (const n of names) m.set(n, (m.get(n) ?? 0) + 1)
+    return Array.from(m.entries()).sort((a, b) => b[1] - a[1])
+  }
+  const byAgent = new Map<string, ChatToolBlock[]>()
+  for (const d of delegations) byAgent.set(agentTypeOf(d), [...(byAgent.get(agentTypeOf(d)) ?? []), d])
+  const descOf = (d: ChatToolBlock): string => {
+    const i = (d.input ?? {}) as Record<string, unknown>
+    return typeof i.description === 'string' ? i.description : 'task'
+  }
+  const Chevron = ({ on }: { on: boolean }): React.JSX.Element => <ChevronRight size={11} className={clsx('shrink-0 transition-transform', on && 'rotate-90')} />
+  const Tags = ({ pairs }: { pairs: [string, number][] }): React.JSX.Element => (
+    <div className="flex flex-wrap gap-1">
+      {pairs.map(([n, c]) => (
+        <span key={n} className="rounded bg-panel-2 px-1.5 py-px text-[10px] text-muted">
+          {n.replace(/^mcp__/, '')} ×{c}
+        </span>
+      ))}
+    </div>
+  )
+
+  const rootOpen = isOpen('root', true)
+  return (
+    <div className="text-[12px]">
+      {/* root: orchestrator */}
+      <button onClick={() => toggle('root', true)} className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1.5 text-left hover:bg-panel-2">
+        <Chevron on={rootOpen} />
+        <Users size={12} className="shrink-0 text-accent" />
+        <span className="font-medium">orchestrator</span>
+        <span className="font-mono text-[10px] text-muted">{shortModel(model)}</span>
+        <span className="ml-auto shrink-0 text-[11px] text-muted">
+          {assistant.length} turn{assistant.length === 1 ? '' : 's'} · think ×{thinking} · delegate ×{delegations.length}
+        </span>
+      </button>
+      {rootOpen && (
+        <div className="ml-3 border-l border-border pl-2">
+          {own.length > 0 && (
+            <div className="px-1.5 py-1">
+              <Tags pairs={countBy(own.map((b) => b.name))} />
             </div>
-            <div className="mt-1 flex flex-wrap gap-1 text-[11px] text-muted">
-              {thinking > 0 && <span className="rounded bg-panel-2 px-1.5 py-px">think ×{thinking}</span>}
-              {delegations.length > 0 && <span className="rounded bg-panel-2 px-1.5 py-px">delegate ×{delegations.length}</span>}
-              {orchestratorTools.map(([n, c]) => (
-                <span key={n} className="rounded bg-panel-2 px-1.5 py-px">
-                  {n} ×{c}
-                </span>
-              ))}
-            </div>
-          </div>
+          )}
+          {byAgent.size === 0 && <div className="px-1.5 py-1 text-muted">No delegations yet in this session.</div>}
           {Array.from(byAgent.entries()).map(([name, list]) => {
+            const key = `agent:${name}`
+            const on = isOpen(key, true)
             const calls = list.reduce((n, d) => n + (d.sub?.toolCalls ?? 0), 0)
-            const model = list.find((d) => d.sub?.model)?.sub?.model
+            const agentModel = list.find((d) => d.sub?.model)?.sub?.model
             const running = list.filter((d) => !d.done).length
-            const failed = list.filter((d) => d.done && d.isError).length
             return (
-              <div key={name} className="rounded-lg border border-border px-3 py-2">
-                <div className="flex items-center gap-2 text-[12px]">
+              <div key={name}>
+                <button onClick={() => toggle(key, true)} className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1.5 text-left hover:bg-panel-2">
+                  <Chevron on={on} />
                   <span className="font-medium">{name}</span>
-                  {model && <span className="font-mono text-[10px] text-muted">{shortModel(model)}</span>}
-                  <span className="ml-auto text-[11px] text-muted">
-                    {list.length} delegation{list.length === 1 ? '' : 's'}
-                    {running ? ` · ${running} running` : ''}
-                    {failed ? ` · ${failed} failed` : ''}
+                  {agentModel && <span className="font-mono text-[10px] text-muted">{shortModel(agentModel)}</span>}
+                  <span className="ml-auto shrink-0 text-[11px] text-muted">
+                    {list.length} task{list.length === 1 ? '' : 's'}
+                    {running ? <span className="text-warn"> · {running} running</span> : ''} · {calls} calls
                   </span>
-                </div>
-                <div className="mt-1 text-[11px] text-muted">{calls} tool call{calls === 1 ? '' : 's'} in total</div>
+                </button>
+                {on && (
+                  <div className="ml-3 border-l border-border pl-2">
+                    {list.map((d) => {
+                      const tkey = `task:${d.toolUseId}`
+                      const ton = isOpen(tkey, !d.done)
+                      const steps = d.sub?.steps ?? []
+                      const shown = ton ? steps.slice(-40) : []
+                      return (
+                        <div key={d.toolUseId}>
+                          <div className="flex items-center gap-1.5 rounded-md px-1.5 py-1 hover:bg-panel-2">
+                            <button onClick={() => toggle(tkey, !d.done)} className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
+                              <Chevron on={ton} />
+                              {d.done ? <span className={clsx('h-1.5 w-1.5 shrink-0 rounded-full', d.isError ? 'bg-danger' : 'bg-ok')} /> : <Spinner />}
+                              <span className="min-w-0 flex-1 truncate" title={descOf(d)}>
+                                {descOf(d)}
+                              </span>
+                            </button>
+                            <span className="shrink-0 text-[11px] text-muted">{d.sub?.toolCalls ?? 0} calls</span>
+                            <button className="shrink-0 text-[11px] text-accent hover:underline" onClick={() => onOpen(d.toolUseId)} title="Open full detail">
+                              open
+                            </button>
+                          </div>
+                          {ton && (
+                            <div className="ml-3 mb-1 border-l border-border pl-2">
+                              {steps.length > shown.length && (
+                                <button className="px-1.5 py-0.5 text-[11px] text-muted hover:text-text" onClick={() => onOpen(d.toolUseId)}>
+                                  … {steps.length - shown.length} earlier steps, open detail to see all
+                                </button>
+                              )}
+                              {shown.length === 0 && <div className="px-1.5 py-0.5 text-[11px] text-muted">{d.done ? 'No recorded steps.' : 'Waiting for the first step…'}</div>}
+                              {shown.map((st, i) =>
+                                st.kind === 'tool' ? (
+                                  <div key={i} className="flex items-baseline gap-1.5 px-1.5 py-px font-mono text-[11px]">
+                                    <span className="shrink-0 text-accent">{st.name}</span>
+                                    <span className="truncate text-muted" title={st.detail}>
+                                      {st.detail}
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <div key={i} className="truncate px-1.5 py-px text-[11px] text-muted" title={st.detail}>
+                                    “{st.detail}”
+                                  </div>
+                                )
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
             )
           })}
-          {delegations.length === 0 && <div className="text-[12px] text-muted">No delegations yet in this session.</div>}
         </div>
-        {active.length > 0 && (
-          <>
-            <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-warn">Active</div>
-            <div className="mb-4 flex flex-col">
-              {active.map((d) => (
-                <Row key={d.toolUseId} d={d} />
-              ))}
-            </div>
-          </>
-        )}
-        {history.length > 0 && (
-          <>
-            <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted">History</div>
-            <div className="flex flex-col">
-              {history.map((d) => (
-                <Row key={d.toolUseId} d={d} />
-              ))}
-            </div>
-          </>
-        )}
-      </div>
-    </aside>
+      )}
+    </div>
   )
 }
 
