@@ -434,6 +434,19 @@ export interface QuestionResponse {
   cancelled?: boolean
 }
 
+/** A Claude Code session on disk, as shown in the Resume picker. */
+export interface SessionSummary {
+  sessionId: string
+  title: string
+  firstPrompt?: string
+  cwd?: string
+  gitBranch?: string
+  lastModified: number
+  fileSize?: number
+  /** True when the session was recorded inside one of the workspace's worktrees. */
+  inWorkspace: boolean
+}
+
 export interface PermissionResponse {
   requestId: string
   decision: 'allow' | 'always' | 'deny'

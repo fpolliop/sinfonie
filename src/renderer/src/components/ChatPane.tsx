@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { ChevronRight, Square, RotateCcw, Send, ArrowDownToLine, ShieldCheck, XCircle, AlertTriangle, Info } from 'lucide-react'
+import { ChevronRight, Square, RotateCcw, Send, ArrowDownToLine, ShieldCheck, XCircle, AlertTriangle, Info, History } from 'lucide-react'
 import { api } from '@/lib/api'
 import { PERMISSION_MODES, type PermissionMode } from '@shared/types'
 import { QuestionCard } from './QuestionCard'
+import { ResumeDialog } from './ResumeDialog'
 import { useChat } from '@/stores/chat'
 import { useApp } from '@/stores/app'
 import { Markdown } from '@/lib/markdown'
@@ -34,6 +35,7 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
   const setError = useApp((s) => s.setError)
   const mode: PermissionMode = ws?.permissionMode ?? settingsMode
   const [autoScroll, setAutoScroll] = useState(() => localStorage.getItem(AUTOSCROLL_KEY) !== 'off')
+  const [resumeDlg, setResumeDlg] = useState(false)
 
   const toggleAutoScroll = (): void => {
     const next = !autoScroll
@@ -64,6 +66,7 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
 
   return (
     <div className="flex h-full flex-col">
+      {resumeDlg && <ResumeDialog workspaceId={workspaceId} onClose={() => setResumeDlg(false)} />}
       <div ref={scrollRef} className="flex-1 overflow-auto px-6 py-4">
         {items.length === 0 && (
           <div className="mx-auto mt-16 max-w-md text-center text-muted">
@@ -136,6 +139,9 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
                 {chat?.lastResult && <> · last turn ${chat.lastResult.costUsd.toFixed(3)} · {(chat.lastResult.durationMs / 1000).toFixed(1)}s</>}
               </span>
               <span className="ml-auto" />
+              <Button size="sm" variant="ghost" title="Continue a past Claude Code session here (like /resume)" onClick={() => setResumeDlg(true)} disabled={busy}>
+                <History size={13} /> Resume
+              </Button>
               <Button size="sm" variant="ghost" title="Start a fresh session" onClick={() => void reset(workspaceId)} disabled={busy}>
                 <RotateCcw size={13} /> New session
               </Button>

@@ -23,6 +23,8 @@ interface ChatState {
   answerQuestion: (response: QuestionResponse) => Promise<void>
   ensure: (workspaceId: string) => WorkspaceChat
   load: (workspaceId: string) => Promise<void>
+  /** Re-read the transcript from main (after a resume replaced it). */
+  reload: (workspaceId: string) => Promise<void>
   send: (workspaceId: string, text: string) => Promise<void>
   interrupt: (workspaceId: string) => Promise<void>
   unqueue: (workspaceId: string, id: string) => Promise<void>
@@ -57,6 +59,10 @@ export const useChat = create<ChatState>((set, get) => ({
     if (get().chats[id]?.loaded) return
     const { items, busy } = await api.invoke('chat:load', id)
     set((s) => updateChat(s, id, (c) => ({ ...c, items: c.items.length > items.length ? c.items : items, busy: busy || c.busy, loaded: true })))
+  },
+  reload: async (id) => {
+    const { items, busy } = await api.invoke('chat:load', id)
+    set((s) => updateChat(s, id, (c) => ({ ...c, items, busy, loaded: true, error: undefined })))
   },
   send: async (id, text) => {
     const trimmed = text.trim()

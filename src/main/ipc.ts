@@ -28,6 +28,7 @@ import { repoPrStatus } from './services/github'
 import * as jira from './services/jira'
 import * as accounts from './services/accounts'
 import * as reviews from './services/reviews'
+import * as sessionsSvc from './services/sessions'
 
 function send<C extends keyof OrchestraEvents>(channel: C, payload: OrchestraEvents[C]): void {
   for (const win of BrowserWindow.getAllWindows()) win.webContents.send(channel, payload)
@@ -318,6 +319,8 @@ export function registerIpc(): void {
   handle('agent:permission', (r) => agent.answerPermission(r))
   handle('agent:answerQuestion', (r) => agent.answerQuestion(r))
   handle('agent:unqueue', (id, mid) => agent.unqueue(id, mid, emitAgent))
+  handle('sessions:list', (id, scope, q) => sessionsSvc.listResumable(id, scope, q))
+  handle('sessions:resume', (id, sid) => sessionsSvc.resumeInto(id, sid))
   handle('agent:reset', (id) => {
     agent.resetSession(id)
     clearTranscript(id)

@@ -11,6 +11,7 @@ import type {
   ReviewPr,
   ReviewRun,
   ReviewVerdict,
+  SessionSummary,
   WorkspaceStage,
   CreateWorkspaceInput,
   PermissionRequest,
@@ -101,6 +102,9 @@ export interface OrchestraInvoke {
   'agent:permission': (response: PermissionResponse) => void
   'agent:answerQuestion': (response: QuestionResponse) => void
   'agent:unqueue': (workspaceId: string, id: string) => void
+  /** Claude Code sessions to resume into a workspace: its own worktrees first, or every project. */
+  'sessions:list': (workspaceId: string, scope: 'workspace' | 'all', query: string) => SessionSummary[]
+  'sessions:resume': (workspaceId: string, sessionId: string) => { messages: number }
   'agent:reset': (workspaceId: string) => void
   'agent:setMode': (workspaceId: string, mode: PermissionMode) => Workspace
   'chat:load': (workspaceId: string) => { items: ChatItem[]; busy: boolean }

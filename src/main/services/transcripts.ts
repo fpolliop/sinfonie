@@ -81,6 +81,13 @@ export function flushAllTranscripts(): void {
   for (const id of Array.from(dirty)) flush(id)
 }
 
+/** Replace a workspace's transcript wholesale (used when resuming a session recorded elsewhere). */
+export function replaceTranscript(workspaceId: string, items: ChatItem[]): void {
+  cache.set(workspaceId, items)
+  dirty.add(workspaceId)
+  flush(workspaceId)
+}
+
 export function clearTranscript(workspaceId: string): void {
   cache.set(workspaceId, [])
   dirty.delete(workspaceId)
