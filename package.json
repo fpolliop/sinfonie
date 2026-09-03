@@ -1,0 +1,73 @@
+{
+  "name": "orchestra",
+  "version": "0.1.0",
+  "description": "Multi-repo agent workspaces. Like Conductor, but one workspace spans many repositories.",
+  "main": "./out/main/index.js",
+  "author": "Francisco Pollio",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "postinstall": "electron-builder install-app-deps",
+    "package": "electron-vite build && electron-builder --mac"
+  },
+  "build": {
+    "appId": "dev.fpollio.orchestra",
+    "productName": "Orchestra",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "out/**/*",
+      "resources/**/*"
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": [
+        "dmg"
+      ]
+    },
+    "asarUnpack": [
+      "node_modules/node-pty/**",
+      "node_modules/@anthropic-ai/claude-agent-sdk/**"
+    ]
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.1",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.6",
+    "@vitejs/plugin-react": "^5.2.0",
+    "electron": "44",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "5",
+    "typescript": "5",
+    "vite": "7"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.259",
+    "@tailwindcss/vite": "^4.3.3",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.40.0",
+    "nanoid": "^6.0.1",
+    "node-pty": "^1.1.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "simple-git": "^3.36.0",
+    "tailwindcss": "^4.3.3",
+    "zustand": "^5.0.15"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron",
+      "esbuild",
+      "node-pty",
+      "electron-winstaller",
+      "@anthropic-ai/claude-agent-sdk"
+    ]
+  }
+}

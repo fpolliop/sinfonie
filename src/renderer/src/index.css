@@ -1,0 +1,37 @@
+@import 'tailwindcss';
+@import '@xterm/xterm/css/xterm.css';
+
+@theme {
+  --color-bg: #0f1115;
+  --color-panel: #161920;
+  --color-panel-2: #1c2027;
+  --color-border: #262b35;
+  --color-text: #e6e8ec;
+  --color-muted: #8b93a1;
+  --color-accent: #7c9cff;
+  --color-accent-2: #5b7cff;
+  --color-danger: #ff6b6b;
+  --color-ok: #4ade80;
+  --color-warn: #fbbf24;
+  --font-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, 'SF Pro Text', Inter, system-ui, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, Monaco, Consolas, monospace;
+}
+
+html, body, #root { height: 100%; margin: 0; }
+body { background: var(--color-bg); color: var(--color-text); font-family: var(--font-sans); font-size: 13px; -webkit-font-smoothing: antialiased; overflow: hidden; }
+.drag { -webkit-app-region: drag; }
+.no-drag { -webkit-app-region: no-drag; }
+* { scrollbar-width: thin; scrollbar-color: #2e3440 transparent; }
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-thumb { background: #2e3440; border-radius: 4px; }
+button:disabled { opacity: .5; cursor: not-allowed; }
+.prose-chat p { margin: 0 0 .6em; }
+.prose-chat p:last-child { margin-bottom: 0; }
+.prose-chat pre { background: #0b0d11; border: 1px solid var(--color-border); border-radius: 6px; padding: 8px 10px; overflow-x: auto; font-family: var(--font-mono); font-size: 12px; margin: .5em 0; }
+.prose-chat code { font-family: var(--font-mono); font-size: 12px; background: #0b0d11; padding: 1px 4px; border-radius: 4px; }
+.prose-chat pre code { background: none; padding: 0; }
+.prose-chat ul { margin: .3em 0 .6em 1.2em; padding: 0; list-style: disc; }
+.prose-chat ol { margin: .3em 0 .6em 1.2em; padding: 0; list-style: decimal; }
+.prose-chat h1, .prose-chat h2, .prose-chat h3 { font-weight: 600; margin: .8em 0 .3em; }
+.prose-chat h1 { font-size: 15px; } .prose-chat h2 { font-size: 14px; } .prose-chat h3 { font-size: 13px; }
+.prose-chat a { color: var(--color-accent); }
