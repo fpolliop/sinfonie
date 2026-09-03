@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { ChevronRight, Square, RotateCcw, Send, ArrowDownToLine, ShieldCheck, XCircle, AlertTriangle, Info, History } from 'lucide-react'
+import { ChevronRight, Square, RotateCcw, Send, ShieldCheck, XCircle, AlertTriangle, Info, History } from 'lucide-react'
 import { api } from '@/lib/api'
 import { PERMISSION_MODES, type PermissionMode } from '@shared/types'
 import { QuestionCard } from './QuestionCard'
@@ -11,7 +11,6 @@ import { Markdown } from '@/lib/markdown'
 import { Button, Spinner } from './ui'
 import type { ChatBlock, ChatItem, ChatToolBlock } from '@shared/types'
 
-const AUTOSCROLL_KEY = 'orchestra.autoscroll'
 
 export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.Element {
   const chat = useChat((s) => s.chats[workspaceId])
@@ -34,14 +33,22 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
   const settingsMode = useApp((s) => s.settings.permissionMode)
   const setError = useApp((s) => s.setError)
   const mode: PermissionMode = ws?.permissionMode ?? settingsMode
-  const [autoScroll, setAutoScroll] = useState(() => localStorage.getItem(AUTOSCROLL_KEY) !== 'off')
   const [resumeDlg, setResumeDlg] = useState(false)
-
-  const toggleAutoScroll = (): void => {
-    const next = !autoScroll
-    setAutoScroll(next)
-    localStorage.setItem(AUTOSCROLL_KEY, next ? 'on' : 'off')
-    if (next && scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+  // Follow new output only while the view is already at the bottom; scrolling up detaches.
+  const [atBottom, setAtBottom] = useState(true)
+  const [unseen, setUnseen] = useState(false)
+  const onScroll = (): void => {
+    const el = scrollRef.current
+    if (!el) return
+    const near = el.scrollHeight - el.scrollTop - el.clientHeight < 48
+    setAtBottom(near)
+    if (near) setUnseen(false)
+  }
+  const jumpToLatest = (): void => {
+    const el = scrollRef.current
+    if (el) el.scrollTop = el.scrollHeight
+    setAtBottom(true)
+    setUnseen(false)
   }
 
   const changeMode = (next: PermissionMode): void => {
@@ -52,11 +59,13 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
     changeMode(PERMISSION_MODES[(i + 1) % PERMISSION_MODES.length].id)
   }
 
-  // Follow the conversation while it streams. Off means the view stays where the user put it.
   useEffect(() => {
     const el = scrollRef.current
-    if (el && autoScroll) el.scrollTop = el.scrollHeight
-  }, [items, autoScroll, questions.length])
+    if (!el) return
+    if (atBottom) el.scrollTop = el.scrollHeight
+    else setUnseen(true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, questions.length])
 
   // While a turn runs, Enter queues the message; main delivers it when the turn ends.
   const onSubmit = (): void => {
@@ -67,7 +76,7 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
   return (
     <div className="flex h-full flex-col">
       {resumeDlg && <ResumeDialog workspaceId={workspaceId} onClose={() => setResumeDlg(false)} />}
-      <div ref={scrollRef} className="flex-1 overflow-auto px-6 py-4">
+      <div ref={scrollRef} onScroll={onScroll} className="relative flex-1 overflow-auto px-6 py-4">
         {items.length === 0 && (
           <div className="mx-auto mt-16 max-w-md text-center text-muted">
             <p className="mb-2">Claude Code runs here with every worktree of this workspace in scope.</p>
@@ -92,7 +101,12 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
           {chat?.error && <div className="rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-[12px] text-danger whitespace-pre-wrap">{chat.error}</div>}
         </div>
       </div>
-      <div className="border-t border-border px-4 py-3">
+      <div className="relative border-t border-border px-4 py-3">
+        {!atBottom && (
+          <button onClick={jumpToLatest} className={clsx('absolute -top-9 left-1/2 z-10 -translate-x-1/2 rounded-full border px-3 py-1 text-[12px] shadow-lg', unseen ? 'border-accent/50 bg-accent-2 text-white' : 'border-border bg-panel text-muted hover:text-text')}>
+            ↓ {unseen ? 'New output below' : 'Jump to latest'}
+          </button>
+        )}
         <div className="mx-auto max-w-3xl">
           {queue.length > 0 && (
             <div className="mb-2 flex flex-col gap-1">
@@ -127,13 +141,6 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
             />
             <div className="flex items-center gap-2 px-2 pb-2">
               <ModePicker mode={mode} onChange={changeMode} />
-              <button
-                onClick={toggleAutoScroll}
-                title={autoScroll ? 'Auto-scroll on: follows new output. Click to turn off.' : 'Auto-scroll off: view stays put. Click to turn on.'}
-                className={clsx('inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px]', autoScroll ? 'bg-accent/15 text-accent' : 'text-muted hover:text-text')}
-              >
-                <ArrowDownToLine size={12} /> Auto-scroll
-              </button>
               <span className="text-[11px] text-muted">
                 {chat?.model ?? `model: ${settingsModel}`}
                 {chat?.lastResult && <> · last turn ${chat.lastResult.costUsd.toFixed(3)} · {(chat.lastResult.durationMs / 1000).toFixed(1)}s</>}
