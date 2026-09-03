@@ -10,6 +10,7 @@ interface AppState {
   workspaces: Workspace[]
   settings: Settings
   selectedId: string | null
+  view: 'workspace' | 'reviews'
   tab: Tab
   showNewWorkspace: boolean
   showSettings: boolean
@@ -20,6 +21,7 @@ interface AppState {
   load: () => Promise<void>
   applyStore: (d: StoreData) => void
   select: (id: string | null) => void
+  setView: (v: 'workspace' | 'reviews') => void
   setTab: (t: Tab) => void
   setShowNewWorkspace: (v: boolean) => void
   setShowSettings: (v: boolean) => void
@@ -32,7 +34,8 @@ export const useApp = create<AppState>((set, get) => ({
   loaded: false,
   repos: [],
   workspaces: [],
-  settings: { workspacesRoot: '', basePort: 55000, model: 'claude-opus-5', permissionMode: 'default', jira: { connected: false, siteUrl: '', email: '', hasToken: false, defaultJql: '' } },
+  settings: { workspacesRoot: '', basePort: 55000, model: 'claude-opus-5', permissionMode: 'default', jira: { connected: false, siteUrl: '', email: '', hasToken: false, defaultJql: '' }, claudeAccounts: [{ id: 'default', name: 'Default', configDir: null }], defaultClaudeAccountId: 'default' },
+  view: (localStorage.getItem('orchestra.view') as 'workspace' | 'reviews') ?? 'workspace',
   selectedId: localStorage.getItem('orchestra.selected'),
   tab: 'chat',
   showNewWorkspace: false,
@@ -55,7 +58,12 @@ export const useApp = create<AppState>((set, get) => ({
   select: (id) => {
     if (id) localStorage.setItem('orchestra.selected', id)
     else localStorage.removeItem('orchestra.selected')
-    set({ selectedId: id, tab: 'chat' })
+    localStorage.setItem('orchestra.view', 'workspace')
+    set({ selectedId: id, tab: 'chat', view: 'workspace' })
+  },
+  setView: (view) => {
+    localStorage.setItem('orchestra.view', view)
+    set({ view })
   },
   setTab: (tab) => set({ tab }),
   setShowNewWorkspace: (v) => set({ showNewWorkspace: v }),

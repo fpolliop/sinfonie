@@ -5,6 +5,10 @@ import type {
   RepoPr,
   PermissionMode,
   RepoSafety,
+  ReviewFinding,
+  ReviewPr,
+  ReviewRun,
+  ReviewVerdict,
   WorkspaceStage,
   CreateWorkspaceInput,
   PermissionRequest,
@@ -56,6 +60,23 @@ export interface OrchestraInvoke {
 
   'shell:openExternal': (url: string) => void
 
+  'accounts:add': (name: string) => Settings
+  'accounts:remove': (id: string) => Settings
+  'accounts:setDefault': (id: string) => Settings
+  'accounts:check': (id: string) => Settings
+  'accounts:loginTerminal': (id: string) => string
+
+  'reviews:orgs': () => string[]
+  'reviews:list': (owner: string, mode: 'requested' | 'all') => ReviewPr[]
+  'reviews:runs': () => ReviewRun[]
+  'reviews:start': (pr: ReviewPr, accountId: string) => ReviewRun
+  'reviews:cancel': (key: string) => void
+  'reviews:discard': (key: string) => void
+  'reviews:updateFinding': (key: string, findingId: string, patch: Partial<ReviewFinding>) => ReviewRun
+  'reviews:setAll': (key: string, approved: boolean) => ReviewRun
+  'reviews:setVerdict': (key: string, verdict: ReviewVerdict) => ReviewRun
+  'reviews:submit': (key: string) => ReviewRun
+
   'agent:send': (workspaceId: string, text: string) => void
   'agent:interrupt': (workspaceId: string) => void
   'agent:permission': (response: PermissionResponse) => void
@@ -77,6 +98,7 @@ export interface OrchestraEvents {
   'script:output': ScriptOutputEvent
   'terminal:data': TerminalDataEvent
   'terminal:exit': { terminalId: string; exitCode: number }
+  'review:changed': ReviewRun
 }
 
 export type InvokeChannel = keyof OrchestraInvoke

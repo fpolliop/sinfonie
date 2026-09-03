@@ -11,6 +11,8 @@ const DEFAULT_SETTINGS: Settings = {
   basePort: 55000,
   model: 'claude-opus-5',
   permissionMode: 'default',
+  claudeAccounts: [{ id: 'default', name: 'Default (~/.claude)', configDir: null }],
+  defaultClaudeAccountId: 'default',
   jira: { connected: false, siteUrl: '', email: '', hasToken: false, defaultJql: 'assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC' }
 }
 
@@ -39,7 +41,13 @@ class Store {
       return {
         repos: raw.repos ?? [],
         workspaces: (raw.workspaces ?? []).map((w) => ({ ...w, stage: w.stage ?? 'in-progress' })),
-        settings: { ...DEFAULT_SETTINGS, ...(raw.settings ?? {}), jira: { ...DEFAULT_SETTINGS.jira, ...(raw.settings?.jira ?? {}) } },
+        settings: {
+          ...DEFAULT_SETTINGS,
+          ...(raw.settings ?? {}),
+          jira: { ...DEFAULT_SETTINGS.jira, ...(raw.settings?.jira ?? {}) },
+          claudeAccounts: raw.settings?.claudeAccounts?.length ? raw.settings.claudeAccounts : DEFAULT_SETTINGS.claudeAccounts,
+          defaultClaudeAccountId: raw.settings?.defaultClaudeAccountId ?? 'default'
+        },
         secrets: raw.secrets ?? {}
       }
     } catch (err) {

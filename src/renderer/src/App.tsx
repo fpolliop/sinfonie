@@ -8,10 +8,11 @@ import { NewWorkspaceDialog } from './components/NewWorkspaceDialog'
 import { SettingsDialog } from './components/SettingsDialog'
 import { PermissionPrompt } from './components/PermissionPrompt'
 import { BranchRenamePrompt } from './components/BranchRenamePrompt'
+import { ReviewCockpit } from './components/ReviewCockpit'
 import { Button } from './components/ui'
 
 export default function App(): React.JSX.Element {
-  const { loaded, load, selectedId, showNewWorkspace, showSettings, setShowNewWorkspace, setShowSettings, error, setError } = useApp()
+  const { loaded, load, selectedId, view, showNewWorkspace, showSettings, setShowNewWorkspace, setShowSettings, error, setError } = useApp()
   const subscribeChat = useChat((s) => s.subscribe)
   const subscribeScripts = useScripts((s) => s.subscribe)
 
@@ -42,7 +43,7 @@ export default function App(): React.JSX.Element {
     <div className="flex h-full">
       <Sidebar />
       <main className="flex min-w-0 flex-1 flex-col">
-        {selectedId ? <WorkspaceView key={selectedId} workspaceId={selectedId} /> : <EmptyState />}
+        {view === 'reviews' ? <ReviewCockpit /> : selectedId ? <WorkspaceView key={selectedId} workspaceId={selectedId} /> : <EmptyState />}
       </main>
       {showNewWorkspace && <NewWorkspaceDialog onClose={() => setShowNewWorkspace(false)} />}
       {showSettings && <SettingsDialog onClose={() => setShowSettings(false)} />}

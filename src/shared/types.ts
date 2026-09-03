@@ -70,6 +70,7 @@ export interface Workspace {
   permissionMode?: PermissionMode
   jira?: WorkspaceJira
   stage: WorkspaceStage
+  claudeAccountId?: string
   /** Last known status of the linked Jira ticket, refreshed when the workspace is opened. */
   jiraStatus?: string
   jiraStatusAt?: string
@@ -100,12 +101,79 @@ export interface JiraSettings {
   defaultJql: string
 }
 
+/**
+ * A Claude Code login. Each account is a separate CLAUDE_CONFIG_DIR, which is
+ * how the CLI keeps independent credentials. `configDir: null` is the default
+ * ~/.claude login.
+ */
+export interface ClaudeAccount {
+  id: string
+  name: string
+  configDir: string | null
+  loggedIn?: boolean
+  detail?: string
+  checkedAt?: string
+}
+
 export interface Settings {
   workspacesRoot: string
   basePort: number
   model: string
   permissionMode: PermissionMode
   jira: JiraSettings
+  claudeAccounts: ClaudeAccount[]
+  defaultClaudeAccountId: string
+}
+
+// ---- Review cockpit ----
+
+export interface ReviewPr {
+  nameWithOwner: string
+  number: number
+  title: string
+  author: string
+  url: string
+  updatedAt: string
+  isDraft: boolean
+}
+
+export type ReviewSeverity = 'critical' | 'major' | 'minor' | 'nit'
+
+export interface ReviewFinding {
+  id: string
+  path: string
+  /** Line on the new side of the diff, when the finding points at changed code. */
+  line: number | null
+  severity: ReviewSeverity
+  title: string
+  body: string
+  suggestion?: string
+  approved: boolean
+}
+
+export interface ReviewVerdict {
+  decision: 'approve' | 'request_changes' | 'comment'
+  summary: string
+}
+
+export type ReviewRunStatus = 'preparing' | 'running' | 'done' | 'error' | 'submitted' | 'cancelled'
+
+export interface ReviewRun {
+  key: string
+  pr: ReviewPr
+  accountId: string
+  status: ReviewRunStatus
+  phase?: string
+  error?: string
+  findings: ReviewFinding[]
+  verdict?: ReviewVerdict
+  baseRefName?: string
+  headRefName?: string
+  startedAt: string
+  finishedAt?: string
+  costUsd?: number
+  submittedUrl?: string
+  checkoutPath?: string
 }
 
 export interface StoreData {
@@ -140,6 +208,7 @@ export interface CreateWorkspaceInput {
   repos: { repoId: string; baseBranch: string }[]
   primaryRepoId?: string
   jira?: WorkspaceJira
+  claudeAccountId?: string
 }
 
 // ---- GitHub ----

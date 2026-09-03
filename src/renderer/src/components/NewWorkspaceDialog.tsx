@@ -5,6 +5,7 @@ import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { useChat } from '@/stores/chat'
 import { Badge, Button, Dialog, Field, inputCls } from './ui'
+import { AccountPicker } from './AccountPicker'
 import { shortPath } from '@/lib/format'
 import type { JiraIssue, WorkspaceJira } from '@shared/types'
 
@@ -35,6 +36,7 @@ export function NewWorkspaceDialog({ onClose }: { onClose: () => void }): React.
   const setDraft = useChat((s) => s.setDraft)
   const [name, setName] = useState('')
   const [jira, setJira] = useState<WorkspaceJira | null>(null)
+  const [accountId, setAccountId] = useState(settings.defaultClaudeAccountId)
   const jiraReady = settings.jira.connected || Boolean(settings.jira.siteUrl && settings.jira.email && settings.jira.hasToken)
   const [picks, setPicks] = useState<Record<string, Pick>>({})
   const [primary, setPrimary] = useState<string>('')
@@ -79,7 +81,8 @@ export function NewWorkspaceDialog({ onClose }: { onClose: () => void }): React.
         name,
         repos: selected.map((s) => ({ repoId: s.repoId, baseBranch: s.baseBranch })),
         primaryRepoId: primary || selected[0].repoId,
-        ...(jira ? { jira } : {})
+        ...(jira ? { jira } : {}),
+        claudeAccountId: accountId
       })
       select(ws.id)
       onClose()
@@ -157,7 +160,8 @@ export function NewWorkspaceDialog({ onClose }: { onClose: () => void }): React.
           )
         })}
       </div>
-      <p className="mb-4 text-[11px] text-muted">The primary repo is Claude Code's working directory; the others are added as extra directories. Setup scripts run in every repo after all worktrees exist.</p>
+      <p className="mb-3 text-[11px] text-muted">The primary repo is Claude Code's working directory; the others are added as extra directories. Setup scripts run in every repo after all worktrees exist.</p>
+      <AccountPicker value={accountId} onChange={setAccountId} className="mb-4" />
       <div className="flex justify-end gap-2">
         <Button onClick={onClose}>Cancel</Button>
         <Button variant="primary" onClick={submit} disabled={busy || !name.trim() || selected.length === 0}>

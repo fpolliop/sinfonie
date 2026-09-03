@@ -13,6 +13,8 @@ import { clearTranscript, flushAllTranscripts, getTranscript, recordEvent } from
 import { runScript, stopScript, workspaceEnv } from './services/scripts'
 import { repoPrStatus } from './services/github'
 import * as jira from './services/jira'
+import * as accounts from './services/accounts'
+import * as reviews from './services/reviews'
 
 function send<C extends keyof OrchestraEvents>(channel: C, payload: OrchestraEvents[C]): void {
   for (const win of BrowserWindow.getAllWindows()) win.webContents.send(channel, payload)
@@ -183,6 +185,32 @@ export function registerIpc(): void {
   handle('shell:openExternal', (url) => {
     if (/^https?:\/\//.test(url)) void shell.openExternal(url)
   })
+
+  // ---- claude accounts ----
+  handle('accounts:add', (name) => accounts.addAccount(name))
+  handle('accounts:remove', (id) => accounts.removeAccount(id))
+  handle('accounts:setDefault', (id) => accounts.setDefaultAccount(id))
+  handle('accounts:check', (id) => accounts.checkAccount(id))
+  handle('accounts:loginTerminal', (id) =>
+    accounts.loginTerminal(
+      id,
+      (terminalId, data) => send('terminal:data', { terminalId, data }),
+      (terminalId, exitCode) => send('terminal:exit', { terminalId, exitCode })
+    )
+  )
+
+  // ---- review cockpit ----
+  const emitReview = (run: Parameters<typeof send<'review:changed'>>[1]): void => send('review:changed', run)
+  handle('reviews:orgs', () => reviews.listOrgs())
+  handle('reviews:list', (owner, mode) => reviews.listPrs(owner, mode))
+  handle('reviews:runs', () => reviews.listRuns())
+  handle('reviews:start', (pr, accountId) => reviews.startReview(pr, accountId, emitReview))
+  handle('reviews:cancel', (key) => reviews.cancelReview(key))
+  handle('reviews:discard', (key) => reviews.discardReview(key))
+  handle('reviews:updateFinding', (key, fid, patch) => reviews.updateFinding(key, fid, patch, emitReview))
+  handle('reviews:setAll', (key, approved) => reviews.setAllFindings(key, approved, emitReview))
+  handle('reviews:setVerdict', (key, verdict) => reviews.setVerdict(key, verdict, emitReview))
+  handle('reviews:submit', (key) => reviews.submitReview(key, emitReview))
 
   // ---- agent ----
   handle('agent:send', (id, text) => agent.sendMessage(id, text, emitAgent, emitPermission))

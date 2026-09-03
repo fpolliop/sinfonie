@@ -3,6 +3,7 @@ import { nanoid } from 'nanoid'
 import type { AgentEvent, PermissionMode, PermissionRequest, PermissionResponse, Workspace } from '@shared/types'
 import { getStore } from '../store'
 import { getWorkspace, patchWorkspace } from './workspaces'
+import { accountEnv } from './accounts'
 
 type EmitEvent = (e: AgentEvent) => void
 type EmitPermission = (r: PermissionRequest) => void
@@ -123,6 +124,7 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
     settingSources: ['user', 'project', 'local'],
     env: {
       ...process.env,
+      ...accountEnv(ws.claudeAccountId),
       ORCHESTRA_WORKSPACE_NAME: ws.slug,
       ORCHESTRA_WORKSPACE_ROOT: ws.rootPath,
       ORCHESTRA_PORT: String(ws.port)

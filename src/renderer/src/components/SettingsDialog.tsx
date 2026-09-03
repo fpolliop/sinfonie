@@ -5,6 +5,79 @@ import { useApp } from '@/stores/app'
 import { Badge, Button, Dialog, Field, inputCls } from './ui'
 import { shortPath } from '@/lib/format'
 import { PERMISSION_MODES } from '@shared/types'
+import { LoginTerminal } from './LoginTerminal'
+
+function AccountsSection(): React.JSX.Element {
+  const { settings, setError } = useApp()
+  const [name, setName] = useState('')
+  const [login, setLogin] = useState<{ id: string; name: string } | null>(null)
+  const [checking, setChecking] = useState<string | null>(null)
+  const go = async (fn: () => Promise<unknown>): Promise<void> => {
+    try {
+      await fn()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+  const check = async (id: string): Promise<void> => {
+    setChecking(id)
+    await go(() => api.invoke('accounts:check', id))
+    setChecking(null)
+  }
+  return (
+    <section className="mt-5">
+      <h3 className="mb-2 text-[12px] font-medium uppercase tracking-wide text-muted">Claude accounts</h3>
+      <p className="mb-3 text-[11px] text-muted">Each account is a separate Claude Code login with its own config directory. Pick one per workspace and for the review cockpit.</p>
+      <div className="mb-3 flex flex-col gap-1.5">
+        {settings.claudeAccounts.map((a) => (
+          <div key={a.id} className="flex items-center gap-3 rounded-lg border border-border px-3 py-2">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 text-[13px] font-medium">
+                {a.name}
+                {a.id === settings.defaultClaudeAccountId && <Badge tone="accent">default</Badge>}
+                {a.loggedIn === true && <Badge tone="ok">logged in</Badge>}
+                {a.loggedIn === false && <Badge tone="warn">not logged in</Badge>}
+              </div>
+              <div className="truncate text-[11px] text-muted">{a.detail || (a.configDir ? shortPath(a.configDir) : '~/.claude')}</div>
+            </div>
+            <Button size="sm" variant="ghost" onClick={() => check(a.id)} disabled={checking === a.id}>
+              {checking === a.id ? 'Checking…' : 'Check'}
+            </Button>
+            <Button size="sm" onClick={() => setLogin({ id: a.id, name: a.name })}>
+              Log in
+            </Button>
+            {a.id !== settings.defaultClaudeAccountId && (
+              <Button size="sm" variant="ghost" onClick={() => go(() => api.invoke('accounts:setDefault', a.id))}>
+                Make default
+              </Button>
+            )}
+            {a.id !== 'default' && (
+              <button title="Remove" className="rounded p-1 text-muted hover:text-danger" onClick={() => go(() => api.invoke('accounts:remove', a.id))}>
+                <Trash2 size={13} />
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+      <div className="flex gap-2">
+        <input className={inputCls} placeholder="Account name, e.g. Work" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && name.trim() && go(() => api.invoke('accounts:add', name)).then(() => setName(''))} />
+        <Button variant="primary" disabled={!name.trim()} onClick={() => go(() => api.invoke('accounts:add', name)).then(() => setName(''))}>
+          <Plus size={13} /> Add account
+        </Button>
+      </div>
+      {login && (
+        <LoginTerminal
+          accountId={login.id}
+          accountName={login.name}
+          onClose={() => {
+            setLogin(null)
+            void check(login.id)
+          }}
+        />
+      )}
+    </section>
+  )
+}
 
 function JiraSection(): React.JSX.Element {
   const { settings, setError } = useApp()
@@ -209,6 +282,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }): React.JSX.
         <p className="text-[11px] text-muted">Model and permission mode apply to sessions started after the change. Use "New session" in a chat to restart one.</p>
       </section>
 
+      <AccountsSection />
       <JiraSection />
     </Dialog>
   )

@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import clsx from 'clsx'
-import { Plus, Settings, Archive, GitBranch, Pencil, Folder, Code2, TerminalSquare, Trash2 } from 'lucide-react'
+import { Plus, Settings, Archive, GitBranch, Pencil, Folder, Code2, TerminalSquare, Trash2, GitPullRequest } from 'lucide-react'
 import { useApp } from '@/stores/app'
 import { useChat } from '@/stores/chat'
 import { timeAgo } from '@/lib/format'
@@ -13,7 +13,7 @@ import { STAGE_DOT, stageLabel } from './StagePicker'
 import type { Workspace } from '@shared/types'
 
 export function Sidebar(): React.JSX.Element {
-  const { workspaces, selectedId, select, setShowNewWorkspace, setShowSettings, showArchived, setShowArchived } = useApp()
+  const { workspaces, selectedId, select, setShowNewWorkspace, setShowSettings, showArchived, setShowArchived, view, setView } = useApp()
   const chats = useChat((s) => s.chats)
   const active = workspaces.filter((w) => w.status !== 'archived').sort((a, b) => (b.lastMessageAt ?? b.createdAt).localeCompare(a.lastMessageAt ?? a.createdAt))
   const archived = workspaces.filter((w) => w.status === 'archived')
@@ -29,17 +29,20 @@ export function Sidebar(): React.JSX.Element {
         </button>
       </div>
       <div className="flex-1 overflow-auto px-2 pb-2">
+        <button onClick={() => setView('reviews')} className={clsx('mb-2 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] font-medium', view === 'reviews' ? 'bg-panel-2' : 'hover:bg-panel-2/60')}>
+          <GitPullRequest size={14} className="text-accent" /> Review cockpit
+        </button>
         <SectionLabel>Workspaces</SectionLabel>
         {active.length === 0 && <div className="px-2 py-3 text-[12px] text-muted">No workspaces yet.</div>}
         {active.map((w) => (
-          <WorkspaceRow key={w.id} ws={w} selected={w.id === selectedId} busy={Boolean(chats[w.id]?.busy)} onClick={() => select(w.id)} />
+          <WorkspaceRow key={w.id} ws={w} selected={view === 'workspace' && w.id === selectedId} busy={Boolean(chats[w.id]?.busy)} onClick={() => select(w.id)} />
         ))}
         {archived.length > 0 && (
           <>
             <button className="mt-3 flex w-full items-center gap-1.5 px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted hover:text-text" onClick={() => setShowArchived(!showArchived)}>
               <Archive size={12} /> Archived ({archived.length}) {showArchived ? '▾' : '▸'}
             </button>
-            {showArchived && archived.map((w) => <WorkspaceRow key={w.id} ws={w} selected={w.id === selectedId} busy={false} onClick={() => select(w.id)} />)}
+            {showArchived && archived.map((w) => <WorkspaceRow key={w.id} ws={w} selected={view === 'workspace' && w.id === selectedId} busy={false} onClick={() => select(w.id)} />)}
           </>
         )}
       </div>
