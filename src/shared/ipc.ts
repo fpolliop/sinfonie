@@ -15,6 +15,8 @@ import type {
   CreateWorkspaceInput,
   PermissionRequest,
   PermissionResponse,
+  QuestionRequest,
+  QuestionResponse,
   Repo,
   RepoGitStatus,
   ScriptOutputEvent,
@@ -97,6 +99,7 @@ export interface OrchestraInvoke {
   'agent:send': (workspaceId: string, text: string) => void
   'agent:interrupt': (workspaceId: string) => void
   'agent:permission': (response: PermissionResponse) => void
+  'agent:answerQuestion': (response: QuestionResponse) => void
   'agent:reset': (workspaceId: string) => void
   'agent:setMode': (workspaceId: string, mode: PermissionMode) => Workspace
   'chat:load': (workspaceId: string) => { items: ChatItem[]; busy: boolean }
@@ -112,6 +115,7 @@ export interface OrchestraEvents {
   'store:changed': StoreData
   'agent:event': AgentEvent
   'agent:permission': PermissionRequest
+  'agent:question': QuestionRequest
   'script:output': ScriptOutputEvent
   'terminal:data': TerminalDataEvent
   'terminal:exit': { terminalId: string; exitCode: number }

@@ -1,6 +1,6 @@
 import { query, type Options, type Query, type SDKMessage, type SDKUserMessage, type PermissionResult } from '@anthropic-ai/claude-agent-sdk'
 import { nanoid } from 'nanoid'
-import type { AgentEvent, PermissionMode, PermissionRequest, PermissionResponse, Workspace } from '@shared/types'
+import type { AgentEvent, PermissionMode, PermissionRequest, PermissionResponse, Question, QuestionRequest, QuestionResponse, Workspace } from '@shared/types'
 import { app } from 'electron'
 import { appendFileSync, existsSync, mkdirSync } from 'fs'
 import { join } from 'path'
@@ -12,6 +12,15 @@ import type { McpServerSpec } from '@shared/types'
 
 type EmitEvent = (e: AgentEvent) => void
 type EmitPermission = (r: PermissionRequest) => void
+type EmitQuestion = (r: QuestionRequest) => void
+let emitQuestion: EmitQuestion = () => undefined
+export function setQuestionEmitter(fn: EmitQuestion): void {
+  emitQuestion = fn
+}
+const pendingQuestions = new Map<string, (r: QuestionResponse) => void>()
+export function answerQuestion(response: QuestionResponse): void {
+  pendingQuestions.get(response.requestId)?.(response)
+}
 
 interface Session {
   workspaceId: string
@@ -155,6 +164,28 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
 
   const canUseTool: NonNullable<Options['canUseTool']> = async (toolName, toolInput, opts) => {
     const requestId = nanoid(8)
+    if (toolName === 'AskUserQuestion') {
+      // Claude's clarifying questions: show the card, hand the chosen labels back as `answers`.
+      const questions = ((toolInput as { questions?: Question[] }).questions ?? []).map((q) => ({
+        question: q.question,
+        header: q.header,
+        multiSelect: Boolean(q.multiSelect),
+        options: (q.options ?? []).map((o) => ({ label: o.label, description: o.description, preview: o.preview }))
+      }))
+      const reply = await new Promise<QuestionResponse>((resolve) => {
+        pendingQuestions.set(requestId, resolve)
+        emitQuestion({ requestId, workspaceId, questions })
+        opts.signal.addEventListener('abort', () => {
+          pendingQuestions.delete(requestId)
+          resolve({ requestId, answers: {}, cancelled: true })
+        })
+      })
+      pendingQuestions.delete(requestId)
+      if (reply.cancelled) return { behavior: 'deny', message: 'The user dismissed the questions without answering. Continue with your best judgement or ask in plain text.' }
+      const updatedInput: Record<string, unknown> = { questions: (toolInput as { questions?: unknown }).questions, answers: reply.answers }
+      if (reply.response) updatedInput.response = reply.response
+      return { behavior: 'allow', updatedInput }
+    }
     const decision = await new Promise<PermissionResponse>((resolve) => {
       pendingPermissions.set(requestId, resolve)
       emitPermission({

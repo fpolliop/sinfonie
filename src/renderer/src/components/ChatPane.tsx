@@ -3,6 +3,7 @@ import clsx from 'clsx'
 import { ChevronRight, Square, RotateCcw, Send, ArrowDownToLine, ShieldCheck, XCircle, AlertTriangle, Info } from 'lucide-react'
 import { api } from '@/lib/api'
 import { PERMISSION_MODES, type PermissionMode } from '@shared/types'
+import { QuestionCard } from './QuestionCard'
 import { useChat } from '@/stores/chat'
 import { useApp } from '@/stores/app'
 import { Markdown } from '@/lib/markdown'
@@ -13,6 +14,7 @@ const AUTOSCROLL_KEY = 'orchestra.autoscroll'
 
 export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.Element {
   const chat = useChat((s) => s.chats[workspaceId])
+  const questions = useChat((s) => s.questions.filter((q) => q.workspaceId === workspaceId))
   const { send, interrupt, reset, setDraft, load } = useChat()
 
   useEffect(() => {
@@ -49,7 +51,7 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
   useEffect(() => {
     const el = scrollRef.current
     if (el && autoScroll) el.scrollTop = el.scrollHeight
-  }, [items, autoScroll])
+  }, [items, autoScroll, questions.length])
 
   const onSubmit = (): void => {
     if (busy || disabled) return
@@ -72,7 +74,10 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
           {items.map((it) => (
             <Message key={it.id} item={it} />
           ))}
-          {busy && items[items.length - 1]?.role === 'user' && (
+          {questions.map((q) => (
+            <QuestionCard key={q.requestId} req={q} />
+          ))}
+          {busy && questions.length === 0 && items[items.length - 1]?.role === 'user' && (
             <div className="flex items-center gap-2 text-muted">
               <Spinner /> Thinking…
             </div>

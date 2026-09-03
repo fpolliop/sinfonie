@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { AgentEvent, ChatTurnResult, PermissionRequest } from '@shared/types'
+import type { AgentEvent, ChatTurnResult, PermissionRequest, QuestionRequest, QuestionResponse } from '@shared/types'
 import type { ChatItem } from '@shared/types'
 import { applyEvent } from '@shared/transcript'
 import { api } from '@/lib/api'
@@ -18,6 +18,8 @@ interface WorkspaceChat {
 interface ChatState {
   chats: Record<string, WorkspaceChat>
   permissions: PermissionRequest[]
+  questions: QuestionRequest[]
+  answerQuestion: (response: QuestionResponse) => Promise<void>
   ensure: (workspaceId: string) => WorkspaceChat
   load: (workspaceId: string) => Promise<void>
   send: (workspaceId: string, text: string) => Promise<void>
@@ -41,6 +43,11 @@ function updateChat(state: ChatState, id: string, fn: (c: WorkspaceChat) => Work
 export const useChat = create<ChatState>((set, get) => ({
   chats: {},
   permissions: [],
+  questions: [],
+  answerQuestion: async (response) => {
+    set((s) => ({ questions: s.questions.filter((q) => q.requestId !== response.requestId) }))
+    await api.invoke('agent:answerQuestion', response)
+  },
   ensure: (id) => get().chats[id] ?? empty(),
 
   /** Pull the persisted transcript from main once per workspace; live events keep it current after that. */
@@ -106,5 +113,6 @@ export const useChat = create<ChatState>((set, get) => ({
     subscribed = true
     api.on('agent:event', (e) => get().handleEvent(e))
     api.on('agent:permission', (p) => set((s) => ({ permissions: [...s.permissions, p] })))
+    api.on('agent:question', (q) => set((s) => ({ questions: [...s.questions, q] })))
   }
 }))

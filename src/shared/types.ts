@@ -407,6 +407,32 @@ export interface PermissionRequest {
   canAlwaysAllow: boolean
 }
 
+/** Claude's AskUserQuestion, surfaced as a card in the chat. */
+export interface QuestionOption {
+  label: string
+  description: string
+  preview?: string
+}
+export interface Question {
+  question: string
+  header: string
+  multiSelect: boolean
+  options: QuestionOption[]
+}
+export interface QuestionRequest {
+  requestId: string
+  workspaceId: string
+  questions: Question[]
+}
+export interface QuestionResponse {
+  requestId: string
+  /** question text -> chosen label(s) joined with ", " or free text */
+  answers: Record<string, string>
+  /** A general reply instead of answering, when the user dismisses the card with text. */
+  response?: string
+  cancelled?: boolean
+}
+
 export interface PermissionResponse {
   requestId: string
   decision: 'allow' | 'always' | 'deny'

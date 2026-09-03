@@ -48,6 +48,7 @@ const emitAgent = (e: Parameters<typeof send<'agent:event'>>[1]): void => {
 const emitPermission = (e: Parameters<typeof send<'agent:permission'>>[1]): void => send('agent:permission', e)
 
 export function registerIpc(): void {
+  agent.setQuestionEmitter((q) => send('agent:question', q))
   getStore().subscribe(() => send('store:changed', getStore().public()))
 
   handle('store:get', () => getStore().public())
@@ -315,6 +316,7 @@ export function registerIpc(): void {
   handle('agent:send', (id, text) => agent.sendMessage(id, text, emitAgent, emitPermission))
   handle('agent:interrupt', (id) => agent.interrupt(id))
   handle('agent:permission', (r) => agent.answerPermission(r))
+  handle('agent:answerQuestion', (r) => agent.answerQuestion(r))
   handle('agent:reset', (id) => {
     agent.resetSession(id)
     clearTranscript(id)
