@@ -10,6 +10,11 @@ interface AppState {
   repos: Repo[]
   collapsedSpaces: Record<string, boolean>
   toggleSpace: (id: string) => void
+  /** The space the sidebar is showing; '' is the ungrouped bucket. */
+  activeSpaceId: string
+  setActiveSpace: (id: string) => void
+  /** Move to the previous/next space in the dot bar, wrapping around. */
+  stepSpace: (dir: 1 | -1) => void
   /** Space the New workspace dialog should default to: the selected workspace's, else the last used. */
   newWorkspaceSpaceId: string
   workspaces: Workspace[]
@@ -47,6 +52,19 @@ export const useApp = create<AppState>((set, get) => ({
       return { collapsedSpaces }
     }),
   newWorkspaceSpaceId: localStorage.getItem('orchestra.lastSpace') ?? '',
+  activeSpaceId: localStorage.getItem('orchestra.activeSpace') ?? '',
+  setActiveSpace: (id) => {
+    localStorage.setItem('orchestra.activeSpace', id)
+    localStorage.setItem('orchestra.lastSpace', id)
+    set({ activeSpaceId: id, newWorkspaceSpaceId: id })
+  },
+  stepSpace: (dir) => {
+    const { spaces, workspaces, activeSpaceId, setActiveSpace } = get()
+    const ids = spaceOrder(spaces.map((s) => s.id), workspaces.some((w) => w.status !== 'archived' && (!w.spaceId || !spaces.some((s) => s.id === w.spaceId))))
+    if (ids.length < 2) return
+    const i = Math.max(0, ids.indexOf(activeSpaceId))
+    setActiveSpace(ids[(i + dir + ids.length) % ids.length])
+  },
   workspaces: [],
   settings: { workspacesRoot: '', basePort: 55000, model: 'claude-opus-5', permissionMode: 'default', jira: { connected: false, siteUrl: '', email: '', hasToken: false, defaultJql: '' }, claudeAccounts: [{ id: 'default', name: 'Default', configDir: null }], defaultClaudeAccountId: 'default' },
   view: (localStorage.getItem('orchestra.view') as 'workspace' | 'reviews') ?? 'workspace',
@@ -74,8 +92,13 @@ export const useApp = create<AppState>((set, get) => ({
     else localStorage.removeItem('orchestra.selected')
     localStorage.setItem('orchestra.view', 'workspace')
     const ws = get().workspaces.find((w) => w.id === id)
-    if (ws) localStorage.setItem('orchestra.lastSpace', ws.spaceId ?? '')
-    set({ selectedId: id, tab: 'chat', view: 'workspace', ...(ws ? { newWorkspaceSpaceId: ws.spaceId ?? '' } : {}) })
+    if (ws) {
+      const sid = ws.spaceId && get().spaces.some((s) => s.id === ws.spaceId) ? ws.spaceId : ''
+      localStorage.setItem('orchestra.lastSpace', sid)
+      localStorage.setItem('orchestra.activeSpace', sid)
+      set({ newWorkspaceSpaceId: sid, activeSpaceId: sid })
+    }
+    set({ selectedId: id, tab: 'chat', view: 'workspace' })
   },
   setView: (view) => {
     localStorage.setItem('orchestra.view', view)
@@ -94,6 +117,11 @@ export const useApp = create<AppState>((set, get) => ({
   setError: (error) => set({ error }),
   setBranchPrompt: (branchPrompt) => set({ branchPrompt })
 }))
+
+/** Dot-bar order: every space, then the ungrouped bucket when it has something (or when there are no spaces at all). */
+export function spaceOrder(spaceIds: string[], hasUngrouped: boolean): string[] {
+  return spaceIds.length === 0 || hasUngrouped ? [...spaceIds, ''] : spaceIds
+}
 
 export function useSelectedWorkspace(): Workspace | undefined {
   return useApp((s) => s.workspaces.find((w) => w.id === s.selectedId))

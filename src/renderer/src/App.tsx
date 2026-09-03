@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react'
-import { useApp } from '@/stores/app'
+import { useApp, spaceOrder } from '@/stores/app'
 import { useChat } from '@/stores/chat'
 import { useScripts } from '@/stores/scripts'
 import { Sidebar } from './components/Sidebar'
@@ -12,7 +12,7 @@ import { ReviewCockpit } from './components/ReviewCockpit'
 import { Button } from './components/ui'
 
 export default function App(): React.JSX.Element {
-  const { loaded, load, selectedId, view, showNewWorkspace, showSettings, setShowNewWorkspace, setShowSettings, error, setError } = useApp()
+  const { loaded, load, selectedId, view, showNewWorkspace, showSettings, setShowNewWorkspace, setShowSettings, error, setError, stepSpace, setActiveSpace } = useApp()
   const subscribeChat = useChat((s) => s.subscribe)
   const subscribeScripts = useScripts((s) => s.subscribe)
 
@@ -32,10 +32,24 @@ export default function App(): React.JSX.Element {
         e.preventDefault()
         setShowSettings(true)
       }
+      // Space switching, Arc style: ⌘⌥← / ⌘⌥→ step, ⌃1…9 jump.
+      if (e.metaKey && e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+        e.preventDefault()
+        stepSpace(e.key === 'ArrowRight' ? 1 : -1)
+      }
+      if (e.ctrlKey && !e.metaKey && /^[1-9]$/.test(e.key)) {
+        const { spaces, workspaces } = useApp.getState()
+        const ids = spaceOrder(spaces.map((s) => s.id), workspaces.some((w) => w.status !== 'archived' && !w.spaceId))
+        const target = ids[Number(e.key) - 1]
+        if (target !== undefined) {
+          e.preventDefault()
+          setActiveSpace(target)
+        }
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [setShowNewWorkspace, setShowSettings])
+  }, [setShowNewWorkspace, setShowSettings, stepSpace, setActiveSpace])
 
   if (!loaded) return <div className="flex h-full items-center justify-center text-muted">Loading…</div>
 
