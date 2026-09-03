@@ -12,6 +12,27 @@ import { Markdown } from '@/lib/markdown'
 import { Button, Spinner } from './ui'
 import type { ChatBlock, ChatItem, ChatToolBlock } from '@shared/types'
 
+/** Which delegation the side panel is showing. Module-level store keeps it simple across components. */
+const useSubPanel = (() => {
+  let listeners: (() => void)[] = []
+  let current: string | null = null
+  const set = (id: string | null): void => {
+    current = id
+    listeners.forEach((l) => l())
+  }
+  return (): [string | null, (id: string | null) => void] => {
+    const [, force] = useState(0)
+    useEffect(() => {
+      const l = (): void => force((n) => n + 1)
+      listeners.push(l)
+      return () => {
+        listeners = listeners.filter((x) => x !== l)
+      }
+    }, [])
+    return [current, set]
+  }
+})()
+
 
 export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.Element {
   const chat = useChat((s) => s.chats[workspaceId])
@@ -83,7 +104,8 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full">
+    <div className="flex h-full min-w-0 flex-1 flex-col">
       {resumeDlg && <ResumeDialog workspaceId={workspaceId} onClose={() => setResumeDlg(false)} />}
       {forkDlg && ws && <ForkDialog wsId={ws.id} wsName={ws.name} branch={ws.repos[0]?.branch ?? ''} onClose={() => setForkDlg(false)} />}
       <div ref={scrollRef} onScroll={onScroll} className="relative flex-1 overflow-auto px-6 py-4">
@@ -193,6 +215,8 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
         </div>
       </div>
     </div>
+    <SubagentPanel items={items} />
+    </div>
   )
 }
 
@@ -250,29 +274,59 @@ function Block({ block }: { block: ChatBlock }): React.JSX.Element | null {
 }
 
 /** Who is doing what: the orchestrator, delegations in flight, and how many are done. */
+function agentTypeOf(d: ChatToolBlock): string {
+  const i = (d.input ?? {}) as Record<string, unknown>
+  return typeof i.subagent_type === 'string' ? i.subagent_type : typeof i.description === 'string' ? i.description.slice(0, 30) : 'agent'
+}
+
 function CrewBar({ items, busy, model, crewNames }: { items: ChatItem[]; busy: boolean; model: string; crewNames: string[] }): React.JSX.Element | null {
+  const [, openPanel] = useSubPanel()
+  const [showDone, setShowDone] = useState(false)
   const delegations = items.flatMap((it) => (it.role === 'assistant' ? it.blocks.filter((b): b is ChatToolBlock => b.type === 'tool' && (b.name === 'Agent' || b.name === 'Task')) : []))
   const running = delegations.filter((d) => !d.done)
-  const done = delegations.length - running.length
+  const finished = delegations.filter((d) => d.done)
+  const done = finished.length
   if (!busy && delegations.length === 0 && crewNames.length === 0) return null
-  const typeOf = (d: ChatToolBlock): string => {
-    const i = (d.input ?? {}) as Record<string, unknown>
-    return typeof i.subagent_type === 'string' ? i.subagent_type : typeof i.description === 'string' ? i.description.slice(0, 30) : 'agent'
-  }
+  const typeOf = agentTypeOf
   return (
-    <div className="flex flex-wrap items-center gap-1.5 px-1 pb-2 text-[11px]">
+    <div className="relative flex flex-wrap items-center gap-1.5 px-1 pb-2 text-[11px]">
       <span className={clsx('inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5', busy ? 'border-accent/50 text-accent' : 'border-border text-muted')} title="The model you are talking to. It plans, delegates and integrates.">
         {busy && running.length === 0 ? <Spinner /> : <Users size={11} />}
         orchestrator <span className="font-mono opacity-70">{shortModel(model)}</span>
       </span>
       {running.map((d) => (
-        <span key={d.toolUseId} className="inline-flex items-center gap-1.5 rounded-full border border-warn/50 bg-warn/10 px-2 py-0.5 text-warn" title={typeof (d.input as Record<string, unknown>)?.description === 'string' ? String((d.input as Record<string, unknown>).description) : ''}>
+        <button key={d.toolUseId} onClick={() => openPanel(d.toolUseId)} className="inline-flex items-center gap-1.5 rounded-full border border-warn/50 bg-warn/10 px-2 py-0.5 text-warn hover:bg-warn/20" title="Click to watch this subagent">
           <Spinner /> {typeOf(d)}
           {d.sub?.model && <span className="font-mono opacity-70">{shortModel(d.sub.model)}</span>}
           {d.sub && <span className="opacity-70">{d.sub.toolCalls} calls{d.sub.lastTool ? ` · ${d.sub.lastTool}` : ''}</span>}
-        </span>
+        </button>
       ))}
-      {done > 0 && <span className="text-muted">{done} delegation{done === 1 ? '' : 's'} done</span>}
+      {done > 0 && (
+        <span className="relative">
+          <button className="text-muted hover:text-text" onClick={() => setShowDone(!showDone)}>
+            {done} delegation{done === 1 ? '' : 's'} done ▾
+          </button>
+          {showDone && (
+            <div className="absolute bottom-6 left-0 z-20 w-72 rounded-lg border border-border bg-panel p-1 shadow-xl" onMouseLeave={() => setShowDone(false)}>
+              {finished.map((d) => (
+                <button
+                  key={d.toolUseId}
+                  className="flex w-full items-center gap-2 rounded px-2 py-1 text-left hover:bg-panel-2"
+                  onClick={() => {
+                    openPanel(d.toolUseId)
+                    setShowDone(false)
+                  }}
+                >
+                  <span className={clsx('h-1.5 w-1.5 rounded-full', d.isError ? 'bg-danger' : 'bg-ok')} />
+                  <span className="font-medium">{typeOf(d)}</span>
+                  {d.sub?.model && <span className="font-mono text-muted">{shortModel(d.sub.model)}</span>}
+                  <span className="ml-auto text-muted">{d.sub?.toolCalls ?? 0} calls</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </span>
+      )}
       {crewNames.length > 0 && running.length === 0 && (
         <span className="ml-auto text-muted" title="Crew available to the orchestrator this session">
           crew: {crewNames.join(', ')}
@@ -324,8 +378,80 @@ function shortModel(m: string): string {
   return m.replace(/^claude-/, '').replace(/\[.*\]$/, '')
 }
 
+function SubagentSteps({ block, compact }: { block: ChatToolBlock; compact?: boolean }): React.JSX.Element {
+  const steps = block.sub?.steps ?? []
+  const input = (block.input ?? {}) as Record<string, unknown>
+  const endRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!compact) endRef.current?.scrollIntoView({ block: 'end' })
+  }, [steps.length, compact])
+  return (
+    <div className="flex flex-col gap-2">
+      {typeof input.prompt === 'string' && (
+        <div>
+          <div className="mb-1 text-[11px] uppercase tracking-wide text-muted">Brief from the orchestrator</div>
+          <div className={clsx('whitespace-pre-wrap rounded-md border border-border bg-bg p-2 text-[12px]', compact && 'max-h-32 overflow-auto')}>{input.prompt}</div>
+        </div>
+      )}
+      <div>
+        <div className="mb-1 text-[11px] uppercase tracking-wide text-muted">
+          Activity · {steps.filter((s) => s.kind === 'tool').length} tool call{steps.filter((s) => s.kind === 'tool').length === 1 ? '' : 's'}
+          {!block.done && <span className="ml-2 inline-flex items-center gap-1 text-warn"><Spinner /> running</span>}
+        </div>
+        <div className={clsx('flex flex-col gap-0.5 rounded-md border border-border bg-bg p-2', compact && 'max-h-64 overflow-auto')}>
+          {steps.length === 0 && <div className="text-[12px] text-muted">Waiting for the first step…</div>}
+          {steps.map((s, i) =>
+            s.kind === 'tool' ? (
+              <div key={i} className="flex items-baseline gap-2 font-mono text-[11px]">
+                <span className="shrink-0 text-accent">{s.name}</span>
+                <span className="truncate text-muted" title={s.detail}>{s.detail}</span>
+              </div>
+            ) : (
+              <div key={i} className="whitespace-pre-wrap py-0.5 text-[12px]">{s.detail}</div>
+            )
+          )}
+          <div ref={endRef} />
+        </div>
+      </div>
+      {block.done && block.result !== undefined && (
+        <div>
+          <div className="mb-1 text-[11px] uppercase tracking-wide text-muted">Result returned to the orchestrator</div>
+          <div className={clsx('rounded-md border border-border bg-bg p-2', compact && 'max-h-48 overflow-auto')}>
+            <Markdown text={block.result.slice(0, 20_000)} />
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Right-hand panel following one delegation live. */
+function SubagentPanel({ items }: { items: ChatItem[] }): React.JSX.Element | null {
+  const [id, setId] = useSubPanel()
+  if (!id) return null
+  const block = items.flatMap((it) => (it.role === 'assistant' ? it.blocks : [])).find((b): b is ChatToolBlock => b.type === 'tool' && b.toolUseId === id)
+  if (!block) return null
+  return (
+    <aside className="flex w-[420px] shrink-0 flex-col border-l border-border bg-panel">
+      <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+        <Users size={14} className="text-accent" />
+        <span className="text-[13px] font-semibold">{agentTypeOf(block)}</span>
+        {block.sub?.model && <span className="rounded bg-panel-2 px-1 py-px font-mono text-[10px] text-muted">{shortModel(block.sub.model)}</span>}
+        <span className="ml-auto text-[11px]">{block.done ? (block.isError ? <span className="text-danger">error</span> : <span className="text-ok">done</span>) : <span className="inline-flex items-center gap-1 text-warn"><Spinner /> running</span>}</span>
+        <button className="ml-1 text-muted hover:text-text" onClick={() => setId(null)} aria-label="Close">
+          ✕
+        </button>
+      </div>
+      <div className="flex-1 overflow-auto p-3">
+        <SubagentSteps block={block} />
+      </div>
+    </aside>
+  )
+}
+
 function ToolCall({ block }: { block: ChatToolBlock }): React.JSX.Element {
   const [open, setOpen] = useState(false)
+  const [, openPanel] = useSubPanel()
   const input = (block.input ?? {}) as Record<string, unknown>
   const isAgent = block.name === 'Agent' || block.name === 'Task'
   const headline =
@@ -353,7 +479,15 @@ function ToolCall({ block }: { block: ChatToolBlock }): React.JSX.Element {
         )}
         <span className="ml-2 shrink-0">{block.done ? (block.isError ? <span className="text-danger">error</span> : <span className="text-ok">done</span>) : <Spinner />}</span>
       </button>
-      {open && (
+      {open && isAgent && (
+        <div className="border-t border-border px-2.5 py-2 text-[12px]">
+          <button className="mb-2 text-accent hover:underline" onClick={() => openPanel(block.toolUseId)}>
+            Open activity panel →
+          </button>
+          <SubagentSteps block={block} compact />
+        </div>
+      )}
+      {open && !isAgent && (
         <div className="border-t border-border bg-bg px-2.5 py-2 font-mono text-[11px]">
           <div className="mb-1 text-muted">input</div>
           <pre className="mb-2 max-h-60 overflow-auto whitespace-pre-wrap">{JSON.stringify(block.input, null, 2)}</pre>

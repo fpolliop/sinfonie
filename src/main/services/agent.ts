@@ -1,6 +1,6 @@
 import { query, type Options, type Query, type SDKMessage, type SDKUserMessage, type PermissionResult } from '@anthropic-ai/claude-agent-sdk'
 import { nanoid } from 'nanoid'
-import type { AgentEvent, PermissionMode, PermissionRequest, PermissionResponse, Question, QuestionRequest, QuestionResponse, Workspace } from '@shared/types'
+import type { AgentEvent, PermissionMode, PermissionRequest, PermissionResponse, Question, QuestionRequest, QuestionResponse, SubagentStep, Workspace } from '@shared/types'
 import { app } from 'electron'
 import { appendFileSync, existsSync, mkdirSync } from 'fs'
 import { join } from 'path'
@@ -320,7 +320,17 @@ async function pump(session: Session, emit: EmitEvent): Promise<void> {
               .map((b) => (b as { text: string }).text)
               .join('')
               .slice(0, 400)
-            emit({ type: 'subagent', workspaceId, parentToolUseId: msg.parent_tool_use_id, model: msg.message.model, tools, ...(text ? { text } : {}) })
+            const steps: SubagentStep[] = []
+            for (const b of msg.message.content) {
+              if (b.type === 'tool_use') {
+                const i = (b.input ?? {}) as Record<string, unknown>
+                const detail = [i.command, i.file_path, i.pattern, i.description, i.query, i.url].find((v) => typeof v === 'string') as string | undefined
+                steps.push({ kind: 'tool', name: b.name, detail: (detail ?? JSON.stringify(i)).slice(0, 200) })
+              } else if (b.type === 'text' && b.text.trim()) {
+                steps.push({ kind: 'text', detail: b.text.slice(0, 600) })
+              }
+            }
+            emit({ type: 'subagent', workspaceId, parentToolUseId: msg.parent_tool_use_id, model: msg.message.model, tools, steps, ...(text ? { text } : {}) })
           }
           break
         case 'auth_status':

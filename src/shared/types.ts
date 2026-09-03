@@ -439,6 +439,13 @@ export interface ChatThinkingBlock {
   type: 'thinking'
   text: string
 }
+/** One thing a subagent did: a tool call with its headline, or a piece of text it wrote. */
+export interface SubagentStep {
+  kind: 'tool' | 'text'
+  name?: string
+  detail: string
+}
+
 export interface ChatToolBlock {
   type: 'tool'
   toolUseId: string
@@ -448,7 +455,7 @@ export interface ChatToolBlock {
   isError?: boolean
   done: boolean
   /** For Agent delegations: what the subagent has done so far. */
-  sub?: { model?: string; toolCalls: number; lastTool?: string; text?: string }
+  sub?: { model?: string; toolCalls: number; lastTool?: string; text?: string; steps?: SubagentStep[] }
 }
 export type ChatBlock = ChatTextBlock | ChatThinkingBlock | ChatToolBlock
 
@@ -478,7 +485,7 @@ export type AgentEvent =
   | { type: 'user_message'; workspaceId: string; itemId: string; text: string; createdAt: string }
   | { type: 'notice'; workspaceId: string; itemId: string; level: 'info' | 'warn' | 'error'; text: string; createdAt: string }
   | { type: 'queue'; workspaceId: string; items: { id: string; text: string }[] }
-  | { type: 'subagent'; workspaceId: string; parentToolUseId: string; model?: string; tools: string[]; text?: string }
+  | { type: 'subagent'; workspaceId: string; parentToolUseId: string; model?: string; tools: string[]; text?: string; steps: SubagentStep[] }
   | { type: 'assistant_start'; workspaceId: string; itemId: string }
   | { type: 'text_delta'; workspaceId: string; itemId: string; text: string }
   | { type: 'thinking_delta'; workspaceId: string; itemId: string; text: string }
