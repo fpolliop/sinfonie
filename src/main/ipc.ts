@@ -11,6 +11,8 @@ import * as agent from './services/agent'
 import * as terminal from './services/terminal'
 import { clearTranscript, flushAllTranscripts, getTranscript, recordEvent } from './services/transcripts'
 import { runScript, stopScript, workspaceEnv } from './services/scripts'
+import { repoPrStatus } from './services/github'
+import * as jira from './services/jira'
 
 function send<C extends keyof OrchestraEvents>(channel: C, payload: OrchestraEvents[C]): void {
   for (const win of BrowserWindow.getAllWindows()) win.webContents.send(channel, payload)
@@ -31,9 +33,9 @@ const emitAgent = (e: Parameters<typeof send<'agent:event'>>[1]): void => {
 const emitPermission = (e: Parameters<typeof send<'agent:permission'>>[1]): void => send('agent:permission', e)
 
 export function registerIpc(): void {
-  getStore().subscribe((data) => send('store:changed', data))
+  getStore().subscribe(() => send('store:changed', getStore().public()))
 
-  handle('store:get', () => getStore().get())
+  handle('store:get', () => getStore().public())
   handle('settings:update', (patch) => getStore().update((d) => Object.assign(d.settings, patch)).settings)
 
   // ---- repos ----
@@ -85,7 +87,7 @@ export function registerIpc(): void {
     clearTranscript(id)
     workspaces.deleteWorkspaceRecord(id)
   })
-  handle('workspaces:rename', (id, name) => workspaces.renameWorkspace(id, name))
+  handle('workspaces:rename', (id, name, opts) => workspaces.renameWorkspace(id, name, opts))
   handle('workspaces:renameBranch', (id, branch) => workspaces.renameWorkspaceBranch(id, branch))
   handle('workspaces:openIn', (id, target) => {
     const ws = workspaces.getWorkspace(id)
@@ -133,7 +135,10 @@ export function registerIpc(): void {
     const wr = ws.repos.find((r) => r.repoId === repoId)
     if (!wr) throw new Error('Repo not in workspace')
     const siblings = ws.repos.filter((r) => r.repoId !== repoId).map((r) => `- ${r.repoName} on branch \`${r.branch}\``)
-    const fullBody = siblings.length ? `${body}\n\n---\nPart of workspace **${ws.name}**. Related branches:\n${siblings.join('\n')}` : body
+    const footer: string[] = []
+    if (ws.jira) footer.push(`Jira: [${ws.jira.key}](${ws.jira.url}) ${ws.jira.summary}`)
+    if (siblings.length) footer.push(`Part of workspace **${ws.name}**. Related branches:\n${siblings.join('\n')}`)
+    const fullBody = footer.length ? `${body}\n\n---\n${footer.join('\n\n')}` : body
     return new Promise<string>((resolve, reject) => {
       const child = spawn('gh', ['pr', 'create', '--title', title, '--body', fullBody, '--head', wr.branch], { cwd: wr.worktreePath, env: process.env })
       let out = ''
@@ -142,6 +147,18 @@ export function registerIpc(): void {
       child.on('close', (code) => (code === 0 ? resolve(out.trim()) : reject(new Error(out.trim() || `gh exited ${code}`))))
       child.on('error', reject)
     })
+  })
+
+  // ---- github / jira / shell ----
+  handle('github:status', async (id) => {
+    const ws = workspaces.getWorkspace(id)
+    return Promise.all(ws.repos.map((wr) => repoPrStatus(wr.repoId, wr.worktreePath, wr.branch)))
+  })
+  handle('jira:saveToken', (token) => jira.saveToken(token))
+  handle('jira:search', (q) => jira.search(q))
+  handle('jira:issue', (key) => jira.issue(key))
+  handle('shell:openExternal', (url) => {
+    if (/^https?:\/\//.test(url)) void shell.openExternal(url)
   })
 
   // ---- agent ----

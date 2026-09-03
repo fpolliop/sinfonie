@@ -1,18 +1,21 @@
 import React, { useState } from 'react'
 import clsx from 'clsx'
-import { Folder, Code2, TerminalSquare, Archive, Trash2, MoreHorizontal, Pencil, GitBranch } from 'lucide-react'
+import { Folder, Code2, TerminalSquare, Archive, Trash2, MoreHorizontal, Pencil, GitBranch, ExternalLink } from 'lucide-react'
+import { useGithub } from '@/stores/github'
 import { useApp, type Tab } from '@/stores/app'
 import { api } from '@/lib/api'
 import { ChatPane } from './ChatPane'
 import { ChangesPane } from './ChangesPane'
 import { TerminalPane } from './TerminalPane'
 import { RunPane } from './RunPane'
+import { PrsPane } from './PrsPane'
 import { Badge, Button, Dialog, Field, inputCls } from './ui'
 import { shortPath } from '@/lib/format'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'chat', label: 'Chat' },
   { id: 'changes', label: 'Changes' },
+  { id: 'prs', label: 'PRs' },
   { id: 'terminal', label: 'Terminal' },
   { id: 'run', label: 'Run' }
 ]
@@ -23,6 +26,7 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
   const [menu, setMenu] = useState(false)
   const [archiveDlg, setArchiveDlg] = useState(false)
   const [renameDlg, setRenameDlg] = useState<null | 'name' | 'branch'>(null)
+  const prs = useGithub((s) => s.byWorkspace[workspaceId]?.repos)
   if (!ws) return <div />
 
   const run = async (fn: () => Promise<unknown>): Promise<void> => {
@@ -45,14 +49,32 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
           </div>
           <div className="flex items-center gap-1 text-[11px] text-muted">
             <GitBranch size={11} /> <span className="truncate">{ws.repos[0]?.branch}</span> · port {ws.port}
+            {ws.jira && (
+              <button className="no-drag ml-1 inline-flex items-center gap-1 text-accent hover:underline" title={ws.jira.summary} onClick={() => void api.invoke('shell:openExternal', ws.jira!.url)}>
+                {ws.jira.key} <ExternalLink size={10} />
+              </button>
+            )}
           </div>
         </div>
         <div className="ml-2 flex min-w-0 items-center gap-1.5 overflow-hidden">
-          {ws.repos.map((r) => (
-            <span key={r.repoId} title={shortPath(r.worktreePath)} className={clsx('no-drag truncate rounded-full border border-border px-2 py-0.5 text-[11px]', r.repoId === ws.primaryRepoId ? 'text-accent border-accent/40' : 'text-muted')}>
-              {r.repoName}
-            </span>
-          ))}
+          {ws.repos.map((r) => {
+            const pr = prs?.find((p) => p.repoId === r.repoId)?.pr
+            const open = prs?.find((p) => p.repoId === r.repoId)?.threads.filter((t) => !t.isResolved).length ?? 0
+            return (
+              <button
+                key={r.repoId}
+                title={pr ? `${pr.title} (#${pr.number})` : shortPath(r.worktreePath)}
+                onClick={() => setTab('prs')}
+                className={clsx('no-drag inline-flex items-center gap-1 truncate rounded-full border border-border px-2 py-0.5 text-[11px]', r.repoId === ws.primaryRepoId ? 'text-accent border-accent/40' : 'text-muted')}
+              >
+                {r.repoName}
+                {pr && (
+                  <span className={clsx('h-1.5 w-1.5 rounded-full', pr.state === 'MERGED' ? 'bg-accent' : pr.state === 'CLOSED' ? 'bg-danger' : pr.reviewDecision === 'CHANGES_REQUESTED' || open > 0 ? 'bg-warn' : 'bg-ok')} />
+                )}
+                {open > 0 && <span className="text-warn">{open}</span>}
+              </button>
+            )
+          })}
         </div>
         <nav className="no-drag ml-auto flex items-center gap-0.5 rounded-lg bg-panel p-0.5">
           {TABS.map((t) => (
@@ -92,6 +114,7 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
           <ChatPane workspaceId={ws.id} />
         </div>
         <div className={clsx('h-full', tab !== 'changes' && 'hidden')}>{tab === 'changes' && <ChangesPane workspaceId={ws.id} />}</div>
+        <div className={clsx('h-full', tab !== 'prs' && 'hidden')}>{tab === 'prs' && <PrsPane workspaceId={ws.id} />}</div>
         <div className={clsx('h-full', tab !== 'terminal' && 'hidden')}>
           <TerminalPane workspaceId={ws.id} visible={tab === 'terminal'} />
         </div>
@@ -105,8 +128,10 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
         <RenameDialog
           kind={renameDlg}
           initial={renameDlg === 'name' ? ws.name : ws.repos[0]?.branch ?? ''}
+          currentBranch={ws.repos[0]?.branch ?? ''}
+          canRenameBranches={ws.status === 'ready'}
           onClose={() => setRenameDlg(null)}
-          onSubmit={(v) => run(() => (renameDlg === 'name' ? api.invoke('workspaces:rename', ws.id, v) : api.invoke('workspaces:renameBranch', ws.id, v)))}
+          onSubmit={(v, renameBranches) => run(() => (renameDlg === 'name' ? api.invoke('workspaces:rename', ws.id, v, { renameBranches }) : api.invoke('workspaces:renameBranch', ws.id, v)))}
         />
       )}
     </div>
@@ -154,26 +179,48 @@ function ArchiveDialog({ workspaceId, name, repoCount, onClose }: { workspaceId:
   )
 }
 
-function RenameDialog({ kind, initial, onClose, onSubmit }: { kind: 'name' | 'branch'; initial: string; onClose: () => void; onSubmit: (v: string) => Promise<void> }): React.JSX.Element {
+function slugPreview(name: string): string {
+  return name.toLowerCase().trim().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'workspace'
+}
+
+function RenameDialog({ kind, initial, currentBranch, canRenameBranches, onClose, onSubmit }: { kind: 'name' | 'branch'; initial: string; currentBranch: string; canRenameBranches: boolean; onClose: () => void; onSubmit: (v: string, renameBranches: boolean) => Promise<void> }): React.JSX.Element {
   const [value, setValue] = useState(initial)
+  const [renameBranches, setRenameBranches] = useState(true)
+  const [busy, setBusy] = useState(false)
+  const newSlug = slugPreview(value)
+  const branchWouldChange = kind === 'name' && canRenameBranches && newSlug !== currentBranch
   return (
-    <Dialog title={kind === 'name' ? 'Rename workspace' : 'Rename branch in every repo'} onClose={onClose} width={420}>
+    <Dialog title={kind === 'name' ? 'Rename workspace' : 'Rename branch in every repo'} onClose={onClose} width={460}>
       <form
         onSubmit={async (e) => {
           e.preventDefault()
-          await onSubmit(value)
-          onClose()
+          setBusy(true)
+          try {
+            await onSubmit(value, branchWouldChange && renameBranches)
+            onClose()
+          } finally {
+            setBusy(false)
+          }
         }}
       >
         <Field label={kind === 'name' ? 'Workspace name' : 'Branch name'}>
           <input autoFocus className={inputCls} value={value} onChange={(e) => setValue(e.target.value)} />
         </Field>
+        {branchWouldChange && (
+          <label className="mb-4 flex items-start gap-2 rounded-md border border-border bg-bg p-3 text-[12px]">
+            <input type="checkbox" className="mt-0.5" checked={renameBranches} onChange={(e) => setRenameBranches(e.target.checked)} />
+            <span>
+              Also rename the branch in every repo from <code className="rounded bg-panel-2 px-1">{currentBranch}</code> to <code className="rounded bg-panel-2 px-1">{newSlug}</code>.
+              <span className="block text-muted">Branches already on GitHub are renamed there too, so open pull requests follow along. The folder on disk keeps its name.</span>
+            </span>
+          </label>
+        )}
         <div className="flex justify-end gap-2">
           <Button type="button" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" variant="primary">
-            Save
+          <Button type="submit" variant="primary" disabled={busy || !value.trim()}>
+            {busy ? 'Renaming…' : 'Save'}
           </Button>
         </div>
       </form>

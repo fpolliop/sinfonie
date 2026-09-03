@@ -10,7 +10,8 @@ const DEFAULT_SETTINGS: Settings = {
   workspacesRoot: join(homedir(), 'orchestra', 'workspaces'),
   basePort: 55000,
   model: 'claude-opus-5',
-  permissionMode: 'default'
+  permissionMode: 'default',
+  jira: { siteUrl: '', email: '', hasToken: false, defaultJql: 'assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC' }
 }
 
 /**
@@ -38,7 +39,8 @@ class Store {
       return {
         repos: raw.repos ?? [],
         workspaces: raw.workspaces ?? [],
-        settings: { ...DEFAULT_SETTINGS, ...(raw.settings ?? {}) }
+        settings: { ...DEFAULT_SETTINGS, ...(raw.settings ?? {}), jira: { ...DEFAULT_SETTINGS.jira, ...(raw.settings?.jira ?? {}) } },
+        secrets: raw.secrets ?? {}
       }
     } catch (err) {
       console.error('Failed to read store, starting fresh', err)
@@ -48,6 +50,12 @@ class Store {
 
   get(): StoreData {
     return this.data
+  }
+
+  /** What the renderer is allowed to see: everything except secrets. */
+  public(): StoreData {
+    const { secrets: _secrets, ...rest } = this.data
+    return rest
   }
 
   update(mutator: (draft: StoreData) => void): StoreData {

@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import type { Repo, Settings, StoreData, Workspace } from '@shared/types'
 import { api } from '@/lib/api'
 
-export type Tab = 'chat' | 'changes' | 'terminal' | 'run'
+export type Tab = 'chat' | 'changes' | 'prs' | 'terminal' | 'run'
 
 interface AppState {
   loaded: boolean
@@ -30,7 +30,7 @@ export const useApp = create<AppState>((set, get) => ({
   loaded: false,
   repos: [],
   workspaces: [],
-  settings: { workspacesRoot: '', basePort: 55000, model: 'claude-opus-5', permissionMode: 'default' },
+  settings: { workspacesRoot: '', basePort: 55000, model: 'claude-opus-5', permissionMode: 'default', jira: { siteUrl: '', email: '', hasToken: false, defaultJql: '' } },
   selectedId: localStorage.getItem('orchestra.selected'),
   tab: 'chat',
   showNewWorkspace: false,

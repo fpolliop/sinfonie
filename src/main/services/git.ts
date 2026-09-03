@@ -113,6 +113,27 @@ export async function renameBranch(worktreePath: string, newBranch: string): Pro
   await git(worktreePath).raw(['branch', '-m', newBranch])
 }
 
+export async function hasUpstream(worktreePath: string): Promise<boolean> {
+  try {
+    await git(worktreePath).raw(['rev-parse', '--abbrev-ref', '@{upstream}'])
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** After GitHub renamed origin/<old> to origin/<new>, refresh refs and track the new one. */
+export async function retrackAfterRemoteRename(worktreePath: string, oldBranch: string, newBranch: string): Promise<void> {
+  const g = git(worktreePath)
+  await g.fetch(['origin', '--prune'])
+  try {
+    await g.raw(['branch', `--set-upstream-to=origin/${newBranch}`, newBranch])
+  } catch {
+    /* remote ref not visible yet; next push -u fixes it */
+  }
+  void oldBranch
+}
+
 export async function status(worktreePath: string): Promise<{
   branch: string
   ahead: number

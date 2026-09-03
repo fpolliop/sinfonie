@@ -5,6 +5,7 @@ import type { CreateWorkspaceInput, Repo, ScriptOutputEvent, Workspace, Workspac
 import { getStore } from '../store'
 import * as git from './git'
 import { runScript, stopAllScripts } from './scripts'
+import { renameRemoteBranch } from './github'
 
 type Emit = (event: ScriptOutputEvent) => void
 
@@ -89,7 +90,8 @@ export async function createWorkspace(input: CreateWorkspaceInput, emit: Emit): 
     primaryRepoId,
     port: allocatePort(),
     status: 'creating',
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
+    ...(input.jira ? { jira: input.jira } : {})
   }
   getStore().update((d) => d.workspaces.push(ws))
 
@@ -151,19 +153,53 @@ export function deleteWorkspaceRecord(workspaceId: string): void {
   })
 }
 
-export function renameWorkspace(workspaceId: string, name: string): Workspace {
-  return patchWorkspace(workspaceId, { name: name.trim() || getWorkspace(workspaceId).name })
+/**
+ * Rename the workspace and, when asked, the branch in every repo. The folder on
+ * disk keeps its original name: moving worktrees would break running shells
+ * and scripts, and the branch is what shows up on GitHub anyway.
+ */
+export async function renameWorkspace(workspaceId: string, name: string, opts: { renameBranches: boolean }): Promise<Workspace> {
+  const ws = getWorkspace(workspaceId)
+  const clean = name.trim()
+  if (!clean) throw new Error('Name is empty')
+  let out = patchWorkspace(workspaceId, { name: clean })
+  if (opts.renameBranches && ws.status === 'ready') {
+    const newSlug = uniqueSlug(slugify(clean))
+    const currentBranch = ws.repos[0]?.branch
+    if (newSlug !== currentBranch) {
+      out = await renameWorkspaceBranch(workspaceId, newSlug)
+      out = patchWorkspace(workspaceId, { slug: newSlug })
+    }
+  }
+  return out
 }
 
-/** Rename the branch in every worktree of the workspace at once. */
+/**
+ * Rename the branch in every worktree of the workspace at once. Branches that
+ * were pushed are renamed on GitHub first (so open PRs follow), then locally,
+ * then re-pointed at the new upstream.
+ */
 export async function renameWorkspaceBranch(workspaceId: string, branch: string): Promise<Workspace> {
   const ws = getWorkspace(workspaceId)
   const clean = branch.trim()
   if (!clean) throw new Error('Branch name is empty')
-  for (const wr of ws.repos) {
-    await git.renameBranch(wr.worktreePath, clean)
+  const failures: string[] = []
+  const repos = [...ws.repos]
+  for (const wr of repos) {
+    try {
+      const pushed = await git.hasUpstream(wr.worktreePath)
+      let renamedRemote = false
+      if (pushed) renamedRemote = await renameRemoteBranch(wr.worktreePath, wr.branch, clean)
+      await git.renameBranch(wr.worktreePath, clean)
+      if (renamedRemote) await git.retrackAfterRemoteRename(wr.worktreePath, wr.branch, clean)
+      wr.branch = clean
+    } catch (err) {
+      failures.push(`${wr.repoName}: ${err instanceof Error ? err.message : String(err)}`)
+    }
   }
-  return patchWorkspace(ws.id, { repos: ws.repos.map((r) => ({ ...r, branch: clean })) })
+  const out = patchWorkspace(ws.id, { repos })
+  if (failures.length) throw new Error(`Branch renamed where possible. Failed in ${failures.join('; ')}`)
+  return out
 }
 
 export async function runWorkspaceScript(workspaceId: string, kind: 'setup' | 'run', emit: Emit): Promise<void> {

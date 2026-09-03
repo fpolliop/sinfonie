@@ -48,6 +48,7 @@ export interface Workspace {
   lastMessageAt?: string
   /** Per-workspace override of the settings default; changed live from the chat. */
   permissionMode?: PermissionMode
+  jira?: WorkspaceJira
 }
 
 /** Same modes as the Claude Code CLI (Shift+Tab cycles them there and here). */
@@ -61,23 +62,106 @@ export const PERMISSION_MODES: { id: PermissionMode; label: string; hint: string
   { id: 'bypassPermissions', label: 'Bypass', hint: 'Never asks. Use with care' }
 ]
 
+export interface JiraSettings {
+  siteUrl: string
+  email: string
+  /** Set when an API token is stored (encrypted) in the store. */
+  hasToken: boolean
+  /** JQL used for the default list in the New workspace dialog. */
+  defaultJql: string
+}
+
 export interface Settings {
   workspacesRoot: string
   basePort: number
   model: string
   permissionMode: PermissionMode
+  jira: JiraSettings
 }
 
 export interface StoreData {
   repos: Repo[]
   workspaces: Workspace[]
   settings: Settings
+  /** Encrypted with Electron safeStorage, base64. Never sent to the renderer. */
+  secrets?: { jiraToken?: string }
+}
+
+export interface JiraIssue {
+  key: string
+  summary: string
+  status: string
+  type: string
+  priority?: string
+  assignee?: string
+  updated?: string
+  url: string
+  /** Plain-text rendering of the description; only present on jira:issue. */
+  description?: string
+}
+
+export interface WorkspaceJira {
+  key: string
+  summary: string
+  url: string
 }
 
 export interface CreateWorkspaceInput {
   name: string
   repos: { repoId: string; baseBranch: string }[]
   primaryRepoId?: string
+  jira?: WorkspaceJira
+}
+
+// ---- GitHub ----
+
+export interface PrCheck {
+  name: string
+  status: 'success' | 'failure' | 'pending' | 'skipped' | 'neutral'
+  url?: string
+}
+
+export interface PrInfo {
+  number: number
+  title: string
+  url: string
+  state: 'OPEN' | 'MERGED' | 'CLOSED'
+  isDraft: boolean
+  author: string
+  reviewDecision: 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED' | ''
+  mergeable: string
+  baseRefName: string
+  headRefName: string
+  additions: number
+  deletions: number
+  checks: PrCheck[]
+}
+
+export interface ReviewComment {
+  id: string
+  author: string
+  body: string
+  url: string
+  createdAt: string
+}
+
+export interface ReviewThread {
+  id: string
+  path: string
+  line: number | null
+  isResolved: boolean
+  isOutdated: boolean
+  comments: ReviewComment[]
+}
+
+export interface RepoPr {
+  repoId: string
+  branch: string
+  nameWithOwner?: string
+  pr: PrInfo | null
+  threads: ReviewThread[]
+  error?: string
+  fetchedAt: string
 }
 
 export interface GitFileStatus {

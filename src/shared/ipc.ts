@@ -1,6 +1,8 @@
 import type {
   AgentEvent,
   ChatItem,
+  JiraIssue,
+  RepoPr,
   PermissionMode,
   CreateWorkspaceInput,
   PermissionRequest,
@@ -27,7 +29,7 @@ export interface OrchestraInvoke {
   'workspaces:create': (input: CreateWorkspaceInput) => Workspace
   'workspaces:archive': (workspaceId: string, opts: { deleteBranches: boolean }) => Workspace
   'workspaces:delete': (workspaceId: string) => void
-  'workspaces:rename': (workspaceId: string, name: string) => Workspace
+  'workspaces:rename': (workspaceId: string, name: string, opts: { renameBranches: boolean }) => Workspace
   'workspaces:openIn': (workspaceId: string, app: 'finder' | 'vscode' | 'cursor' | 'terminal') => void
   'workspaces:runScript': (workspaceId: string, kind: 'setup' | 'run') => void
   'workspaces:stopScript': (workspaceId: string, kind: 'setup' | 'run') => void
@@ -38,6 +40,14 @@ export interface OrchestraInvoke {
   'git:commit': (workspaceId: string, repoId: string, message: string) => string
   'git:push': (workspaceId: string, repoId: string) => string
   'git:createPr': (workspaceId: string, repoId: string, title: string, body: string) => string
+
+  'github:status': (workspaceId: string) => RepoPr[]
+
+  'jira:saveToken': (token: string) => Settings
+  'jira:search': (query: string) => JiraIssue[]
+  'jira:issue': (key: string) => JiraIssue
+
+  'shell:openExternal': (url: string) => void
 
   'agent:send': (workspaceId: string, text: string) => void
   'agent:interrupt': (workspaceId: string) => void
