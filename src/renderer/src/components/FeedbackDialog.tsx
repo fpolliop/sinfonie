@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import clsx from 'clsx'
-import { MessageSquarePlus, Bug, ChevronRight, Trash2, FolderOpen, Copy, Send } from 'lucide-react'
+import { MessageSquarePlus, Bug, ChevronRight, Trash2, FolderOpen, Copy, Send, CheckCircle2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { Badge, Button, Dialog, inputCls } from './ui'
@@ -21,25 +21,61 @@ export function FeedbackDialog({ tab: initial, onClose }: { tab: 'feedback' | 'e
           <Bug size={13} /> Errors
         </button>
       </div>
-      {tab === 'feedback' ? <FeedbackForm /> : <ErrorsView onReport={() => setTab('feedback')} />}
+      {tab === 'feedback' ? <FeedbackForm onClose={onClose} /> : <ErrorsView onReport={() => setTab('feedback')} />}
     </Dialog>
   )
 }
 
-function FeedbackForm({ prefill }: { prefill?: string }): React.JSX.Element {
+function FeedbackForm({ prefill, onClose }: { prefill?: string; onClose?: () => void }): React.JSX.Element {
   const { settings, setError } = useApp()
   const [kind, setKind] = useState<'feature' | 'bug' | 'feedback'>(prefill ? 'bug' : 'feature')
   const [message, setMessage] = useState(prefill ?? '')
   const [email, setEmail] = useState(() => localStorage.getItem('orchestra.feedbackEmail') ?? '')
   const [includeLogs, setIncludeLogs] = useState(Boolean(prefill))
-  const [status, setStatus] = useState<string | null>(null)
+  const [sending, setSending] = useState(false)
+  const [failure, setFailure] = useState<string | null>(null)
+  const [sent, setSent] = useState<{ kind: typeof kind; withEmail: boolean } | null>(null)
   const send = async (): Promise<void> => {
-    if (!message.trim()) return
-    setStatus('Sending…')
+    if (!message.trim() || sending) return
+    setSending(true)
+    setFailure(null)
     localStorage.setItem('orchestra.feedbackEmail', email)
-    const r = await api.invoke('feedback:send', { kind, message, email: email || undefined, includeLogs })
-    setStatus(r.ok ? 'Sent. Thank you, it is in the queue.' : `Could not send: ${r.error}`)
-    if (r.ok) setMessage('')
+    try {
+      const r = await api.invoke('feedback:send', { kind, message, email: email || undefined, includeLogs })
+      if (r.ok) {
+        setSent({ kind, withEmail: Boolean(email.trim()) })
+        setMessage('')
+        setIncludeLogs(false)
+      } else setFailure(r.error ?? 'Unknown error')
+    } catch (err) {
+      setFailure(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSending(false)
+    }
+  }
+  if (sent) {
+    const what = sent.kind === 'bug' ? 'bug report' : sent.kind === 'feature' ? 'feature request' : 'feedback'
+    return (
+      <div className="flex flex-col items-center px-6 py-10 text-center">
+        <span className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-ok/15 text-ok">
+          <CheckCircle2 size={26} />
+        </span>
+        <div className="text-[16px] font-semibold">Thanks for the {what}</div>
+        <p className="mt-1 max-w-sm text-[13px] text-muted">
+          It's in the queue and will be read. {sent.withEmail ? 'If there is anything to say back, it goes to the email you left.' : 'Add an email next time if you want a reply.'}
+        </p>
+        <div className="mt-5 flex gap-2">
+          <Button onClick={() => setSent(null)}>
+            <MessageSquarePlus size={13} /> Send more feedback
+          </Button>
+          {onClose && (
+            <Button variant="primary" onClick={onClose}>
+              Close
+            </Button>
+          )}
+        </div>
+      </div>
+    )
   }
   return (
     <div>
@@ -63,9 +99,9 @@ function FeedbackForm({ prefill }: { prefill?: string }): React.JSX.Element {
           <input type="checkbox" checked={includeLogs} onChange={(e) => setIncludeLogs(e.target.checked)} /> attach error log
         </label>
         <span className="ml-auto flex items-center gap-2">
-          {status && <span className="text-[12px] text-muted">{status}</span>}
-          <Button variant="primary" disabled={!message.trim()} onClick={send}>
-            <Send size={13} /> Send
+          {failure && <span className="text-[12px] text-danger">Could not send: {failure}</span>}
+          <Button variant="primary" disabled={!message.trim() || sending} onClick={send}>
+            <Send size={13} /> {sending ? 'Sending…' : 'Send'}
           </Button>
         </span>
       </div>
