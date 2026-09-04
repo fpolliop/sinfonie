@@ -207,7 +207,7 @@
     <img src="/assets/logo.svg" width="72" height="72" alt="Sinfonie" style="display:block;margin-bottom:22px;border-radius:18px;box-shadow:0 20px 60px rgba(91,124,255,.25)">
     <span class="eyebrow"><i class="dot"></i> macOS · Apple Silicon · <span id="hv">v0.1.0</span></span>
     <h1>One workspace across <span class="grad">all your repositories.</span></h1>
-    <p class="lead">Full-stack features live in two repos. Sinfonie runs Claude Code in isolated workspaces like Conductor does, with the difference that matters: <b>a workspace is a worktree on the same branch in every repo you pick</b>, and a crew of models works across them.</p>
+    <p class="lead">Full-stack features live in more than one repo. Sinfonie gives every feature its own isolated workspace: <b>a worktree on the same branch in every repository you pick</b>, side by side, with a crew of models working across them.</p>
     <div class="cta">
       <a class="btn primary dl" href="https://github.com/fpolliop/sinfonie-releases/releases/latest">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
@@ -254,8 +254,8 @@
   <div class="wrap">
     <div class="sec-head reveal">
       <span class="eyebrow">Built for the way you actually work</span>
-      <h2>Everything Conductor does. Then the part it doesn't.</h2>
-      <p>Isolated worktrees, chat, diffs, terminals and run scripts, all per workspace. Plus the multi-repo model, spaces, a crew of models and a review cockpit.</p>
+      <h2>Isolated workspaces, every repo a feature touches.</h2>
+      <p>Worktrees, chat, diffs, terminals and run scripts, all per workspace. Spaces to keep clients apart, a crew of models to keep costs down, and a review cockpit for the pull requests waiting on you.</p>
     </div>
     <div class="grid">
       <div class="card reveal"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg></div><h3>Multi-repo workspaces</h3><p>One name, one branch, a worktree in each repo, side by side in one folder. Created, run and archived together, with a warning if anything is uncommitted or unpushed.</p></div>
@@ -263,7 +263,7 @@
       <div class="card reveal"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><path d="M6 9v12"/></svg></div><h3>Review cockpit</h3><p>Every PR waiting on you, per space. Run an AI review, approve findings one by one or all at once, post a single GitHub review with inline comments and a verdict.</p></div>
       <div class="card reveal"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></div><h3>Spaces</h3><p>Personal, Lumepic, Howdy: each space owns its repos, Jira, GitHub orgs, MCP servers, Claude account and model defaults. Switch with a swipe, like Arc.</p></div>
       <div class="card reveal"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg></div><h3>Jira, GitHub, MCP</h3><p>Start a workspace from a ticket and get a branch name for free. PR status and review threads per repo. Log in to Jira once and Claude gets the Atlassian tools.</p></div>
-      <div class="card reveal"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m8 6-6 6 6 6"/><path d="m16 6 6 6-6 6"/></svg></div><h3><code>conductor.json</code> compatible</h3><p>Your setup, run and archive scripts work unchanged, ports included. Fork, resume and queue messages like the CLI. Errors show in the chat, never silently.</p></div>
+      <div class="card reveal"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m8 6-6 6 6 6"/><path d="m16 6 6 6-6 6"/></svg></div><h3>Scriptable workspaces</h3><p>A <code>sinfonie.json</code> per repo runs your setup, dev server and cleanup with a dedicated port block per workspace. Fork, resume and queue messages like the CLI. Errors show in the chat, never silently.</p></div>
     </div>
   </div>
 </section>
@@ -314,12 +314,12 @@ Jira SD-3825 → <b>In review</b></div></div>
         </table>
       </div>
       <div class="reveal">
-        <div class="codehead"><i></i> conductor.json · works as-is</div>
+        <div class="codehead"><i></i> sinfonie.json · one per repository</div>
 <pre><span class="c">// per repository, picked up automatically</span>
 {
   <span class="k">"scripts"</span>: {
     <span class="k">"setup"</span>:   <span class="s">"pnpm install"</span>,
-    <span class="k">"run"</span>:     <span class="s">"pnpm dev --port $CONDUCTOR_PORT"</span>,
+    <span class="k">"run"</span>:     <span class="s">"pnpm dev --port $SINFONIE_PORT"</span>,
     <span class="k">"archive"</span>: <span class="s">"./scripts/cleanup.sh"</span>
   },
   <span class="k">"runScriptMode"</span>: <span class="s">"concurrent"</span>
@@ -344,7 +344,7 @@ Never let two agents edit the same repo at once.</span></pre>
     <div style="max-width:760px">
       <details class="reveal"><summary>Do I need an API key?</summary><p>No. Sinfonie runs Claude Code through the official Agent SDK with your existing Claude login. If you use Claude Code today, you're set. You can add more accounts and pick one per space.</p></details>
       <details class="reveal"><summary>Why is the download unsigned?</summary><p>Sinfonie is in beta and not yet notarized with Apple. On first launch, right-click the app and choose Open, or allow it under System Settings → Privacy &amp; Security. The app checks for new versions itself and shows a download banner.</p></details>
-      <details class="reveal"><summary>Does it replace Conductor?</summary><p>For single-repo work they're equivalent: worktrees, chat, diffs, terminals, <code>conductor.json</code>. Sinfonie is for the moment a feature needs a worktree in more than one repository, and for running a crew of models rather than one.</p></details>
+      <details class="reveal"><summary>Does it work with a single repository?</summary><p>Yes. A workspace can hold one repo or five. The multi-repo model only matters when a feature spans several; everything else, worktrees, chat, diffs, terminals, review, is the same either way.</p></details>
       <details class="reveal"><summary>Where does my data live?</summary><p>On your Mac. Workspaces are plain git worktrees in a folder you choose. Chats, settings and tokens stay in your user library; Jira tokens are encrypted with the system keychain. Nothing is sent anywhere except to the services you connect.</p></details>
       <details class="reveal"><summary>Can I use models from other providers?</summary><p>Today the crew is Claude models at different tiers. External workers such as Codex or Gemini CLI as crew members are next on the roadmap, exposed as tools the orchestrator can call inside a worktree.</p></details>
     </div>
@@ -380,7 +380,7 @@ Never let two agents edit the same repo at once.</span></pre>
 <section>
   <div class="wrap">
     <div class="band reveal">
-      <h2>Stop juggling two Conductor windows.</h2>
+      <h2>One workspace per feature. Every repo it touches.</h2>
       <p style="color:var(--muted);max-width:520px;margin:0 auto 24px">One workspace per feature, every repo it touches, a crew that knows the difference between exploring and deciding.</p>
       <a class="btn primary dl" href="https://github.com/fpolliop/sinfonie-releases/releases/latest"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg> Download Sinfonie <span id="bv"></span></a>
       <div class="sys">macOS 13+ · Apple Silicon · needs git and a Claude Code login</div>
@@ -489,7 +489,7 @@ Never let two agents edit the same repo at once.</span></pre>
   var mat = new THREE.PointsMaterial({ size: 0.055, vertexColors: true, transparent: true, opacity: .75, sizeAttenuation: true, depthWrite: false, blending: THREE.AdditiveBlending })
   var points = new THREE.Points(geo, mat); scene.add(points)
 
-  // a few "batons": faint lines sweeping through, like a conductor's gesture
+  // a few faint lines sweeping through, like a baton's gesture
   var batonGeo = new THREE.BufferGeometry(), bp = new Float32Array(2*3*3)
   batonGeo.setAttribute('position', new THREE.BufferAttribute(bp, 3))
   var baton = new THREE.LineSegments(batonGeo, new THREE.LineBasicMaterial({ color: 0x7c9cff, transparent: true, opacity: .18 })); scene.add(baton)
