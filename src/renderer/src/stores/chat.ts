@@ -3,6 +3,7 @@ import type { AgentEvent, ChatTurnResult, PermissionRequest, QuestionRequest, Qu
 import type { ChatItem } from '@shared/types'
 import { applyEvent } from '@shared/transcript'
 import { api } from '@/lib/api'
+import { prepareImage, type PendingImage } from '@/lib/images'
 
 interface WorkspaceChat {
   items: ChatItem[]
@@ -13,6 +14,8 @@ interface WorkspaceChat {
   lastResult?: ChatTurnResult
   error?: string
   draft: string
+  /** Images attached to the draft, not sent yet. */
+  images: PendingImage[]
   queue: { id: string; text: string }[]
 }
 
@@ -26,6 +29,8 @@ interface ChatState {
   /** Re-read the transcript from main (after a resume replaced it). */
   reload: (workspaceId: string) => Promise<void>
   send: (workspaceId: string, text: string) => Promise<void>
+  addImages: (workspaceId: string, files: (File | Blob)[]) => Promise<void>
+  removeImage: (workspaceId: string, imageId: string) => void
   interrupt: (workspaceId: string) => Promise<void>
   unqueue: (workspaceId: string, id: string) => Promise<void>
   reset: (workspaceId: string) => Promise<void>
@@ -36,7 +41,7 @@ interface ChatState {
 }
 
 let subscribed = false
-const empty = (): WorkspaceChat => ({ items: [], loaded: false, busy: false, draft: '', queue: [] })
+const empty = (): WorkspaceChat => ({ items: [], loaded: false, busy: false, draft: '', images: [], queue: [] })
 
 function updateChat(state: ChatState, id: string, fn: (c: WorkspaceChat) => WorkspaceChat): Partial<ChatState> {
   const c = state.chats[id] ?? empty()
@@ -66,14 +71,32 @@ export const useChat = create<ChatState>((set, get) => ({
   },
   send: async (id, text) => {
     const trimmed = text.trim()
-    if (!trimmed) return
+    const images = get().chats[id]?.images ?? []
+    if (!trimmed && images.length === 0) return
     // The user item itself arrives back as a user_message event (or a queue event while a turn runs).
-    set((s) => updateChat(s, id, (c) => ({ ...c, busy: c.busy || true, error: undefined, draft: '' })))
+    set((s) => updateChat(s, id, (c) => ({ ...c, busy: c.busy || true, error: undefined, draft: '', images: [] })))
     try {
-      await api.invoke('agent:send', id, trimmed)
+      await api.invoke('agent:send', id, trimmed, images.length ? images.map(({ name, mimeType, data }) => ({ name, mimeType, data })) : undefined)
+      for (const img of images) URL.revokeObjectURL(img.preview)
     } catch (err) {
-      set((s) => updateChat(s, id, (c) => ({ ...c, busy: false, error: String(err) })))
+      set((s) => updateChat(s, id, (c) => ({ ...c, busy: false, error: String(err), images })))
     }
+  },
+  addImages: async (id, files) => {
+    const prepared: PendingImage[] = []
+    for (const f of files.slice(0, 10)) {
+      try {
+        prepared.push(await prepareImage(f, 'name' in f ? (f as File).name : 'pasted image'))
+      } catch (err) {
+        set((s) => updateChat(s, id, (c) => ({ ...c, error: err instanceof Error ? err.message : String(err) })))
+      }
+    }
+    if (prepared.length) set((s) => updateChat(s, id, (c) => ({ ...c, images: [...c.images, ...prepared].slice(0, 10) })))
+  },
+  removeImage: (id, imageId) => {
+    const img = get().chats[id]?.images.find((i) => i.id === imageId)
+    if (img) URL.revokeObjectURL(img.preview)
+    set((s) => updateChat(s, id, (c) => ({ ...c, images: c.images.filter((i) => i.id !== imageId) })))
   },
   interrupt: async (id) => api.invoke('agent:interrupt', id),
   unqueue: async (id, mid) => api.invoke('agent:unqueue', id, mid),

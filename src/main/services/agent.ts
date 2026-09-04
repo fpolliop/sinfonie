@@ -3,6 +3,8 @@ import { spawn } from 'child_process'
 import * as resources from './resources'
 import * as browserTools from './browser/tools'
 import * as workspaceTools from './workspace-tools'
+import { toBase64 } from './images'
+import type { ChatImageRef } from '@shared/types'
 import { z } from 'zod'
 import { classifyModel } from '@shared/types'
 import { runWorker } from './crew/workers'
@@ -36,7 +38,7 @@ interface Session {
   /** Last lines the CLI wrote to stderr, shown when a turn fails without a better explanation. */
   stderr: string[]
   /** Messages typed while a turn was running; delivered one per turn, in order. */
-  queue: { id: string; text: string }[]
+  queue: { id: string; text: string; images?: ChatImageRef[] }[]
   /** Set by Stop so the resulting error result is reported as a stop, not a failure. */
   interrupted: boolean
   /** Names of the MCP servers Sinfonie passed to this session. */
@@ -549,11 +551,11 @@ async function pump(session: Session, emit: EmitEvent): Promise<void> {
             notice('info', 'Reloading the session so the new repository is a working directory.')
             setTimeout(() => {
               closeSession(workspaceId)
-              for (const m of pending) void sendMessage(workspaceId, m.text, emit, session.emitPermission)
+              for (const m of pending) void sendMessage(workspaceId, m.text, emit, session.emitPermission, m.images)
             }, 0)
           } else if (next) {
             emit({ type: 'queue', workspaceId, items: [...session.queue] })
-            deliver(session, next.text, emit)
+            deliver(session, next.text, emit, true, next.images)
           }
           emit({
             type: 'result',
@@ -594,14 +596,20 @@ async function pump(session: Session, emit: EmitEvent): Promise<void> {
   }
 }
 
-function deliver(session: Session, text: string, emit: EmitEvent, announce = true): void {
+function deliver(session: Session, text: string, emit: EmitEvent, announce = true, images?: ChatImageRef[]): void {
   const { workspaceId } = session
   session.busy = true
-  if (announce) emit({ type: 'user_message', workspaceId, itemId: nanoid(8), text, createdAt: new Date().toISOString() })
+  if (announce) emit({ type: 'user_message', workspaceId, itemId: nanoid(8), text, createdAt: new Date().toISOString(), ...(images?.length ? { images } : {}) })
   emit({ type: 'status', workspaceId, busy: true })
   session.push({
     type: 'user',
-    message: { role: 'user', content: [{ type: 'text', text }] },
+    message: {
+      role: 'user',
+      content: [
+        ...(images ?? []).map((img) => ({ type: 'image' as const, source: { type: 'base64' as const, media_type: img.mimeType as 'image/png', data: toBase64(img) } })),
+        { type: 'text' as const, text: text || (images?.length ? 'See the attached image.' : '') }
+      ]
+    },
     parent_tool_use_id: null
   })
 }
@@ -615,19 +623,19 @@ export function engineFor(workspaceId: string): Engine {
   return spaces.find((s) => s.id === ws.spaceId)?.engine ?? settings.engine ?? 'claude-code'
 }
 
-export async function sendMessage(workspaceId: string, text: string, emit: EmitEvent, emitPermission: EmitPermission): Promise<void> {
+export async function sendMessage(workspaceId: string, text: string, emit: EmitEvent, emitPermission: EmitPermission, images?: ChatImageRef[]): Promise<void> {
   const engine = engineFor(workspaceId)
-  if (engine === 'native') return native.sendMessage(workspaceId, text, emit)
-  if (engine === 'codex' || engine === 'gemini' || engine === 'grok') return acp.sendMessage(workspaceId, engine, text, emit)
+  if (engine === 'native') return native.sendMessage(workspaceId, text, emit, images)
+  if (engine === 'codex' || engine === 'gemini' || engine === 'grok') return acp.sendMessage(workspaceId, engine, text, emit, images)
   const live = sessions.get(workspaceId)
   if (live) {
     if (live.busy) {
       // Like the CLI: typed mid-turn, delivered when the current turn ends.
-      live.queue.push({ id: nanoid(6), text })
+      live.queue.push({ id: nanoid(6), text, images })
       emit({ type: 'queue', workspaceId, items: [...live.queue] })
       return
     }
-    deliver(live, text, emit)
+    deliver(live, text, emit, true, images)
     return
   }
   if (starting.has(workspaceId)) {
@@ -636,7 +644,7 @@ export async function sendMessage(workspaceId: string, text: string, emit: EmitE
   }
   // Show the message and the busy state right away; MCP setup (which can wait on the network) happens after.
   starting.add(workspaceId)
-  emit({ type: 'user_message', workspaceId, itemId: nanoid(8), text, createdAt: new Date().toISOString() })
+  emit({ type: 'user_message', workspaceId, itemId: nanoid(8), text, createdAt: new Date().toISOString(), ...(images?.length ? { images } : {}) })
   emit({ type: 'status', workspaceId, busy: true })
   let mcp: Record<string, NonNullable<Options['mcpServers']>[string]> = {}
   try {
@@ -650,7 +658,7 @@ export async function sendMessage(workspaceId: string, text: string, emit: EmitE
     starting.delete(workspaceId)
   }
   const session = getOrCreateSession(workspaceId, emit, emitPermission, mcp)
-  deliver(session, text, emit, false)
+  deliver(session, text, emit, false, images)
 }
 
 export function unqueue(workspaceId: string, id: string, emit: EmitEvent): void {

@@ -40,6 +40,7 @@ import * as resources from './services/resources'
 import * as browser from './services/browser/service'
 import * as browserHttp from './services/browser/http'
 import * as workspaceTools from './services/workspace-tools'
+import { saveImages } from './services/images'
 
 function send<C extends keyof SinfonieEvents>(channel: C, payload: SinfonieEvents[C]): void {
   for (const win of BrowserWindow.getAllWindows()) win.webContents.send(channel, payload)
@@ -425,16 +426,16 @@ export function registerIpc(): void {
   handle('reviews:submit', (key) => reviews.submitReview(key, emitReview))
 
   // ---- agent ----
-  handle('agent:send', (id, text) => {
+  handle('agent:send', (id, text, images) => {
     noteMessage(agent.engineFor(id))
-    return resources.submit(id, text)
+    return resources.submit(id, text, images?.length ? saveImages(id, images) : undefined)
   })
   // ---- resources ----
   resources.start({
     emit: (s) => send('resources:snapshot', s),
     notice: (workspaceId, level, text) => emitAgent({ type: 'notice', workspaceId, itemId: nanoid(8), level, text, createdAt: new Date().toISOString() }),
     stopTask: (workspaceId, taskId) => agent.stopTask(workspaceId, taskId),
-    send: (workspaceId, text) => agent.sendMessage(workspaceId, text, emitAgent, emitPermission),
+    send: (workspaceId, text, images) => agent.sendMessage(workspaceId, text, emitAgent, emitPermission, images),
     busyCount: () => getStore().get().workspaces.filter((w) => agent.isBusy(w.id)).length,
     isBusy: (workspaceId) => agent.isBusy(workspaceId)
   })

@@ -15,6 +15,8 @@ import { runWorker } from '../crew/workers'
 import * as resources from '../resources'
 import * as browserTools from '../browser/tools'
 import * as workspaceTools from '../workspace-tools'
+import { toBase64 } from '../images'
+import type { ChatImageRef } from '@shared/types'
 import * as notes from '../notes'
 import { askPermission } from '../interaction'
 import { estimateCost, resolveModel } from '../providers'
@@ -29,7 +31,7 @@ interface NativeSession {
   messages: ModelMessage[]
   busy: boolean
   abort: AbortController | null
-  queue: { id: string; text: string }[]
+  queue: { id: string; text: string; images?: ChatImageRef[] }[]
   interrupted: boolean
   costByModel: Map<string, { costUsd: number; outputTokens: number }>
   mcpClients: MCPClient[]
@@ -338,31 +340,31 @@ async function runTurn(ws: Workspace, session: NativeSession, emit: Emit): Promi
     const next = session.queue.shift()
     if (next) {
       emit({ type: 'queue', workspaceId: ws.id, items: [...session.queue] })
-      deliver(ws.id, next.text, emit)
+      deliver(ws.id, next.text, emit, next.images)
     }
   }
 }
 
-function deliver(workspaceId: string, text: string, emit: Emit): void {
+function deliver(workspaceId: string, text: string, emit: Emit, images?: ChatImageRef[]): void {
   const session = getSession(workspaceId)
   const ws = getWorkspace(workspaceId)
   session.busy = true
-  session.messages.push({ role: 'user', content: text })
-  emit({ type: 'user_message', workspaceId, itemId: nanoid(8), text, createdAt: new Date().toISOString() })
+  session.messages.push(images?.length ? { role: 'user', content: [{ type: 'text', text: text || 'See the attached image.' }, ...images.map((img) => ({ type: 'image' as const, image: toBase64(img), mediaType: img.mimeType }))] } : { role: 'user', content: text })
+  emit({ type: 'user_message', workspaceId, itemId: nanoid(8), text, createdAt: new Date().toISOString(), ...(images?.length ? { images } : {}) })
   emit({ type: 'status', workspaceId, busy: true })
   void runTurn(ws, session, emit)
 }
 
 // ---------- public surface, mirrors the Claude Code engine ----------
 
-export function sendMessage(workspaceId: string, text: string, emit: Emit): void {
+export function sendMessage(workspaceId: string, text: string, emit: Emit, images?: ChatImageRef[]): void {
   const session = getSession(workspaceId)
   if (session.busy) {
-    session.queue.push({ id: nanoid(6), text })
+    session.queue.push({ id: nanoid(6), text, images })
     emit({ type: 'queue', workspaceId, items: [...session.queue] })
     return
   }
-  deliver(workspaceId, text, emit)
+  deliver(workspaceId, text, emit, images)
 }
 
 export function unqueue(workspaceId: string, id: string, emit: Emit): void {

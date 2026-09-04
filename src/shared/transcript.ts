@@ -8,7 +8,7 @@ import type { AgentEvent, ChatItem, ChatToolBlock } from './types'
 export function applyEvent(items: ChatItem[], e: AgentEvent): ChatItem[] {
   switch (e.type) {
     case 'user_message':
-      return [...items, { id: e.itemId, role: 'user', blocks: [{ type: 'text', text: e.text }], createdAt: e.createdAt }]
+      return [...items, { id: e.itemId, role: 'user', blocks: [...(e.images ?? []).map((image) => ({ type: 'image' as const, image })), { type: 'text' as const, text: e.text }], createdAt: e.createdAt }]
     case 'notice':
       return [...items, { id: e.itemId, role: 'system', level: e.level, blocks: [{ type: 'text', text: e.text }], createdAt: e.createdAt }]
     case 'assistant_start':

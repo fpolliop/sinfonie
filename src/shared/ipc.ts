@@ -1,4 +1,4 @@
-import type { BrowserState, ResourceSnapshot, LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion,
+import type { BrowserState, ChatImageInput, ResourceSnapshot, LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion,
   AgentEvent,
   ChatItem,
   JiraIssue,
@@ -121,7 +121,7 @@ export interface SinfonieInvoke {
   'reviews:setVerdict': (key: string, verdict: ReviewVerdict) => ReviewRun
   'reviews:submit': (key: string) => ReviewRun
 
-  'agent:send': (workspaceId: string, text: string) => void
+  'agent:send': (workspaceId: string, text: string, images?: ChatImageInput[]) => void
   'agent:interrupt': (workspaceId: string) => void
   'agent:permission': (response: PermissionResponse) => void
   'agent:answerQuestion': (response: QuestionResponse) => void

@@ -4,6 +4,7 @@ import { dirname, join } from 'path'
 import { registerIpc } from './ipc'
 import { startUpdateChecks } from './services/updates'
 import * as browser from './services/browser/service'
+import * as images from './services/images'
 import { installCrashHandlers, rendererConsoleError, logError, startUsagePings } from './services/telemetry'
 import { Menu, nativeImage } from 'electron'
 import { checkForUpdate } from './services/updates'
@@ -96,8 +97,10 @@ installCrashHandlers()
 
 // A separate data folder, e.g. to try the app as a new user: SINFONIE_USER_DATA=/tmp/sinfonie-fresh pnpm dev
 if (process.env.SINFONIE_USER_DATA) app.setPath('userData', process.env.SINFONIE_USER_DATA)
+images.registerScheme()
 
 app.whenReady().then(() => {
+  images.registerProtocol()
   if (!process.env.SINFONIE_USER_DATA) migrateLegacyUserData()
   buildMenu()
   if (!app.isPackaged && process.platform === 'darwin') {

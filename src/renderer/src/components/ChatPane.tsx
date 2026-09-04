@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { ChevronRight, Square, RotateCcw, Send, ShieldCheck, XCircle, AlertTriangle, Info, History, Users, GitFork, ListTree, ArrowLeft, StickyNote } from 'lucide-react'
+import { ChevronRight, Square, RotateCcw, Send, ShieldCheck, XCircle, AlertTriangle, Info, History, Users, GitFork, ListTree, ArrowLeft, StickyNote, Paperclip, X } from 'lucide-react'
+import { imageFiles } from '@/lib/images'
+import type { ChatImageRef } from '@shared/types'
 import { NotesPanel } from './NotesPanel'
 import { useNotes } from '@/stores/notes'
 import { api } from '@/lib/api'
@@ -42,7 +44,7 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
   const allQuestions = useChat((s) => s.questions)
   // Filter outside the selector: a selector that returns a fresh array re-renders forever.
   const questions = useMemo(() => allQuestions.filter((q) => q.workspaceId === workspaceId), [allQuestions, workspaceId])
-  const { send, interrupt, reset, setDraft, load, unqueue } = useChat()
+  const { send, interrupt, reset, setDraft, load, unqueue, addImages, removeImage } = useChat()
 
   useEffect(() => {
     void load(workspaceId)
@@ -52,8 +54,11 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
   const items = chat?.items ?? []
   const busy = chat?.busy ?? false
   const draft = chat?.draft ?? ''
+  const pendingImages = chat?.images ?? NO_IMAGES
+  const fileInput = useRef<HTMLInputElement>(null)
   const queue = chat?.queue ?? []
   const disabled = ws?.status !== 'ready'
+  const canSend = !disabled && (Boolean(draft.trim()) || pendingImages.length > 0)
   const settingsModel = useApp((s) => s.settings.model)
   const settingsMode = useApp((s) => s.settings.permissionMode)
   const engineLabel = useApp((s) => {
@@ -107,7 +112,7 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
 
   // While a turn runs, Enter queues the message; main delivers it when the turn ends.
   const onSubmit = (): void => {
-    if (disabled || !draft.trim()) return
+    if (!canSend) return
     void send(workspaceId, draft)
   }
 
@@ -162,11 +167,43 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
             </div>
           )}
           <CrewBar items={items} busy={busy} model={chat?.model ?? settingsModel} crewNames={crewNames} />
-          <div className="rounded-xl border border-border bg-panel focus-within:border-accent">
+          <div
+            className="rounded-xl border border-border bg-panel focus-within:border-accent"
+            onDragOver={(e) => {
+              if (imageFiles(e.dataTransfer).length) e.preventDefault()
+            }}
+            onDrop={(e) => {
+              const files = imageFiles(e.dataTransfer)
+              if (files.length) {
+                e.preventDefault()
+                void addImages(workspaceId, files)
+              }
+            }}
+          >
+            {pendingImages.length > 0 && (
+              <div className="flex flex-wrap gap-2 px-3 pt-3">
+                {pendingImages.map((img) => (
+                  <div key={img.id} className="group relative">
+                    <img src={img.preview} alt={img.name} className="h-16 w-16 rounded-md border border-border object-cover" />
+                    <button className="absolute -right-1.5 -top-1.5 rounded-full border border-border bg-panel p-0.5 text-muted opacity-0 hover:text-danger group-hover:opacity-100" title="Remove" onClick={() => removeImage(workspaceId, img.id)}>
+                      <X size={10} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <input ref={fileInput} type="file" accept="image/*" multiple className="hidden" onChange={(e) => (e.target.files?.length && void addImages(workspaceId, Array.from(e.target.files)), (e.target.value = ''))} />
             <textarea
               value={draft}
               disabled={disabled}
               onChange={(e) => setDraft(workspaceId, e.target.value)}
+              onPaste={(e) => {
+                const files = imageFiles(e.clipboardData)
+                if (files.length) {
+                  e.preventDefault()
+                  void addImages(workspaceId, files)
+                }
+              }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault()
@@ -177,7 +214,7 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
                 }
               }}
               rows={3}
-              placeholder={disabled ? 'Workspace is not ready' : busy ? 'Type to queue a message for when this turn ends… (Enter to queue)' : 'Describe the change across your repos… (Enter to send, Shift+Enter for newline)'}
+              placeholder={disabled ? 'Workspace is not ready' : busy ? 'Type to queue a message for when this turn ends… (Enter to queue)' : 'Describe the change across your repos… (Enter to send, Shift+Enter for newline, paste or drop images)'}
               className="w-full resize-none bg-transparent px-3 pt-3 text-[13px] outline-none placeholder:text-muted"
             />
             <div className="flex items-center gap-2 px-2 pb-2">
@@ -196,6 +233,9 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
                 )}
               </span>
               <span className="ml-auto" />
+              <Button size="sm" variant="ghost" title="Attach images (or paste / drop them into the message)" onClick={() => fileInput.current?.click()} disabled={disabled}>
+                <Paperclip size={13} />
+              </Button>
               <NotesButton workspaceId={workspaceId} />
               <Button size="sm" variant="ghost" title="New workspace with a copy of this conversation (like /fork)" onClick={() => setForkDlg(true)} disabled={busy || disabled}>
                 <GitFork size={13} /> Fork
@@ -208,7 +248,7 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
               </Button>
               {busy ? (
                 <>
-                  <Button size="sm" onClick={onSubmit} disabled={disabled || !draft.trim()} title="Deliver when the current turn ends">
+                  <Button size="sm" onClick={onSubmit} disabled={!canSend} title="Deliver when the current turn ends">
                     <Send size={12} /> Queue
                   </Button>
                   <Button size="sm" variant="danger" onClick={() => void interrupt(workspaceId)}>
@@ -216,7 +256,7 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
                   </Button>
                 </>
               ) : (
-                <Button size="sm" variant="primary" onClick={onSubmit} disabled={disabled || !draft.trim()}>
+                <Button size="sm" variant="primary" onClick={onSubmit} disabled={!canSend}>
                   <Send size={12} /> Send
                 </Button>
               )}
@@ -262,9 +302,17 @@ function Message({ item }: { item: ChatItem }): React.JSX.Element {
   }
   if (item.role === 'user') {
     const text = item.blocks.map((b) => (b.type === 'text' ? b.text : '')).join('')
+    const images = item.blocks.filter((b): b is Extract<typeof b, { type: 'image' }> => b.type === 'image').map((b) => b.image)
     return (
-      <div className="flex justify-end">
-        <div className="max-w-[80%] whitespace-pre-wrap rounded-2xl rounded-br-sm bg-accent-2/25 px-3.5 py-2 text-[13px]">{text}</div>
+      <div className="flex flex-col items-end gap-1.5">
+        {images.length > 0 && (
+          <div className="flex max-w-[80%] flex-wrap justify-end gap-1.5">
+            {images.map((img) => (
+              <ChatImage key={img.id} image={img} />
+            ))}
+          </div>
+        )}
+        {text.trim() && <div className="max-w-[80%] whitespace-pre-wrap rounded-2xl rounded-br-sm bg-accent-2/25 px-3.5 py-2 text-[13px]">{text}</div>}
       </div>
     )
   }
@@ -280,7 +328,19 @@ function Message({ item }: { item: ChatItem }): React.JSX.Element {
 function Block({ block }: { block: ChatBlock }): React.JSX.Element | null {
   if (block.type === 'text') return block.text.trim() ? <Markdown text={block.text} /> : null
   if (block.type === 'thinking') return block.text.trim() ? <Collapsible label="Thinking" muted body={block.text} /> : null
+  if (block.type === 'image') return <ChatImage image={block.image} />
   return <ToolCall block={block} />
+}
+
+const NO_IMAGES: never[] = []
+
+/** A stored image in the transcript; click to open it full size in the default viewer. */
+function ChatImage({ image }: { image: ChatImageRef }): React.JSX.Element {
+  return (
+    <button className="overflow-hidden rounded-lg border border-border bg-bg" title={`${image.name} · click to open`} onClick={() => void api.invoke('shell:openExternal', `file://${image.path}`)}>
+      <img src={image.url} alt={image.name} className="max-h-[240px] max-w-[320px] object-contain" />
+    </button>
+  )
 }
 
 /** Who is doing what: the orchestrator, delegations in flight, and how many are done. */

@@ -660,6 +660,24 @@ export interface TerminalDataEvent {
 
 export type ChatRole = 'user' | 'assistant' | 'system'
 
+/** An image attached by the user, as sent from the renderer (base64). */
+export interface ChatImageInput {
+  name?: string
+  mimeType: string
+  data: string
+}
+/** A stored image: a file in the app data folder, shown through the sinfonie-image scheme. */
+export interface ChatImageRef {
+  id: string
+  name: string
+  mimeType: string
+  path: string
+  url: string
+}
+export interface ChatImageBlock {
+  type: 'image'
+  image: ChatImageRef
+}
 export interface ChatTextBlock {
   type: 'text'
   text: string
@@ -686,7 +704,7 @@ export interface ChatToolBlock {
   /** For Agent delegations: what the subagent has done so far. */
   sub?: { model?: string; toolCalls: number; lastTool?: string; text?: string; steps?: SubagentStep[] }
 }
-export type ChatBlock = ChatTextBlock | ChatThinkingBlock | ChatToolBlock
+export type ChatBlock = ChatTextBlock | ChatThinkingBlock | ChatToolBlock | ChatImageBlock
 
 export interface ChatItem {
   id: string
@@ -711,7 +729,7 @@ export interface ChatTurnResult {
 /** Events the agent service emits to the renderer. Kept deliberately small. */
 export type AgentEvent =
   | { type: 'init'; workspaceId: string; sessionId: string; model: string; cwd: string }
-  | { type: 'user_message'; workspaceId: string; itemId: string; text: string; createdAt: string }
+  | { type: 'user_message'; workspaceId: string; itemId: string; text: string; createdAt: string; images?: ChatImageRef[] }
   | { type: 'notice'; workspaceId: string; itemId: string; level: 'info' | 'warn' | 'error'; text: string; createdAt: string }
   | { type: 'queue'; workspaceId: string; items: { id: string; text: string }[] }
   | { type: 'subagent'; workspaceId: string; parentToolUseId: string; model?: string; tools: string[]; text?: string; steps: SubagentStep[] }

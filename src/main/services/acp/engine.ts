@@ -1,6 +1,8 @@
 import { spawn, type ChildProcess } from 'child_process'
 import * as resources from '../resources'
 import * as browserHttp from '../browser/http'
+import { toBase64 } from '../images'
+import type { ChatImageRef } from '@shared/types'
 import { Readable, Writable } from 'stream'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { dirname, isAbsolute, relative, resolve } from 'path'
@@ -81,7 +83,7 @@ interface Session {
   conn: ClientSideConnection
   sessionId: string
   busy: boolean
-  queue: { id: string; text: string }[]
+  queue: { id: string; text: string; images?: ChatImageRef[] }[]
   interrupted: boolean
   /** ACP tool-call id -> transcript item id, so results attach to the right block. */
   toolItems: Map<string, string>
@@ -463,14 +465,14 @@ function contentText(content: schema.ToolCallContent[] | null | undefined): stri
 
 // ---------- public surface ----------
 
-function deliver(session: Session, text: string): void {
+function deliver(session: Session, text: string, images?: ChatImageRef[]): void {
   const { workspaceId, emit } = session
   session.busy = true
   session.itemId = ''
-  emit({ type: 'user_message', workspaceId, itemId: nanoid(8), text, createdAt: new Date().toISOString() })
+  emit({ type: 'user_message', workspaceId, itemId: nanoid(8), text, createdAt: new Date().toISOString(), ...(images?.length ? { images } : {}) })
   emit({ type: 'status', workspaceId, busy: true })
   session.conn
-    .prompt({ sessionId: session.sessionId, prompt: [{ type: 'text', text: notes.prefixFor(workspaceId) + text }] })
+    .prompt({ sessionId: session.sessionId, prompt: [...(images ?? []).map((img) => ({ type: 'image' as const, data: toBase64(img), mimeType: img.mimeType })), { type: 'text', text: notes.prefixFor(workspaceId) + (text || (images?.length ? 'See the attached image.' : '')) }] })
     .then((r) => {
       if (session.itemId) emit({ type: 'assistant_end', workspaceId, itemId: session.itemId })
       if (session.interrupted || r.stopReason === 'cancelled') {
@@ -499,15 +501,15 @@ function deliver(session: Session, text: string): void {
       const next = session.queue.shift()
       if (next) {
         emit({ type: 'queue', workspaceId, items: [...session.queue] })
-        deliver(session, next.text)
+        deliver(session, next.text, next.images)
       }
     })
 }
 
-export async function sendMessage(workspaceId: string, engine: Engine, text: string, emit: Emit): Promise<void> {
+export async function sendMessage(workspaceId: string, engine: Engine, text: string, emit: Emit, images?: ChatImageRef[]): Promise<void> {
   let session = sessions.get(workspaceId)
   if (session && session.busy) {
-    session.queue.push({ id: nanoid(6), text })
+    session.queue.push({ id: nanoid(6), text, images })
     emit({ type: 'queue', workspaceId, items: [...session.queue] })
     return
   }
@@ -524,7 +526,7 @@ export async function sendMessage(workspaceId: string, engine: Engine, text: str
       return
     }
   }
-  deliver(session, text)
+  deliver(session, text, images)
 }
 
 export function unqueue(workspaceId: string, id: string, emit: Emit): void {

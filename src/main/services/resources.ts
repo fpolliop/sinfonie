@@ -9,7 +9,7 @@ import { app } from 'electron'
 import { appendFileSync, existsSync, mkdirSync } from 'fs'
 import { join } from 'path'
 import { getStore } from '../store'
-import type { PressureLevel, ResourceSettings, ResourceSnapshot, ResourceTask, ResourceSession } from '@shared/types'
+import type { ChatImageRef, PressureLevel, ResourceSettings, ResourceSnapshot, ResourceTask, ResourceSession } from '@shared/types'
 
 export const DEFAULT_RESOURCES: Required<ResourceSettings> = { governor: 'enforce', maxSubagentsPerSession: 4, maxActiveSessions: 6, memoryBudgetPct: 60, stopSubagentsOnCritical: true }
 
@@ -28,7 +28,7 @@ interface Proc {
 const procs = new Map<number, Proc>()
 const tasks = new Map<string, Map<string, ResourceTask>>()
 /** Messages waiting for a free session slot, in arrival order. */
-const parked: { workspaceId: string; text: string }[] = []
+const parked: { workspaceId: string; text: string; images?: ChatImageRef[] }[] = []
 
 function workspaceForCwd(cwd?: string): string | undefined {
   if (!cwd) return undefined
@@ -89,7 +89,7 @@ interface Hooks {
   emit: (s: ResourceSnapshot) => void
   notice: (workspaceId: string, level: 'info' | 'warn' | 'error', text: string) => void
   stopTask: (workspaceId: string, taskId: string) => Promise<void>
-  send: (workspaceId: string, text: string) => Promise<void>
+  send: (workspaceId: string, text: string, images?: ChatImageRef[]) => Promise<void>
   busyCount: () => number
   isBusy: (workspaceId: string) => boolean
 }
@@ -230,11 +230,11 @@ function log(): void {
 // ---------- admission control ----------
 
 /** Send now if a slot is free (or the session is already live), else wait for one. */
-export async function submit(workspaceId: string, text: string): Promise<void> {
+export async function submit(workspaceId: string, text: string, images?: ChatImageRef[]): Promise<void> {
   if (!hooks) throw new Error('resources not started')
   const s = resourceSettings()
-  if (s.governor === 'off' || hooks.isBusy(workspaceId) || hooks.busyCount() < s.maxActiveSessions) return hooks.send(workspaceId, text)
-  parked.push({ workspaceId, text })
+  if (s.governor === 'off' || hooks.isBusy(workspaceId) || hooks.busyCount() < s.maxActiveSessions) return hooks.send(workspaceId, text, images)
+  parked.push({ workspaceId, text, images })
   hooks.notice(workspaceId, 'info', `Waiting for a free slot: ${hooks.busyCount()} sessions are running (limit ${s.maxActiveSessions}). Your message starts as soon as one finishes; cancel it from the queue below.`)
 }
 /** Called whenever a session goes idle: start as many waiting messages as the limit allows. */
@@ -243,7 +243,7 @@ export async function release(): Promise<void> {
   const s = resourceSettings()
   while (parked.length && (s.governor === 'off' || hooks.busyCount() < s.maxActiveSessions)) {
     const next = parked.shift()!
-    await hooks.send(next.workspaceId, next.text).catch(() => undefined)
+    await hooks.send(next.workspaceId, next.text, next.images).catch(() => undefined)
   }
 }
 export function cancelWaiting(workspaceId: string): void {
