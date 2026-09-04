@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex">
+<title>Sinfonie admin · competitors</title>
+<link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
+<style>
+  :root{--bg:#0b0d11;--bg2:#0f1115;--panel:#141821;--panel2:#1b2030;--border:#232a38;--border2:#2d3546;--text:#e8eaf0;--muted:#8f97a8;--dim:#5f6779;--accent:#7c9cff;--ok:#4ade80;--warn:#fbbf24;--danger:#ff6b6b;--violet:#a78bfa;--mono:ui-monospace,"SF Mono",Menlo,monospace;--sans:-apple-system,BlinkMacSystemFont,"SF Pro Text",Inter,system-ui,sans-serif}
+  *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 var(--sans)}
+  header{display:flex;align-items:center;gap:12px;padding:12px 20px;border-bottom:1px solid var(--border);background:var(--bg2);position:sticky;top:0;z-index:5}
+  header img{width:24px;height:24px;border-radius:6px}header b{font-size:15px}header nav{display:flex;gap:14px;margin-left:16px;font-size:13px}header nav a{color:var(--muted);text-decoration:none}header nav a.on{color:var(--text)}
+  main{max-width:1280px;margin:0 auto;padding:20px}
+  h2{font-size:18px;margin:24px 0 8px;letter-spacing:-.01em}h2:first-child{margin-top:0}
+  p.lead{color:var(--muted);margin:0 0 14px}
+  .legend{display:flex;gap:14px;font-size:12px;color:var(--muted);margin-bottom:10px}
+  .wrap{overflow:auto;border:1px solid var(--border);border-radius:12px;background:var(--panel)}
+  table{border-collapse:collapse;min-width:1100px;width:100%}
+  th,td{padding:9px 10px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top;font-size:13px}
+  th{font:11px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--dim);position:sticky;top:0;background:var(--panel)}
+  th.us,td.us{background:rgba(124,156,255,.06)}
+  td.f{font-weight:600;white-space:nowrap}
+  .v{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+  .v i{width:9px;height:9px;border-radius:50%;flex:none}
+  .yes i{background:var(--ok)}.partial i{background:var(--warn)}.no i{background:#3a4150}.unk i{background:transparent;border:1px solid var(--dim)}
+  .yes{color:var(--text)}.partial{color:var(--warn)}.no{color:var(--dim)}.unk{color:var(--dim)}
+  small{display:block;color:var(--dim);font-size:11px;white-space:normal;max-width:220px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:14px 16px}
+  .card h3{margin:0 0 8px;font-size:14px}.card ul{margin:0;padding-left:18px;color:var(--muted)}.card li{margin:4px 0}
+  .card.win h3{color:var(--ok)}.card.lose h3{color:var(--warn)}.card.verify h3{color:var(--violet)}
+  .note{font:12px var(--mono);color:var(--dim);margin-top:14px}
+</style>
+</head>
+<body>
+<header><img src="/assets/logo.svg" alt=""><b>Sinfonie admin</b><nav><a href="/admin/">Queue</a><a class="on" href="/admin/compare">Competitors</a></nav></header>
+<main>
+  <h2>Feature matrix</h2>
+  <p class="lead">Private working notes. Cells marked with a hollow dot are unverified and worth checking before quoting anywhere. Last reviewed 2026-09-04.</p>
+  <div class="legend"><span class="v yes"><i></i> yes</span><span class="v partial"><i></i> partial</span><span class="v no"><i></i> no</span><span class="v unk"><i></i> unverified</span></div>
+  <div class="wrap"><table id="m"></table></div>
+
+  <h2>How we differentiate</h2>
+  <div class="grid">
+    <div class="card win"><h3>Where Sinfonie is ahead</h3><ul>
+      <li><b>One workspace = every repo a feature touches.</b> Worktree per repo on the same branch, created, run, reviewed and archived as a unit. Others isolate one repo per workspace and, at best, let you link two by hand.</li>
+      <li><b>A crew with a model per role.</b> Explorer on a cheap model, implementer mid-tier, reviewer frontier, all visible with cost per model. Others pick one model per session.</li>
+      <li><b>Provider-agnostic with a subscription path.</b> Claude login through Claude Code, or any API including local models through the native engine. Conductor does GPT/Grok/Claude; Cursor is multi-model in the editor; neither runs local models.</li>
+      <li><b>Spaces.</b> Repos, Jira, GitHub orgs, MCP servers, accounts and model defaults per client or job. Nobody else separates work contexts this way.</li>
+      <li><b>Review cockpit across the org.</b> PRs waiting on you from every repo, AI review, approve findings one by one, one GitHub review posted. Conductor reviews the workspace's own diff; Cursor's is in-editor.</li>
+      <li><b>Jira-first.</b> Start from a ticket, name and branch derived, status shown, Atlassian MCP with the same login. Conductor integrates Linear and GitHub issues.</li>
+    </ul></div>
+    <div class="card lose"><h3>Where they are ahead</h3><ul>
+      <li><b>Conductor</b>: Cloud computers (agents keep running off your Mac), multiplayer, Stacks for stacked PRs, workspace from issue, port forwarding, a year of polish and a team behind it. Signed, notarized builds.</li>
+      <li><b>Cursor</b>: it is the editor. Tab completion, inline edits, checkpoints, browser tool, cloud agents, huge user base. We are a companion, not a replacement.</li>
+      <li><b>Codex app</b>: cloud sandbox with parallel dispatch and PRs coming back; strong on "hand it off and forget".</li>
+      <li><b>Claude Code</b>: the harness itself: skills, hooks, memory, agent teams. We inherit these only on the Claude Code engine, not on native.</li>
+      <li><b>OpenCode</b>: open source, 75+ providers, terminal-native, community. Our native engine is younger and closed.</li>
+      <li><b>Everyone</b>: Windows and Linux. We are macOS Apple Silicon only, unsigned.</li>
+    </ul></div>
+    <div class="card verify"><h3>To verify before quoting</h3><ul>
+      <li>Conductor's current multi-repo behaviour after 0.25.6: still one worktree per workspace with <code>/add-dir</code> linking, or a true multi-repo workspace now? The changelog lists "Multi-repo support within single workspaces".</li>
+      <li>Conductor: Jira integration (Linear and GitHub issues are confirmed), local model support, pricing after the free period.</li>
+      <li>Cursor: subagent support and worktree-parallel agents in the current release; PR review product ("BugBot") scope and price.</li>
+      <li>Codex app: multi-repo, local models, MCP config.</li>
+      <li>Vibe Kanban / Crystal / Nimbalyst / Orca: which are alive, pricing, multi-repo.</li>
+    </ul></div>
+  </div>
+  <div class="note">Edit <code>site/admin/compare.html</code> in the repo to update; data lives in the DATA array at the bottom of the file.</div>
+</main>
+<script>
+var TOOLS = ['Sinfonie','Conductor','Cursor','Claude Code','Codex app','OpenCode','Vibe Kanban','Crystal']
+var Y='yes',P='partial',N='no',U='?'
+// [feature, ...one cell per tool]; a cell is a value or [value, note]
+var DATA = [
+  ['Isolated worktree per workspace', Y, Y, [P,'worktrees for parallel agents, editor-centric'], [P,'--worktree flag'], [P,'cloud sandbox per task'], [P,'sessions, worktree via config'], Y, Y],
+  ['Multi-repo workspace (one branch, N worktrees)', [Y,'core model'], [P,'link separate workspaces via /add-dir (0.25.6)'], N, [P,'--add-dir extra directories'], N, N, N, N],
+  ['Spaces / per-client contexts', [Y,'repos, Jira, orgs, MCP, accounts, defaults'], N, N, N, N, N, N, N],
+  ['Crew: subagents with different models per role', [Y,'per-member model, effort, tools; live activity'], [U,'single model per session'], [U,'subagents unverified'], [Y,'agents with model per definition'], N, [Y,'agents with own model'], N, N],
+  ['Model providers', [Y,'Claude login; Anthropic/OpenAI/Gemini/DeepSeek/any OpenAI-compatible'], [Y,'Claude, GPT-5.x, Grok; Bedrock/Vertex/custom'], [Y,'multi-model in editor'], [N,'Claude only'], [N,'OpenAI only'], [Y,'75+ providers'], [P,'Claude Code and Codex executors'], [N,'Claude Code']],
+  ['Local / open-weight models', [Y,'Ollama, LM Studio, any /v1'], [U], [N], N, N, Y, N, N],
+  ['Claude subscription login (no API key)', Y, Y, [N,'API billing via Cursor'], Y, N, [P,'own gateway; consumer sub blocked Jan 2026'], Y, Y],
+  ['Review cockpit: org-wide PR queue + AI review + post review', [Y], [P,'reviews the workspace diff with custom review models'], [P,'BugBot on PRs'], [P,'/review in CLI'], [P,'cloud review'], N, N, N],
+  ['GitHub: PR status, checks, review threads, address comments', Y, [Y,'PR create/edit/checkout, CI status, Stacks'], P, P, [Y,'PRs from cloud'], P, P, P],
+  ['Jira integration', [Y,'ticket → workspace, status, Atlassian MCP via OAuth'], [U,'Linear + GitHub issues confirmed'], N, [P,'via Atlassian MCP'], N, [P,'via MCP'], N, N],
+  ['MCP servers per context', [Y,'per space and app-wide, import from Claude Code'], Y, Y, Y, U, Y, U, U],
+  ['Per-repo scripts + port block per workspace', [Y,'sinfonie.json'], [Y,'conductor.json, port forwarding'], N, N, N, N, [P,'setup scripts'], [P,'run scripts']],
+  ['Fork / resume conversations', [Y,'workspace fork with session, resume any session'], [Y,'fork workspaces'], [P,'checkpoints'], Y, U, Y, N, N],
+  ['Cost visibility per model', Y, U, [P,'usage dashboard'], [P,'/cost'], N, Y, N, N],
+  ['Cloud / background execution', N, [Y,'Conductor Cloud, background tasks'], [Y,'cloud agents'], [P,'Claude Code on the web'], [Y,'core model'], N, N, N],
+  ['Multiplayer', N, [P,'early access'], N, N, N, N, N, N],
+  ['Platforms', [P,'macOS arm64, unsigned'], [P,'macOS'], Y, Y, [P,'macOS, Windows'], Y, Y, Y],
+  ['Open source', N, N, N, N, [P,'CLI is open'], Y, Y, Y],
+  ['Price', [P,'free beta, unsigned'], [U,'free tier; paid plans'], [Y,'$20+/mo'], [Y,'subscription'], [Y,'ChatGPT plans'], [Y,'free'], [Y,'free'], [Y,'free']],
+]
+var t = document.getElementById('m')
+t.innerHTML = '<thead><tr><th>Feature</th>' + TOOLS.map(function(n,i){ return '<th class="'+(i===0?'us':'')+'">'+n+'</th>' }).join('') + '</tr></thead><tbody>' +
+  DATA.map(function(row){
+    return '<tr><td class="f">'+row[0]+'</td>' + row.slice(1).map(function(c,i){
+      var v = Array.isArray(c)?c[0]:c, note = Array.isArray(c)?c[1]:''
+      var cls = v===Y?'yes':v===P?'partial':v===N?'no':'unk'
+      var label = v===Y?'yes':v===P?'partial':v===N?'no':'unverified'
+      return '<td class="'+(i===0?'us':'')+'"><span class="v '+cls+'"><i></i>'+label+'</span>'+(note?'<small>'+note+'</small>':'')+'</td>'
+    }).join('') + '</tr>'
+  }).join('') + '</tbody>'
+</script>
+</body>
+</html>
