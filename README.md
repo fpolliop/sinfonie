@@ -77,7 +77,15 @@ Bump `version` in `package.json`, commit, tag and push:
 git tag v0.2.0 && git push origin main --tags
 ```
 
-The Release workflow builds the app on macOS and publishes the DMG and zip to a GitHub Release in the public `fpolliop/sinfonie-releases` repo (this source repo is private). It needs a `RELEASES_TOKEN` secret: a fine-grained personal access token with Contents read/write on `sinfonie-releases`. Running copies of the app check that release feed on launch and show a download banner when a newer version exists. Builds are unsigned until Apple signing secrets are added to the workflow.
+The Release workflow builds the app on macOS and publishes the DMG and zip to a GitHub Release in the public `fpolliop/sinfonie-releases` repo (this source repo is private). It needs a `RELEASES_TOKEN` secret: a fine-grained personal access token with Contents read/write on `sinfonie-releases`. Running copies of the app check that release feed on launch and show a download banner when a newer version exists. Builds are unsigned until the signing secrets exist on the repo; then the same workflow signs with the Developer ID certificate and notarizes with Apple:
+
+```
+gh secret set MAC_CERT_P12 -R fpolliop/sinfonie < <(base64 -i DeveloperIDApplication.p12)
+gh secret set MAC_CERT_PASSWORD -R fpolliop/sinfonie
+gh secret set APPLE_ID -R fpolliop/sinfonie                    # your Apple ID email
+gh secret set APPLE_APP_SPECIFIC_PASSWORD -R fpolliop/sinfonie # from appleid.apple.com → App-Specific Passwords
+gh secret set APPLE_TEAM_ID -R fpolliop/sinfonie               # 10 characters, from developer.apple.com → Membership
+```
 
 ## Website
 

@@ -51,7 +51,8 @@
 
   /* hero */
   header.hero{position:relative;padding:96px 0 40px;overflow:hidden}
-  #stage{position:absolute;inset:0;width:100%;height:100%;z-index:0;opacity:.9;pointer-events:none}
+  #stage{position:absolute;left:0;top:0;width:100%;height:min(100%,760px);z-index:0;opacity:.7;pointer-events:none;mask-image:linear-gradient(to bottom,#000 0%,#000 45%,transparent 100%);-webkit-mask-image:linear-gradient(to bottom,#000 0%,#000 45%,transparent 100%)}
+  @media (max-width:640px){#stage{height:min(100%,520px);opacity:.55}}
   header .wrap{position:relative;z-index:1}
   .eyebrow{display:inline-flex;align-items:center;gap:8px;font:12px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--accent);border:1px solid rgba(124,156,255,.3);background:rgba(124,156,255,.08);padding:5px 10px;border-radius:999px}
   .eyebrow .dot{width:6px;height:6px;border-radius:50%;background:var(--ok);box-shadow:0 0 12px var(--ok)}
@@ -236,7 +237,7 @@
         Download for Mac
       </a>
       <a class="btn ghost" href="#how">See how it works</a>
-      <span class="meta"><span id="hsize"></span> Free while in beta · unsigned build, right-click → Open</span>
+      <span class="meta"><span id="hsize"></span> Free while in beta · <a href="#install" style="color:var(--muted)">first-launch steps</a></span>
     </div>
 
     <div class="mock" id="mock" aria-label="Sinfonie app preview">
@@ -365,7 +366,7 @@ Never let two agents edit the same repo at once.</span></pre>
     <div class="sec-head reveal"><span class="eyebrow">Questions</span><h2>Straight answers.</h2></div>
     <div style="max-width:760px">
       <details class="reveal"><summary>Do I need an API key?</summary><p>No. Sinfonie runs Claude Code through the official Agent SDK with your existing Claude login. If you use Claude Code today, you're set. You can add more accounts and pick one per space.</p></details>
-      <details class="reveal"><summary>Why is the download unsigned?</summary><p>Sinfonie is in beta and not yet notarized with Apple. On first launch, right-click the app and choose Open, or allow it under System Settings → Privacy &amp; Security. The app checks for new versions itself and shows a download banner.</p></details>
+      <details class="reveal" id="install" open><summary>macOS says it "could not verify Sinfonie is free of malware". What now?</summary><p>The beta is not yet notarized with Apple, so macOS blocks the first launch. Click <b>Done</b> (not Move to Trash), then open <b>System Settings → Privacy &amp; Security</b>, scroll to the Security section, and click <b>Open Anyway</b> next to Sinfonie. Confirm once with your password and it opens normally from then on. Terminal alternative:</p><pre>xattr -dr com.apple.quarantine /Applications/Sinfonie.app</pre><p>Every update goes through the same one-time step until the app is signed.</p></details>
       <details class="reveal"><summary>Does it work with a single repository?</summary><p>Yes. A workspace can hold one repo or five. The multi-repo model only matters when a feature spans several; everything else, worktrees, chat, diffs, terminals, review, is the same either way.</p></details>
       <details class="reveal"><summary>Where does my data live?</summary><p>On your Mac. Workspaces are plain git worktrees in a folder you choose. Chats, settings and tokens stay in your user library; Jira tokens are encrypted with the system keychain. Nothing is sent anywhere except to the services you connect.</p></details>
       <details class="reveal"><summary>Can I use models from other providers?</summary><p>Today the crew is Claude models at different tiers. External workers such as Codex or Gemini CLI as crew members are next on the roadmap, exposed as tools the orchestrator can call inside a worktree.</p></details>
@@ -493,7 +494,7 @@ Never let two agents edit the same repo at once.</span></pre>
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
   var scene = new THREE.Scene()
   var camera = new THREE.PerspectiveCamera(55, 1, .1, 100)
-  camera.position.set(0, 0.6, 9)
+  camera.position.set(0, 0.4, 11)
 
   // 7 staff lines × N points, each line a different voice
   var LINES = 7, N = window.innerWidth < 640 ? 110 : 220, W = 26
@@ -508,7 +509,12 @@ Never let two agents edit the same repo at once.</span></pre>
   var geo = new THREE.BufferGeometry()
   geo.setAttribute('position', new THREE.BufferAttribute(positions, 3))
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3))
-  var mat = new THREE.PointsMaterial({ size: 0.055, vertexColors: true, transparent: true, opacity: .75, sizeAttenuation: true, depthWrite: false, blending: THREE.AdditiveBlending })
+  var spriteCanvas = document.createElement('canvas'); spriteCanvas.width = spriteCanvas.height = 64
+  var sctx = spriteCanvas.getContext('2d'), grd = sctx.createRadialGradient(32, 32, 0, 32, 32, 32)
+  grd.addColorStop(0, 'rgba(255,255,255,1)'); grd.addColorStop(.35, 'rgba(255,255,255,.8)'); grd.addColorStop(1, 'rgba(255,255,255,0)')
+  sctx.fillStyle = grd; sctx.fillRect(0, 0, 64, 64)
+  var sprite = new THREE.CanvasTexture(spriteCanvas)
+  var mat = new THREE.PointsMaterial({ size: window.innerWidth < 640 ? 0.05 : 0.06, map: sprite, vertexColors: true, transparent: true, opacity: .7, sizeAttenuation: true, depthWrite: false, blending: THREE.AdditiveBlending })
   var points = new THREE.Points(geo, mat); scene.add(points)
 
   // a few faint lines sweeping through, like a baton's gesture

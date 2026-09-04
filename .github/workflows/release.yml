@@ -25,7 +25,19 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Build and publish
+        # Signing + notarization switch on automatically once these secrets exist:
+        #   MAC_CERT_P12 (base64 of the Developer ID Application .p12), MAC_CERT_PASSWORD,
+        #   APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID.
         env:
           GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-        run: pnpm release
+          CSC_LINK: ${{ secrets.MAC_CERT_P12 }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -z "$CSC_LINK" ]; then
+            echo "No signing certificate secret; building unsigned."
+            export CSC_IDENTITY_AUTO_DISCOVERY=false
+          fi
+          pnpm release
