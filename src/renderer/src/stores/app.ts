@@ -3,6 +3,9 @@ import type { Label, Repo, Settings, Space, StoreData, Workspace } from '@shared
 import { api } from '@/lib/api'
 
 export type Tab = 'chat' | 'changes' | 'prs' | 'terminal' | 'run'
+export type AppPage = 'general' | 'spaces' | 'repos' | 'providers' | 'accounts' | 'crew' | 'mcp' | 'jira' | 'feedback' | 'about'
+export type SpacePage = 'general' | 'repos' | 'crew' | 'mcp' | 'jira' | 'github'
+export type SettingsTarget = { scope: 'app'; page: AppPage } | { scope: 'space'; spaceId: string; page: SpacePage }
 
 interface AppState {
   loaded: boolean
@@ -35,7 +38,10 @@ interface AppState {
   view: 'workspace' | 'reviews'
   tab: Tab
   showNewWorkspace: boolean
-  showSettings: boolean
+  /** The open settings page, or null when the window is closed. */
+  settingsTarget: SettingsTarget | null
+  openSettings: (t: SettingsTarget) => void
+  closeSettings: () => void
   showArchived: boolean
   error: string | null
   branchPrompt: { workspaceId: string; name: string; newSlug: string; currentBranch: string } | null
@@ -48,6 +54,7 @@ interface AppState {
   setView: (v: 'workspace' | 'reviews') => void
   setTab: (t: Tab) => void
   setShowNewWorkspace: (v: boolean, spaceId?: string) => void
+  /** Kept for older call sites: opens Application → General. */
   setShowSettings: (v: boolean) => void
   setShowArchived: (v: boolean) => void
   setError: (e: string | null) => void
@@ -118,7 +125,9 @@ export const useApp = create<AppState>((set, get) => ({
   selectedId: localStorage.getItem('orchestra.selected'),
   tab: 'chat',
   showNewWorkspace: false,
-  showSettings: false,
+  settingsTarget: null,
+  openSettings: (settingsTarget) => set({ settingsTarget }),
+  closeSettings: () => set({ settingsTarget: null }),
   showArchived: false,
   error: null,
   branchPrompt: null,
@@ -161,7 +170,7 @@ export const useApp = create<AppState>((set, get) => ({
     }
     set({ showNewWorkspace: v })
   },
-  setShowSettings: (v) => set({ showSettings: v }),
+  setShowSettings: (v) => set({ settingsTarget: v ? { scope: 'app', page: 'general' } : null }),
   setShowArchived: (v) => set({ showArchived: v }),
   setError: (error) => set({ error }),
   setBranchPrompt: (branchPrompt) => set({ branchPrompt })

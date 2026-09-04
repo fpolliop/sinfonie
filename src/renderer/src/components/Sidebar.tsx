@@ -12,7 +12,6 @@ import { renameWorkspace } from '@/lib/rename'
 import { Spinner } from './ui'
 import { ContextMenu, type MenuEntry } from './ContextMenu'
 import { InlineRename } from './InlineRename'
-import { SpaceSettingsDialog } from './SpaceSettingsDialog'
 import { STAGE_DOT, stageLabel } from './StagePicker'
 import type { UpdateInfo, Workspace } from '@shared/types'
 
@@ -21,7 +20,10 @@ export function Sidebar(): React.JSX.Element {
   const chats = useChat((s) => s.chats)
   const [spaceMenu, setSpaceMenu] = useState<{ x: number; y: number; id: string } | null>(null)
   const [renaming, setRenaming] = useState<string | null>(null)
-  const [spaceSettings, setSpaceSettings] = useState<string | null>(null)
+  const openSettings = useApp((s) => s.openSettings)
+  const setSpaceSettings = (id: string | null): void => {
+    if (id) openSettings({ scope: 'space', spaceId: id, page: 'general' })
+  }
   const [showFilter, setShowFilter] = useState(() => (labelFilter[activeSpaceId] ?? []).length > 0)
   const swipe = useRef({ acc: 0, lockedUntil: 0 })
   const byActivity = (a: Workspace, b: Workspace): number => (b.lastMessageAt ?? b.createdAt).localeCompare(a.lastMessageAt ?? a.createdAt)
@@ -181,8 +183,7 @@ export function Sidebar(): React.JSX.Element {
         )}
       </div>
       <UpdateBanner />
-      <SpaceDots ids={ids} currentId={currentId} onPick={setActiveSpace} onAdd={() => setShowSettings(true)} />
-      {spaceSettings && <SpaceSettingsDialog spaceId={spaceSettings} onClose={() => setSpaceSettings(null)} />}
+      <SpaceDots ids={ids} currentId={currentId} onPick={setActiveSpace} onAdd={() => openSettings({ scope: 'app', page: 'spaces' })} />
       {spaceMenu && (
         <ContextMenu
           x={spaceMenu.x}

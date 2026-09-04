@@ -33,7 +33,7 @@ interface Pick {
 }
 
 export function NewWorkspaceDialog({ onClose }: { onClose: () => void }): React.JSX.Element {
-  const { repos: allRepos, spaces, select, setShowSettings, setError, settings, newWorkspaceSpaceId } = useApp()
+  const { repos: allRepos, spaces, select, openSettings, setError, settings, newWorkspaceSpaceId } = useApp()
   const [spaceId, setSpaceId] = useState(newWorkspaceSpaceId)
   const [showAllRepos, setShowAllRepos] = useState(false)
   const space = spaces.find((s) => s.id === spaceId)
@@ -125,7 +125,7 @@ export function NewWorkspaceDialog({ onClose }: { onClose: () => void }): React.
           setJira({ key: issue.key, summary: issue.summary, url: issue.url })
           setName(suggestName(issue))
         }}
-        onConfigure={() => (onClose(), setShowSettings(true))}
+        onConfigure={() => (onClose(), openSettings(spaceId ? { scope: 'space', spaceId, page: 'jira' } : { scope: 'app', page: 'jira' }))}
       />
       <Field label="Name" hint="Becomes the branch name in every selected repo and the folder name on disk.">
         <input autoFocus className={inputCls} placeholder="e.g. checkout-redesign" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && submit()} />
@@ -151,7 +151,7 @@ export function NewWorkspaceDialog({ onClose }: { onClose: () => void }): React.
       {repos.length === 0 && (
         <div className="mb-3 rounded-md border border-border p-3 text-muted">
           No repositories added yet.{' '}
-          <button className="text-accent" onClick={() => (onClose(), setShowSettings(true))}>
+          <button className="text-accent" onClick={() => (onClose(), openSettings({ scope: 'app', page: 'repos' }))}>
             Add one in Settings
           </button>
           .

@@ -5,7 +5,6 @@ import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { useReviews, keyOf, STATUS_FILTERS, type StatusFilter } from '@/stores/reviews'
 import { AccountPicker } from './AccountPicker'
-import { SpaceSettingsDialog } from './SpaceSettingsDialog'
 import { Badge, Button, Spinner, inputCls } from './ui'
 import { timeAgo } from '@/lib/format'
 import type { ReviewFinding, ReviewPr, ReviewRun, ReviewSeverity, ReviewVerdict } from '@shared/types'
@@ -19,7 +18,10 @@ export function ReviewCockpit(): React.JSX.Element {
   const activeSpaceId = useApp((s) => s.activeSpaceId)
   const space = spaces.find((s) => s.id === activeSpaceId)
   const configuredOwners = space?.githubOwners
-  const [openSpaceSettings, setOpenSpaceSettings] = useState(false)
+  const openSettings = useApp((s) => s.openSettings)
+  const setOpenSpaceSettings = (v: boolean): void => {
+    if (v && space) openSettings({ scope: 'space', spaceId: space.id, page: 'github' })
+  }
   const setError = useApp((s) => s.setError)
   const [accountId, setAccountId] = useState(defaultAccount)
 
@@ -110,7 +112,6 @@ export function ReviewCockpit(): React.JSX.Element {
         <AccountPicker value={accountId} onChange={setAccountId} className="no-drag" always />
       </header>
       {error && <div className="border-b border-danger/30 bg-danger/10 px-4 py-2 text-[12px] text-danger">{error}</div>}
-      {openSpaceSettings && space && <SpaceSettingsDialog spaceId={space.id} onClose={() => setOpenSpaceSettings(false)} />}
       <div className="flex items-center gap-2 border-b border-border px-3 py-1.5">
         <Filter size={13} className="text-muted" />
         <select className="max-w-[240px] rounded-md border border-border bg-bg px-1.5 py-1 text-[12px]" value={repoFilter} onChange={(e) => setRepoFilter(e.target.value)} title="Repository">

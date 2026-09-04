@@ -5,7 +5,7 @@ import { useScripts } from '@/stores/scripts'
 import { Sidebar } from './components/Sidebar'
 import { WorkspaceView } from './components/WorkspaceView'
 import { NewWorkspaceDialog } from './components/NewWorkspaceDialog'
-import { SettingsDialog } from './components/SettingsDialog'
+import { SettingsWindow } from './components/SettingsWindow'
 import { PermissionPrompt } from './components/PermissionPrompt'
 import { BranchRenamePrompt } from './components/BranchRenamePrompt'
 import { ReviewCockpit } from './components/ReviewCockpit'
@@ -15,7 +15,7 @@ import logo from './assets/logo.svg'
 import { Button } from './components/ui'
 
 export default function App(): React.JSX.Element {
-  const { loaded, load, selectedId, view, showNewWorkspace, showSettings, setShowNewWorkspace, setShowSettings, error, setError, stepSpace, setActiveSpace, feedbackDialog, setFeedbackDialog } = useApp()
+  const { loaded, load, selectedId, view, showNewWorkspace, settingsTarget, closeSettings, setShowNewWorkspace, setShowSettings, error, setError, stepSpace, setActiveSpace, feedbackDialog, setFeedbackDialog } = useApp()
   const subscribeChat = useChat((s) => s.subscribe)
   const subscribeScripts = useScripts((s) => s.subscribe)
 
@@ -69,7 +69,7 @@ export default function App(): React.JSX.Element {
         {view === 'reviews' ? <ReviewCockpit /> : selectedId ? <WorkspaceView key={selectedId} workspaceId={selectedId} /> : <EmptyState />}
       </main>
       {showNewWorkspace && <NewWorkspaceDialog onClose={() => setShowNewWorkspace(false)} />}
-      {showSettings && <SettingsDialog onClose={() => setShowSettings(false)} />}
+      {settingsTarget && <SettingsWindow target={settingsTarget} onClose={closeSettings} />}
       {feedbackDialog && <FeedbackDialog tab={feedbackDialog} onClose={() => setFeedbackDialog(null)} />}
       <PermissionPrompt />
       <BranchRenamePrompt />
@@ -86,7 +86,7 @@ export default function App(): React.JSX.Element {
 }
 
 function EmptyState(): React.JSX.Element {
-  const { repos, setShowNewWorkspace, setShowSettings } = useApp()
+  const { repos, setShowNewWorkspace, openSettings } = useApp()
   return (
     <div className="drag flex h-full flex-col items-center justify-center gap-3 text-center">
       <img src={logo} alt="" className="h-16 w-16 rounded-2xl shadow-[0_20px_60px_rgba(91,124,255,.25)]" />
@@ -96,7 +96,7 @@ function EmptyState(): React.JSX.Element {
       </p>
       <div className="flex gap-2">
         {repos.length === 0 ? (
-          <Button variant="primary" onClick={() => setShowSettings(true)}>
+          <Button variant="primary" onClick={() => openSettings({ scope: 'app', page: 'repos' })}>
             Add your first repository
           </Button>
         ) : (
