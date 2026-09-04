@@ -7,6 +7,8 @@ import type {
   McpServerSpec,
   RepoPr,
   PermissionMode,
+  ProviderConfig,
+  ProviderKind,
   RepoSafety,
   ReviewFinding,
   ReviewPr,
@@ -37,7 +39,7 @@ export interface SinfonieInvoke {
   'settings:update': (patch: Partial<Settings>) => Settings
 
   'spaces:create': (name: string) => Space
-  'spaces:update': (id: string, patch: Partial<Pick<Space, 'name' | 'color' | 'claudeAccountId' | 'model' | 'permissionMode' | 'workspacesRoot' | 'githubOwners' | 'mcpServers' | 'exposeJiraMcp' | 'strictMcp' | 'agents' | 'useCrew'>>) => Space
+  'spaces:update': (id: string, patch: Partial<Pick<Space, 'name' | 'color' | 'claudeAccountId' | 'model' | 'permissionMode' | 'workspacesRoot' | 'githubOwners' | 'mcpServers' | 'exposeJiraMcp' | 'strictMcp' | 'agents' | 'useCrew' | 'engine'>>) => Space
   /** MCP servers found in Claude Code's own config (~/.claude.json), for importing. */
   'mcp:importable': () => McpServerSpec[]
   'spaces:delete': (id: string) => void
@@ -120,6 +122,12 @@ export interface SinfonieInvoke {
   'sessions:resume': (workspaceId: string, sessionId: string) => { messages: number }
   /** New workspace on branches cut from this one, with a forked copy of its conversation. */
   'workspaces:fork': (workspaceId: string, name: string) => Workspace
+
+  'providers:add': (cfg: { kind: ProviderKind; name: string; baseUrl?: string; apiKey?: string }) => ProviderConfig
+  'providers:update': (id: string, patch: { name?: string; baseUrl?: string; apiKey?: string }) => ProviderConfig
+  'providers:remove': (id: string) => void
+  /** Fetches the provider's model list and caches it on the config. */
+  'providers:models': (id: string) => string[]
   'agent:reset': (workspaceId: string) => void
   'agent:setMode': (workspaceId: string, mode: PermissionMode) => Workspace
   'chat:load': (workspaceId: string) => { items: ChatItem[]; busy: boolean }

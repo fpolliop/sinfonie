@@ -53,6 +53,10 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
   const disabled = ws?.status !== 'ready'
   const settingsModel = useApp((s) => s.settings.model)
   const settingsMode = useApp((s) => s.settings.permissionMode)
+  const engineLabel = useApp((s) => {
+    const sp = s.spaces.find((x) => x.id === ws?.spaceId)
+    return (sp?.engine ?? s.settings.engine ?? 'claude-code') === 'native' ? 'native' : 'claude code'
+  })
   // Select stable references, derive outside the selector (a fresh array per read loops React).
   const space = useApp((s) => s.spaces.find((x) => x.id === ws?.spaceId))
   const defaultAgents = useApp((s) => s.settings.agents)
@@ -175,6 +179,7 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
             <div className="flex items-center gap-2 px-2 pb-2">
               <ModePicker mode={mode} onChange={changeMode} />
               <span className="text-[11px] text-muted">
+                <span className="rounded bg-panel-2 px-1 py-px text-[10px] uppercase tracking-wide">{engineLabel}</span>{' '}
                 {chat?.model ?? `model: ${settingsModel}`}
                 {chat?.lastResult && (
                   <>

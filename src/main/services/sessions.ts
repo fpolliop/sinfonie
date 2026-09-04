@@ -10,6 +10,7 @@ import { accountEnv } from './accounts'
 import { closeSession } from './agent'
 import { getTranscript, replaceTranscript } from './transcripts'
 import { createWorkspace } from './workspaces'
+import { copyHistory } from './native/engine'
 import type { ScriptOutputEvent } from '@shared/types'
 
 /** Run fn with CLAUDE_CONFIG_DIR pointed at the workspace's account, so the SDK reads that account's sessions. */
@@ -172,6 +173,7 @@ export async function forkWorkspace(workspaceId: string, name: string, emit: (e:
   patchWorkspace(created.id, { stage: src.stage, labelIds: src.labelIds, permissionMode: src.permissionMode })
 
   const items = getTranscript(workspaceId).map((it) => ({ ...it, id: nanoid(8) }))
+  copyHistory(workspaceId, created.id)
   let note = `Forked from "${src.name}". Branches start from ${src.repos.map((r) => `${r.repoName}@${r.branch}`).join(', ')}.`
   if (src.sessionId) {
     try {

@@ -11,6 +11,8 @@ import { JiraSection } from './JiraSection'
 import { McpSection } from './McpSection'
 import { AgentsSection, DEFAULT_CREW } from './AgentsSection'
 import { ModelSelect } from './ModelSelect'
+import { ProvidersSection } from './ProvidersSection'
+import { EngineSelect, NativeModelSelect } from './EngineSelect'
 import { SpaceSettingsDialog } from './SpaceSettingsDialog'
 import { SPACE_COLORS } from '@shared/types'
 
@@ -272,11 +274,19 @@ export function SettingsDialog({ onClose }: { onClose: () => void }): React.JSX.
         <Field label="Workspaces folder" hint="Each workspace becomes <folder>/<name>/<repo> so all worktrees of a feature sit together.">
           <input className={inputCls} defaultValue={settings.workspacesRoot} onBlur={(e) => e.target.value !== settings.workspacesRoot && go(() => update({ workspacesRoot: e.target.value }))} />
         </Field>
+        <Field label="Engine" hint="Which runtime drives chats. Spaces can override it.">
+          <EngineSelect value={settings.engine ?? 'claude-code'} onChange={(engine) => go(() => update({ engine: engine as typeof settings.engine }))} />
+        </Field>
+        {settings.engine === 'native' && (
+          <Field label="Native model" hint="Default orchestrator model for the native engine, from your providers below.">
+            <NativeModelSelect value={settings.nativeModel ?? ''} onChange={(nativeModel) => go(() => update({ nativeModel }))} />
+          </Field>
+        )}
         <div className="grid grid-cols-2 gap-3">
           <Field label="Base port" hint="Each workspace gets a block of 10 ports starting here.">
             <input type="number" className={inputCls} defaultValue={settings.basePort} onBlur={(e) => go(() => update({ basePort: Number(e.target.value) || 55000 }))} />
           </Field>
-          <Field label="Model" hint="The orchestrator model for spaces that don't set their own.">
+          <Field label="Claude Code model" hint="Orchestrator model when the engine is Claude Code.">
             <ModelSelect value={settings.model} onChange={(model) => go(() => update({ model }))} />
           </Field>
         </div>
@@ -292,6 +302,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }): React.JSX.
         <p className="text-[11px] text-muted">Model and permission mode apply to sessions started after the change. Use "New session" in a chat to restart one.</p>
       </section>
 
+      <ProvidersSection />
       <AccountsSection />
       <AgentsSection
         title="Default crew"

@@ -7,6 +7,7 @@ import { JiraSection } from './JiraSection'
 import { McpSection } from './McpSection'
 import { AgentsSection, DEFAULT_CREW } from './AgentsSection'
 import { ModelSelect } from './ModelSelect'
+import { EngineSelect, NativeModelSelect } from './EngineSelect'
 import { jiraConnectionFor } from '@shared/types'
 import { shortPath } from '@/lib/format'
 import { SPACE_COLORS, PERMISSION_MODES } from '@shared/types'
@@ -44,9 +45,16 @@ export function SpaceSettingsDialog({ spaceId, onClose }: { spaceId: string; onC
       <section className="mb-2 rounded-lg border border-border p-3">
         <div className="mb-2 text-[12px] font-medium uppercase tracking-wide text-muted">Defaults for this space</div>
         <p className="mb-3 text-[11px] text-muted">Empty fields use the app defaults from Settings. Applies to workspaces created here; the model and mode also apply to existing chats when their session restarts.</p>
+        <Field label="Engine" hint="Claude Code uses your Claude login; Sinfonie native runs any provider you add in Settings.">
+          <EngineSelect value={space.engine ?? ''} allowDefault onChange={(engine) => go(() => api.invoke('spaces:update', space.id, { engine: (engine || undefined) as never }))} />
+        </Field>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Model" hint="The orchestrator model for chats in this space.">
-            <ModelSelect value={space.model ?? ''} allowDefault defaultLabel={`App default (${settings.model})`} onChange={(model) => go(() => api.invoke('spaces:update', space.id, { model }))} />
+          <Field label="Model" hint={(space.engine ?? settings.engine ?? 'claude-code') === 'native' ? 'Orchestrator model, as provider/model.' : 'The orchestrator model for chats in this space.'}>
+            {(space.engine ?? settings.engine ?? 'claude-code') === 'native' ? (
+              <NativeModelSelect value={space.model ?? ''} allowDefault defaultLabel={`App default (${settings.nativeModel || 'not set'})`} onChange={(model) => go(() => api.invoke('spaces:update', space.id, { model }))} />
+            ) : (
+              <ModelSelect value={space.model ?? ''} allowDefault defaultLabel={`App default (${settings.model})`} onChange={(model) => go(() => api.invoke('spaces:update', space.id, { model }))} />
+            )}
           </Field>
           <Field label="Permission mode" hint={`App default: ${PERMISSION_MODES.find((m) => m.id === settings.permissionMode)?.label ?? settings.permissionMode}`}>
             <select className={inputCls} value={space.permissionMode ?? ''} onChange={(e) => go(() => api.invoke('spaces:update', space.id, { permissionMode: (e.target.value || undefined) as never }))}>
@@ -127,6 +135,7 @@ export function SpaceSettingsDialog({ spaceId, onClose }: { spaceId: string; onC
         title="Crew for this space"
         intro="Subagents the chat's orchestrator can delegate to, each with its own model and effort. Cheaper models for exploration and tests, frontier models for planning and review. Applies to sessions started after the change."
         agents={space.agents ?? settings.agents}
+        engine={space.engine ?? settings.engine ?? 'claude-code'}
         inherited={!space.agents}
         onChange={(agents) => go(() => api.invoke('spaces:update', space.id, { agents }))}
         onResetToDefaults={() => go(() => api.invoke('spaces:update', space.id, { agents: DEFAULT_CREW }))}

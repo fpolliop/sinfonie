@@ -4,6 +4,8 @@ import { Plus, Trash2, Users, RotateCcw, ChevronRight } from 'lucide-react'
 import { Badge, Button, Field, inputCls } from './ui'
 import { DEFAULT_CREW, PERMISSION_MODES, type AgentSpec } from '@shared/types'
 import { ModelSelect } from './ModelSelect'
+import { NativeModelSelect } from './EngineSelect'
+import { useApp } from '@/stores/app'
 
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
 
@@ -11,8 +13,10 @@ const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
  * Edits a crew: the subagents the orchestrator can delegate to. Used for the app
  * defaults in Settings and, per space, in the space settings.
  */
-export function AgentsSection({ agents, onChange, title, intro, inherited, onResetToDefaults, useCrew }: { agents: AgentSpec[]; onChange: (a: AgentSpec[]) => void; title: string; intro: string; inherited?: boolean; onResetToDefaults?: () => void; useCrew?: { value: boolean; onToggle: (v: boolean) => void } }): React.JSX.Element {
+export function AgentsSection({ agents, onChange, title, intro, inherited, onResetToDefaults, useCrew, engine: engineProp }: { agents: AgentSpec[]; onChange: (a: AgentSpec[]) => void; title: string; intro: string; inherited?: boolean; onResetToDefaults?: () => void; useCrew?: { value: boolean; onToggle: (v: boolean) => void }; engine?: string }): React.JSX.Element {
   const [open, setOpen] = useState<string | null>(null)
+  const defaultEngine = useApp((s) => s.settings.engine ?? 'claude-code')
+  const engine = engineProp ?? defaultEngine
   const update = (id: string, patch: Partial<AgentSpec>): void => onChange(agents.map((a) => (a.id === id ? { ...a, ...patch } : a)))
   const add = (): void => {
     const id = crypto.randomUUID().slice(0, 8)
@@ -71,8 +75,8 @@ export function AgentsSection({ agents, onChange, title, intro, inherited, onRes
                     <Field label="Name" hint="Also the type the orchestrator uses to call it.">
                       <input className={inputCls} value={a.name} onChange={(e) => update(a.id, { name: e.target.value.replace(/\s+/g, '-').toLowerCase() })} />
                     </Field>
-                    <Field label="Model">
-                      <ModelSelect value={a.model} onChange={(model) => update(a.id, { model })} />
+                    <Field label="Model" hint={engine === 'native' ? 'provider/model from Settings' : 'Claude alias or id'}>
+                      {engine === 'native' ? <NativeModelSelect value={a.model} onChange={(model) => update(a.id, { model })} /> : <ModelSelect value={a.model} onChange={(model) => update(a.id, { model })} />}
                     </Field>
                     <Field label="Effort">
                       <select className={inputCls} value={a.effort ?? ''} onChange={(e) => update(a.id, { effort: (e.target.value || undefined) as AgentSpec['effort'] })}>

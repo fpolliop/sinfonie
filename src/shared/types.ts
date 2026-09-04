@@ -99,6 +99,46 @@ export const DEFAULT_CREW: AgentSpec[] = [
   }
 ]
 
+// ---- Engines and providers ----
+
+/**
+ * Which agent runtime drives a chat. `claude-code` is the Claude Agent SDK
+ * (uses the Claude Code login, Claude models only). `native` is Sinfonie's own
+ * tool loop on the AI SDK: any provider, any model, including local ones.
+ */
+export type Engine = 'claude-code' | 'native'
+
+export type ProviderKind = 'anthropic' | 'openai' | 'google' | 'deepseek' | 'openai-compatible' | 'ollama' | 'lmstudio'
+
+export const PROVIDER_KINDS: { id: ProviderKind; label: string; baseUrl?: string; needsKey: boolean; hint: string }[] = [
+  { id: 'anthropic', label: 'Anthropic', needsKey: true, hint: 'API key from console.anthropic.com. Independent of the Claude Code login.' },
+  { id: 'openai', label: 'OpenAI', needsKey: true, hint: 'API key from platform.openai.com.' },
+  { id: 'google', label: 'Google Gemini', needsKey: true, hint: 'API key from aistudio.google.com.' },
+  { id: 'deepseek', label: 'DeepSeek', needsKey: true, hint: 'API key from platform.deepseek.com.' },
+  { id: 'ollama', label: 'Ollama (local)', baseUrl: 'http://localhost:11434/v1', needsKey: false, hint: 'Models you pulled with `ollama pull`, e.g. Qwen or Llama.' },
+  { id: 'lmstudio', label: 'LM Studio (local)', baseUrl: 'http://localhost:1234/v1', needsKey: false, hint: 'Models loaded in LM Studio with the local server on.' },
+  { id: 'openai-compatible', label: 'OpenAI-compatible endpoint', needsKey: true, hint: 'OpenRouter, Groq, Mistral, Together, a vLLM box: any /v1 API.' }
+]
+
+export interface ProviderConfig {
+  id: string
+  kind: ProviderKind
+  name: string
+  baseUrl?: string
+  /** An API key is stored (encrypted) for this provider. */
+  hasKey: boolean
+  /** Model ids last fetched from the provider, for the pickers. */
+  models?: string[]
+  modelsFetchedAt?: string
+}
+
+/** A model reference for the native engine: "<providerId>/<modelId>". */
+export function parseModelRef(ref: string): { providerId: string; modelId: string } | null {
+  const i = ref.indexOf('/')
+  if (i <= 0) return null
+  return { providerId: ref.slice(0, i), modelId: ref.slice(i + 1) }
+}
+
 /** A group of workspaces and repositories, e.g. "Personal", "Lumepic", "Howdy". */
 export interface Space {
   id: string
@@ -120,6 +160,8 @@ export interface Space {
   agents?: AgentSpec[]
   /** Give the orchestrator its crew at all. Default on. */
   useCrew?: boolean
+  /** Which runtime drives chats in this space. Absent = app default. */
+  engine?: Engine
   /** Per-space overrides; absent means the app default from Settings. */
   model?: string
   permissionMode?: PermissionMode
@@ -248,6 +290,12 @@ export interface Settings {
   strictMcp?: boolean
   /** Default crew for spaces without their own. */
   agents: AgentSpec[]
+  /** Default engine for spaces without their own. */
+  engine?: Engine
+  /** Model providers for the native engine. */
+  providers?: ProviderConfig[]
+  /** Default native-engine model, as "<providerId>/<modelId>". */
+  nativeModel?: string
   /** Send anonymised crash reports (error message, stack, version, OS) to sinfonie.dev. Default on. */
   crashReports?: boolean
 }

@@ -31,6 +31,8 @@ import * as reviews from './services/reviews'
 import * as sessionsSvc from './services/sessions'
 import { checkForUpdate, latestKnownUpdate } from './services/updates'
 import { clearErrors, listErrors, logsDir, sendFeedback } from './services/telemetry'
+import * as interaction from './services/interaction'
+import * as providers from './services/providers'
 
 function send<C extends keyof SinfonieEvents>(channel: C, payload: SinfonieEvents[C]): void {
   for (const win of BrowserWindow.getAllWindows()) win.webContents.send(channel, payload)
@@ -51,7 +53,10 @@ const emitAgent = (e: Parameters<typeof send<'agent:event'>>[1]): void => {
 const emitPermission = (e: Parameters<typeof send<'agent:permission'>>[1]): void => send('agent:permission', e)
 
 export function registerIpc(): void {
-  agent.setQuestionEmitter((q) => send('agent:question', q))
+  interaction.setInteractionEmitters(
+    (p) => send('agent:permission', p),
+    (q) => send('agent:question', q)
+  )
   getStore().subscribe(() => send('store:changed', getStore().public()))
 
   handle('store:get', () => getStore().public())
@@ -368,8 +373,14 @@ export function registerIpc(): void {
   // ---- agent ----
   handle('agent:send', (id, text) => agent.sendMessage(id, text, emitAgent, emitPermission))
   handle('agent:interrupt', (id) => agent.interrupt(id))
-  handle('agent:permission', (r) => agent.answerPermission(r))
-  handle('agent:answerQuestion', (r) => agent.answerQuestion(r))
+  handle('agent:permission', (r) => interaction.answerPermission(r))
+  handle('agent:answerQuestion', (r) => interaction.answerQuestion(r))
+
+  // ---- model providers (native engine) ----
+  handle('providers:add', (cfg) => providers.addProvider(cfg))
+  handle('providers:update', (id, patch) => providers.updateProvider(id, patch))
+  handle('providers:remove', (id) => providers.removeProvider(id))
+  handle('providers:models', (id) => providers.fetchModels(id))
   handle('agent:unqueue', (id, mid) => agent.unqueue(id, mid, emitAgent))
   handle('sessions:list', (id, scope, q) => sessionsSvc.listResumable(id, scope, q))
   handle('sessions:resume', (id, sid) => sessionsSvc.resumeInto(id, sid))

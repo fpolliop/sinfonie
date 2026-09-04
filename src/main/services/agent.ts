@@ -1,6 +1,9 @@
 import { query, type Options, type Query, type SDKMessage, type SDKUserMessage, type PermissionResult } from '@anthropic-ai/claude-agent-sdk'
 import { nanoid } from 'nanoid'
-import type { AgentEvent, PermissionMode, PermissionRequest, PermissionResponse, Question, QuestionRequest, QuestionResponse, SubagentStep, Workspace } from '@shared/types'
+import type { AgentEvent, PermissionMode, PermissionRequest, Question, SubagentStep, Workspace } from '@shared/types'
+import { askPermission, askQuestion } from './interaction'
+import * as native from './native/engine'
+import type { Engine } from '@shared/types'
 import { app } from 'electron'
 import { appendFileSync, existsSync, mkdirSync } from 'fs'
 import { join } from 'path'
@@ -13,15 +16,6 @@ import type { McpServerSpec } from '@shared/types'
 
 type EmitEvent = (e: AgentEvent) => void
 type EmitPermission = (r: PermissionRequest) => void
-type EmitQuestion = (r: QuestionRequest) => void
-let emitQuestion: EmitQuestion = () => undefined
-export function setQuestionEmitter(fn: EmitQuestion): void {
-  emitQuestion = fn
-}
-const pendingQuestions = new Map<string, (r: QuestionResponse) => void>()
-export function answerQuestion(response: QuestionResponse): void {
-  pendingQuestions.get(response.requestId)?.(response)
-}
 
 interface Session {
   workspaceId: string
@@ -83,7 +77,6 @@ function describeError(code: string | undefined): string {
 const sessions = new Map<string, Session>()
 /** Workspaces that already got the inherited-MCP notice this app run. */
 const mcpNoticeShown = new Set<string>()
-const pendingPermissions = new Map<string, (r: PermissionResponse) => void>()
 
 /** An async iterable we can push into from outside; the SDK consumes it as the prompt stream. */
 function makeInputStream(): { iterable: AsyncIterable<SDKUserMessage>; push: (m: SDKUserMessage) => void; end: () => void } {
@@ -210,36 +203,17 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
         multiSelect: Boolean(q.multiSelect),
         options: (q.options ?? []).map((o) => ({ label: o.label, description: o.description, preview: o.preview }))
       }))
-      const reply = await new Promise<QuestionResponse>((resolve) => {
-        pendingQuestions.set(requestId, resolve)
-        emitQuestion({ requestId, workspaceId, questions })
-        opts.signal.addEventListener('abort', () => {
-          pendingQuestions.delete(requestId)
-          resolve({ requestId, answers: {}, cancelled: true })
-        })
-      })
-      pendingQuestions.delete(requestId)
+      const reply = await askQuestion(workspaceId, questions, opts.signal)
       if (reply.cancelled) return { behavior: 'deny', message: 'The user dismissed the questions without answering. Continue with your best judgement or ask in plain text.' }
       const updatedInput: Record<string, unknown> = { questions: (toolInput as { questions?: unknown }).questions, answers: reply.answers }
       if (reply.response) updatedInput.response = reply.response
       return { behavior: 'allow', updatedInput }
     }
-    const decision = await new Promise<PermissionResponse>((resolve) => {
-      pendingPermissions.set(requestId, resolve)
-      emitPermission({
-        requestId,
-        workspaceId,
-        toolName,
-        input: toolInput,
-        blockedPath: opts.blockedPath,
-        canAlwaysAllow: Boolean(opts.suggestions && opts.suggestions.length > 0)
-      })
-      opts.signal.addEventListener('abort', () => {
-        pendingPermissions.delete(requestId)
-        resolve({ requestId, decision: 'deny', message: 'Cancelled' })
-      })
-    })
-    pendingPermissions.delete(requestId)
+    void requestId
+    const decision = await askPermission(
+      { workspaceId, toolName, input: toolInput, blockedPath: opts.blockedPath, canAlwaysAllow: Boolean(opts.suggestions && opts.suggestions.length > 0) },
+      opts.signal
+    )
     if (decision.decision === 'deny') {
       const r: PermissionResult = { behavior: 'deny', message: decision.message || 'User denied this tool call' }
       return r
@@ -517,7 +491,15 @@ function deliver(session: Session, text: string, emit: EmitEvent, announce = tru
 
 const starting = new Set<string>()
 
+/** Which runtime a workspace uses: its space's engine, else the app default, else Claude Code. */
+export function engineFor(workspaceId: string): Engine {
+  const ws = getWorkspace(workspaceId)
+  const { settings, spaces } = getStore().get()
+  return spaces.find((s) => s.id === ws.spaceId)?.engine ?? settings.engine ?? 'claude-code'
+}
+
 export async function sendMessage(workspaceId: string, text: string, emit: EmitEvent, emitPermission: EmitPermission): Promise<void> {
+  if (engineFor(workspaceId) === 'native') return native.sendMessage(workspaceId, text, emit)
   const live = sessions.get(workspaceId)
   if (live) {
     if (live.busy) {
@@ -553,6 +535,7 @@ export async function sendMessage(workspaceId: string, text: string, emit: EmitE
 }
 
 export function unqueue(workspaceId: string, id: string, emit: EmitEvent): void {
+  if (engineFor(workspaceId) === 'native') return native.unqueue(workspaceId, id, emit)
   const s = sessions.get(workspaceId)
   if (!s) return
   s.queue = s.queue.filter((m) => m.id !== id)
@@ -576,10 +559,11 @@ export async function setMode(workspaceId: string, mode: PermissionMode): Promis
 }
 
 export function isBusy(workspaceId: string): boolean {
-  return sessions.get(workspaceId)?.busy ?? false
+  return (sessions.get(workspaceId)?.busy ?? false) || native.isBusy(workspaceId)
 }
 
 export async function interrupt(workspaceId: string): Promise<void> {
+  native.interrupt(workspaceId)
   const s = sessions.get(workspaceId)
   if (!s) return
   s.interrupted = true
@@ -590,12 +574,10 @@ export async function interrupt(workspaceId: string): Promise<void> {
   }
 }
 
-export function answerPermission(response: PermissionResponse): void {
-  pendingPermissions.get(response.requestId)?.(response)
-}
 
 /** Drop the live session and forget the stored session id, so the next message starts fresh. */
 export function resetSession(workspaceId: string): void {
+  native.resetSession(workspaceId)
   closeSession(workspaceId)
   getStore().update((d) => {
     const w = d.workspaces.find((x) => x.id === workspaceId)
@@ -604,6 +586,7 @@ export function resetSession(workspaceId: string): void {
 }
 
 export function closeSession(workspaceId: string): void {
+  native.closeSession(workspaceId)
   const s = sessions.get(workspaceId)
   if (!s) return
   s.end()
@@ -612,5 +595,6 @@ export function closeSession(workspaceId: string): void {
 }
 
 export function closeAllSessions(): void {
+  native.closeAll()
   for (const id of Array.from(sessions.keys())) closeSession(id)
 }
