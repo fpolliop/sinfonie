@@ -22,7 +22,7 @@ import * as git from './services/git'
 import * as workspaces from './services/workspaces'
 import * as agent from './services/agent'
 import * as terminal from './services/terminal'
-import { clearTranscript, flushAllTranscripts, getTranscript, recordEvent } from './services/transcripts'
+import { clearTranscript, flushAllTranscripts, getTranscript, markInterrupted, recordEvent } from './services/transcripts'
 import { runScript, stopScript, workspaceEnv } from './services/scripts'
 import { repoPrStatus } from './services/github'
 import * as jira from './services/jira'
@@ -357,7 +357,10 @@ export function registerIpc(): void {
     agent.resetSession(id)
     clearTranscript(id)
   })
-  handle('chat:load', (id) => ({ items: getTranscript(id), busy: agent.isBusy(id) }))
+  handle('chat:load', (id) => {
+    if (!agent.isBusy(id)) markInterrupted(id)
+    return { items: getTranscript(id), busy: agent.isBusy(id) }
+  })
   handle('agent:setMode', (id, mode) => agent.setMode(id, mode))
 
   // ---- terminal ----

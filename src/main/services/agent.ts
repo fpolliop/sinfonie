@@ -501,10 +501,10 @@ async function pump(session: Session, emit: EmitEvent): Promise<void> {
   }
 }
 
-function deliver(session: Session, text: string, emit: EmitEvent): void {
+function deliver(session: Session, text: string, emit: EmitEvent, announce = true): void {
   const { workspaceId } = session
   session.busy = true
-  emit({ type: 'user_message', workspaceId, itemId: nanoid(8), text, createdAt: new Date().toISOString() })
+  if (announce) emit({ type: 'user_message', workspaceId, itemId: nanoid(8), text, createdAt: new Date().toISOString() })
   emit({ type: 'status', workspaceId, busy: true })
   session.push({
     type: 'user',
@@ -513,16 +513,41 @@ function deliver(session: Session, text: string, emit: EmitEvent): void {
   })
 }
 
+const starting = new Set<string>()
+
 export async function sendMessage(workspaceId: string, text: string, emit: EmitEvent, emitPermission: EmitPermission): Promise<void> {
-  const mcp = sessions.has(workspaceId) ? {} : await mcpServersFor(getWorkspace(workspaceId))
-  const session = getOrCreateSession(workspaceId, emit, emitPermission, mcp)
-  if (session.busy) {
-    // Like the CLI: typed mid-turn, delivered when the current turn ends.
-    session.queue.push({ id: nanoid(6), text })
-    emit({ type: 'queue', workspaceId, items: [...session.queue] })
+  const live = sessions.get(workspaceId)
+  if (live) {
+    if (live.busy) {
+      // Like the CLI: typed mid-turn, delivered when the current turn ends.
+      live.queue.push({ id: nanoid(6), text })
+      emit({ type: 'queue', workspaceId, items: [...live.queue] })
+      return
+    }
+    deliver(live, text, emit)
     return
   }
-  deliver(session, text, emit)
+  if (starting.has(workspaceId)) {
+    emit({ type: 'notice', workspaceId, itemId: nanoid(8), level: 'warn', text: 'The session is still starting; send again in a moment.', createdAt: new Date().toISOString() })
+    return
+  }
+  // Show the message and the busy state right away; MCP setup (which can wait on the network) happens after.
+  starting.add(workspaceId)
+  emit({ type: 'user_message', workspaceId, itemId: nanoid(8), text, createdAt: new Date().toISOString() })
+  emit({ type: 'status', workspaceId, busy: true })
+  let mcp: Record<string, NonNullable<Options['mcpServers']>[string]> = {}
+  try {
+    mcp = await Promise.race([
+      mcpServersFor(getWorkspace(workspaceId)),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('MCP setup timed out')), 15_000))
+    ])
+  } catch (err) {
+    emit({ type: 'notice', workspaceId, itemId: nanoid(8), level: 'warn', text: `Could not set up MCP servers (${err instanceof Error ? err.message : String(err)}). Continuing without them.`, createdAt: new Date().toISOString() })
+  } finally {
+    starting.delete(workspaceId)
+  }
+  const session = getOrCreateSession(workspaceId, emit, emitPermission, mcp)
+  deliver(session, text, emit, false)
 }
 
 export function unqueue(workspaceId: string, id: string, emit: EmitEvent): void {

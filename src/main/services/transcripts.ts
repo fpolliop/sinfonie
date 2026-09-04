@@ -88,6 +88,25 @@ export function replaceTranscript(workspaceId: string, items: ChatItem[]): void 
   flush(workspaceId)
 }
 
+/** After a restart, tool calls that never got a result would spin forever; close them out. */
+export function markInterrupted(workspaceId: string): boolean {
+  const items = getTranscript(workspaceId)
+  let changed = false
+  const next = items.map((it) => {
+    if (it.role !== 'assistant') return it
+    const blocks = it.blocks.map((b) => {
+      if (b.type === 'tool' && !b.done) {
+        changed = true
+        return { ...b, done: true, isError: true, result: 'Interrupted: the app restarted before this finished.' }
+      }
+      return b
+    })
+    return changed ? { ...it, blocks } : it
+  })
+  if (changed) replaceTranscript(workspaceId, next)
+  return changed
+}
+
 export function clearTranscript(workspaceId: string): void {
   cache.set(workspaceId, [])
   dirty.delete(workspaceId)

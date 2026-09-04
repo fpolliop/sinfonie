@@ -134,13 +134,23 @@ interface Conn {
 }
 const conns = new Map<string, Conn>()
 
+function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`${what} timed out after ${ms / 1000}s`)), ms)
+    p.then(
+      (v) => (clearTimeout(t), resolve(v)),
+      (e) => (clearTimeout(t), reject(e))
+    )
+  })
+}
+
 async function connect(connId: string): Promise<Conn> {
   const existing = conns.get(connId)
   if (existing) return existing
   const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: new StoreOAuthProvider(connId) })
   const c = new Client({ name: 'sinfonie', version: '0.1.0' })
-  await c.connect(transport)
-  const tools = await c.listTools()
+  await withTimeout(c.connect(transport), 12_000, 'Connecting to the Atlassian MCP')
+  const tools = await withTimeout(c.listTools(), 12_000, 'Listing Atlassian MCP tools')
   const conn: Conn = { client: c, tools: new Map(tools.tools.map((t) => [t.name, (t.inputSchema as { properties?: Record<string, unknown> }).properties ?? {}])), cloudId: null }
   conns.set(connId, conn)
   return conn
@@ -263,9 +273,10 @@ export async function authenticate(connId: string): Promise<void> {
 export async function accessToken(connId: string): Promise<string | null> {
   if (!jiraSettings(connId).connected) return null
   try {
-    await connect(connId)
+    await withTimeout(connect(connId), 10_000, 'Jira token refresh')
   } catch (err) {
     console.warn('Jira MCP connect for token failed', err)
+    dropClient(connId)
     return null
   }
   return new StoreOAuthProvider(connId).tokens()?.access_token ?? null
