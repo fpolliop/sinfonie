@@ -82,19 +82,25 @@ export function Tour({ onClose }: { onClose: () => void }): React.JSX.Element | 
   const W = 320
   const vw = window.innerWidth
   const vh = window.innerHeight
-  // Card to the right of the target when there is room, else left, else below.
-  let left = rect.right + PAD + 12
-  let top = Math.max(12, Math.min(rect.top - 8, vh - 200))
-  if (left + W > vw - 12) left = rect.left - PAD - 12 - W
-  if (left < 12) {
-    left = Math.max(12, Math.min(rect.left, vw - W - 12))
-    top = rect.bottom + PAD + 12
-    if (top + 180 > vh) top = rect.top - PAD - 12 - 180
+  const lowerHalf = rect.top + rect.height / 2 > vh / 2
+  // Beside the target when there is room (right, else left), otherwise below or above it.
+  // Vertically the card hangs from the edge nearest the middle of the screen, so it never runs off.
+  const pos: React.CSSProperties = { width: W }
+  const right = rect.right + PAD + 12
+  const leftSide = rect.left - PAD - 12 - W
+  if (right + W <= vw - 12 || leftSide >= 12) {
+    pos.left = right + W <= vw - 12 ? right : leftSide
+    if (lowerHalf) pos.bottom = Math.max(12, vh - (rect.bottom + PAD))
+    else pos.top = Math.max(12, rect.top - PAD)
+  } else {
+    pos.left = Math.max(12, Math.min(rect.left, vw - W - 12))
+    if (lowerHalf) pos.bottom = Math.max(12, vh - rect.top + PAD + 12)
+    else pos.top = rect.bottom + PAD + 12
   }
   return (
     <div className="fixed inset-0 z-[70] no-drag" onMouseDown={(e) => e.target === e.currentTarget && step(1)}>
       <div className="pointer-events-none absolute rounded-lg ring-2 ring-accent/70 transition-all duration-200" style={{ left: rect.left - PAD, top: rect.top - PAD, width: rect.width + PAD * 2, height: rect.height + PAD * 2, boxShadow: '0 0 0 100vmax rgba(0,0,0,.55)' }} />
-      <div className="absolute w-[320px] rounded-xl border border-border bg-panel p-4 shadow-2xl transition-all duration-200" style={{ left, top }}>
+      <div className="absolute rounded-xl border border-border bg-panel p-4 shadow-2xl transition-all duration-200" style={pos}>
         <div className="flex items-center gap-2">
           <span className="text-[11px] text-muted">
             {i + 1} of {STOPS.length}
