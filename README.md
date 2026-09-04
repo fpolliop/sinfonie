@@ -79,3 +79,7 @@ git tag v0.2.0 && git push origin main --tags
 ```
 
 The Release workflow builds the app on macOS and publishes the DMG and zip to a GitHub Release. Running copies of the app check that release feed on launch and show a download banner when a newer version exists. Builds are unsigned until Apple signing secrets are added to the workflow.
+
+## Website
+
+`site/` is a static page hosted on Cloudflare Pages (project `sinfonie`, https://sinfonie.pages.dev). Deploy with `pnpm site:deploy` after `npx wrangler login`. The download button reads the latest GitHub Release, so it needs no change per version.
