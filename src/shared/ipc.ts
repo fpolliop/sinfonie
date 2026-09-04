@@ -1,4 +1,4 @@
-import type { BrowserState, ChatImageInput, ResourceSnapshot, LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion,
+import type { BrowserState, ChatImageInput, Incident, IncidentStatus, OnCallState, ResourceSnapshot, Severity, SlackConnection, LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion,
   AgentEvent,
   ChatItem,
   JiraIssue,
@@ -162,6 +162,23 @@ export interface SinfonieInvoke {
   'terminal:write': (terminalId: string, data: string) => void
   'terminal:resize': (terminalId: string, cols: number, rows: number) => void
   'terminal:dispose': (terminalId: string) => void
+  // ---- on call ----
+  'oncall:state': () => OnCallState
+  'oncall:slackSetClient': (clientId: string, clientSecret: string) => SlackConnection
+  /** Opens the browser for Slack approval; the code returns via sinfonie://oauth/slack or oncall:slackFinish. */
+  'oncall:slackConnect': () => void
+  'oncall:slackFinish': (code: string) => SlackConnection
+  'oncall:slackDisconnect': () => SlackConnection
+  'oncall:slackChannels': (query?: string) => { id: string; name: string; is_private: boolean; is_member: boolean }[]
+  'oncall:pollNow': () => void
+  'oncall:triage': (incidentId: string) => void
+  'oncall:setStatus': (incidentId: string, status: IncidentStatus) => Incident
+  'oncall:setSeverity': (incidentId: string, severity: Severity) => Incident
+  'oncall:approve': (incidentId: string, proposalId: string, text?: string) => Incident
+  'oncall:dismissProposal': (incidentId: string, proposalId: string) => Incident
+  'oncall:addProposal': (incidentId: string, text: string) => Incident
+  'oncall:ask': (incidentId: string, question: string) => Incident
+  'oncall:remove': (incidentId: string) => void
   // ---- workspace browser ----
   'browser:state': (workspaceId: string) => BrowserState
   /** Where the Browser pane sits in the window (CSS px), or null while hidden. */
@@ -199,6 +216,9 @@ export interface SinfonieEvents {
   /** Memory and process sample, every few seconds. */
   'resources:snapshot': ResourceSnapshot
   'browser:state': BrowserState
+  'oncall:changed': OnCallState
+  /** Open the On call view on this incident (notification click, deep link). */
+  'ui:openOnCall': { incidentId?: string }
   /** An agent started using the browser of this workspace; the renderer brings the pane forward. */
   'browser:agentActive': { workspaceId: string }
 }

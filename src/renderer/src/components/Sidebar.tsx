@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { Plus, Settings, Archive, Pencil, Folder, Code2, TerminalSquare, Trash2, GitPullRequest, Layers, ArrowDownWideNarrow, ArrowUpNarrowWide, Filter, ChevronRight, MessageSquarePlus } from 'lucide-react'
+import { Plus, Settings, Archive, Pencil, Folder, Code2, TerminalSquare, Trash2, GitPullRequest, Layers, ArrowDownWideNarrow, ArrowUpNarrowWide, Filter, ChevronRight, MessageSquarePlus, Siren } from 'lucide-react'
 import { ERRORS_SEEN_KEY } from './FeedbackDialog'
 import { useResources, subscribeResources, gb } from '@/stores/resources'
+import { useOnCall, subscribeOnCall } from '@/stores/oncall'
 import { WORKSPACE_STAGES } from '@shared/types'
 import { LabelChip, labelsFor } from './LabelPicker'
 import { useApp, spaceOrder } from '@/stores/app'
@@ -101,9 +102,10 @@ export function Sidebar(): React.JSX.Element {
         </button>
       </div>
       <div className="px-2">
-        <button data-tour="reviews" onClick={() => setView('reviews')} className={clsx('mb-2 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] font-medium', view === 'reviews' ? 'bg-panel-2' : 'hover:bg-panel-2/60')}>
+        <button data-tour="reviews" onClick={() => setView('reviews')} className={clsx('mb-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] font-medium', view === 'reviews' ? 'bg-panel-2' : 'hover:bg-panel-2/60')}>
           <GitPullRequest size={14} className="text-accent" /> Review cockpit
         </button>
+        <OnCallButton active={view === 'oncall'} onClick={() => setView('oncall')} />
       </div>
       <div key={currentId} className="space-enter flex-1 overflow-auto px-2 pb-2">
         <div
@@ -328,6 +330,19 @@ function UpdateBanner(): React.JSX.Element | null {
         </>
       )}
     </div>
+  )
+}
+
+/** On call entry: shows how many incidents wait for you. */
+function OnCallButton({ active, onClick }: { active: boolean; onClick: () => void }): React.JSX.Element {
+  const state = useOnCall((s) => s.state)
+  useEffect(() => subscribeOnCall(), [])
+  const open = state?.incidents.filter((i) => i.status === 'new' || i.status === 'open').length ?? 0
+  return (
+    <button onClick={onClick} className={clsx('mb-2 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] font-medium', active ? 'bg-panel-2' : 'hover:bg-panel-2/60')}>
+      <Siren size={14} className={state?.running ? 'text-accent' : 'text-muted'} /> On call
+      {open > 0 && <span className="ml-auto rounded-full bg-warn/20 px-1.5 text-[10px] font-semibold text-warn">{open}</span>}
+    </button>
   )
 }
 

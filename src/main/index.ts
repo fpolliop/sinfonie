@@ -5,6 +5,8 @@ import { registerIpc } from './ipc'
 import { startUpdateChecks } from './services/updates'
 import * as browser from './services/browser/service'
 import * as images from './services/images'
+import * as slack from './services/slack'
+import * as oncall from './services/oncall/service'
 import { installCrashHandlers, rendererConsoleError, logError, startUsagePings } from './services/telemetry'
 import { Menu, nativeImage } from 'electron'
 import { checkForUpdate } from './services/updates'
@@ -98,6 +100,34 @@ installCrashHandlers()
 // A separate data folder, e.g. to try the app as a new user: SINFONIE_USER_DATA=/tmp/sinfonie-fresh pnpm dev
 if (process.env.SINFONIE_USER_DATA) app.setPath('userData', process.env.SINFONIE_USER_DATA)
 images.registerScheme()
+// sinfonie:// links: the Slack OAuth callback on sinfonie.dev bounces the code back through one.
+if (!app.isDefaultProtocolClient('sinfonie')) app.setAsDefaultProtocolClient('sinfonie')
+function handleDeepLink(raw: string): void {
+  try {
+    const u = new URL(raw)
+    if (u.host === 'oauth' && u.pathname === '/slack') {
+      const code = u.searchParams.get('code')
+      const err = u.searchParams.get('error')
+      if (err) logError('slack:oauth', new Error(err))
+      if (code)
+        void slack
+          .finishAuth(code)
+          .then(() => oncall.reconcile())
+          .catch((e) => logError('slack:oauth', e))
+      const win = BrowserWindow.getAllWindows()[0]
+      if (win) {
+        win.show()
+        win.focus()
+      }
+    }
+  } catch (e) {
+    logError('deep-link', e, { raw })
+  }
+}
+app.on('open-url', (e, url) => {
+  e.preventDefault()
+  handleDeepLink(url)
+})
 
 app.whenReady().then(() => {
   images.registerProtocol()

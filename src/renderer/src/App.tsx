@@ -4,6 +4,8 @@ import { useChat } from '@/stores/chat'
 import { useScripts } from '@/stores/scripts'
 import { Sidebar } from './components/Sidebar'
 import { WorkspaceView } from './components/WorkspaceView'
+import { OnCallView } from './components/OnCallView'
+import { useOnCall } from './stores/oncall'
 import { NewWorkspaceDialog } from './components/NewWorkspaceDialog'
 import { SettingsWindow } from './components/SettingsWindow'
 import { PermissionPrompt } from './components/PermissionPrompt'
@@ -30,6 +32,14 @@ export default function App(): React.JSX.Element {
 
   useEffect(() => api.on('ui:openFeedback', ({ tab }) => setFeedbackDialog(tab)), [setFeedbackDialog])
   useEffect(() => api.on('ui:openOnboarding', ({ kind }) => setOnboarding(kind)), [setOnboarding])
+  useEffect(
+    () =>
+      api.on('ui:openOnCall', ({ incidentId }) => {
+        useApp.getState().setView('oncall')
+        if (incidentId) useOnCall.getState().select(incidentId)
+      }),
+    []
+  )
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -70,7 +80,7 @@ export default function App(): React.JSX.Element {
     <div className="flex h-full">
       <Sidebar />
       <main className="flex min-w-0 flex-1 flex-col">
-        {view === 'reviews' ? <ReviewCockpit /> : selectedId ? <WorkspaceView key={selectedId} workspaceId={selectedId} /> : <EmptyState />}
+        {view === 'reviews' ? <ReviewCockpit /> : view === 'oncall' ? <OnCallView /> : selectedId ? <WorkspaceView key={selectedId} workspaceId={selectedId} /> : <EmptyState />}
       </main>
       {showNewWorkspace && <NewWorkspaceDialog onClose={() => setShowNewWorkspace(false)} />}
       {settingsTarget && <SettingsWindow target={settingsTarget} onClose={closeSettings} />}

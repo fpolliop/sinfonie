@@ -457,6 +457,8 @@ export interface Settings {
   resources?: ResourceSettings
   /** Expose browser_evaluate (arbitrary JavaScript in pages) to agents. Off by default. */
   browserEvaluate?: boolean
+  slack?: SlackConnection
+  oncall?: OnCallSettings
 }
 
 /** A session note or todo on a workspace. The orchestrator can read and edit them too. */
@@ -800,6 +802,95 @@ export interface ErrorEntry {
   message: string
   stack?: string
   extra?: string
+}
+
+// ---- On call ----
+
+export interface SlackConnection {
+  connected: boolean
+  connectedAt?: string
+  teamName?: string
+  userName?: string
+  userId?: string
+  /** A Slack app client id/secret is stored (Slack has no dynamic client registration). */
+  hasClient: boolean
+  clientId?: string
+}
+export interface OnCallChannel {
+  id: string
+  name: string
+  /** support: human requests, each top-level message is a ticket. alerts: monitoring posts; "resolved" messages close incidents. */
+  kind: 'support' | 'alerts'
+}
+export interface OnCallSettings {
+  enabled: boolean
+  /** Space whose repositories the triage agent may read. */
+  spaceId?: string
+  channels: OnCallChannel[]
+  pollSeconds: number
+  model?: string
+  claudeAccountId?: string
+  maxTriagesPerHour: number
+  /** Free text: services, owners, runbook pointers, what normal looks like. */
+  context: string
+}
+export type IncidentStatus = 'new' | 'triaging' | 'open' | 'waiting' | 'resolved' | 'dismissed'
+export type Severity = 'low' | 'medium' | 'high' | 'critical'
+export interface IncidentMessage {
+  ts: string
+  user: string
+  userName?: string
+  text: string
+}
+export interface TriageReport {
+  summary: string
+  severity: Severity
+  category: 'customer' | 'bug' | 'infra' | 'question' | 'noise'
+  likelyCause: string
+  evidence: string[]
+  nextSteps: string[]
+  customerReply?: string
+  needsHuman: boolean
+  confidence: 'low' | 'medium' | 'high'
+}
+export interface Proposal {
+  id: string
+  kind: 'slack_reply'
+  channelId: string
+  threadTs: string
+  text: string
+  status: 'proposed' | 'sent' | 'dismissed'
+  createdAt: string
+  sentAt?: string
+}
+export interface Incident {
+  id: string
+  source: 'slack'
+  channelId: string
+  channelName: string
+  kind: 'support' | 'alerts'
+  threadTs: string
+  permalink?: string
+  title: string
+  messages: IncidentMessage[]
+  status: IncidentStatus
+  severity?: Severity
+  report?: TriageReport
+  proposals: Proposal[]
+  notes: { at: string; role: 'user' | 'agent' | 'system'; text: string }[]
+  costUsd: number
+  createdAt: string
+  updatedAt: string
+  triagedAt?: string
+  error?: string
+}
+export interface OnCallState {
+  running: boolean
+  lastPollAt?: string
+  lastError?: string
+  incidents: Incident[]
+  triagesThisHour: number
+  triaging: string | null
 }
 
 export interface BrowserDownload {

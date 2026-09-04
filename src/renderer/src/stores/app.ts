@@ -3,7 +3,7 @@ import type { Label, Repo, Settings, Space, StoreData, Workspace } from '@shared
 import { api } from '@/lib/api'
 
 export type Tab = 'chat' | 'changes' | 'prs' | 'terminal' | 'run' | 'browser'
-export type AppPage = 'general' | 'spaces' | 'repos' | 'providers' | 'accounts' | 'logins' | 'crew' | 'resources' | 'mcp' | 'jira' | 'feedback' | 'about'
+export type AppPage = 'general' | 'spaces' | 'repos' | 'providers' | 'accounts' | 'logins' | 'crew' | 'resources' | 'oncall' | 'mcp' | 'jira' | 'feedback' | 'about'
 export type SpacePage = 'general' | 'repos' | 'crew' | 'mcp' | 'jira' | 'github'
 export type SettingsTarget = { scope: 'app'; page: AppPage } | { scope: 'space'; spaceId: string; page: SpacePage }
 
@@ -35,7 +35,7 @@ interface AppState {
   workspaces: Workspace[]
   settings: Settings
   selectedId: string | null
-  view: 'workspace' | 'reviews'
+  view: 'workspace' | 'reviews' | 'oncall'
   tab: Tab
   showNewWorkspace: boolean
   /** The open settings page, or null when the window is closed. */
@@ -57,7 +57,7 @@ interface AppState {
   load: () => Promise<void>
   applyStore: (d: StoreData) => void
   select: (id: string | null) => void
-  setView: (v: 'workspace' | 'reviews') => void
+  setView: (v: 'workspace' | 'reviews' | 'oncall') => void
   setTab: (t: Tab) => void
   setShowNewWorkspace: (v: boolean, spaceId?: string) => void
   /** Kept for older call sites: opens Application → General. */
@@ -138,7 +138,7 @@ export const useApp = create<AppState>((set, get) => ({
   },
   workspaces: [],
   settings: { workspacesRoot: '', basePort: 55000, model: 'claude-opus-5', permissionMode: 'default', jira: { connected: false, siteUrl: '', email: '', hasToken: false, defaultJql: '' }, claudeAccounts: [{ id: 'default', name: 'Default', configDir: null }], defaultClaudeAccountId: 'default', agents: [] },
-  view: (localStorage.getItem('orchestra.view') as 'workspace' | 'reviews') ?? 'workspace',
+  view: (localStorage.getItem('orchestra.view') as 'workspace' | 'reviews' | 'oncall') ?? 'workspace',
   selectedId: localStorage.getItem('orchestra.selected'),
   tab: 'chat',
   showNewWorkspace: false,

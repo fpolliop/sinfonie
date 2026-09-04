@@ -39,7 +39,15 @@
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.inherit.plist",
-      "notarize": true
+      "notarize": true,
+      "protocols": [
+        {
+          "name": "Sinfonie",
+          "schemes": [
+            "sinfonie"
+          ]
+        }
+      ]
     },
     "asarUnpack": [
       "node_modules/node-pty/**",

@@ -41,6 +41,8 @@ import * as browser from './services/browser/service'
 import * as browserHttp from './services/browser/http'
 import * as workspaceTools from './services/workspace-tools'
 import { saveImages } from './services/images'
+import * as slack from './services/slack'
+import * as oncall from './services/oncall/service'
 
 function send<C extends keyof SinfonieEvents>(channel: C, payload: SinfonieEvents[C]): void {
   for (const win of BrowserWindow.getAllWindows()) win.webContents.send(channel, payload)
@@ -71,7 +73,11 @@ export function registerIpc(): void {
   workspaceTools.setScriptEmitter(emitScript)
 
   handle('store:get', () => getStore().public())
-  handle('settings:update', (patch) => getStore().update((d) => Object.assign(d.settings, patch)).settings)
+  handle('settings:update', (patch) => {
+    const out = getStore().update((d) => Object.assign(d.settings, patch)).settings
+    if ('oncall' in patch) oncall.reconcile()
+    return out
+  })
 
   // ---- spaces ----
   handle('spaces:create', (name) => {
@@ -439,6 +445,36 @@ export function registerIpc(): void {
     busyCount: () => getStore().get().workspaces.filter((w) => agent.isBusy(w.id)).length,
     isBusy: (workspaceId) => agent.isBusy(workspaceId)
   })
+  // ---- on call ----
+  oncall.setEmitters(
+    (s) => send('oncall:changed', s),
+    (incidentId) => send('ui:openOnCall', { incidentId })
+  )
+  handle('oncall:state', () => oncall.state())
+  handle('oncall:slackSetClient', (id, secret) => slack.setClient(id, secret))
+  handle('oncall:slackConnect', () => slack.startAuth())
+  handle('oncall:slackFinish', async (code) => {
+    const c = await slack.finishAuth(code)
+    oncall.reconcile()
+    return c
+  })
+  handle('oncall:slackDisconnect', () => {
+    const c = slack.disconnect()
+    oncall.reconcile()
+    return c
+  })
+  handle('oncall:slackChannels', (q) => slack.listChannels(q))
+  handle('oncall:pollNow', () => oncall.pollOnce())
+  handle('oncall:triage', (id) => oncall.enqueueTriage(id))
+  handle('oncall:setStatus', (id, status) => oncall.setStatus(id, status))
+  handle('oncall:setSeverity', (id, sev) => oncall.setSeverity(id, sev))
+  handle('oncall:approve', (id, pid, text) => oncall.approve(id, pid, text))
+  handle('oncall:dismissProposal', (id, pid) => oncall.dismissProposal(id, pid))
+  handle('oncall:addProposal', (id, text) => oncall.addProposal(id, text))
+  handle('oncall:ask', (id, q) => oncall.ask(id, q))
+  handle('oncall:remove', (id) => oncall.remove(id))
+  setTimeout(() => oncall.reconcile(), 5_000)
+
   // ---- workspace browser ----
   browser.setEmitters(
     (s) => send('browser:state', s),
@@ -525,6 +561,7 @@ export function registerIpc(): void {
   handle('terminal:dispose', (tid) => terminal.disposeTerminal(tid))
 
   app.on('before-quit', () => {
+    oncall.stop()
     browserHttp.stop()
     browser.closeAll()
     resources.stop()
