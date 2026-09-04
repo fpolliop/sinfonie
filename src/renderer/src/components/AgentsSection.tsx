@@ -1,11 +1,13 @@
 import React, { useState } from 'react'
 import clsx from 'clsx'
-import { Plus, Trash2, Users, RotateCcw, ChevronRight } from 'lucide-react'
+import { Plus, Trash2, Users, RotateCcw, ChevronRight, Sparkles } from 'lucide-react'
 import { Badge, Button, Field, inputCls } from './ui'
-import { DEFAULT_CREW, PERMISSION_MODES, type AgentSpec } from '@shared/types'
-import { ModelSelect } from './ModelSelect'
-import { NativeModelSelect } from './EngineSelect'
+import { DEFAULT_CREW, PERMISSION_MODES, type AgentSpec, type ProviderConfig } from '@shared/types'
+import { CrewModelSelect, modelLabel } from './ModelSelect'
+import { SuggestCrewDialog } from './SuggestCrewDialog'
 import { useApp } from '@/stores/app'
+
+const EMPTY_PROVIDERS: ProviderConfig[] = []
 
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
 
@@ -13,10 +15,14 @@ const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
  * Edits a crew: the subagents the orchestrator can delegate to. Used for the app
  * defaults in Settings and, per space, in the space settings.
  */
-export function AgentsSection({ agents, onChange, title, intro, inherited, onResetToDefaults, useCrew, engine: engineProp }: { agents: AgentSpec[]; onChange: (a: AgentSpec[]) => void; title: string; intro: string; inherited?: boolean; onResetToDefaults?: () => void; useCrew?: { value: boolean; onToggle: (v: boolean) => void }; engine?: string }): React.JSX.Element {
+export function AgentsSection({ agents, onChange, title, intro, inherited, onResetToDefaults, useCrew, engine: engineProp, spaceId, orchestrator }: { agents: AgentSpec[]; onChange: (a: AgentSpec[]) => void; title: string; intro: string; inherited?: boolean; onResetToDefaults?: () => void; useCrew?: { value: boolean; onToggle: (v: boolean) => void }; engine?: string; spaceId?: string; /** The chat model, so Suggest can propose one for it too. */ orchestrator?: { value: string; label: string; onChange: (model: string) => void } }): React.JSX.Element {
   const [open, setOpen] = useState<string | null>(null)
+  const [suggesting, setSuggesting] = useState(false)
   const defaultEngine = useApp((s) => s.settings.engine ?? 'claude-code')
+  const providersRaw = useApp((s) => s.settings.providers)
+  const providers = providersRaw ?? EMPTY_PROVIDERS
   const engine = engineProp ?? defaultEngine
+  void engine
   const update = (id: string, patch: Partial<AgentSpec>): void => onChange(agents.map((a) => (a.id === id ? { ...a, ...patch } : a)))
   const add = (): void => {
     const id = crypto.randomUUID().slice(0, 8)
@@ -33,6 +39,9 @@ export function AgentsSection({ agents, onChange, title, intro, inherited, onRes
               <RotateCcw size={12} /> Reset to defaults
             </Button>
           )}
+          <Button size="sm" variant="ghost" onClick={() => setSuggesting(true)} title="Let Claude pick a model for the orchestrator and each agent from every model you can use">
+            <Sparkles size={12} /> Suggest models
+          </Button>
           <Button size="sm" onClick={add}>
             <Plus size={12} /> Add agent
           </Button>
@@ -60,7 +69,7 @@ export function AgentsSection({ agents, onChange, title, intro, inherited, onRes
                 <button className="flex min-w-0 flex-1 items-center gap-2 text-left" onClick={() => setOpen(isOpen ? null : a.id)}>
                   <ChevronRight size={12} className={clsx('shrink-0 transition-transform', isOpen && 'rotate-90')} />
                   <span className="text-[13px] font-medium">{a.name}</span>
-                  <Badge tone="accent">{a.model}</Badge>
+                  <Badge tone="accent">{modelLabel(a.model, providers)}</Badge>
                   {a.effort && <Badge>{a.effort}</Badge>}
                   {a.tools?.length ? <Badge>{a.tools.length} tools</Badge> : <Badge>all tools</Badge>}
                   <span className="truncate text-[11px] text-muted">{a.description}</span>
@@ -75,8 +84,8 @@ export function AgentsSection({ agents, onChange, title, intro, inherited, onRes
                     <Field label="Name" hint="Also the type the orchestrator uses to call it.">
                       <input className={inputCls} value={a.name} onChange={(e) => update(a.id, { name: e.target.value.replace(/\s+/g, '-').toLowerCase() })} />
                     </Field>
-                    <Field label="Model" hint={engine === 'native' ? 'provider/model from Settings' : 'Claude alias or id'}>
-                      {engine === 'native' ? <NativeModelSelect value={a.model} onChange={(model) => update(a.id, { model })} /> : <ModelSelect value={a.model} onChange={(model) => update(a.id, { model })} />}
+                    <Field label="Model" hint="Any vendor: Claude, a signed-in agent, or an API provider.">
+                      <CrewModelSelect value={a.model} onChange={(model) => update(a.id, { model })} />
                     </Field>
                     <Field label="Effort">
                       <select className={inputCls} value={a.effort ?? ''} onChange={(e) => update(a.id, { effort: (e.target.value || undefined) as AgentSpec['effort'] })}>
@@ -120,6 +129,18 @@ export function AgentsSection({ agents, onChange, title, intro, inherited, onRes
         })}
         {agents.length === 0 && <div className="rounded-md border border-dashed border-border p-3 text-center text-[12px] text-muted">No agents. The chat model works alone.</div>}
       </div>
+      {suggesting && (
+        <SuggestCrewDialog
+          spaceId={spaceId}
+          agents={agents}
+          orchestrator={orchestrator ? { value: orchestrator.value, label: orchestrator.label } : undefined}
+          onApply={(next, orchestratorModel) => {
+            onChange(next)
+            if (orchestratorModel && orchestrator) orchestrator.onChange(orchestratorModel)
+          }}
+          onClose={() => setSuggesting(false)}
+        />
+      )}
     </section>
   )
 }

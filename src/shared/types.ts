@@ -169,6 +169,57 @@ export function parseModelRef(ref: string): { providerId: string; modelId: strin
   return { providerId: ref.slice(0, i), modelId: ref.slice(i + 1) }
 }
 
+/**
+ * Every model a crew member can run on, in one vocabulary:
+ * - "sonnet" or "claude-opus-5": a Claude model through Claude Code and your Claude login;
+ * - "<providerId>/<modelId>": an API-key provider from Model providers, through the native loop;
+ * - "codex/<model>", "gemini/<model>", "grok/<model>": a vendor agent with its own login.
+ */
+export type ModelKind = 'claude' | 'provider' | 'agent'
+export type AgentEngine = Extract<Engine, 'codex' | 'gemini' | 'grok'>
+export const AGENT_ENGINES: AgentEngine[] = ['codex', 'gemini', 'grok']
+export function classifyModel(ref: string): { kind: ModelKind; modelId: string; providerId?: string; engine?: AgentEngine } {
+  const p = parseModelRef(ref)
+  if (!p) return { kind: 'claude', modelId: ref }
+  if ((AGENT_ENGINES as string[]).includes(p.providerId)) return { kind: 'agent', modelId: p.modelId, engine: p.providerId as AgentEngine }
+  return { kind: 'provider', modelId: p.modelId, providerId: p.providerId }
+}
+
+/** Claude models Claude Code accepts, with list prices per million tokens (input / output). */
+export const CLAUDE_MODELS: { id: string; label: string; alias?: boolean; price?: [number, number] }[] = [
+  { id: 'fable', label: 'Claude Fable, most capable', alias: true, price: [10, 50] },
+  { id: 'opus', label: 'Claude Opus', alias: true, price: [5, 25] },
+  { id: 'sonnet', label: 'Claude Sonnet', alias: true, price: [2, 10] },
+  { id: 'haiku', label: 'Claude Haiku, fastest and cheapest', alias: true, price: [1, 5] },
+  { id: 'claude-fable-5-1', label: 'Claude Fable 5.1', price: [10, 50] },
+  { id: 'claude-opus-5', label: 'Claude Opus 5', price: [5, 25] },
+  { id: 'claude-opus-4-8', label: 'Claude Opus 4.8', price: [5, 25] },
+  { id: 'claude-opus-4-7', label: 'Claude Opus 4.7', price: [5, 25] },
+  { id: 'claude-opus-4-6', label: 'Claude Opus 4.6', price: [5, 25] },
+  { id: 'claude-sonnet-5', label: 'Claude Sonnet 5', price: [2, 10] },
+  { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', price: [3, 15] },
+  { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5', price: [1, 5] }
+]
+
+/** One model the user can pick, with where it comes from and whether it is usable right now. */
+export interface ModelInventoryItem {
+  ref: string
+  kind: ModelKind
+  /** "Claude (your Claude login)", the provider's name, or "Codex (ChatGPT login)". */
+  source: string
+  label: string
+  /** "$2 / $10 per M tokens" when known; "subscription" for vendor agents. */
+  price?: string
+  available: boolean
+  note?: string
+}
+
+export interface CrewSuggestion {
+  orchestrator: { model: string; why: string }
+  agents: { id: string; name: string; model: string; effort?: AgentSpec['effort']; why: string }[]
+  notes?: string
+}
+
 /** A group of workspaces and repositories, e.g. "Personal", "Work", "Client". */
 export interface Space {
   id: string

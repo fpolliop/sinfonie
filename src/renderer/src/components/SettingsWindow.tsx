@@ -200,7 +200,20 @@ function AppPageView({ page }: { page: AppPage }): React.JSX.Element {
     case 'logins':
       return <AccountsPage />
     case 'crew':
-      return <AgentsSection title="Default crew" intro="Orchestrator = the chat model; these handle delegated subtasks with cheaper or more focused models. Spaces inherit this list until they edit their own." agents={settings.agents} onChange={(agents) => go(() => update({ agents }))} onResetToDefaults={() => go(() => update({ agents: DEFAULT_CREW }))} />
+      return (
+        <AgentsSection
+          title="Default crew"
+          intro="Orchestrator = the chat model; these handle delegated subtasks on any vendor's model. Spaces inherit this list until they edit their own."
+          agents={settings.agents}
+          onChange={(agents) => go(() => update({ agents }))}
+          onResetToDefaults={() => go(() => update({ agents: DEFAULT_CREW }))}
+          orchestrator={{
+            value: (settings.engine ?? 'claude-code') === 'native' ? settings.nativeModel ?? '' : (settings.engine ?? 'claude-code') === 'claude-code' ? settings.model : ((settings[`${settings.engine}Model` as 'codexModel'] as string | undefined) ?? ''),
+            label: 'app default',
+            onChange: (model) => go(() => update((settings.engine ?? 'claude-code') === 'native' ? { nativeModel: model } : (settings.engine ?? 'claude-code') === 'claude-code' ? { model } : { [`${settings.engine}Model`]: model }))
+          }}
+        />
+      )
     case 'mcp':
       return <McpSection title="MCP servers for every space" intro="Available in all workspaces. Add space-specific servers on a space’s MCP page." servers={settings.mcpServers ?? []} onChange={(mcpServers) => go(() => update({ mcpServers }))} strict={{ value: Boolean(settings.strictMcp), onToggle: (v) => go(() => update({ strictMcp: v })) }} />
     case 'jira':
@@ -441,6 +454,8 @@ function SpacePageView({ space, page }: { space: Space; page: SpacePage }): Reac
           intro="Subagents the orchestrator can delegate to. Cheaper models for exploration and tests, frontier models for planning and review. Applies to sessions started after the change."
           agents={space.agents ?? settings.agents}
           engine={engine}
+          spaceId={space.id}
+          orchestrator={{ value: space.model ?? '', label: 'app default', onChange: (model) => go(() => upd({ model })) }}
           inherited={!space.agents}
           onChange={(agents) => go(() => upd({ agents }))}
           onResetToDefaults={() => go(() => upd({ agents: DEFAULT_CREW }))}

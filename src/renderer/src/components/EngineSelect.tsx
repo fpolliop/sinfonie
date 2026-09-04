@@ -8,9 +8,9 @@ const EMPTY_PROVIDERS: ProviderConfig[] = []
 export const ENGINES: { id: Engine; label: string; hint: string }[] = [
   { id: 'claude-code', label: 'Claude Code', hint: 'Anthropic’s agent runtime with your Claude login. Claude models only.' },
   { id: 'native', label: 'Sinfonie native', hint: 'Sinfonie’s own agent loop. Any provider: Anthropic API, OpenAI, Gemini, DeepSeek, local models.' },
-  { id: 'codex', label: 'Codex (OpenAI)', hint: 'OpenAI’s coding agent with your ChatGPT login. Set up under Agent logins.' },
-  { id: 'gemini', label: 'Gemini CLI (Google)', hint: 'Google’s coding agent. API key login. Set up under Agent logins.' },
-  { id: 'grok', label: 'Grok Build (xAI)', hint: 'xAI’s coding agent with your grok.com login. Set up under Agent logins.' }
+  { id: 'codex', label: 'Codex (OpenAI)', hint: 'OpenAI’s coding agent with your ChatGPT login. Set up under Accounts.' },
+  { id: 'gemini', label: 'Gemini CLI (Google)', hint: 'Google’s coding agent. API key login. Set up under Accounts.' },
+  { id: 'grok', label: 'Grok Build (xAI)', hint: 'xAI’s coding agent with your grok.com login. Set up under Accounts.' }
 ]
 
 export function EngineSelect({ value, onChange, allowDefault }: { value: string; onChange: (e: string) => void; allowDefault?: boolean }): React.JSX.Element {

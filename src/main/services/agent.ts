@@ -1,4 +1,7 @@
-import { query, type Options, type Query, type SDKMessage, type SDKUserMessage, type PermissionResult } from '@anthropic-ai/claude-agent-sdk'
+import { query, createSdkMcpServer, tool as sdkTool, type Options, type Query, type SDKMessage, type SDKUserMessage, type PermissionResult } from '@anthropic-ai/claude-agent-sdk'
+import { z } from 'zod'
+import { classifyModel } from '@shared/types'
+import { runWorker } from './crew/workers'
 import { nanoid } from 'nanoid'
 import type { AgentEvent, PermissionMode, PermissionRequest, Question, SubagentStep, Workspace } from '@shared/types'
 import { askPermission, askQuestion } from './interaction'
@@ -33,6 +36,8 @@ interface Session {
   interrupted: boolean
   /** Names of the MCP servers Sinfonie passed to this session. */
   mcpNames: string[]
+  /** Pending tool_use ids per external crew member, so worker activity attaches to the right call. */
+  crewCalls: Map<string, string[]>
 }
 
 /** Everything the SDK sends (minus streaming deltas) goes to a per-workspace log for diagnosis. */
@@ -153,12 +158,19 @@ async function mcpServersFor(ws: Workspace): Promise<Record<string, NonNullable<
   return out
 }
 
-/** The crew as SDK agent definitions, plus the paragraph that tells the orchestrator how to use it. */
-function crewFor(ws: Workspace): { agents: NonNullable<Options['agents']>; prompt: string } {
+/**
+ * The crew for Claude Code: members on Claude models become SDK subagents; members on other
+ * vendors (API providers, Codex, Gemini, Grok) become tools of an in-process MCP server named
+ * "crew", each running through the shared workers. Plus the paragraph that tells the
+ * orchestrator how to use them.
+ */
+function crewFor(ws: Workspace, emit: EmitEvent, crewCalls: Map<string, string[]>): { agents: NonNullable<Options['agents']>; prompt: string; server?: NonNullable<Options['mcpServers']>[string] } {
   const { settings, spaces } = getStore().get()
   const space = spaces.find((s) => s.id === ws.spaceId)
   if (space?.useCrew === false) return { agents: {}, prompt: '' }
-  const specs = (space?.agents ?? settings.agents).filter((a) => a.enabled && a.name.trim())
+  const all = (space?.agents ?? settings.agents).filter((a) => a.enabled && a.name.trim())
+  const specs = all.filter((a) => classifyModel(a.model).kind === 'claude')
+  const external = all.filter((a) => classifyModel(a.model).kind !== 'claude')
   const agents: NonNullable<Options['agents']> = {}
   for (const a of specs) {
     agents[a.name] = {
@@ -172,17 +184,48 @@ function crewFor(ws: Workspace): { agents: NonNullable<Options['agents']>; promp
       ...(a.permissionMode ? { permissionMode: a.permissionMode } : {})
     }
   }
-  if (specs.length === 0) return { agents: {}, prompt: '' }
+  if (all.length === 0) return { agents: {}, prompt: '' }
+  let server: NonNullable<Options['mcpServers']>[string] | undefined
+  if (external.length) {
+    const mode = ws.permissionMode ?? space?.permissionMode ?? settings.permissionMode
+    server = createSdkMcpServer({
+      name: 'crew',
+      tools: external.map((spec) =>
+        sdkTool(
+          spec.name,
+          `Delegate to the ${spec.name} crew member (${spec.model}): ${spec.description}`,
+          { description: z.string().describe('3-6 word summary shown to the user'), prompt: z.string().describe('The full task: worktree path, exact goal, what done looks like') },
+          async ({ prompt }) => {
+            const parentToolUseId = crewCalls.get(spec.name)?.shift() ?? nanoid(8)
+            try {
+              const report = await runWorker({
+                spec,
+                ws: getWorkspace(ws.id),
+                prompt,
+                mode,
+                onStep: (step, model) => emit({ type: 'subagent', workspaceId: ws.id, parentToolUseId, model, tools: step.kind === 'tool' ? [step.name ?? ''] : [], steps: [step], ...(step.kind === 'text' ? { text: step.detail.slice(0, 400) } : {}) })
+              })
+              return { content: [{ type: 'text', text: report }] }
+            } catch (err) {
+              return { content: [{ type: 'text', text: `${spec.name} failed: ${err instanceof Error ? err.message : String(err)}` }], isError: true }
+            }
+          }
+        )
+      )
+    })
+  }
   const prompt = [
     '',
-    'You are the orchestrator of a crew. Keep planning, judgment and integration yourself, and delegate the rest with the Agent tool (subagent_type = the crew member name). Reading more than a couple of files to answer a question is a job for the explorer, not you: it is far cheaper. Running tests or type-checks is a job for the tester. A well-specified change inside one repository goes to the implementer. Before committing, have the reviewer look at the diff. Your crew:',
-    ...specs.map((a) => `- ${a.name} (${a.model}${a.effort ? `, ${a.effort} effort` : ''}): ${a.description}`),
+    'You are the orchestrator of a crew. Keep planning, judgment and integration yourself, and delegate the rest. Reading more than a couple of files to answer a question is a job for the explorer, not you: it is far cheaper. Running tests or type-checks is a job for the tester. A well-specified change inside one repository goes to the implementer. Before committing, have the reviewer look at the diff. Your crew:',
+    ...specs.map((a) => `- ${a.name} (${a.model}${a.effort ? `, ${a.effort} effort` : ''}): ${a.description}. Call it with the Agent tool, subagent_type "${a.name}".`),
+    ...external.map((a) => `- ${a.name} (${a.model}): ${a.description}. Call it with its own tool mcp__crew__${a.name} (description + prompt); it runs on another vendor's model and returns a report.`),
     'When delegating, state the worktree path, the exact goal, and what a finished answer looks like. Run independent delegations in parallel. Never let two agents edit the same repository at the same time.'
   ].join('\n')
-  return { agents, prompt }
+  return { agents, prompt, server }
 }
 
-function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission: EmitPermission, mcpServers: Record<string, NonNullable<Options['mcpServers']>[string]>): Session {
+function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission: EmitPermission, mcpServersIn: Record<string, NonNullable<Options['mcpServers']>[string]>): Session {
+  let mcpServers = mcpServersIn
   const existing = sessions.get(workspaceId)
   if (existing) return existing
 
@@ -228,7 +271,9 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
   }
 
   const mode = ws.permissionMode ?? space?.permissionMode ?? settings.permissionMode
-  const crew = crewFor(ws)
+  const crewCalls = new Map<string, string[]>()
+  const crew = crewFor(ws, emit, crewCalls)
+  if (crew.server) mcpServers = { ...mcpServers, crew: crew.server }
   const options: Options = {
     cwd: primary.worktreePath,
     additionalDirectories: others,
@@ -264,7 +309,7 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
     if (stderrLines.length > 40) stderrLines.splice(0, stderrLines.length - 40)
   }
   const q = query({ prompt: input.iterable, options })
-  const session: Session = { workspaceId, q, push: input.push, end: input.end, abort, busy: false, stderr: stderrLines, queue: [], interrupted: false, mcpNames: Object.keys(mcpServers) }
+  const session: Session = { workspaceId, q, push: input.push, end: input.end, abort, busy: false, stderr: stderrLines, queue: [], interrupted: false, mcpNames: Object.keys(mcpServers).filter((n) => n !== 'crew'), crewCalls }
   sessions.set(workspaceId, session)
   void pump(session, emit)
   return session
@@ -366,6 +411,10 @@ async function pump(session: Session, emit: EmitEvent): Promise<void> {
             if (block.type === 'tool_use') {
               turnTools++
               toolIds.set(ev.index, block.id)
+              if (block.name.startsWith('mcp__crew__')) {
+                const n = block.name.slice('mcp__crew__'.length)
+                session.crewCalls.set(n, [...(session.crewCalls.get(n) ?? []), block.id])
+              }
               toolJson.set(ev.index, '')
               emit({ type: 'tool_start', workspaceId, itemId, toolUseId: block.id, name: block.name })
             }

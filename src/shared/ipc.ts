@@ -1,4 +1,4 @@
-import type { LoginProgress,
+import type { LoginProgress, ModelInventoryItem, CrewSuggestion,
   AgentEvent,
   ChatItem,
   JiraIssue,
@@ -128,6 +128,12 @@ export interface SinfonieInvoke {
 
   /** Launch the agent, read its auth methods, models and modes; tells whether it is usable now. */
   'acp:probe': (engine: Engine, accountId?: string) => AcpProbe
+  /** Probe results already collected this app run, without launching anything. */
+  'acp:probes': () => Partial<Record<Engine, AcpProbe>>
+  /** Every model the crew can use, from every source. */
+  'crew:inventory': () => ModelInventoryItem[]
+  /** Ask Claude to assign a model to the orchestrator and each crew member, given the inventory. */
+  'crew:suggest': (spaceId?: string) => CrewSuggestion
   /** Run the agent's own authentication method (browser or terminal flow). Returns the terminal command when one must be run instead. */
   'acp:authenticate': (engine: Engine, methodId: string) => { ok: boolean; terminalCommand?: string; error?: string }
   /** A shell already running `command`, for interactive logins. */

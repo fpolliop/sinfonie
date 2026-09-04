@@ -11,6 +11,7 @@ import { parseModelRef } from '@shared/types'
 import { getStore } from '../../store'
 import { getWorkspace, patchWorkspace } from '../workspaces'
 import { buildTools, type ToolContext } from './tools'
+import { runWorker } from '../crew/workers'
 import { askPermission } from '../interaction'
 import { estimateCost, resolveModel } from '../providers'
 import { isReadOnlyCommand } from '../readonly'
@@ -137,7 +138,7 @@ async function connectMcp(ws: Workspace, session: NativeSession): Promise<{ tool
 
 // ---------- crew as a single Agent tool ----------
 
-function crewTool(ws: Workspace, crew: AgentSpec[], baseCtx: ToolContext, emit: Emit) {
+function crewTool(ws: Workspace, crew: AgentSpec[], baseCtx: ToolContext, emit: Emit, mode: PermissionMode) {
   const byName = new Map(crew.map((a) => [a.name, a]))
   return tool({
     description: `Delegate a task to a crew member. subagent_type is one of: ${crew.map((a) => a.name).join(', ')}. The agent works in the workspace and returns a report.`,
@@ -150,39 +151,19 @@ function crewTool(ws: Workspace, crew: AgentSpec[], baseCtx: ToolContext, emit: 
       void description
       const spec = byName.get(subagent_type)
       if (!spec) return `Unknown crew member "${subagent_type}". Available: ${crew.map((a) => a.name).join(', ')}.`
-      const all = buildTools({ ...baseCtx, signal: abortSignal })
-      const allowed = spec.tools?.length ? new Set(spec.tools.map((t) => t.split('(')[0])) : null
-      const tools: ToolSet = {}
-      for (const [k, v] of Object.entries(all)) if (k !== 'AskUserQuestion' && (!allowed || allowed.has(k))) tools[k] = v
-      const readOnly = allowed ? !allowed.has('Write') && !allowed.has('Edit') : false
-      const sub = new ToolLoopAgent({
-        model: resolveModel(spec.model),
-        instructions: `${spec.prompt}\n\nYou are the "${spec.name}" agent inside workspace "${ws.name}". Worktrees:\n${ws.repos.map((r) => `- ${r.repoName}: ${r.worktreePath}`).join('\n')}\n${readOnly ? 'You are read-only: do not modify files.' : ''}\nFinish with a clear report for the orchestrator.`,
-        tools,
-        stopWhen: stepCountIs(spec.maxTurns ?? 40),
-        toolApproval: ({ toolCall }) => {
-          if (readOnly && toolCall.toolName === 'Bash' && typeof (toolCall.input as { command?: unknown }).command === 'string' && !isReadOnlyCommand((toolCall.input as { command: string }).command)) return { type: 'denied', reason: 'This agent is read-only' }
-          return undefined
-        }
-      })
-      const result = await sub.stream({ prompt, abortSignal })
-      let text = ''
-      const steps: SubagentStep[] = []
-      let modelId = parseModelRef(spec.model)?.modelId
-      for await (const part of result.fullStream) {
-        if (part.type === 'text-delta') text += part.text
-        else if (part.type === 'tool-call') {
-          const i = part.input as Record<string, unknown>
-          const detail = [i.command, i.file_path, i.pattern, i.path].find((v) => typeof v === 'string') as string | undefined
-          steps.push({ kind: 'tool', name: part.toolName, detail: (detail ?? JSON.stringify(i)).slice(0, 200) })
-          emit({ type: 'subagent', workspaceId: ws.id, parentToolUseId: toolCallId, model: modelId, tools: [part.toolName], steps: [steps[steps.length - 1]] })
-        } else if (part.type === 'finish-step') {
-          const u = part.usage
-          addCost(getSession(ws.id), modelId ?? spec.model, u.inputTokens ?? 0, u.outputTokens ?? 0)
-        }
+      try {
+        return await runWorker({
+          spec,
+          ws,
+          prompt,
+          mode,
+          signal: abortSignal ?? baseCtx.signal,
+          onStep: (step, model) => emit({ type: 'subagent', workspaceId: ws.id, parentToolUseId: toolCallId, model, tools: step.kind === 'tool' ? [step.name ?? ''] : [], steps: [step], ...(step.kind === 'text' ? { text: step.detail.slice(0, 400) } : {}) }),
+          onUsage: (modelId, i, o) => addCost(getSession(ws.id), modelId, i, o)
+        })
+      } catch (err) {
+        return `${spec.name} failed: ${err instanceof Error ? err.message : String(err)}`
       }
-      if (text.trim()) emit({ type: 'subagent', workspaceId: ws.id, parentToolUseId: toolCallId, model: modelId, tools: [], text: text.slice(0, 400), steps: [{ kind: 'text', detail: text.slice(0, 600) }] })
-      return text || '(no report)'
     }
   })
 }
@@ -230,9 +211,9 @@ async function runTurn(ws: Workspace, session: NativeSession, emit: Emit): Promi
   session.abort = abort
   const ctx: ToolContext = { workspace: ws, roots: ws.repos.map((r) => r.worktreePath), cwd: primary.worktreePath, signal: abort.signal }
   const builtin = buildTools(ctx)
-  const crew = space?.useCrew === false ? [] : (space?.agents ?? settings.agents).filter((a) => a.enabled && parseModelRef(a.model))
+  const crew = space?.useCrew === false ? [] : (space?.agents ?? settings.agents).filter((a) => a.enabled && a.name.trim())
   const mcp = await connectMcp(ws, session)
-  const tools: ToolSet = { ...builtin, ...mcp.tools, ...(crew.length ? { Agent: crewTool(ws, crew, ctx, emit) } : {}) }
+  const tools: ToolSet = { ...builtin, ...mcp.tools, ...(crew.length ? { Agent: crewTool(ws, crew, ctx, emit, mode) } : {}) }
   const agent = new ToolLoopAgent({
     model: resolveModel(modelRef),
     instructions: systemPrompt(ws, crew, mcp.names),

@@ -34,6 +34,7 @@ import { clearErrors, listErrors, logsDir, sendFeedback } from './services/telem
 import * as interaction from './services/interaction'
 import * as providers from './services/providers'
 import * as acp from './services/acp/engine'
+import * as crewSuggest from './services/crew/suggest'
 
 function send<C extends keyof SinfonieEvents>(channel: C, payload: SinfonieEvents[C]): void {
   for (const win of BrowserWindow.getAllWindows()) win.webContents.send(channel, payload)
@@ -380,6 +381,9 @@ export function registerIpc(): void {
 
   // ---- vendor agents over ACP ----
   handle('acp:probe', (engine, accountId) => acp.probe(engine, accountId))
+  handle('acp:probes', () => acp.probeCache)
+  handle('crew:inventory', () => crewSuggest.inventory())
+  handle('crew:suggest', (spaceId) => crewSuggest.suggest(spaceId))
   handle('acp:authenticate', (engine, methodId) => acp.authenticate(engine, methodId))
   // ---- model providers (native engine) ----
   handle('providers:add', (cfg) => providers.addProvider(cfg))

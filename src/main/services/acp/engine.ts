@@ -5,7 +5,7 @@ import { dirname, isAbsolute, relative, resolve } from 'path'
 import { nanoid } from 'nanoid'
 import { ClientSideConnection, ndJsonStream, type Client } from '@agentclientprotocol/sdk'
 import type * as schema from '@agentclientprotocol/sdk'
-import type { AcpProbe, AgentEvent, Engine, McpServerSpec, PermissionMode, Workspace } from '@shared/types'
+import type { AcpProbe, AgentEvent, Engine, McpServerSpec, PermissionMode, SubagentStep, Workspace } from '@shared/types'
 import { getStore } from '../../store'
 import { accountEnvFor } from '../accounts'
 import { getWorkspace, patchWorkspace } from '../workspaces'
@@ -115,7 +115,16 @@ function accountEnvById(engine: AcpEngine, accountId: string | undefined): NodeJ
   return accountEnvFor(engine, accountId)
 }
 
+/** Last probe per engine this app run, for pickers and the crew inventory. */
+export const probeCache: Partial<Record<Engine, AcpProbe>> = {}
+
 export async function probe(engine: Engine, accountId?: string): Promise<AcpProbe> {
+  const r = await probeUncached(engine, accountId)
+  if (r.installed) probeCache[engine] = r
+  return r
+}
+
+async function probeUncached(engine: Engine, accountId?: string): Promise<AcpProbe> {
   const e = engine as AcpEngine
   if (!PRESETS[e]) return { engine, installed: false, authMethods: [], models: [], modes: [], signedIn: false, error: 'Not an ACP engine' }
   const cwd = getStore().get().settings.workspacesRoot || process.env.HOME || '/'
@@ -360,15 +369,15 @@ async function openSession(workspaceId: string, engine: AcpEngine, emit: Emit): 
   }
   session.sessionId = s.sessionId
   session.modes = s.modes ?? null
-  await applyMode(session, mode)
-  await applyModel(session, s, space?.model || settings[`${engine}Model` as keyof typeof settings] as string | undefined)
+  await applyMode(conn, s.sessionId, s.modes ?? null, mode)
+  await applyModel(conn, s.sessionId, s, space?.model || settings[`${engine}Model` as keyof typeof settings] as string | undefined)
   sessions.set(workspaceId, session)
   return session
 }
 
 /** Map Sinfonie's permission mode onto whatever modes the agent offers. */
-async function applyMode(s: Session, mode: PermissionMode): Promise<void> {
-  const modes = s.modes?.availableModes ?? []
+async function applyMode(conn: ClientSideConnection, sessionId: string, state: schema.SessionModeState | null, mode: PermissionMode): Promise<void> {
+  const modes = state?.availableModes ?? []
   if (modes.length === 0) return
   const find = (re: RegExp): string | undefined => modes.find((m) => re.test(`${m.id} ${m.name}`))?.id
   let target: string | undefined
@@ -376,21 +385,21 @@ async function applyMode(s: Session, mode: PermissionMode): Promise<void> {
   else if (mode === 'bypassPermissions' || mode === 'auto') target = find(/full.?access|yolo|bypass|auto.?accept|dangerous/i) ?? find(/agent|auto/i)
   else if (mode === 'acceptEdits') target = find(/auto.?edit|accept.?edit/i) ?? find(/^agent$|default/i)
   else target = find(/^agent$|default|ask/i)
-  if (target && target !== s.modes?.currentModeId) {
+  if (target && target !== state?.currentModeId) {
     try {
-      await s.conn.setSessionMode({ sessionId: s.sessionId, modeId: target })
+      await conn.setSessionMode({ sessionId, modeId: target })
     } catch (err) {
       logError('acp:setMode', err)
     }
   }
 }
 
-async function applyModel(s: Session, resp: schema.NewSessionResponse, model: string | undefined): Promise<void> {
+async function applyModel(conn: ClientSideConnection, sessionId: string, resp: schema.NewSessionResponse, model: string | undefined): Promise<void> {
   if (!model) return
   const opt = (resp.configOptions ?? []).find((o) => o.type === 'select' && /model/i.test(`${o.id} ${o.name} ${o.category ?? ''}`))
   if (!opt) return
   try {
-    await s.conn.setSessionConfigOption({ sessionId: s.sessionId, configId: opt.id, value: model } as schema.SetSessionConfigOptionRequest)
+    await conn.setSessionConfigOption({ sessionId, configId: opt.id, value: model } as schema.SetSessionConfigOptionRequest)
   } catch (err) {
     logError('acp:setModel', err, { model })
   }
@@ -525,3 +534,79 @@ export function closeAll(): void {
   for (const id of Array.from(sessions.keys())) closeSession(id)
 }
 void run
+
+// ---------- one-shot worker for the crew ----------
+
+export interface AcpWorkerRun {
+  engine: AcpEngine
+  ws: Workspace
+  model: string
+  mode: PermissionMode
+  prompt: string
+  signal?: AbortSignal
+  onStep: (step: SubagentStep) => void
+}
+
+/** Run one task on a vendor agent in a fresh session and return its final text. Tool calls are reported as steps. */
+export async function runWorker(run: AcpWorkerRun): Promise<string> {
+  const { ws, engine } = run
+  const primary = ws.repos.find((r) => r.repoId === ws.primaryRepoId) ?? ws.repos[0]
+  const roots = ws.repos.map((r) => r.worktreePath)
+  let text = ''
+  const seen = new Set<string>()
+  const client = (): Client => ({
+    async sessionUpdate({ update }) {
+      switch (update.sessionUpdate) {
+        case 'agent_message_chunk':
+          if (update.content.type === 'text') text += update.content.text
+          break
+        case 'tool_call': {
+          if (seen.has(update.toolCallId)) break
+          seen.add(update.toolCallId)
+          const i = inputOf(update)
+          const detail = [i.command, i.file_path, i.path, i.pattern, update.title].find((v) => typeof v === 'string') as string | undefined
+          run.onStep({ kind: 'tool', name: toolName(update.kind, update.title, update.name ?? undefined), detail: (detail ?? '').slice(0, 200) })
+          break
+        }
+        default:
+          break
+      }
+    },
+    async requestPermission(p) {
+      const pick = (kinds: schema.PermissionOptionKind[]): string | undefined => kinds.map((k) => p.options.find((o) => o.kind === k)?.optionId).find(Boolean)
+      if (run.mode === 'bypassPermissions' || run.mode === 'auto') return { outcome: { outcome: 'selected', optionId: pick(['allow_once', 'allow_always']) ?? p.options[0]?.optionId } }
+      const tc = p.toolCall
+      const r = await askPermission({ workspaceId: ws.id, toolName: `${engine}: ${toolName(tc.kind ?? undefined, tc.title ?? undefined, tc.name ?? undefined)}`, input: inputOf(tc), canAlwaysAllow: false })
+      const id = r.decision === 'deny' ? pick(['reject_once', 'reject_always']) : pick(['allow_once', 'allow_always'])
+      return { outcome: id ? { outcome: 'selected', optionId: id } : { outcome: 'cancelled' } }
+    },
+    async readTextFile({ path, line, limit }) {
+      if (!within(roots, path)) throw new Error(`Path outside the workspace: ${path}`)
+      const lines = readFileSync(path, 'utf8').split('\n')
+      const start = (line ?? 1) - 1
+      return { content: lines.slice(start, limit ? start + limit : undefined).join('\n') }
+    },
+    async writeTextFile({ path, content }) {
+      if (!within(roots, path)) throw new Error(`Path outside the workspace: ${path}`)
+      mkdirSync(dirname(path), { recursive: true })
+      writeFileSync(path, content)
+      return {}
+    }
+  })
+  const { child, conn } = connect(engine, primary.worktreePath, client, accountEnvById(engine, ws.claudeAccountId))
+  const kill = (): void => {
+    child.kill('SIGKILL')
+  }
+  run.signal?.addEventListener('abort', kill)
+  try {
+    const init = await conn.initialize({ protocolVersion: 1, clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: false } })
+    const s = await newSessionWithAuth(conn, engine, { cwd: primary.worktreePath, mcpServers: [] }, init.authMethods ?? [])
+    await applyMode(conn, s.sessionId, s.modes ?? null, run.mode)
+    await applyModel(conn, s.sessionId, s, run.model)
+    await conn.prompt({ sessionId: s.sessionId, prompt: [{ type: 'text', text: run.prompt }] })
+    return text
+  } finally {
+    run.signal?.removeEventListener('abort', kill)
+    kill()
+  }
+}
