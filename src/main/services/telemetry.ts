@@ -117,3 +117,58 @@ export function clearErrors(): void {
 export function anyWindow(): BrowserWindow | undefined {
   return BrowserWindow.getAllWindows()[0]
 }
+
+
+// ---------- anonymous daily usage ping ----------
+
+const USAGE_ENDPOINT = 'https://sinfonie.dev/api/usage'
+let messagesSinceLastPing = 0
+const enginesUsed = new Set<string>()
+
+/** Called by the chat when the user sends a message; feeds the daily counts. */
+export function noteMessage(engine: string): void {
+  messagesSinceLastPing++
+  enginesUsed.add(engine)
+}
+
+function installId(): string {
+  const { settings } = getStore().get()
+  if (settings.installId) return settings.installId
+  const id = Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => b.toString(16).padStart(2, '0')).join('')
+  getStore().update((d) => {
+    d.settings.installId = id
+    d.settings.installFirstSeen = new Date().toISOString()
+  })
+  return id
+}
+
+export async function sendUsagePing(): Promise<void> {
+  const { settings, workspaces } = getStore().get()
+  if (settings.usageStats === false) return
+  try {
+    const body = {
+      installId: installId(),
+      appVersion: app.getVersion(),
+      os: osLabel(),
+      engines: Array.from(enginesUsed),
+      workspaces: workspaces.filter((w) => w.status !== 'archived').length,
+      messages: messagesSinceLastPing,
+      firstSeen: getStore().get().settings.installFirstSeen
+    }
+    const res = await fetch(USAGE_ENDPOINT, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    if (res.ok) {
+      messagesSinceLastPing = 0
+      enginesUsed.clear()
+    }
+  } catch {
+    /* offline: counts carry over to the next ping */
+  }
+}
+
+/** One ping shortly after launch, then every 6 hours (the server keeps one row per day). */
+export function startUsagePings(): void {
+  if (!app.isPackaged && process.env.SINFONIE_USAGE_PING !== '1') return
+  setTimeout(() => void sendUsagePing(), 15_000)
+  setInterval(() => void sendUsagePing(), 6 * 60 * 60 * 1000).unref()
+  app.on('before-quit', () => void sendUsagePing())
+}

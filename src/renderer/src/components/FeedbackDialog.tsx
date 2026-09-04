@@ -106,6 +106,13 @@ function FeedbackForm({ prefill, onClose }: { prefill?: string; onClose?: () => 
         </span>
       </div>
       <label className="mt-4 flex items-start gap-2 rounded-md border border-border px-3 py-2 text-[12px]">
+        <input type="checkbox" className="mt-0.5" checked={settings.usageStats !== false} onChange={(e) => api.invoke('settings:update', { usageStats: e.target.checked }).catch((err) => setError(String(err)))} />
+        <span>
+          Share anonymous usage statistics
+          <span className="block text-[11px] text-muted">Once a day: a random install id, app version, macOS version, which engines were used, and how many workspaces and messages. No content, no account, no repo names.</span>
+        </span>
+      </label>
+      <label className="mt-2 flex items-start gap-2 rounded-md border border-border px-3 py-2 text-[12px]">
         <input type="checkbox" className="mt-0.5" checked={settings.crashReports !== false} onChange={(e) => api.invoke('settings:update', { crashReports: e.target.checked }).catch((err) => setError(String(err)))} />
         <span>
           Send crash reports automatically

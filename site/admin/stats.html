@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex">
+<title>Sinfonie admin · stats</title>
+<link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
+<style>
+  :root{--bg:#0b0d11;--bg2:#0f1115;--panel:#141821;--panel2:#1b2030;--border:#232a38;--border2:#2d3546;--text:#e8eaf0;--muted:#8f97a8;--dim:#5f6779;--accent:#7c9cff;--ok:#4ade80;--warn:#fbbf24;--danger:#ff6b6b;--violet:#a78bfa;--mono:ui-monospace,"SF Mono",Menlo,monospace;--sans:-apple-system,BlinkMacSystemFont,"SF Pro Text",Inter,system-ui,sans-serif}
+  *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 var(--sans)}
+  header{display:flex;align-items:center;gap:12px;padding:12px 20px;border-bottom:1px solid var(--border);background:var(--bg2);position:sticky;top:0;z-index:5}
+  header img{width:24px;height:24px;border-radius:6px}header b{font-size:15px}header nav{display:flex;gap:14px;margin-left:16px;font-size:13px}header nav a{color:var(--muted);text-decoration:none}header nav a.on{color:var(--text)}
+  header .who{margin-left:auto;font:12px var(--mono);color:var(--dim)}
+  main{max-width:1180px;margin:0 auto;padding:20px}
+  h2{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin:22px 0 8px}
+  .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+  .tile{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:12px 14px}
+  .tile .n{font-size:26px;font-weight:700;letter-spacing:-.02em}.tile .l{font:11px var(--mono);color:var(--dim)}.tile .s{font-size:12px;color:var(--muted)}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:14px}
+  .card h3{margin:0 0 8px;font-size:13px}
+  svg{width:100%;height:120px;display:block}
+  table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:6px 8px;border-bottom:1px solid var(--border);text-align:left}th{font:11px var(--mono);color:var(--dim);text-transform:uppercase}
+  .bar{height:8px;border-radius:4px;background:var(--accent)}
+  .muted{color:var(--muted);font-size:12px}
+  @media(max-width:800px){.row{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header><img src="/assets/logo.svg" alt=""><b>Sinfonie admin</b><nav><a href="/admin/">Queue</a><a class="on" href="/admin/stats">Stats</a><a href="/admin/compare">Competitors</a></nav><span class="who" id="gen"></span></header>
+<main>
+  <h2>Engagement</h2><div class="tiles" id="eng"></div>
+  <h2>Acquisition</h2><div class="tiles" id="acq"></div>
+  <h2>Quality and support</h2><div class="tiles" id="qual"></div>
+  <div class="row" style="margin-top:14px">
+    <div class="card"><h3>Active installs per day, last 30 days</h3><svg id="c_active"></svg></div>
+    <div class="card"><h3>Messages per day</h3><svg id="c_msg"></svg></div>
+    <div class="card"><h3>Feedback and crashes per day</h3><svg id="c_fb"></svg><div class="muted">bars: feedback + requests + bugs · line: crash reports</div></div>
+    <div class="card"><h3>Downloads by release</h3><table id="t_rel"></table></div>
+    <div class="card"><h3>Versions in use, last 7 days</h3><table id="t_ver"></table></div>
+    <div class="card"><h3>Engines in use, last 7 days</h3><table id="t_eng"></table></div>
+  </div>
+  <p class="muted" style="margin-top:14px">Usage comes from an anonymous daily ping each install sends (random install id, version, macOS version, engines used, workspace and message counts). Users can turn it off in the app. Downloads and issues come from GitHub. Site visits: enable Cloudflare Web Analytics on the zone to add them.</p>
+</main>
+<script>
+(function(){
+  var token = localStorage.getItem('sinfonie.adminToken') || ''
+  var headers = token ? { Authorization: 'Bearer ' + token } : {}
+  var $ = function(id){ return document.getElementById(id) }
+  var tile = function(n, l, s){ return '<div class="tile"><div class="n">'+(n==null?'–':n)+'</div><div class="l">'+l+'</div>'+(s?'<div class="s">'+s+'</div>':'')+'</div>' }
+  function chart(id, days, getA, getB, colorA, colorB){
+    var svg = $(id), W = 600, H = 120, pad = 6
+    var vals = days.map(getA), max = Math.max(1, Math.max.apply(null, vals.concat(getB?days.map(getB):[0])))
+    var bw = (W - pad*2) / Math.max(days.length, 1)
+    var s = '<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none">'
+    days.forEach(function(d,i){ var v=getA(d), h=(H-pad*2)*v/max; s += '<rect x="'+(pad+i*bw+1)+'" y="'+(H-pad-h)+'" width="'+Math.max(bw-2,1)+'" height="'+h+'" fill="'+colorA+'" opacity=".85"><title>'+d.day+': '+v+'</title></rect>' })
+    if (getB) { var pts = days.map(function(d,i){ return (pad+i*bw+bw/2)+','+(H-pad-(H-pad*2)*getB(d)/max) }); s += '<polyline points="'+pts.join(' ')+'" fill="none" stroke="'+colorB+'" stroke-width="2"/>' }
+    svg.outerHTML = s + '</svg>'
+  }
+  fetch('/api/admin/stats', { headers: headers }).then(function(r){ if(!r.ok) throw new Error(r.status===401?'Not authorized. Open /admin first.':'HTTP '+r.status); return r.json() }).then(function(d){
+    var a = d.active || {}, g = d.github || {}, r = d.retention || {}
+    $('gen').textContent = 'generated ' + new Date(d.generatedAt).toLocaleTimeString()
+    $('eng').innerHTML = tile(a.dau,'active today') + tile(a.wau,'active 7 days') + tile(a.mau,'active 30 days') + tile(a.messages7,'messages, 7 days') + tile(r.cohort ? Math.round(100*r.retained/r.cohort)+'%' : '–','week-1 retention', r.cohort ? r.retained+' of '+r.cohort : 'needs 2 weeks of data')
+    $('acq').innerHTML = tile(g.downloads,'downloads, all releases') + tile(a.installs,'installs seen') + tile(a.newInstalls7,'new installs, 7 days') + tile((g.releases||[]).length,'releases')
+    var fb = {}; (d.feedbackTotals||[]).forEach(function(t){ var k=fb[t.kind]||(fb[t.kind]={open:0,total:0}); k.total+=t.n; if(t.status!=='done'&&t.status!=='wontfix') k.open+=t.n })
+    var crashes30 = (d.feedbackSeries||[]).filter(function(x){return x.kind==='crash'}).reduce(function(n,x){return n+(x.hits||0)},0)
+    $('qual').innerHTML = tile(crashes30,'crash reports, 30 days', a.mau ? (crashes30/a.mau).toFixed(2)+' per active install' : '') + tile((fb.bug||{}).open||0,'open bugs') + tile((fb.feature||{}).open||0,'open feature requests') + tile(g.issuesOpen,'open GitHub issues', g.issuesClosed!=null ? g.issuesClosed+' closed' : '')
+    // fill 30 days
+    var days = []; for (var i=29;i>=0;i--){ var dt=new Date(Date.now()-i*86400000).toISOString().slice(0,10); days.push({day:dt}) }
+    var byDay = {}; (d.series||[]).forEach(function(s){ byDay[s.day]=s })
+    var fbByDay = {}; (d.feedbackSeries||[]).forEach(function(s){ var k=fbByDay[s.day]||(fbByDay[s.day]={fb:0,crash:0}); if(s.kind==='crash') k.crash+=s.hits||s.n; else k.fb+=s.n })
+    chart('c_active', days, function(x){ return (byDay[x.day]||{}).active||0 }, null, '#7c9cff')
+    chart('c_msg', days, function(x){ return (byDay[x.day]||{}).messages||0 }, null, '#a78bfa')
+    chart('c_fb', days, function(x){ return (fbByDay[x.day]||{}).fb||0 }, function(x){ return (fbByDay[x.day]||{}).crash||0 }, '#4ade80', '#ff6b6b')
+    var rows = function(list, l, v){ var max = Math.max(1, Math.max.apply(null, list.map(v).concat([0]))); return '<tr><th>'+l+'</th><th></th><th></th></tr>' + list.map(function(x){ return '<tr><td>'+esc(x.k)+'</td><td style="width:40%"><div class="bar" style="width:'+(100*v(x)/max)+'%"></div></td><td class="muted">'+v(x)+'</td></tr>' }).join('') }
+    $('t_rel').innerHTML = rows((g.releases||[]).map(function(x){ return {k:x.tag+' · '+(x.published||'').slice(0,10), n:x.downloads} }), 'release', function(x){return x.n})
+    $('t_ver').innerHTML = rows((d.versions||[]).map(function(x){ return {k:x.v||'unknown', n:x.n} }), 'version', function(x){return x.n})
+    $('t_eng').innerHTML = rows((d.engines||[]).map(function(x){ return {k:x.engines||'unknown', n:x.n} }), 'engines', function(x){return x.n})
+  }).catch(function(e){ $('eng').innerHTML = '<div class="tile"><div class="s">'+esc(e.message)+'</div></div>' })
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c] }) }
+})()
+</script>
+</body>
+</html>

@@ -399,6 +399,11 @@ export interface Settings {
   grokModel?: string
   /** Send anonymised crash reports (error message, stack, version, OS) to sinfonie.dev. Default on. */
   crashReports?: boolean
+  /** Send an anonymous daily usage ping (random install id, version, OS, engines, counts). Default on. */
+  usageStats?: boolean
+  /** Random id for the usage ping; never tied to an account. */
+  installId?: string
+  installFirstSeen?: string
   /** First-run setup, tour and getting-started checklist state. */
   onboarding?: { setupDoneAt?: string; tourDoneAt?: string; checklistDismissedAt?: string }
 }

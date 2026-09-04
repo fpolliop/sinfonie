@@ -3,7 +3,7 @@ import { cpSync, existsSync, readdirSync } from 'fs'
 import { dirname, join } from 'path'
 import { registerIpc } from './ipc'
 import { startUpdateChecks } from './services/updates'
-import { installCrashHandlers, rendererConsoleError, logError } from './services/telemetry'
+import { installCrashHandlers, rendererConsoleError, logError, startUsagePings } from './services/telemetry'
 import { Menu, nativeImage } from 'electron'
 import { checkForUpdate } from './services/updates'
 
@@ -106,6 +106,7 @@ app.whenReady().then(() => {
   registerIpc()
   createWindow()
   startUpdateChecks()
+  startUsagePings()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })

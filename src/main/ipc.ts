@@ -30,7 +30,7 @@ import * as accounts from './services/accounts'
 import * as reviews from './services/reviews'
 import * as sessionsSvc from './services/sessions'
 import { checkForUpdate, latestKnownUpdate } from './services/updates'
-import { clearErrors, listErrors, logsDir, sendFeedback } from './services/telemetry'
+import { clearErrors, listErrors, logsDir, sendFeedback, noteMessage } from './services/telemetry'
 import * as interaction from './services/interaction'
 import * as providers from './services/providers'
 import * as acp from './services/acp/engine'
@@ -413,7 +413,10 @@ export function registerIpc(): void {
   handle('reviews:submit', (key) => reviews.submitReview(key, emitReview))
 
   // ---- agent ----
-  handle('agent:send', (id, text) => agent.sendMessage(id, text, emitAgent, emitPermission))
+  handle('agent:send', (id, text) => {
+    noteMessage(agent.engineFor(id))
+    return agent.sendMessage(id, text, emitAgent, emitPermission)
+  })
   handle('agent:interrupt', (id) => agent.interrupt(id))
   handle('agent:permission', (r) => interaction.answerPermission(r))
   handle('agent:answerQuestion', (r) => interaction.answerQuestion(r))
