@@ -1,3 +1,4 @@
+import { claudeBinary } from './claude-cli'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { mkdirSync } from 'fs'
@@ -105,7 +106,7 @@ export async function checkAccount(id: string): Promise<Settings> {
   if (vendor === 'anthropic') {
     const env = { ...process.env, ...envForAccount(acc) }
     try {
-      const { stdout } = await exec('claude', ['auth', 'status', '--json'], { env, timeout: 20_000 })
+      const { stdout } = await exec(claudeBinary(), ['auth', 'status', '--json'], { env, timeout: 20_000 })
       try {
         const j = JSON.parse(stdout) as Record<string, unknown>
         loggedIn = Boolean(j.loggedIn ?? j.logged_in ?? j.authenticated)
@@ -135,7 +136,9 @@ export async function checkAccount(id: string): Promise<Settings> {
 }
 
 const LOGIN_COMMANDS: Record<Vendor, string> = {
-  anthropic: 'claude auth login',
+  get anthropic() {
+    return `${JSON.stringify(claudeBinary())} auth login`
+  },
   openai: 'npx -y @openai/codex@latest login',
   google: 'echo "Gemini signs in with the API key from Model providers → Google. Press Ctrl+D to close."',
   xai: 'grok login --oauth'

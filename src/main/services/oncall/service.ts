@@ -3,6 +3,7 @@
  * incidents, and an LLM triage pass per incident that returns a structured report. Nothing is
  * posted to Slack without the user approving a proposal.
  */
+import { claudeExecutableOption } from '../claude-cli'
 import { app, BrowserWindow, Notification } from 'electron'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
@@ -291,6 +292,7 @@ async function runAgent(prompt: string, opts: { schema?: Record<string, unknown>
     console.warn('[oncall] slack mcp unavailable', err)
   }
   const options: Options = {
+    ...claudeExecutableOption(),
     cwd: workDir(),
     additionalDirectories: dirs,
     permissionMode: 'plan',

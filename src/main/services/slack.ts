@@ -1,19 +1,21 @@
 /**
- * Slack for the on-call agent: OAuth against Slack's hosted MCP server (user-scoped token), the
- * Web API for deterministic polling and posting, and the MCP URL + bearer token for agent sessions.
- * Slack has no dynamic client registration, so the user supplies a client id/secret from a Slack app.
+ * Slack for the on-call agent. Sign-in is OAuth against Slack's hosted MCP server with a user-scoped
+ * token. Slack has no dynamic client registration, so by default the flow uses Sinfonie's own
+ * registered OAuth client: the app holds only the client id, and sinfonie.dev exchanges the code
+ * for tokens with the secret. Advanced users can plug in their own client id/secret instead.
+ * Polling and posting use the Web API; agent sessions get the MCP URL with the bearer token.
  */
 import { shell, safeStorage } from 'electron'
 import { createHash, randomBytes } from 'crypto'
-import { Client } from '@modelcontextprotocol/sdk/client/index.js'
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
-import { UnauthorizedError, type OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js'
-import type { OAuthClientInformationMixed, OAuthClientMetadata, OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js'
 import { getStore } from '../store'
 import type { SlackConnection } from '@shared/types'
 
 export const SLACK_MCP_URL = 'https://mcp.slack.com/mcp'
 export const REDIRECT_URL = 'https://sinfonie.dev/oauth/slack/callback'
+const TOKEN_URL = 'https://slack.com/api/oauth.v2.user.access'
+const TOKEN_PROXY = 'https://sinfonie.dev/oauth/slack/token'
+/** Sinfonie's registered Slack OAuth client. Empty until the vendor registers one; the secret never ships. */
+export const SINFONIE_SLACK_CLIENT_ID = process.env.SINFONIE_SLACK_CLIENT_ID ?? ''
 const SCOPES = ['channels:history', 'channels:read', 'groups:history', 'groups:read', 'chat:write', 'search:read.public', 'users:read']
 
 // ---------- secrets (same scheme as jira.ts) ----------
@@ -42,10 +44,23 @@ function writeSecret(key: string, value: unknown): void {
     else d.secrets[key] = encrypt(JSON.stringify(value))
   })
 }
+const k = (name: string): string => `slack:${name}`
+
+interface Tokens {
+  access_token: string
+  refresh_token?: string
+  expires_at?: number
+  scope?: string
+}
+interface OwnClient {
+  client_id: string
+  client_secret: string
+}
 
 export function connection(): SlackConnection {
+  const own = readSecret<OwnClient>(k('client'))
   const s = getStore().get().settings.slack
-  return { connected: false, hasClient: Boolean(readSecret(k('client'))), ...(s ?? {}) }
+  return { connected: false, ...(s ?? {}), hasClient: Boolean(own), clientId: own?.client_id, vendorClient: Boolean(SINFONIE_SLACK_CLIENT_ID) }
 }
 function patchConnection(patch: Partial<SlackConnection>): SlackConnection {
   getStore().update((d) => {
@@ -53,73 +68,32 @@ function patchConnection(patch: Partial<SlackConnection>): SlackConnection {
   })
   return connection()
 }
-const k = (name: string): string => `slack:${name}`
-
-class SlackOAuthProvider implements OAuthClientProvider {
-  private verifier: string | undefined
-  constructor(private readonly interactive: boolean) {}
-  get redirectUrl(): string {
-    return REDIRECT_URL
-  }
-  get clientMetadata(): OAuthClientMetadata {
-    return { client_name: 'Sinfonie', redirect_uris: [REDIRECT_URL], grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'], token_endpoint_auth_method: 'client_secret_post', scope: SCOPES.join(' ') }
-  }
-  clientInformation(): OAuthClientInformationMixed | undefined {
-    return readSecret<OAuthClientInformationMixed>(k('client'))
-  }
-  saveClientInformation(info: OAuthClientInformationMixed): void {
-    writeSecret(k('client'), info)
-  }
-  tokens(): OAuthTokens | undefined {
-    return readSecret<OAuthTokens>(k('tokens'))
-  }
-  saveTokens(tokens: OAuthTokens): void {
-    writeSecret(k('tokens'), tokens)
-  }
-  redirectToAuthorization(url: URL): void {
-    if (!this.interactive) throw new Error('Slack login expired or was revoked. Reconnect it in Settings → On call.')
-    void shell.openExternal(url.toString())
-  }
-  saveCodeVerifier(v: string): void {
-    this.verifier = v
-    writeSecret(k('verifier'), v)
-  }
-  codeVerifier(): string {
-    const v = this.verifier ?? readSecret<string>(k('verifier'))
-    if (!v) throw new Error('Missing PKCE verifier; start the Slack login again')
-    return v
-  }
-  invalidateCredentials(scope: 'all' | 'client' | 'tokens' | 'verifier' | 'discovery'): void {
-    if (scope === 'all' || scope === 'tokens') writeSecret(k('tokens'), undefined)
-    if (scope === 'all' || scope === 'verifier') writeSecret(k('verifier'), undefined)
-    // The client id/secret came from the user; never drop them on a token problem.
-  }
+function clientId(): string {
+  return readSecret<OwnClient>(k('client'))?.client_id || SINFONIE_SLACK_CLIENT_ID
 }
 
 // ---------- OAuth ----------
 
-export function setClient(clientId: string, clientSecret: string): SlackConnection {
-  writeSecret(k('client'), { client_id: clientId.trim(), client_secret: clientSecret.trim() })
-  return patchConnection({ hasClient: true, clientId: clientId.trim() })
+export function setClient(id: string, secret: string): SlackConnection {
+  writeSecret(k('client'), { client_id: id.trim(), client_secret: secret.trim() })
+  return connection()
+}
+export function clearClient(): SlackConnection {
+  writeSecret(k('client'), undefined)
+  return connection()
 }
 
-/**
- * Opens the browser for approval. The code comes back through sinfonie://oauth/slack or is pasted by the user.
- * The URL is built here rather than by the MCP SDK, which would request every scope Slack advertises (30 of them,
- * write scopes included) and fail unless the user's app listed them all.
- */
+/** Opens the browser for approval. The code comes back through sinfonie://oauth/slack or is pasted by the user. */
 export async function startAuth(): Promise<void> {
-  const client = readSecret<{ client_id: string }>(k('client'))
-  if (!client) throw new Error('Enter the Slack app client id and secret first.')
-  const provider = new SlackOAuthProvider(true)
-  provider.invalidateCredentials('tokens')
-  dropClient()
+  const id = clientId()
+  if (!id) throw new Error('This build of Sinfonie has no Slack client registered yet. Under Advanced you can use your own Slack OAuth client.')
+  writeSecret(k('tokens'), undefined)
   const verifier = randomBytes(48).toString('base64url')
-  provider.saveCodeVerifier(verifier)
+  writeSecret(k('verifier'), verifier)
   const challenge = createHash('sha256').update(verifier).digest('base64url')
   const url = new URL('https://slack.com/oauth/v2_user/authorize')
   url.searchParams.set('response_type', 'code')
-  url.searchParams.set('client_id', client.client_id)
+  url.searchParams.set('client_id', id)
   url.searchParams.set('code_challenge', challenge)
   url.searchParams.set('code_challenge_method', 'S256')
   url.searchParams.set('redirect_uri', REDIRECT_URL)
@@ -129,51 +103,66 @@ export async function startAuth(): Promise<void> {
   await shell.openExternal(url.toString())
 }
 
+/** Exchange a code or refresh token: directly when the user brought their own client, else through sinfonie.dev. */
+async function exchange(params: Record<string, string>): Promise<Tokens> {
+  const own = readSecret<OwnClient>(k('client'))
+  let json: Record<string, unknown>
+  if (own) {
+    const body = new URLSearchParams({ ...params, client_id: own.client_id, client_secret: own.client_secret })
+    json = (await (await fetch(TOKEN_URL, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body })).json()) as Record<string, unknown>
+  } else {
+    const res = await fetch(TOKEN_PROXY, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(params) })
+    json = (await res.json().catch(() => ({ error: `sinfonie.dev answered ${res.status}` }))) as Record<string, unknown>
+  }
+  return parseTokens(json)
+}
+function parseTokens(j: Record<string, unknown>): Tokens {
+  const user = (j.authed_user ?? {}) as Record<string, unknown>
+  const access = (j.access_token ?? user.access_token) as string | undefined
+  if (!access) throw new Error(`Slack sign-in failed: ${String(j.error_description ?? j.error ?? 'no access token returned')}`)
+  const expires = (j.expires_in ?? user.expires_in) as number | undefined
+  return { access_token: access, refresh_token: (j.refresh_token ?? user.refresh_token) as string | undefined, expires_at: expires ? Date.now() + Number(expires) * 1000 : undefined, scope: (j.scope ?? user.scope) as string | undefined }
+}
+
 export async function finishAuth(code: string): Promise<SlackConnection> {
-  const transport = new StreamableHTTPClientTransport(new URL(SLACK_MCP_URL), { authProvider: new SlackOAuthProvider(true) })
-  await transport.finishAuth(code.trim())
+  const verifier = readSecret<string>(k('verifier'))
+  if (!verifier) throw new Error('Start the Slack sign-in again; the browser round trip did not begin from this app.')
+  const t = await exchange({ grant_type: 'authorization_code', code: code.trim(), code_verifier: verifier, redirect_uri: REDIRECT_URL })
+  writeSecret(k('tokens'), t)
+  writeSecret(k('verifier'), undefined)
   return afterAuth()
 }
-
 async function afterAuth(): Promise<SlackConnection> {
-  const me = await api<{ team: string; user: string; user_id: string; team_id: string }>('auth.test', {})
+  const me = await api<{ team: string; user: string; user_id: string }>('auth.test', {})
   return patchConnection({ connected: true, connectedAt: new Date().toISOString(), teamName: me.team, userName: me.user, userId: me.user_id })
 }
-
 export function disconnect(): SlackConnection {
-  new SlackOAuthProvider(false).invalidateCredentials('tokens')
-  dropClient()
+  writeSecret(k('tokens'), undefined)
   return patchConnection({ connected: false, teamName: undefined, userName: undefined, userId: undefined })
 }
 
 // ---------- tokens ----------
 
-let client: Client | null = null
-function dropClient(): void {
-  if (client) void client.close().catch(() => undefined)
-  client = null
-}
-/** A valid access token; connecting to the MCP server refreshes it when needed. */
-export async function accessToken(): Promise<string> {
-  const provider = new SlackOAuthProvider(false)
-  const t = provider.tokens()
-  if (!t) throw new Error('Slack is not connected. Connect it in Settings → On call.')
-  if (!client) {
-    const transport = new StreamableHTTPClientTransport(new URL(SLACK_MCP_URL), { authProvider: provider })
-    const c = new Client({ name: 'sinfonie', version: '0.1.0' })
+/** A valid access token, refreshed when it is about to expire. */
+export async function accessToken(force = false): Promise<string> {
+  const t = readSecret<Tokens>(k('tokens'))
+  if (!t) throw new Error('Slack is not connected. Connect it in Settings, On call.')
+  if (force || (t.expires_at && t.expires_at - Date.now() < 60_000)) {
+    if (!t.refresh_token) {
+      patchConnection({ connected: false })
+      throw new Error('Slack login expired. Reconnect it in Settings, On call.')
+    }
     try {
-      await c.connect(transport)
-      client = c
+      const n = await exchange({ grant_type: 'refresh_token', refresh_token: t.refresh_token })
+      const merged = { ...t, ...n, refresh_token: n.refresh_token ?? t.refresh_token }
+      writeSecret(k('tokens'), merged)
+      return merged.access_token
     } catch (err) {
-      if (err instanceof UnauthorizedError) {
-        patchConnection({ connected: false })
-        throw new Error('Slack login expired or was revoked. Reconnect it in Settings → On call.')
-      }
-      // The MCP handshake failed for another reason; the stored token may still be fine for the Web API.
-      console.warn('[slack] mcp connect failed', err)
+      patchConnection({ connected: false })
+      throw new Error(`Slack login could not be refreshed (${err instanceof Error ? err.message : String(err)}). Reconnect it in Settings, On call.`)
     }
   }
-  return provider.tokens()?.access_token ?? t.access_token
+  return t.access_token
 }
 
 /** For agent sessions: Slack's MCP server with the user's bearer token. */
@@ -183,17 +172,18 @@ export async function mcpServerConfig(): Promise<{ type: 'http'; url: string; he
 
 // ---------- Web API ----------
 
-export async function api<T>(method: string, params: Record<string, string | number | boolean | undefined>): Promise<T> {
+export async function api<T>(method: string, params: Record<string, string | number | boolean | undefined>, retried = false): Promise<T> {
   const token = await accessToken()
   const body = new URLSearchParams()
   for (const [key, v] of Object.entries(params)) if (v !== undefined) body.set(key, String(v))
   const res = await fetch(`https://slack.com/api/${method}`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/x-www-form-urlencoded' }, body })
   const json = (await res.json()) as { ok: boolean; error?: string } & T
   if (!json.ok) {
-    if (json.error === 'token_revoked' || json.error === 'invalid_auth' || json.error === 'token_expired') {
-      dropClient()
-      if (json.error !== 'token_expired') patchConnection({ connected: false })
+    if (json.error === 'token_expired' && !retried) {
+      await accessToken(true)
+      return api<T>(method, params, true)
     }
+    if (json.error === 'token_revoked' || json.error === 'invalid_auth' || json.error === 'account_inactive') patchConnection({ connected: false })
     throw new Error(`Slack ${method}: ${json.error ?? 'failed'}`)
   }
   return json

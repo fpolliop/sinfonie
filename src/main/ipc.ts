@@ -463,6 +463,7 @@ export function registerIpc(): void {
     oncall.reconcile()
     return c
   })
+  handle('oncall:slackClearClient', () => slack.clearClient())
   handle('oncall:slackChannels', (q) => slack.listChannels(q))
   handle('oncall:pollNow', () => oncall.pollOnce())
   handle('oncall:triage', (id) => oncall.enqueueTriage(id))

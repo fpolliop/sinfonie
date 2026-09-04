@@ -1,3 +1,4 @@
+import { claudeExecutableOption } from '../claude-cli'
 import { query, type Options, type SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 import { ToolLoopAgent, stepCountIs, type ToolSet } from 'ai'
 import type { AgentSpec, PermissionMode, SubagentStep, Workspace } from '@shared/types'
@@ -53,6 +54,7 @@ async function runClaude(run: WorkerRun): Promise<string> {
   const abort = new AbortController()
   run.signal?.addEventListener('abort', () => abort.abort())
   const options: Options = {
+    ...claudeExecutableOption(),
     cwd: wsCwd,
     additionalDirectories: ws.repos.filter((r) => r !== primary).map((r) => r.worktreePath),
     model: spec.model,

@@ -812,9 +812,11 @@ export interface SlackConnection {
   teamName?: string
   userName?: string
   userId?: string
-  /** A Slack app client id/secret is stored (Slack has no dynamic client registration). */
+  /** The user stored their own Slack OAuth client id/secret (Advanced). */
   hasClient: boolean
   clientId?: string
+  /** This build carries Sinfonie's registered Slack client, so plain Sign in works. */
+  vendorClient: boolean
 }
 export interface OnCallChannel {
   id: string

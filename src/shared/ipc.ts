@@ -169,6 +169,7 @@ export interface SinfonieInvoke {
   'oncall:slackConnect': () => void
   'oncall:slackFinish': (code: string) => SlackConnection
   'oncall:slackDisconnect': () => SlackConnection
+  'oncall:slackClearClient': () => SlackConnection
   'oncall:slackChannels': (query?: string) => { id: string; name: string; is_private: boolean; is_member: boolean }[]
   'oncall:pollNow': () => void
   'oncall:triage': (incidentId: string) => void

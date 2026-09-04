@@ -1,3 +1,4 @@
+import { claudeExecutableOption } from './claude-cli'
 import { query, createSdkMcpServer, tool as sdkTool, type Options, type Query, type SDKMessage, type SDKUserMessage, type PermissionResult, type SpawnedProcess } from '@anthropic-ai/claude-agent-sdk'
 import { spawn } from 'child_process'
 import * as resources from './resources'
@@ -303,6 +304,7 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
   if (crew.server) mcpServers = { ...mcpServers, crew: crew.server }
   mcpServers = { ...mcpServers, notes: notes.sdkServer(ws.id), browser: browserTools.sdkServer(ws.id), workspace: workspaceTools.sdkServer(ws.id, () => (flags.restartAfterTurn = true)) }
   const options: Options = {
+    ...claudeExecutableOption(),
     cwd: wsCwd,
     additionalDirectories: others,
     permissionMode: mode,

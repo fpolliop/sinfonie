@@ -51,7 +51,8 @@
     },
     "asarUnpack": [
       "node_modules/node-pty/**",
-      "node_modules/@anthropic-ai/claude-agent-sdk/**"
+      "node_modules/@anthropic-ai/claude-agent-sdk/**",
+      "node_modules/@anthropic-ai/claude-agent-sdk-*/**"
     ],
     "publish": {
       "provider": "github",

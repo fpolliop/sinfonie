@@ -1,3 +1,4 @@
+import { claudeExecutableOption } from './claude-cli'
 import { app } from 'electron'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
@@ -237,6 +238,7 @@ async function execute(run: ReviewRun, emit: Emit): Promise<void> {
     const { settings } = getStore().get()
     const allowed = ['Read', 'Grep', 'Glob', 'LS']
     const options: Options = {
+    ...claudeExecutableOption(),
       cwd: dir,
       permissionMode: 'default',
       allowedTools: allowed,

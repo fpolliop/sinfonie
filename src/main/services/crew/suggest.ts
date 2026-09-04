@@ -1,3 +1,4 @@
+import { claudeExecutableOption } from '../claude-cli'
 import { query, type Options, type SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 import type { AgentSpec, CrewSuggestion, Engine, ModelInventoryItem } from '@shared/types'
 import { ACP_ENGINES, CLAUDE_MODELS, PROVIDER_KINDS, classifyModel } from '@shared/types'
@@ -84,6 +85,7 @@ export async function suggest(spaceId?: string): Promise<CrewSuggestion> {
   const abort = new AbortController()
   const timer = setTimeout(() => abort.abort(), 120_000)
   const options: Options = {
+    ...claudeExecutableOption(),
     cwd: process.env.HOME ?? '/',
     model: settings.model,
     maxTurns: 3,
