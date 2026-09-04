@@ -12,6 +12,7 @@ import { getStore } from '../../store'
 import { getWorkspace, patchWorkspace } from '../workspaces'
 import { buildTools, type ToolContext } from './tools'
 import { runWorker } from '../crew/workers'
+import * as resources from '../resources'
 import * as notes from '../notes'
 import { askPermission } from '../interaction'
 import { estimateCost, resolveModel } from '../providers'
@@ -156,6 +157,10 @@ function crewTool(ws: Workspace, crew: AgentSpec[], baseCtx: ToolContext, emit: 
       void description
       const spec = byName.get(subagent_type)
       if (!spec) return `Unknown crew member "${subagent_type}". Available: ${crew.map((a) => a.name).join(', ')}.`
+      const veto = resources.delegationVeto(ws.id)
+      if (veto) return `Delegation refused by Sinfonie's resource governor: ${veto}`
+      const taskId = `crew-${toolCallId}`
+      resources.taskStarted(ws.id, { taskId, toolUseId: toolCallId, description: spec.name, startedAt: new Date().toISOString() })
       try {
         return await runWorker({
           spec,
@@ -168,6 +173,8 @@ function crewTool(ws: Workspace, crew: AgentSpec[], baseCtx: ToolContext, emit: 
         })
       } catch (err) {
         return `${spec.name} failed: ${err instanceof Error ? err.message : String(err)}`
+      } finally {
+        resources.taskEnded(ws.id, taskId)
       }
     }
   })

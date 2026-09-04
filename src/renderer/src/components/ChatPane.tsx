@@ -10,6 +10,7 @@ import { ResumeDialog } from './ResumeDialog'
 import { Dialog, Field, inputCls } from './ui'
 import { useChat } from '@/stores/chat'
 import { useApp } from '@/stores/app'
+import { useResources, subscribeResources } from '@/stores/resources'
 import { Markdown } from '@/lib/markdown'
 import { Button, Spinner } from './ui'
 import type { ChatBlock, ChatItem, ChatToolBlock } from '@shared/types'
@@ -432,6 +433,7 @@ function SubagentPanel({ items, model, workspaceId }: { items: ChatItem[]; model
           <span className="text-[13px] font-semibold">{agentTypeOf(block)}</span>
           {block.sub?.model && <span className="rounded bg-panel-2 px-1 py-px font-mono text-[10px] text-muted">{shortModel(block.sub.model)}</span>}
           <span className="ml-auto text-[11px]">{block.done ? (block.isError ? <span className="text-danger">error</span> : <span className="text-ok">done</span>) : <span className="inline-flex items-center gap-1 text-warn"><Spinner /> running</span>}</span>
+          {!block.done && <StopTaskButton workspaceId={workspaceId} toolUseId={block.toolUseId} />}
           <button className="ml-1 text-muted hover:text-text" onClick={() => setView({ kind: 'closed' })} aria-label="Close">
             ✕
           </button>
@@ -457,6 +459,19 @@ function SubagentPanel({ items, model, workspaceId }: { items: ChatItem[]; model
         <ActivityTree items={items} model={model} onOpen={(id) => setView({ kind: 'delegation', id })} />
       </div>
     </aside>
+  )
+}
+
+/** Stop one running subagent through the governor; shown when the task is known to it. */
+function StopTaskButton({ workspaceId, toolUseId }: { workspaceId: string; toolUseId: string }): React.JSX.Element | null {
+  const snap = useResources((s) => s.snapshot)
+  useEffect(() => subscribeResources(), [])
+  const task = snap?.sessions.find((s) => s.workspaceId === workspaceId)?.tasks.find((t) => t.toolUseId === toolUseId)
+  if (!task) return null
+  return (
+    <button className="ml-2 inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[11px] text-muted hover:border-danger hover:text-danger" title="Stop this subagent; the orchestrator is told it was stopped" onClick={() => api.invoke('resources:stopTask', workspaceId, task.taskId).catch(() => undefined)}>
+      <Square size={10} /> Stop
+    </button>
   )
 }
 

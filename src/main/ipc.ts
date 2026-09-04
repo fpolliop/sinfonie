@@ -36,6 +36,7 @@ import * as providers from './services/providers'
 import * as acp from './services/acp/engine'
 import * as crewSuggest from './services/crew/suggest'
 import * as notes from './services/notes'
+import * as resources from './services/resources'
 
 function send<C extends keyof SinfonieEvents>(channel: C, payload: SinfonieEvents[C]): void {
   for (const win of BrowserWindow.getAllWindows()) win.webContents.send(channel, payload)
@@ -52,6 +53,8 @@ const emitScript = (e: Parameters<typeof send<'script:output'>>[1]): void => sen
 const emitAgent = (e: Parameters<typeof send<'agent:event'>>[1]): void => {
   recordEvent(e)
   send('agent:event', e)
+  // A session went idle: a waiting message may take its slot.
+  if (e.type === 'status' && !e.busy) void resources.release()
 }
 const emitPermission = (e: Parameters<typeof send<'agent:permission'>>[1]): void => send('agent:permission', e)
 
@@ -417,8 +420,20 @@ export function registerIpc(): void {
   // ---- agent ----
   handle('agent:send', (id, text) => {
     noteMessage(agent.engineFor(id))
-    return agent.sendMessage(id, text, emitAgent, emitPermission)
+    return resources.submit(id, text)
   })
+  // ---- resources ----
+  resources.start({
+    emit: (s) => send('resources:snapshot', s),
+    notice: (workspaceId, level, text) => emitAgent({ type: 'notice', workspaceId, itemId: nanoid(8), level, text, createdAt: new Date().toISOString() }),
+    stopTask: (workspaceId, taskId) => agent.stopTask(workspaceId, taskId),
+    send: (workspaceId, text) => agent.sendMessage(workspaceId, text, emitAgent, emitPermission),
+    busyCount: () => getStore().get().workspaces.filter((w) => agent.isBusy(w.id)).length,
+    isBusy: (workspaceId) => agent.isBusy(workspaceId)
+  })
+  handle('resources:get', () => resources.current())
+  handle('resources:stopTask', (workspaceId, taskId) => agent.stopTask(workspaceId, taskId))
+  handle('resources:cancelWaiting', (workspaceId) => resources.cancelWaiting(workspaceId))
   handle('agent:interrupt', (id) => agent.interrupt(id))
   handle('agent:permission', (r) => interaction.answerPermission(r))
   handle('agent:answerQuestion', (r) => interaction.answerQuestion(r))
@@ -476,6 +491,7 @@ export function registerIpc(): void {
   handle('terminal:dispose', (tid) => terminal.disposeTerminal(tid))
 
   app.on('before-quit', () => {
+    resources.stop()
     flushAllTranscripts()
     agent.closeAllSessions()
     terminal.disposeAllTerminals()

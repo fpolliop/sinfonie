@@ -1,4 +1,6 @@
-import { query, createSdkMcpServer, tool as sdkTool, type Options, type Query, type SDKMessage, type SDKUserMessage, type PermissionResult } from '@anthropic-ai/claude-agent-sdk'
+import { query, createSdkMcpServer, tool as sdkTool, type Options, type Query, type SDKMessage, type SDKUserMessage, type PermissionResult, type SpawnedProcess } from '@anthropic-ai/claude-agent-sdk'
+import { spawn } from 'child_process'
+import * as resources from './resources'
 import { z } from 'zod'
 import { classifyModel } from '@shared/types'
 import { runWorker } from './crew/workers'
@@ -129,7 +131,8 @@ function systemPromptFor(ws: Workspace): string {
     ...ws.repos.map((r) => `- ${r.repoName}: ${r.worktreePath} (branch ${r.branch}, based on ${r.baseBranch})`),
     `Your working directory is the ${primary.repoName} worktree. The other worktrees are added as additional directories; you can read and edit files in all of them.`,
     `A feature may need changes in several of these repositories. Keep the changes for each repository inside its own worktree, and run git commands from inside the worktree they apply to.`,
-    `Never modify the original repositories outside these worktree paths.`
+    `Never modify the original repositories outside these worktree paths.`,
+    `Sinfonie runs on the user's Mac next to other sessions and limits you to ${resources.resourceSettings().maxSubagentsPerSession} subagents at once; under memory pressure it refuses new ones. When a delegation is refused, the tool result says why: do that work yourself or wait for running subagents instead of retrying.`
   ]
   return lines.join('\n')
 }
@@ -203,6 +206,10 @@ function crewFor(ws: Workspace, emit: EmitEvent, crewCalls: Map<string, string[]
           { description: z.string().describe('3-6 word summary shown to the user'), prompt: z.string().describe('The full task: worktree path, exact goal, what done looks like') },
           async ({ prompt }) => {
             const parentToolUseId = crewCalls.get(spec.name)?.shift() ?? nanoid(8)
+            const veto = resources.delegationVeto(ws.id)
+            if (veto) return { content: [{ type: 'text', text: `Delegation refused by Sinfonie's resource governor: ${veto}` }], isError: true }
+            const taskId = `crew-${nanoid(6)}`
+            resources.taskStarted(ws.id, { taskId, toolUseId: parentToolUseId, description: spec.name, startedAt: new Date().toISOString() })
             try {
               const report = await runWorker({
                 spec,
@@ -214,6 +221,8 @@ function crewFor(ws: Workspace, emit: EmitEvent, crewCalls: Map<string, string[]
               return { content: [{ type: 'text', text: report }] }
             } catch (err) {
               return { content: [{ type: 'text', text: `${spec.name} failed: ${err instanceof Error ? err.message : String(err)}` }], isError: true }
+            } finally {
+              resources.taskEnded(ws.id, taskId)
             }
           }
         )
@@ -225,7 +234,7 @@ function crewFor(ws: Workspace, emit: EmitEvent, crewCalls: Map<string, string[]
     'You are the orchestrator of a crew. Keep planning, judgment and integration yourself, and delegate the rest. Reading more than a couple of files to answer a question is a job for the explorer, not you: it is far cheaper. Running tests or type-checks is a job for the tester. A well-specified change inside one repository goes to the implementer. Before committing, have the reviewer look at the diff. Your crew:',
     ...specs.map((a) => `- ${a.name} (${a.model}${a.effort ? `, ${a.effort} effort` : ''}): ${a.description}. Call it with the Agent tool, subagent_type "${a.name}".`),
     ...external.map((a) => `- ${a.name} (${a.model}): ${a.description}. Call it with its own tool mcp__crew__${a.name} (description + prompt); it runs on another vendor's model and returns a report.`),
-    'When delegating, state the worktree path, the exact goal, and what a finished answer looks like. Run independent delegations in parallel. Never let two agents edit the same repository at the same time.'
+    `When delegating, state the worktree path, the exact goal, and what a finished answer looks like. Run independent delegations in parallel, at most ${resources.resourceSettings().maxSubagentsPerSession} at a time: Sinfonie refuses more, and the tool result explains why. Prefer a few well-scoped delegations over many small ones. Never let two agents edit the same repository at the same time.`
   ].join('\n')
   return { agents, prompt, server }
 }
@@ -297,6 +306,29 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
     ...(Object.keys(mcpServers).length ? { mcpServers } : {}),
     ...(space?.strictMcp ?? settings.strictMcp ? { strictMcpConfig: true } : {}),
     settingSources: ['user', 'project', 'local'],
+    hooks: {
+      PreToolUse: [
+        {
+          matcher: 'Agent|Task',
+          hooks: [
+            async () => {
+              const veto = resources.delegationVeto(workspaceId)
+              if (!veto) return {}
+              emit({ type: 'notice', workspaceId, itemId: nanoid(8), level: 'warn', text: `Delegation refused: ${veto}`, createdAt: new Date().toISOString() })
+              return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: `Sinfonie resource governor: ${veto}` } }
+            }
+          ]
+        }
+      ]
+    },
+    // Spawn the CLI ourselves so the governor knows its pid and can charge its whole subtree to this workspace.
+    spawnClaudeCodeProcess: (o) => {
+      const child = spawn(o.command, o.args, { cwd: o.cwd, env: o.env as NodeJS.ProcessEnv, stdio: ['pipe', 'pipe', 'pipe'], signal: o.signal })
+      resources.registerProcess(child.pid, { kind: 'agent', workspaceId, label: 'Claude Code' })
+      child.stderr?.on('data', (d: Buffer) => options.stderr?.(d.toString()))
+      child.once('exit', () => resources.unregisterProcess(child.pid))
+      return child as unknown as SpawnedProcess
+    },
     env: {
       ...process.env,
       ...accountEnv(ws.claudeAccountId),
@@ -394,6 +426,12 @@ async function pump(session: Session, emit: EmitEvent): Promise<void> {
             notice('error', `The model declined this request${msg.api_refusal_category ? ` (${msg.api_refusal_category})` : ''}. ${msg.api_refusal_explanation ?? msg.content ?? ''}`.trim())
           } else if (msg.subtype === 'model_refusal_fallback') {
             notice('info', `Switched from ${msg.original_model} to ${msg.fallback_model} after a refusal.`)
+          } else if (msg.subtype === 'task_started') {
+            if (!msg.ambient && (msg.subagent_type || msg.task_type === 'local_agent')) resources.taskStarted(workspaceId, { taskId: msg.task_id, toolUseId: msg.tool_use_id, description: msg.subagent_type ?? msg.description, startedAt: new Date().toISOString() })
+          } else if (msg.subtype === 'task_notification') {
+            resources.taskEnded(workspaceId, msg.task_id)
+          } else if (msg.subtype === 'task_updated') {
+            if (msg.patch.status && ['completed', 'failed', 'killed'].includes(msg.patch.status)) resources.taskEnded(workspaceId, msg.task_id)
           } else if (msg.subtype === 'notification') {
             if (msg.priority === 'high' || msg.priority === 'immediate') notice('warn', msg.text)
           } else if (msg.subtype === 'status') {
@@ -648,9 +686,17 @@ export function resetSession(workspaceId: string): void {
   })
 }
 
+/** Stop one running subagent (Claude Code tasks; crew workers on other engines end with their session). */
+export async function stopTask(workspaceId: string, taskId: string): Promise<void> {
+  const s = sessions.get(workspaceId)
+  if (s && !taskId.startsWith('crew-')) await s.q.stopTask(taskId)
+  resources.taskEnded(workspaceId, taskId)
+}
+
 export function closeSession(workspaceId: string): void {
   native.closeSession(workspaceId)
   acp.closeSession(workspaceId)
+  resources.clearWorkspace(workspaceId)
   const s = sessions.get(workspaceId)
   if (!s) return
   s.end()

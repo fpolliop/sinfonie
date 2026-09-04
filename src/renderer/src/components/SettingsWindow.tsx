@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import clsx from 'clsx'
-import { Plus, RefreshCw, Trash2, FolderGit2, Settings as SettingsIcon, Layers, Server, UserCircle2, Users, Plug, Ticket, GitPullRequest, MessageSquarePlus, Info, FolderTree, ChevronRight } from 'lucide-react'
+import { Plus, RefreshCw, Trash2, FolderGit2, Settings as SettingsIcon, Layers, Server, UserCircle2, Users, Plug, Ticket, GitPullRequest, MessageSquarePlus, Info, FolderTree, ChevronRight, Gauge } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp, type SettingsTarget, type AppPage, type SpacePage } from '@/stores/app'
 import { Badge, Button, Field, inputCls } from './ui'
@@ -13,6 +13,7 @@ import { ModelSelect } from './ModelSelect'
 import { ProvidersSection } from './ProvidersSection'
 import { EngineSelect, NativeModelSelect } from './EngineSelect'
 import { AccountsPage, acpProbeCache } from './AccountsPage'
+import { ResourcesPage } from './ResourcesPage'
 import { ACP_ENGINES, VENDORS } from '@shared/types'
 
 /**
@@ -27,6 +28,7 @@ const APP_PAGES: { id: AppPage; label: string; icon: React.ReactNode; desc: stri
   { id: 'providers', label: 'Model providers', icon: <Server size={14} />, desc: 'API keys and local servers for the native engine. Shared by all spaces.' },
   { id: 'accounts', label: 'Accounts', icon: <UserCircle2 size={14} />, desc: 'Logins for Anthropic, OpenAI, Google and xAI agents. Several per vendor; spaces and workspaces pick one.' },
   { id: 'crew', label: 'Default crew', icon: <Users size={14} />, desc: 'The subagents a space gets unless it defines its own crew.' },
+  { id: 'resources', label: 'Resources', icon: <Gauge size={14} />, desc: 'Memory per session, subagent and session limits, and what happens under pressure.' },
   { id: 'mcp', label: 'MCP servers', icon: <Plug size={14} />, desc: 'MCP servers available in every space.' },
   { id: 'jira', label: 'Jira', icon: <Ticket size={14} />, desc: 'The fallback Jira connection for spaces without their own.' },
   { id: 'feedback', label: 'Feedback & diagnostics', icon: <MessageSquarePlus size={14} />, desc: 'Send feedback, review captured errors, control crash reports.' },
@@ -170,7 +172,7 @@ function AppPageView({ page }: { page: AppPage }): React.JSX.Element {
             </Field>
           )}
           {ACP_ENGINES.some((e) => e.id === settings.engine) && (
-            <p className="mb-3 text-[11px] text-muted">The default model for this engine is chosen under Agent logins.</p>
+            <p className="mb-3 text-[11px] text-muted">The default model for this engine is chosen under Accounts.</p>
           )}
           <Field label="Permission mode" hint="Each chat can still switch its own mode from the composer or with Shift+Tab.">
             <select className={inputCls} value={settings.permissionMode} onChange={(e) => go(() => update({ permissionMode: e.target.value as typeof settings.permissionMode }))}>
@@ -199,6 +201,8 @@ function AppPageView({ page }: { page: AppPage }): React.JSX.Element {
     case 'accounts':
     case 'logins':
       return <AccountsPage />
+    case 'resources':
+      return <ResourcesPage />
     case 'crew':
       return (
         <AgentsSection

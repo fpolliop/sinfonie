@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { Plus, Settings, Archive, Pencil, Folder, Code2, TerminalSquare, Trash2, GitPullRequest, Layers, ArrowDownWideNarrow, ArrowUpNarrowWide, Filter, ChevronRight, MessageSquarePlus } from 'lucide-react'
 import { ERRORS_SEEN_KEY } from './FeedbackDialog'
+import { useResources, subscribeResources, gb } from '@/stores/resources'
 import { WORKSPACE_STAGES } from '@shared/types'
 import { LabelChip, labelsFor } from './LabelPicker'
 import { useApp, spaceOrder } from '@/stores/app'
@@ -183,6 +184,7 @@ export function Sidebar(): React.JSX.Element {
         )}
       </div>
       <UpdateBanner />
+      <MemoryGauge onOpen={() => openSettings({ scope: 'app', page: 'resources' })} />
       <SpaceDots ids={ids} currentId={currentId} onPick={setActiveSpace} onAdd={() => openSettings({ scope: 'app', page: 'spaces' })} />
       {spaceMenu && (
         <ContextMenu
@@ -248,6 +250,32 @@ function UpdateBanner(): React.JSX.Element | null {
         </button>
       </div>
     </div>
+  )
+}
+
+/** Slim memory gauge: what Sinfonie's processes use against the budget. Click for the Resources page. */
+function MemoryGauge({ onOpen }: { onOpen: () => void }): React.JSX.Element | null {
+  const snap = useResources((s) => s.snapshot)
+  useEffect(() => subscribeResources(), [])
+  if (!snap || (snap.sessions.length === 0 && snap.level === 'normal')) return null
+  const pct = Math.min(100, (snap.appRss / snap.budget) * 100)
+  const running = snap.sessions.reduce((n, s) => n + s.tasks.length, 0)
+  const color = snap.level === 'critical' ? 'bg-danger' : snap.level === 'warn' ? 'bg-warn' : 'bg-accent'
+  const text = snap.level === 'critical' ? 'text-danger' : snap.level === 'warn' ? 'text-warn' : 'text-muted'
+  return (
+    <button onClick={onOpen} className="group mx-2 mb-1 rounded-md px-1.5 py-1 text-left hover:bg-panel-2" title={`Sinfonie uses ${gb(snap.appRss)} of a ${gb(snap.budget)} budget · macOS pressure ${snap.osPressure} · ${snap.sessions.length} agent${snap.sessions.length === 1 ? '' : 's'}, ${running} subagent${running === 1 ? '' : 's'} running. Click for details.`}>
+      <div className={clsx('flex items-center justify-between text-[10px]', text)}>
+        <span>Memory {gb(snap.appRss)}</span>
+        <span>
+          {snap.sessions.length} agent{snap.sessions.length === 1 ? '' : 's'}
+          {running ? ` · ${running} sub` : ''}
+          {snap.waiting.length ? ` · ${snap.waiting.length} waiting` : ''}
+        </span>
+      </div>
+      <div className="mt-0.5 h-[3px] w-full overflow-hidden rounded-full bg-panel-2">
+        <div className={clsx('h-full rounded-full transition-all duration-500', color)} style={{ width: `${pct}%` }} />
+      </div>
+    </button>
   )
 }
 

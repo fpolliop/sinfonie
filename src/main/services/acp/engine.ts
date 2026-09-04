@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from 'child_process'
+import * as resources from '../resources'
 import { Readable, Writable } from 'stream'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { dirname, isAbsolute, relative, resolve } from 'path'
@@ -304,6 +305,8 @@ async function openSession(workspaceId: string, engine: AcpEngine, emit: Emit): 
     async createTerminal({ command, args, env, cwd, outputByteLimit }) {
       const id = nanoid(8)
       const child = spawn(command, args ?? [], { cwd: cwd ?? primary.worktreePath, env: { ...loginEnv(), ...Object.fromEntries((env ?? []).map((e) => [e.name, e.value])) } })
+      resources.registerProcess(child.pid, { kind: 'tool', workspaceId, label: command })
+      child.once('exit', () => resources.unregisterProcess(child.pid))
       const t = { child, output: '', exit: null as { code: number | null; signal: string | null } | null, waiters: [] as (() => void)[] }
       const cap = outputByteLimit ?? 200_000
       const push = (d: Buffer): void => {
@@ -342,6 +345,8 @@ async function openSession(workspaceId: string, engine: AcpEngine, emit: Emit): 
   })
 
   const { child, conn } = connect(engine, primary.worktreePath, client, accountEnvById(engine, ws.claudeAccountId))
+  resources.registerProcess(child.pid, { kind: 'agent', workspaceId, label: engine })
+  child.once('exit', () => resources.unregisterProcess(child.pid))
   session = { workspaceId, engine, child, conn, sessionId: '', busy: false, queue: [], interrupted: false, toolItems: new Map(), itemId: '', terminals: new Map(), modes: null, tokens: { input: 0, output: 0 }, emit }
   child.on('exit', (code) => {
     if (sessions.get(workspaceId) === session) {
@@ -595,6 +600,8 @@ export async function runWorker(run: AcpWorkerRun): Promise<string> {
     }
   })
   const { child, conn } = connect(engine, primary.worktreePath, client, accountEnvById(engine, ws.claudeAccountId))
+  resources.registerProcess(child.pid, { kind: 'agent', workspaceId: ws.id, label: engine })
+  child.once('exit', () => resources.unregisterProcess(child.pid))
   const kill = (): void => {
     child.kill('SIGKILL')
   }

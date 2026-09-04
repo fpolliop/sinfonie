@@ -1,5 +1,6 @@
 import * as pty from 'node-pty'
 import { nanoid } from 'nanoid'
+import * as resources from './resources'
 
 type DataHandler = (terminalId: string, data: string) => void
 type ExitHandler = (terminalId: string, exitCode: number) => void
@@ -23,9 +24,11 @@ export function createTerminal(
     env: env as Record<string, string>
   })
   terminals.set(id, term)
+  resources.registerProcess(term.pid, { kind: 'terminal', cwd })
   term.onData((d) => onData(id, d))
   term.onExit(({ exitCode }) => {
     terminals.delete(id)
+    resources.unregisterProcess(term.pid)
     onExit(id, exitCode)
   })
   return id

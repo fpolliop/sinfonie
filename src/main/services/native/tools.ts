@@ -1,6 +1,7 @@
 import { tool, type ToolSet } from 'ai'
 import { z } from 'zod'
 import { spawn } from 'child_process'
+import * as resources from '../resources'
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'fs'
 import { dirname, isAbsolute, join, relative, resolve } from 'path'
 import fg from 'fast-glob'
@@ -146,6 +147,8 @@ async function which(bin: string): Promise<boolean> {
 export function run(cmd: string, args: string[], cwd: string, signal: AbortSignal | undefined, timeoutMs: number): Promise<{ stdout: string; stderr: string; code: number | null; timedOut: boolean }> {
   return new Promise((resolve) => {
     const child = spawn(cmd, args, { cwd, env: process.env })
+    resources.registerProcess(child.pid, { kind: 'tool', cwd, label: cmd })
+    child.once('exit', () => resources.unregisterProcess(child.pid))
     let stdout = '',
       stderr = '',
       timedOut = false

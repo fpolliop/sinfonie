@@ -1,4 +1,4 @@
-import type { LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion,
+import type { ResourceSnapshot, LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion,
   AgentEvent,
   ChatItem,
   JiraIssue,
@@ -160,6 +160,10 @@ export interface SinfonieInvoke {
   'terminal:write': (terminalId: string, data: string) => void
   'terminal:resize': (terminalId: string, cols: number, rows: number) => void
   'terminal:dispose': (terminalId: string) => void
+  // ---- resources ----
+  'resources:get': () => ResourceSnapshot
+  'resources:stopTask': (workspaceId: string, taskId: string) => void
+  'resources:cancelWaiting': (workspaceId: string) => void
 }
 
 /** Push channels (main -> renderer). */
@@ -180,6 +184,8 @@ export interface SinfonieEvents {
   'notes:changed': { workspaceId: string; notes: Note[] }
   /** A new error was logged; the sidebar badge updates. */
   'errors:new': ErrorEntry
+  /** Memory and process sample, every few seconds. */
+  'resources:snapshot': ResourceSnapshot
 }
 
 export type InvokeChannel = keyof SinfonieInvoke

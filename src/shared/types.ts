@@ -369,6 +369,52 @@ export interface ClaudeAccount {
   checkedAt?: string
 }
 
+/** How hard Sinfonie leans on the Mac. Missing fields fall back to DEFAULT_RESOURCES in main. */
+export interface ResourceSettings {
+  /** off: measure only. warn: notices only. enforce: refuse and stop subagents under pressure. */
+  governor?: 'off' | 'warn' | 'enforce'
+  /** Subagents one session may run at once; further delegations are refused with an explanation. */
+  maxSubagentsPerSession?: number
+  /** Sessions that may be generating at once app-wide; further messages wait for a slot. */
+  maxActiveSessions?: number
+  /** Share of RAM Sinfonie's whole process tree may use before pressure counts as warn (80%) and critical (100%). */
+  memoryBudgetPct?: number
+  /** Under critical pressure, stop the newest subagent each tick until it eases. */
+  stopSubagentsOnCritical?: boolean
+}
+export type PressureLevel = 'normal' | 'warn' | 'critical'
+export interface ResourceTask {
+  taskId: string
+  toolUseId?: string
+  description: string
+  startedAt: string
+}
+export interface ResourceSession {
+  workspaceId: string
+  /** Bytes of resident memory across the agent process and everything it spawned. */
+  rss: number
+  terminalsRss: number
+  procs: number
+  tasks: ResourceTask[]
+  busy: boolean
+}
+export interface ResourceSnapshot {
+  at: string
+  level: PressureLevel
+  /** What the macOS kernel reports, independent of Sinfonie's own budget. */
+  osPressure: PressureLevel
+  totalMem: number
+  budget: number
+  /** Everything under the Sinfonie process, renderer included. */
+  appRss: number
+  swapUsed: number
+  sessions: ResourceSession[]
+  terminalsRss: number
+  otherRss: number
+  /** Workspaces whose message is waiting for a free session slot. */
+  waiting: string[]
+}
+
 export interface Settings {
   workspacesRoot: string
   basePort: number
@@ -406,6 +452,7 @@ export interface Settings {
   installFirstSeen?: string
   /** First-run setup, tour and getting-started checklist state. */
   onboarding?: { setupDoneAt?: string; tourDoneAt?: string; checklistDismissedAt?: string }
+  resources?: ResourceSettings
 }
 
 /** A session note or todo on a workspace. The orchestrator can read and edit them too. */
