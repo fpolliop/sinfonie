@@ -219,7 +219,7 @@
     </div>
     <div class="right">
       <a class="btn ghost sm" href="https://github.com/fpolliop/sinfonie-releases/releases">Release notes</a>
-      <a class="btn primary sm dl" href="https://github.com/fpolliop/sinfonie-releases/releases/latest">Download</a>
+      <a class="btn primary sm dl" href="/download">Download</a>
     </div>
   </div>
 </nav>
@@ -232,7 +232,7 @@
     <h1>One workspace across <span class="grad">all your repositories.</span></h1>
     <p class="lead">Full-stack features live in more than one repo. Sinfonie gives every feature its own isolated workspace: <b>a worktree on the same branch in every repository you pick</b>, side by side, with a crew of models working across them.</p>
     <div class="cta">
-      <a class="btn primary dl" href="https://github.com/fpolliop/sinfonie-releases/releases/latest">
+      <a class="btn primary dl" href="/download">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
         Download for Mac
       </a>
@@ -405,7 +405,7 @@ Never let two agents edit the same repo at once.</span></pre>
     <div class="band reveal">
       <h2>One workspace per feature. Every repo it touches.</h2>
       <p style="color:var(--muted);max-width:520px;margin:0 auto 24px">One workspace per feature, every repo it touches, a crew that knows the difference between exploring and deciding.</p>
-      <a class="btn primary dl" href="https://github.com/fpolliop/sinfonie-releases/releases/latest"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg> Download Sinfonie <span id="bv"></span></a>
+      <a class="btn primary dl" href="/download"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg> Download Sinfonie <span id="bv"></span></a>
       <div class="sys">macOS 13+ · Apple Silicon · needs git and a Claude Code login</div>
     </div>
   </div>
@@ -427,7 +427,6 @@ Never let two agents edit the same repo at once.</span></pre>
   fetch('https://api.github.com/repos/fpolliop/sinfonie-releases/releases/latest').then(r => r.ok ? r.json() : null).then(rel => {
     if (!rel) return
     var dmg = (rel.assets||[]).find(a => /arm64.*\.dmg$/.test(a.name)) || (rel.assets||[]).find(a => /\.dmg$/.test(a.name))
-    document.querySelectorAll('.dl').forEach(a => { if (dmg) a.href = dmg.browser_download_url })
     document.getElementById('hv').textContent = rel.tag_name
     document.getElementById('bv').textContent = rel.tag_name
     if (dmg) document.getElementById('hsize').textContent = Math.round(dmg.size/1048576) + ' MB DMG · '
