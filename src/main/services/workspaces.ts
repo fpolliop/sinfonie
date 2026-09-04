@@ -67,13 +67,12 @@ export function patchWorkspace(id: string, patch: Partial<Workspace>): Workspace
  * on the same branch name, under one folder. Setup scripts run per repo.
  */
 export async function createWorkspace(input: CreateWorkspaceInput, emit: Emit): Promise<Workspace> {
-  if (input.repos.length === 0) throw new Error('Pick at least one repository')
   const { settings, spaces } = getStore().get()
   const space = spaces.find((s) => s.id === input.spaceId)
   const slug = uniqueSlug(slugify(input.name))
   const rootPath = join(space?.workspacesRoot || settings.workspacesRoot, slug)
   const repos = input.repos.map((r) => getRepo(r.repoId))
-  const primaryRepoId = input.primaryRepoId ?? input.repos[0].repoId
+  const primaryRepoId = input.primaryRepoId ?? input.repos[0]?.repoId ?? ''
 
   const wsRepos: WorkspaceRepo[] = input.repos.map((r, i) => ({
     repoId: r.repoId,
@@ -197,7 +196,7 @@ export async function addRepoToWorkspace(workspaceId: string, repoId: string, ba
   const wr: WorkspaceRepo = { repoId, repoName: repo.name, worktreePath: join(ws.rootPath, repo.name), branch, baseBranch: baseBranch || repo.defaultBranch }
   if (existsSync(wr.worktreePath)) throw new Error(`${wr.worktreePath} already exists`)
   await git.createWorktree(repo.path, wr.worktreePath, wr.branch, wr.baseBranch)
-  const out = patchWorkspace(ws.id, { repos: [...ws.repos, wr] })
+  const out = patchWorkspace(ws.id, { repos: [...ws.repos, wr], ...(ws.primaryRepoId ? {} : { primaryRepoId: repoId }) })
   const cmd = repo.config?.scripts?.setup
   if (cmd) await runScript(out, repo, wr.worktreePath, 'setup', cmd, emit)
   return out
@@ -207,7 +206,6 @@ export async function removeRepoFromWorkspace(workspaceId: string, repoId: strin
   const ws = getWorkspace(workspaceId)
   const wr = ws.repos.find((r) => r.repoId === repoId)
   if (!wr) throw new Error('Repository is not in this workspace')
-  if (ws.repos.length === 1) throw new Error('A workspace needs at least one repository; archive it instead')
   let repo: Repo | null = null
   try {
     repo = getRepo(repoId)
@@ -225,7 +223,7 @@ export async function removeRepoFromWorkspace(workspaceId: string, repoId: strin
   }
   if (existsSync(wr.worktreePath)) rmSync(wr.worktreePath, { recursive: true, force: true })
   const repos = ws.repos.filter((r) => r.repoId !== repoId)
-  return patchWorkspace(ws.id, { repos, primaryRepoId: ws.primaryRepoId === repoId ? repos[0].repoId : ws.primaryRepoId })
+  return patchWorkspace(ws.id, { repos, primaryRepoId: ws.primaryRepoId === repoId ? (repos[0]?.repoId ?? '') : ws.primaryRepoId })
 }
 
 export function deleteWorkspaceRecord(workspaceId: string): void {

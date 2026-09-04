@@ -37,7 +37,7 @@ export default function App(): React.JSX.Element {
         e.preventDefault()
         setFeedbackDialog('feedback')
       }
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'n') {
+      if ((e.metaKey || e.ctrlKey) && ((e.shiftKey && e.key.toLowerCase() === 'n') || (!e.shiftKey && !e.altKey && e.key.toLowerCase() === 't'))) {
         e.preventDefault()
         setShowNewWorkspace(true)
       }

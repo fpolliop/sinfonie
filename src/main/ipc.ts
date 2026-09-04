@@ -39,6 +39,7 @@ import * as notes from './services/notes'
 import * as resources from './services/resources'
 import * as browser from './services/browser/service'
 import * as browserHttp from './services/browser/http'
+import * as workspaceTools from './services/workspace-tools'
 
 function send<C extends keyof SinfonieEvents>(channel: C, payload: SinfonieEvents[C]): void {
   for (const win of BrowserWindow.getAllWindows()) win.webContents.send(channel, payload)
@@ -66,6 +67,7 @@ export function registerIpc(): void {
     (q) => send('agent:question', q)
   )
   getStore().subscribe(() => send('store:changed', getStore().public()))
+  workspaceTools.setScriptEmitter(emitScript)
 
   handle('store:get', () => getStore().public())
   handle('settings:update', (patch) => getStore().update((d) => Object.assign(d.settings, patch)).settings)

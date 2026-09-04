@@ -231,7 +231,8 @@ async function openSession(workspaceId: string, engine: AcpEngine, emit: Emit): 
   const ws = getWorkspace(workspaceId)
   const { settings, space } = spaceOf(ws)
   const primary = ws.repos.find((r) => r.repoId === ws.primaryRepoId) ?? ws.repos[0]
-  const roots = ws.repos.map((r) => r.worktreePath)
+  const wsCwd = primary?.worktreePath ?? ws.rootPath
+  const roots = [...ws.repos.map((r) => r.worktreePath), ws.rootPath]
   const mode: PermissionMode = ws.permissionMode ?? space?.permissionMode ?? settings.permissionMode
   let session!: Session
 
@@ -315,7 +316,7 @@ async function openSession(workspaceId: string, engine: AcpEngine, emit: Emit): 
       // verbatim fails with ENOENT, so hand such strings to a shell instead.
       const viaShell = (!args || args.length === 0) && /\s/.test(command.trim())
       const [file, argv] = viaShell ? ['/bin/zsh', ['-lc', command]] : [command, args ?? []]
-      const child = spawn(file, argv, { cwd: cwd ?? primary.worktreePath, env: { ...loginEnv(), ...Object.fromEntries((env ?? []).map((e) => [e.name, e.value])) } })
+      const child = spawn(file, argv, { cwd: cwd ?? wsCwd, env: { ...loginEnv(), ...Object.fromEntries((env ?? []).map((e) => [e.name, e.value])) } })
       resources.registerProcess(child.pid, { kind: 'tool', workspaceId, label: command })
       child.once('exit', () => resources.unregisterProcess(child.pid))
       const t = { child, output: '', exit: null as { code: number | null; signal: string | null } | null, waiters: [] as (() => void)[] }
@@ -363,7 +364,7 @@ async function openSession(workspaceId: string, engine: AcpEngine, emit: Emit): 
     }
   })
 
-  const { child, conn } = connect(engine, primary.worktreePath, client, accountEnvById(engine, ws.claudeAccountId))
+  const { child, conn } = connect(engine, wsCwd, client, accountEnvById(engine, ws.claudeAccountId))
   resources.registerProcess(child.pid, { kind: 'agent', workspaceId, label: engine })
   child.once('exit', () => resources.unregisterProcess(child.pid))
   session = { workspaceId, engine, child, conn, sessionId: '', busy: false, queue: [], interrupted: false, toolItems: new Map(), itemId: '', terminals: new Map(), modes: null, tokens: { input: 0, output: 0 }, emit }
@@ -382,14 +383,14 @@ async function openSession(workspaceId: string, engine: AcpEngine, emit: Emit): 
   let s: schema.NewSessionResponse | null = null
   if (stored) {
     try {
-      const l = await conn.loadSession({ sessionId: stored, cwd: primary.worktreePath, mcpServers })
+      const l = await conn.loadSession({ sessionId: stored, cwd: wsCwd, mcpServers })
       s = { sessionId: stored, modes: l.modes ?? null, configOptions: l.configOptions ?? null }
     } catch {
       s = null
     }
   }
   if (!s) {
-    s = await newSessionWithAuth(conn, engine, { cwd: primary.worktreePath, mcpServers }, init.authMethods ?? [])
+    s = await newSessionWithAuth(conn, engine, { cwd: wsCwd, mcpServers }, init.authMethods ?? [])
     patchWorkspace(workspaceId, { [sessionKey(ws, engine)]: s.sessionId } as Partial<Workspace>)
   }
   session.sessionId = s.sessionId
@@ -576,7 +577,8 @@ export interface AcpWorkerRun {
 export async function runWorker(run: AcpWorkerRun): Promise<string> {
   const { ws, engine } = run
   const primary = ws.repos.find((r) => r.repoId === ws.primaryRepoId) ?? ws.repos[0]
-  const roots = ws.repos.map((r) => r.worktreePath)
+  const wsCwd = primary?.worktreePath ?? ws.rootPath
+  const roots = [...ws.repos.map((r) => r.worktreePath), ws.rootPath]
   let text = ''
   const seen = new Set<string>()
   const client = (): Client => ({
@@ -618,7 +620,7 @@ export async function runWorker(run: AcpWorkerRun): Promise<string> {
       return {}
     }
   })
-  const { child, conn } = connect(engine, primary.worktreePath, client, accountEnvById(engine, ws.claudeAccountId))
+  const { child, conn } = connect(engine, wsCwd, client, accountEnvById(engine, ws.claudeAccountId))
   resources.registerProcess(child.pid, { kind: 'agent', workspaceId: ws.id, label: engine })
   child.once('exit', () => resources.unregisterProcess(child.pid))
   const kill = (): void => {
@@ -627,7 +629,7 @@ export async function runWorker(run: AcpWorkerRun): Promise<string> {
   run.signal?.addEventListener('abort', kill)
   try {
     const init = await conn.initialize({ protocolVersion: 1, clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: false } })
-    const s = await newSessionWithAuth(conn, engine, { cwd: primary.worktreePath, mcpServers: [] }, init.authMethods ?? [])
+    const s = await newSessionWithAuth(conn, engine, { cwd: wsCwd, mcpServers: [] }, init.authMethods ?? [])
     await applyMode(conn, s.sessionId, s.modes ?? null, run.mode)
     await applyModel(conn, s.sessionId, s, run.model)
     await conn.prompt({ sessionId: s.sessionId, prompt: [{ type: 'text', text: run.prompt }] })

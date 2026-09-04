@@ -80,14 +80,14 @@ export function NewWorkspaceDialog({ onClose }: { onClose: () => void }): React.
 
   const selected = Object.values(picks)
   const submit = async (): Promise<void> => {
-    if (!name.trim() || selected.length === 0) return
+    if (!name.trim()) return
     setBusy(true)
     try {
       localStorage.setItem('orchestra.lastRepos', JSON.stringify(selected.map((s) => s.repoId)))
       const ws = await api.invoke('workspaces:create', {
         name,
         repos: selected.map((s) => ({ repoId: s.repoId, baseBranch: s.baseBranch })),
-        primaryRepoId: primary || selected[0].repoId,
+        ...(selected.length ? { primaryRepoId: primary || selected[0].repoId } : {}),
         ...(jira ? { jira } : {}),
         claudeAccountId: accountId,
         ...(spaceId ? { spaceId } : {})
@@ -187,12 +187,12 @@ export function NewWorkspaceDialog({ onClose }: { onClose: () => void }): React.
           )
         })}
       </div>
-      <p className="mb-3 text-[11px] text-muted">The primary repo is Claude Code's working directory; the others are added as extra directories. Setup scripts run in every repo after all worktrees exist.</p>
+      <p className="mb-3 text-[11px] text-muted">{selected.length ? "The primary repo is the agent's working directory; the others are added as extra directories. Setup scripts run in every repo after all worktrees exist." : 'No repositories selected: the workspace starts empty, and the agent asks you to attach a repository when the task needs one.'}</p>
       <AccountPicker value={accountId} onChange={setAccountId} className="mb-4" engine={space?.engine ?? settings.engine ?? 'claude-code'} />
       <div className="flex justify-end gap-2">
         <Button onClick={onClose}>Cancel</Button>
-        <Button variant="primary" onClick={submit} disabled={busy || !name.trim() || selected.length === 0}>
-          {busy ? 'Creating…' : `Create ${selected.length || ''} worktree${selected.length === 1 ? '' : 's'}`}
+        <Button variant="primary" onClick={submit} disabled={busy || !name.trim()}>
+          {busy ? 'Creating…' : selected.length ? `Create ${selected.length} worktree${selected.length === 1 ? '' : 's'}` : 'Create empty workspace'}
         </Button>
       </div>
     </Dialog>

@@ -2,6 +2,7 @@ import { query, createSdkMcpServer, tool as sdkTool, type Options, type Query, t
 import { spawn } from 'child_process'
 import * as resources from './resources'
 import * as browserTools from './browser/tools'
+import * as workspaceTools from './workspace-tools'
 import { z } from 'zod'
 import { classifyModel } from '@shared/types'
 import { runWorker } from './crew/workers'
@@ -42,6 +43,9 @@ interface Session {
   mcpNames: string[]
   /** Pending tool_use ids per external crew member, so worker activity attaches to the right call. */
   crewCalls: Map<string, string[]>
+  /** Set when the workspace gained a repository mid-turn: restart the session at turn end so the new worktree is a working directory. */
+  flags: { restartAfterTurn: boolean }
+  emitPermission: EmitPermission
 }
 
 /** Everything the SDK sends (minus streaming deltas) goes to a per-workspace log for diagnosis. */
@@ -126,15 +130,18 @@ function makeInputStream(): { iterable: AsyncIterable<SDKUserMessage>; push: (m:
 
 function systemPromptFor(ws: Workspace): string {
   const primary = ws.repos.find((r) => r.repoId === ws.primaryRepoId) ?? ws.repos[0]
-  const lines = [
-    `You are working inside an Sinfonie workspace named "${ws.name}" that spans ${ws.repos.length} git repositories.`,
-    `Each repository has its own worktree on the branch "${primary.branch}". The worktrees are:`,
-    ...ws.repos.map((r) => `- ${r.repoName}: ${r.worktreePath} (branch ${r.branch}, based on ${r.baseBranch})`),
-    `Your working directory is the ${primary.repoName} worktree. The other worktrees are added as additional directories; you can read and edit files in all of them.`,
-    `A feature may need changes in several of these repositories. Keep the changes for each repository inside its own worktree, and run git commands from inside the worktree they apply to.`,
-    `Never modify the original repositories outside these worktree paths.`,
-    `Sinfonie runs on the user's Mac next to other sessions and limits you to ${resources.resourceSettings().maxSubagentsPerSession} subagents at once; under memory pressure it refuses new ones. When a delegation is refused, the tool result says why: do that work yourself or wait for running subagents instead of retrying.`
-  ]
+  const lines = primary
+    ? [
+        `You are working inside an Sinfonie workspace named "${ws.name}" that spans ${ws.repos.length} git repositor${ws.repos.length === 1 ? 'y' : 'ies'}.`,
+        `Each repository has its own worktree on the branch "${primary.branch}". The worktrees are:`,
+        ...ws.repos.map((r) => `- ${r.repoName}: ${r.worktreePath} (branch ${r.branch}, based on ${r.baseBranch})`),
+        `Your working directory is the ${primary.repoName} worktree. The other worktrees are added as additional directories; you can read and edit files in all of them.`,
+        `A feature may need changes in several of these repositories. Keep the changes for each repository inside its own worktree, and run git commands from inside the worktree they apply to.`,
+        `Never modify the original repositories outside these worktree paths.`
+      ]
+    : [`You are working inside an Sinfonie workspace named "${ws.name}". Your working directory is its folder, ${ws.rootPath}.`]
+  lines.push(workspaceTools.promptFor(ws.id))
+  lines.push(`Sinfonie runs on the user's Mac next to other sessions and limits you to ${resources.resourceSettings().maxSubagentsPerSession} subagents at once; under memory pressure it refuses new ones. When a delegation is refused, the tool result says why: do that work yourself or wait for running subagents instead of retrying.`)
   return lines.join('\n')
 }
 
@@ -249,7 +256,9 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
   const { settings, spaces } = getStore().get()
   const space = spaces.find((s) => s.id === ws.spaceId)
   const primary = ws.repos.find((r) => r.repoId === ws.primaryRepoId) ?? ws.repos[0]
+  const wsCwd = primary?.worktreePath ?? ws.rootPath
   const others = ws.repos.filter((r) => r !== primary).map((r) => r.worktreePath)
+  const flags = { restartAfterTurn: false }
   const abort = new AbortController()
   const input = makeInputStream()
 
@@ -290,9 +299,9 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
   const crewCalls = new Map<string, string[]>()
   const crew = crewFor(ws, emit, crewCalls)
   if (crew.server) mcpServers = { ...mcpServers, crew: crew.server }
-  mcpServers = { ...mcpServers, notes: notes.sdkServer(ws.id), browser: browserTools.sdkServer(ws.id) }
+  mcpServers = { ...mcpServers, notes: notes.sdkServer(ws.id), browser: browserTools.sdkServer(ws.id), workspace: workspaceTools.sdkServer(ws.id, () => (flags.restartAfterTurn = true)) }
   const options: Options = {
-    cwd: primary.worktreePath,
+    cwd: wsCwd,
     additionalDirectories: others,
     permissionMode: mode,
     ...(mode === 'bypassPermissions' ? { allowDangerouslySkipPermissions: true } : {}),
@@ -307,7 +316,7 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
     ...(Object.keys(mcpServers).length ? { mcpServers } : {}),
     ...(space?.strictMcp ?? settings.strictMcp ? { strictMcpConfig: true } : {}),
     settingSources: ['user', 'project', 'local'],
-    allowedTools: browserTools.sdkAllowedTools(),
+    allowedTools: [...browserTools.sdkAllowedTools(), ...workspaceTools.SDK_ALLOWED],
     hooks: {
       PreToolUse: [
         {
@@ -350,7 +359,7 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
     if (stderrLines.length > 40) stderrLines.splice(0, stderrLines.length - 40)
   }
   const q = query({ prompt: input.iterable, options })
-  const session: Session = { workspaceId, q, push: input.push, end: input.end, abort, busy: false, stderr: stderrLines, queue: [], interrupted: false, mcpNames: Object.keys(mcpServers).filter((n) => n !== 'crew' && n !== 'notes' && n !== 'browser'), crewCalls }
+  const session: Session = { workspaceId, q, push: input.push, end: input.end, abort, busy: false, stderr: stderrLines, queue: [], interrupted: false, mcpNames: Object.keys(mcpServers).filter((n) => n !== 'crew' && n !== 'notes' && n !== 'browser' && n !== 'workspace'), crewCalls, flags, emitPermission }
   sessions.set(workspaceId, session)
   void pump(session, emit)
   return session
@@ -531,7 +540,18 @@ async function pump(session: Session, emit: EmitEvent): Promise<void> {
           turnStop = null
           // Deliver the next queued message, if any, as its own turn.
           const next = session.queue.shift()
-          if (next) {
+          if (session.flags.restartAfterTurn) {
+            // A repository was added mid-turn: the CLI's directory list is fixed at start, so resume in a fresh process.
+            session.flags.restartAfterTurn = false
+            const pending = next ? [next, ...session.queue] : [...session.queue]
+            session.queue = []
+            emit({ type: 'queue', workspaceId, items: [] })
+            notice('info', 'Reloading the session so the new repository is a working directory.')
+            setTimeout(() => {
+              closeSession(workspaceId)
+              for (const m of pending) void sendMessage(workspaceId, m.text, emit, session.emitPermission)
+            }, 0)
+          } else if (next) {
             emit({ type: 'queue', workspaceId, items: [...session.queue] })
             deliver(session, next.text, emit)
           }

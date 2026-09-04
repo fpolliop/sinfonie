@@ -14,6 +14,7 @@ import { buildTools, type ToolContext } from './tools'
 import { runWorker } from '../crew/workers'
 import * as resources from '../resources'
 import * as browserTools from '../browser/tools'
+import * as workspaceTools from '../workspace-tools'
 import * as notes from '../notes'
 import { askPermission } from '../interaction'
 import { estimateCost, resolveModel } from '../providers'
@@ -88,12 +89,14 @@ function modelRefFor(ws: Workspace): string {
 
 function systemPrompt(ws: Workspace, crew: AgentSpec[], mcpNames: string[]): string {
   const primary = ws.repos.find((r) => r.repoId === ws.primaryRepoId) ?? ws.repos[0]
+  const wsCwd = primary?.worktreePath ?? ws.rootPath
   const lines = [
-    `You are Sinfonie's coding agent working inside the workspace "${ws.name}", which spans ${ws.repos.length} git repositories, each checked out as a worktree on branch "${primary.branch}":`,
+    `You are Sinfonie's coding agent working inside the workspace "${ws.name}", which spans ${ws.repos.length} git repositories, each checked out as a worktree on branch "${(primary?.branch ?? ws.slug)}":`,
     ...ws.repos.map((r) => `- ${r.repoName}: ${r.worktreePath} (based on ${r.baseBranch})`),
-    `Your working directory is the ${primary.repoName} worktree. Use absolute paths when working in another repository's worktree. Keep each repository's changes inside its own worktree and run git commands from inside the worktree they apply to. Never modify the original repositories outside these worktree paths.`,
+    `Your working directory is the ${(primary?.repoName ?? 'workspace root')} worktree. Use absolute paths when working in another repository's worktree. Keep each repository's changes inside its own worktree and run git commands from inside the worktree they apply to. Never modify the original repositories outside these worktree paths.`,
     `Tools: Read, Write, Edit, LS, Glob, Grep for files; Bash for shell commands; AskUserQuestion when a decision is the user's. Read before you edit. Prefer Edit for small changes. Run the relevant tests or type-check when they are cheap. When a tool call is denied, do not retry it; ask or adapt.`,
     browserTools.promptFor(ws.port),
+    workspaceTools.promptFor(ws.id),
     `Answer in concise markdown. State what you changed and anything the user should verify.`
   ]
   if (mcpNames.length) lines.push(`MCP tools are available from: ${mcpNames.join(', ')}.`)
@@ -223,13 +226,14 @@ async function runTurn(ws: Workspace, session: NativeSession, emit: Emit): Promi
   const modelRef = modelRefFor(ws)
   const modelId = parseModelRef(modelRef)!.modelId
   const primary = ws.repos.find((r) => r.repoId === ws.primaryRepoId) ?? ws.repos[0]
+  const wsCwd = primary?.worktreePath ?? ws.rootPath
   const abort = new AbortController()
   session.abort = abort
-  const ctx: ToolContext = { workspace: ws, roots: ws.repos.map((r) => r.worktreePath), cwd: primary.worktreePath, signal: abort.signal }
+  const ctx: ToolContext = { workspace: ws, roots: [...ws.repos.map((r) => r.worktreePath), ws.rootPath], cwd: wsCwd, signal: abort.signal }
   const builtin = buildTools(ctx)
   const crew = space?.useCrew === false ? [] : (space?.agents ?? settings.agents).filter((a) => a.enabled && a.name.trim())
   const mcp = await connectMcp(ws, session)
-  const tools: ToolSet = { ...builtin, ...mcp.tools, ...notes.aiTools(ws.id), ...browserTools.aiTools(ws.id), ...(crew.length ? { Agent: crewTool(ws, crew, ctx, emit, mode) } : {}) }
+  const tools: ToolSet = { ...builtin, ...mcp.tools, ...notes.aiTools(ws.id), ...browserTools.aiTools(ws.id), ...workspaceTools.aiTools(ws.id), ...(crew.length ? { Agent: crewTool(ws, crew, ctx, emit, mode) } : {}) }
   const agent = new ToolLoopAgent({
     model: resolveModel(modelRef),
     instructions: systemPrompt(ws, crew, mcp.names) + notes.promptFor(ws.id, true),

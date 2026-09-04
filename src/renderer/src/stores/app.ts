@@ -117,6 +117,17 @@ export const useApp = create<AppState>((set, get) => ({
     localStorage.setItem('orchestra.activeSpace', id)
     localStorage.setItem('orchestra.lastSpace', id)
     set({ activeSpaceId: id, newWorkspaceSpaceId: id })
+    // Land inside the space: keep the selection if it belongs there, else the most recent
+    // conversation of that space, else the empty page. Never leave another space's chat on screen.
+    const { workspaces, spaces, selectedId, view } = get()
+    if (view === 'reviews') return
+    const spaceOf = (w: Workspace): string => (w.spaceId && spaces.some((s) => s.id === w.spaceId) ? w.spaceId : '')
+    const current = workspaces.find((w) => w.id === selectedId)
+    if (current && spaceOf(current) === id) return
+    const next = workspaces
+      .filter((w) => w.status !== 'archived' && spaceOf(w) === id)
+      .sort((a, b) => (b.lastMessageAt ?? b.createdAt).localeCompare(a.lastMessageAt ?? a.createdAt))[0]
+    get().select(next?.id ?? null)
   },
   stepSpace: (dir) => {
     const { spaces, workspaces, activeSpaceId, setActiveSpace } = get()

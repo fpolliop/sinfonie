@@ -118,7 +118,7 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
             {ws.status === 'archived' && <Badge>archived</Badge>}
           </div>
           <div className="flex items-center gap-1 text-[11px] text-muted">
-            <GitBranch size={11} /> <span className="truncate">{ws.repos[0]?.branch}</span> · port {ws.port}
+            <GitBranch size={11} /> <span className="truncate">{ws.repos[0]?.branch ?? `${ws.slug} · no repositories yet`}</span> · port {ws.port}
             {ws.jira && (
               <span className="no-drag ml-1 inline-flex items-center gap-1">
                 <button className="inline-flex items-center gap-1 text-accent hover:underline" title={ws.jira.summary} onClick={() => void api.invoke('shell:openExternal', ws.jira!.url)}>

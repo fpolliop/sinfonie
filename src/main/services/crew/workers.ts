@@ -48,11 +48,12 @@ export async function runWorker(run: WorkerRun): Promise<string> {
 async function runClaude(run: WorkerRun): Promise<string> {
   const { spec, ws } = run
   const primary = ws.repos.find((r) => r.repoId === ws.primaryRepoId) ?? ws.repos[0]
+  const wsCwd = primary?.worktreePath ?? ws.rootPath
   const mode = spec.permissionMode ?? run.mode
   const abort = new AbortController()
   run.signal?.addEventListener('abort', () => abort.abort())
   const options: Options = {
-    cwd: primary.worktreePath,
+    cwd: wsCwd,
     additionalDirectories: ws.repos.filter((r) => r !== primary).map((r) => r.worktreePath),
     model: spec.model,
     permissionMode: mode,
@@ -95,7 +96,8 @@ async function runClaude(run: WorkerRun): Promise<string> {
 async function runNative(run: WorkerRun): Promise<string> {
   const { spec, ws } = run
   const primary = ws.repos.find((r) => r.repoId === ws.primaryRepoId) ?? ws.repos[0]
-  const ctx: ToolContext = { workspace: ws, roots: ws.repos.map((r) => r.worktreePath), cwd: primary.worktreePath, signal: run.signal ?? new AbortController().signal }
+  const wsCwd = primary?.worktreePath ?? ws.rootPath
+  const ctx: ToolContext = { workspace: ws, roots: [...ws.repos.map((r) => r.worktreePath), ws.rootPath], cwd: wsCwd, signal: run.signal ?? new AbortController().signal }
   const all = buildTools(ctx)
   const allowed = spec.tools?.length ? new Set(spec.tools.map((t) => t.split('(')[0])) : null
   const tools: ToolSet = {}

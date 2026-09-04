@@ -16,12 +16,37 @@ import { InlineRename } from './InlineRename'
 import { STAGE_DOT, stageLabel } from './StagePicker'
 import type { UpdateInfo, Workspace } from '@shared/types'
 
+const DEFAULT_SIDEBAR_WIDTH = 260
+const clampSidebar = (w: number): number => Math.min(520, Math.max(200, Math.round(w)))
+
 export function Sidebar(): React.JSX.Element {
   const { workspaces, spaces, labels, labelFilter, toggleLabelFilter, clearLabelFilter, selectedId, select, setShowNewWorkspace, setShowSettings, showArchived, setShowArchived, view, setView, setError, activeSpaceId, setActiveSpace, stepSpace, sidebarView, sidebarDateDir, collapsedStages, setSidebarView, setSidebarDateDir, toggleStage } = useApp()
   const chats = useChat((s) => s.chats)
   const [spaceMenu, setSpaceMenu] = useState<{ x: number; y: number; id: string } | null>(null)
   const [renaming, setRenaming] = useState<string | null>(null)
   const openSettings = useApp((s) => s.openSettings)
+  const [sidebarWidth, setSidebarWidthState] = useState(() => clampSidebar(Number(localStorage.getItem('sinfonie.sidebarWidth')) || DEFAULT_SIDEBAR_WIDTH))
+  const widthRef = useRef(sidebarWidth)
+  const setSidebarWidth = (w: number): void => {
+    const c = clampSidebar(w)
+    widthRef.current = c
+    setSidebarWidthState(c)
+    localStorage.setItem('sinfonie.sidebarWidth', String(c))
+  }
+  const startResize = (e: React.MouseEvent): void => {
+    e.preventDefault()
+    const startX = e.clientX
+    const startW = widthRef.current
+    const move = (ev: MouseEvent): void => setSidebarWidth(startW + ev.clientX - startX)
+    const up = (): void => {
+      document.removeEventListener('mousemove', move)
+      document.removeEventListener('mouseup', up)
+      document.body.style.cursor = ''
+    }
+    document.body.style.cursor = 'col-resize'
+    document.addEventListener('mousemove', move)
+    document.addEventListener('mouseup', up)
+  }
   const setSpaceSettings = (id: string | null): void => {
     if (id) openSettings({ scope: 'space', spaceId: id, page: 'general' })
   }
@@ -64,7 +89,8 @@ export function Sidebar(): React.JSX.Element {
   }
 
   return (
-    <aside className="flex w-[260px] shrink-0 flex-col border-r border-border bg-panel" onWheel={onWheel}>
+    <aside className="relative flex shrink-0 flex-col border-r border-border bg-panel" style={{ width: sidebarWidth }} onWheel={onWheel}>
+      <div onMouseDown={startResize} onDoubleClick={() => setSidebarWidth(DEFAULT_SIDEBAR_WIDTH)} className="absolute right-0 top-0 z-10 h-full w-1 cursor-col-resize hover:bg-accent/40 active:bg-accent/60" title="Drag to resize · double-click to reset" />
       <div className="drag flex h-[52px] items-center justify-end gap-1 pl-[80px] pr-2">
         <button data-tour="new-workspace" className="no-drag rounded-md p-1.5 text-muted hover:bg-panel-2 hover:text-text" title="New workspace (⇧⌘N)" onClick={() => setShowNewWorkspace(true, currentId)}>
           <Plus size={16} />

@@ -112,7 +112,8 @@ function makeResumableFrom(ws: ReturnType<typeof getWorkspace>, sessionId: strin
   const configDir = accountEnv(ws.claudeAccountId).CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude')
   const projects = join(configDir, 'projects')
   const primary = ws.repos.find((r) => r.repoId === ws.primaryRepoId) ?? ws.repos[0]
-  const destDir = join(projects, encodeProjectDir(primary.worktreePath))
+  const wsCwd = primary?.worktreePath ?? ws.rootPath
+  const destDir = join(projects, encodeProjectDir(wsCwd))
   const dest = join(destDir, `${sessionId}.jsonl`)
   if (existsSync(dest)) return
   let src = cwd ? join(projects, encodeProjectDir(cwd), `${sessionId}.jsonl`) : ''

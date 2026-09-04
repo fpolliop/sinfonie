@@ -45,7 +45,7 @@ export function ManageReposDialog({ workspaceId, onClose }: { workspaceId: strin
   return (
     <Dialog title={`Repositories in "${ws.name}"`} onClose={onClose} width={560}>
       <p className="mb-3 text-[12px] text-muted">
-        Every repository here has a worktree on branch <code className="rounded bg-panel-2 px-1">{ws.repos[0]?.branch}</code>. Adding one creates that worktree and runs its setup script; the chat picks up the new directory on the next message.
+        Every repository here has a worktree on branch <code className="rounded bg-panel-2 px-1">{ws.repos[0]?.branch ?? ws.slug}</code>. Adding one creates that worktree and runs its setup script; the chat picks up the new directory on the next message.
       </p>
       <div className="mb-4 flex flex-col gap-1.5">
         {ws.repos.map((wr) => {
