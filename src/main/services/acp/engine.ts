@@ -304,7 +304,12 @@ async function openSession(workspaceId: string, engine: AcpEngine, emit: Emit): 
     },
     async createTerminal({ command, args, env, cwd, outputByteLimit }) {
       const id = nanoid(8)
-      const child = spawn(command, args ?? [], { cwd: cwd ?? primary.worktreePath, env: { ...loginEnv(), ...Object.fromEntries((env ?? []).map((e) => [e.name, e.value])) } })
+      // ACP says `command` is an executable and `args` its arguments, but some agents send one full
+      // command line (e.g. "/opt/homebrew/bin/bash -lc 'git status'") with no args. Spawning that
+      // verbatim fails with ENOENT, so hand such strings to a shell instead.
+      const viaShell = (!args || args.length === 0) && /\s/.test(command.trim())
+      const [file, argv] = viaShell ? ['/bin/zsh', ['-lc', command]] : [command, args ?? []]
+      const child = spawn(file, argv, { cwd: cwd ?? primary.worktreePath, env: { ...loginEnv(), ...Object.fromEntries((env ?? []).map((e) => [e.name, e.value])) } })
       resources.registerProcess(child.pid, { kind: 'tool', workspaceId, label: command })
       child.once('exit', () => resources.unregisterProcess(child.pid))
       const t = { child, output: '', exit: null as { code: number | null; signal: string | null } | null, waiters: [] as (() => void)[] }
@@ -312,11 +317,19 @@ async function openSession(workspaceId: string, engine: AcpEngine, emit: Emit): 
       const push = (d: Buffer): void => {
         t.output = (t.output + d.toString()).slice(-cap)
       }
+      const finish = (code: number | null, signal: string | null): void => {
+        if (t.exit) return
+        t.exit = { code, signal }
+        t.waiters.forEach((w) => w())
+        t.waiters = []
+      }
       child.stdout?.on('data', push)
       child.stderr?.on('data', push)
-      child.on('close', (code, signal) => {
-        t.exit = { code, signal: signal ?? null }
-        t.waiters.forEach((w) => w())
+      child.on('close', (code, signal) => finish(code, signal ?? null))
+      // A missing executable or a spawn failure must reach the agent as a failed command, not crash the app.
+      child.on('error', (err) => {
+        push(Buffer.from(`${err.message}\n`))
+        finish(127, null)
       })
       session.terminals.set(id, t)
       return { terminalId: id }
