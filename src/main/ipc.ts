@@ -33,6 +33,7 @@ import { checkForUpdate, latestKnownUpdate } from './services/updates'
 import { clearErrors, listErrors, logsDir, sendFeedback } from './services/telemetry'
 import * as interaction from './services/interaction'
 import * as providers from './services/providers'
+import * as acp from './services/acp/engine'
 
 function send<C extends keyof SinfonieEvents>(channel: C, payload: SinfonieEvents[C]): void {
   for (const win of BrowserWindow.getAllWindows()) win.webContents.send(channel, payload)
@@ -375,6 +376,20 @@ export function registerIpc(): void {
   handle('agent:interrupt', (id) => agent.interrupt(id))
   handle('agent:permission', (r) => interaction.answerPermission(r))
   handle('agent:answerQuestion', (r) => interaction.answerQuestion(r))
+
+  // ---- vendor agents over ACP ----
+  handle('acp:probe', (engine) => acp.probe(engine))
+  handle('acp:authenticate', (engine, methodId) => acp.authenticate(engine, methodId))
+  handle('terminal:createCommand', (command) => {
+    const tid = terminal.createTerminal(
+      process.env.HOME ?? '/',
+      { ...process.env, PATH: `${process.env.HOME}/.grok/bin:/opt/homebrew/bin:/usr/local/bin:${process.env.PATH ?? ''}` },
+      (terminalId, data) => send('terminal:data', { terminalId, data }),
+      (terminalId, exitCode) => send('terminal:exit', { terminalId, exitCode })
+    )
+    setTimeout(() => terminal.writeTerminal(tid, command + '\r'), 400)
+    return tid
+  })
 
   // ---- model providers (native engine) ----
   handle('providers:add', (cfg) => providers.addProvider(cfg))

@@ -55,7 +55,8 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
   const settingsMode = useApp((s) => s.settings.permissionMode)
   const engineLabel = useApp((s) => {
     const sp = s.spaces.find((x) => x.id === ws?.spaceId)
-    return (sp?.engine ?? s.settings.engine ?? 'claude-code') === 'native' ? 'native' : 'claude code'
+    const e = sp?.engine ?? s.settings.engine ?? 'claude-code'
+    return e === 'native' ? 'native' : e === 'claude-code' ? 'claude code' : e
   })
   // Select stable references, derive outside the selector (a fresh array per read loops React).
   const space = useApp((s) => s.spaces.find((x) => x.id === ws?.spaceId))

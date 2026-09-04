@@ -106,7 +106,27 @@ export const DEFAULT_CREW: AgentSpec[] = [
  * (uses the Claude Code login, Claude models only). `native` is Sinfonie's own
  * tool loop on the AI SDK: any provider, any model, including local ones.
  */
-export type Engine = 'claude-code' | 'native'
+export type Engine = 'claude-code' | 'native' | 'codex' | 'gemini' | 'grok'
+
+/** Engines that run a vendor CLI agent over the Agent Client Protocol, with the vendor's own login. */
+export const ACP_ENGINES: { id: Extract<Engine, 'codex' | 'gemini' | 'grok'>; label: string; vendor: string; loginHint: string }[] = [
+  { id: 'codex', label: 'Codex (OpenAI)', vendor: 'OpenAI', loginHint: 'Sign in with your ChatGPT account (Plus, Pro, Team) or an OpenAI API key.' },
+  { id: 'gemini', label: 'Gemini CLI (Google)', vendor: 'Google', loginHint: 'Google retired the personal Google-account login for the Gemini CLI; use a Gemini API key from aistudio.google.com.' },
+  { id: 'grok', label: 'Grok Build (xAI)', vendor: 'xAI', loginHint: 'Sign in with your grok.com account (SuperGrok) in the Grok CLI.' }
+]
+
+export interface AcpProbe {
+  engine: Engine
+  installed: boolean
+  agent?: string
+  authMethods: { id: string; name: string; description?: string; terminal?: boolean }[]
+  models: string[]
+  currentModel?: string
+  modes: string[]
+  /** A session could be created, so the agent is usable as configured. */
+  signedIn: boolean
+  error?: string
+}
 
 export type ProviderKind = 'anthropic' | 'openai' | 'google' | 'deepseek' | 'openai-compatible' | 'ollama' | 'lmstudio'
 
@@ -296,6 +316,10 @@ export interface Settings {
   providers?: ProviderConfig[]
   /** Default native-engine model, as "<providerId>/<modelId>". */
   nativeModel?: string
+  /** Default model per vendor agent engine, from that agent's own list. */
+  codexModel?: string
+  geminiModel?: string
+  grokModel?: string
   /** Send anonymised crash reports (error message, stack, version, OS) to sinfonie.dev. Default on. */
   crashReports?: boolean
 }

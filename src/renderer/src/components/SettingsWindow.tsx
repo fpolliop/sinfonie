@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import clsx from 'clsx'
-import { Plus, RefreshCw, Trash2, FolderGit2, Settings as SettingsIcon, Layers, Server, UserCircle2, Users, Plug, Ticket, GitPullRequest, MessageSquarePlus, Info, FolderTree, ChevronRight } from 'lucide-react'
+import { Plus, RefreshCw, Trash2, FolderGit2, Settings as SettingsIcon, Layers, Server, UserCircle2, Users, Plug, Ticket, GitPullRequest, MessageSquarePlus, Info, FolderTree, ChevronRight, LogIn } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp, type SettingsTarget, type AppPage, type SpacePage } from '@/stores/app'
 import { Badge, Button, Field, inputCls } from './ui'
@@ -13,6 +13,8 @@ import { AgentsSection, DEFAULT_CREW } from './AgentsSection'
 import { ModelSelect } from './ModelSelect'
 import { ProvidersSection } from './ProvidersSection'
 import { EngineSelect, NativeModelSelect } from './EngineSelect'
+import { AgentLoginsPage, acpProbeCache } from './AgentLoginsPage'
+import { ACP_ENGINES } from '@shared/types'
 
 /**
  * One settings window for everything. The rail on the left separates what
@@ -25,6 +27,7 @@ const APP_PAGES: { id: AppPage; label: string; icon: React.ReactNode; desc: stri
   { id: 'repos', label: 'Repositories', icon: <FolderGit2 size={14} />, desc: 'Every git repository the app knows, and which space each belongs to.' },
   { id: 'providers', label: 'Model providers', icon: <Server size={14} />, desc: 'API keys and local servers for the native engine. Shared by all spaces.' },
   { id: 'accounts', label: 'Claude accounts', icon: <UserCircle2 size={14} />, desc: 'Claude Code logins. Spaces and workspaces pick one of these.' },
+  { id: 'logins', label: 'Agent logins', icon: <LogIn size={14} />, desc: 'Codex, Gemini CLI and Grok Build with their own accounts, for use as engines.' },
   { id: 'crew', label: 'Default crew', icon: <Users size={14} />, desc: 'The subagents a space gets unless it defines its own crew.' },
   { id: 'mcp', label: 'MCP servers', icon: <Plug size={14} />, desc: 'MCP servers available in every space.' },
   { id: 'jira', label: 'Jira', icon: <Ticket size={14} />, desc: 'The fallback Jira connection for spaces without their own.' },
@@ -158,14 +161,19 @@ function AppPageView({ page }: { page: AppPage }): React.JSX.Element {
           <Field label="Engine" hint="Which runtime drives chats. Spaces can override it.">
             <EngineSelect value={settings.engine ?? 'claude-code'} onChange={(engine) => go(() => update({ engine: engine as typeof settings.engine }))} />
           </Field>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Claude Code model" hint="Orchestrator model when the engine is Claude Code.">
+          {(settings.engine ?? 'claude-code') === 'claude-code' && (
+            <Field label="Claude Code model" hint="Orchestrator model for the Claude Code engine.">
               <ModelSelect value={settings.model} onChange={(model) => go(() => update({ model }))} />
             </Field>
-            <Field label="Native model" hint="Orchestrator model when the engine is Sinfonie native.">
+          )}
+          {settings.engine === 'native' && (
+            <Field label="Native model" hint="Orchestrator model for the native engine, from Model providers.">
               <NativeModelSelect value={settings.nativeModel ?? ''} onChange={(nativeModel) => go(() => update({ nativeModel }))} />
             </Field>
-          </div>
+          )}
+          {ACP_ENGINES.some((e) => e.id === settings.engine) && (
+            <p className="mb-3 text-[11px] text-muted">The default model for this engine is chosen under Agent logins.</p>
+          )}
           <Field label="Permission mode" hint="Each chat can still switch its own mode from the composer or with Shift+Tab.">
             <select className={inputCls} value={settings.permissionMode} onChange={(e) => go(() => update({ permissionMode: e.target.value as typeof settings.permissionMode }))}>
               {PERMISSION_MODES.map((m) => (
@@ -192,6 +200,8 @@ function AppPageView({ page }: { page: AppPage }): React.JSX.Element {
       return <ProvidersSection />
     case 'accounts':
       return <AccountsSection />
+    case 'logins':
+      return <AgentLoginsPage />
     case 'crew':
       return <AgentsSection title="Default crew" intro="Orchestrator = the chat model; these handle delegated subtasks with cheaper or more focused models. Spaces inherit this list until they edit their own." agents={settings.agents} onChange={(agents) => go(() => update({ agents }))} onResetToDefaults={() => go(() => update({ agents: DEFAULT_CREW }))} />
     case 'mcp':
@@ -437,9 +447,19 @@ function SpacePageView({ space, page }: { space: Space; page: SpacePage }): Reac
               <EngineSelect value={space.engine ?? ''} allowDefault onChange={(e) => go(() => upd({ engine: (e || undefined) as never }))} />
             </Field>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Model" hint={engine === 'native' ? 'Orchestrator model as provider/model.' : 'Orchestrator model for chats in this space.'}>
+              <Field label="Model" hint={engine === 'native' ? 'Orchestrator model as provider/model.' : ACP_ENGINES.some((e) => e.id === engine) ? 'From the agent’s own model list (see Agent logins).' : 'Orchestrator model for chats in this space.'}>
                 {engine === 'native' ? (
                   <NativeModelSelect value={space.model ?? ''} allowDefault defaultLabel={`App default (${settings.nativeModel || 'not set'})`} onChange={(model) => go(() => upd({ model }))} />
+                ) : ACP_ENGINES.some((e) => e.id === engine) ? (
+                  <select className={inputCls} value={space.model ?? ''} onChange={(e) => go(() => upd({ model: e.target.value }))}>
+                    <option value="">Engine default</option>
+                    {space.model && !(acpProbeCache[engine]?.models ?? []).includes(space.model) && <option value={space.model}>{space.model}</option>}
+                    {(acpProbeCache[engine]?.models ?? []).map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
                 ) : (
                   <ModelSelect value={space.model ?? ''} allowDefault defaultLabel={`App default (${settings.model})`} onChange={(model) => go(() => upd({ model }))} />
                 )}

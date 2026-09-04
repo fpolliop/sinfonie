@@ -7,6 +7,8 @@ import type {
   McpServerSpec,
   RepoPr,
   PermissionMode,
+  AcpProbe,
+  Engine,
   ProviderConfig,
   ProviderKind,
   RepoSafety,
@@ -122,6 +124,13 @@ export interface SinfonieInvoke {
   'sessions:resume': (workspaceId: string, sessionId: string) => { messages: number }
   /** New workspace on branches cut from this one, with a forked copy of its conversation. */
   'workspaces:fork': (workspaceId: string, name: string) => Workspace
+
+  /** Launch the agent, read its auth methods, models and modes; tells whether it is usable now. */
+  'acp:probe': (engine: Engine) => AcpProbe
+  /** Run the agent's own authentication method (browser or terminal flow). Returns the terminal command when one must be run instead. */
+  'acp:authenticate': (engine: Engine, methodId: string) => { ok: boolean; terminalCommand?: string; error?: string }
+  /** A shell already running `command`, for interactive logins. */
+  'terminal:createCommand': (command: string) => string
 
   'providers:add': (cfg: { kind: ProviderKind; name: string; baseUrl?: string; apiKey?: string }) => ProviderConfig
   'providers:update': (id: string, patch: { name?: string; baseUrl?: string; apiKey?: string }) => ProviderConfig

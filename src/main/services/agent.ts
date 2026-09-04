@@ -3,6 +3,7 @@ import { nanoid } from 'nanoid'
 import type { AgentEvent, PermissionMode, PermissionRequest, Question, SubagentStep, Workspace } from '@shared/types'
 import { askPermission, askQuestion } from './interaction'
 import * as native from './native/engine'
+import * as acp from './acp/engine'
 import type { Engine } from '@shared/types'
 import { app } from 'electron'
 import { appendFileSync, existsSync, mkdirSync } from 'fs'
@@ -499,7 +500,9 @@ export function engineFor(workspaceId: string): Engine {
 }
 
 export async function sendMessage(workspaceId: string, text: string, emit: EmitEvent, emitPermission: EmitPermission): Promise<void> {
-  if (engineFor(workspaceId) === 'native') return native.sendMessage(workspaceId, text, emit)
+  const engine = engineFor(workspaceId)
+  if (engine === 'native') return native.sendMessage(workspaceId, text, emit)
+  if (engine === 'codex' || engine === 'gemini' || engine === 'grok') return acp.sendMessage(workspaceId, engine, text, emit)
   const live = sessions.get(workspaceId)
   if (live) {
     if (live.busy) {
@@ -535,7 +538,9 @@ export async function sendMessage(workspaceId: string, text: string, emit: EmitE
 }
 
 export function unqueue(workspaceId: string, id: string, emit: EmitEvent): void {
-  if (engineFor(workspaceId) === 'native') return native.unqueue(workspaceId, id, emit)
+  const eng = engineFor(workspaceId)
+  if (eng === 'native') return native.unqueue(workspaceId, id, emit)
+  if (eng === 'codex' || eng === 'gemini' || eng === 'grok') return acp.unqueue(workspaceId, id, emit)
   const s = sessions.get(workspaceId)
   if (!s) return
   s.queue = s.queue.filter((m) => m.id !== id)
@@ -559,11 +564,12 @@ export async function setMode(workspaceId: string, mode: PermissionMode): Promis
 }
 
 export function isBusy(workspaceId: string): boolean {
-  return (sessions.get(workspaceId)?.busy ?? false) || native.isBusy(workspaceId)
+  return (sessions.get(workspaceId)?.busy ?? false) || native.isBusy(workspaceId) || acp.isBusy(workspaceId)
 }
 
 export async function interrupt(workspaceId: string): Promise<void> {
   native.interrupt(workspaceId)
+  acp.interrupt(workspaceId)
   const s = sessions.get(workspaceId)
   if (!s) return
   s.interrupted = true
@@ -578,6 +584,7 @@ export async function interrupt(workspaceId: string): Promise<void> {
 /** Drop the live session and forget the stored session id, so the next message starts fresh. */
 export function resetSession(workspaceId: string): void {
   native.resetSession(workspaceId)
+  acp.resetSession(workspaceId)
   closeSession(workspaceId)
   getStore().update((d) => {
     const w = d.workspaces.find((x) => x.id === workspaceId)
@@ -587,6 +594,7 @@ export function resetSession(workspaceId: string): void {
 
 export function closeSession(workspaceId: string): void {
   native.closeSession(workspaceId)
+  acp.closeSession(workspaceId)
   const s = sessions.get(workspaceId)
   if (!s) return
   s.end()
@@ -596,5 +604,6 @@ export function closeSession(workspaceId: string): void {
 
 export function closeAllSessions(): void {
   native.closeAll()
+  acp.closeAll()
   for (const id of Array.from(sessions.keys())) closeSession(id)
 }

@@ -5,7 +5,7 @@ import { api } from '@/lib/api'
 import { Dialog } from './ui'
 
 /** A modal shell already running `claude auth login` for one account. */
-export function LoginTerminal({ accountId, accountName, onClose }: { accountId: string; accountName: string; onClose: () => void }): React.JSX.Element {
+export function LoginTerminal({ accountId, accountName, command, onClose }: { accountId?: string; accountName: string; command?: string; onClose: () => void }): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
     const el = ref.current
@@ -17,7 +17,8 @@ export function LoginTerminal({ accountId, accountName, onClose }: { accountId: 
     let tid: string | null = null
     let offData = (): void => undefined
     let offExit = (): void => undefined
-    void api.invoke('accounts:loginTerminal', accountId).then((id) => {
+    const start = command ? api.invoke('terminal:createCommand', command) : api.invoke('accounts:loginTerminal', accountId ?? 'default')
+    void start.then((id) => {
       tid = id
       offData = api.on('terminal:data', (e) => e.terminalId === id && term.write(e.data))
       offExit = api.on('terminal:exit', (e) => e.terminalId === id && term.write('\r\n[shell exited]\r\n'))
@@ -37,10 +38,10 @@ export function LoginTerminal({ accountId, accountName, onClose }: { accountId: 
       if (tid) void api.invoke('terminal:dispose', tid)
       term.dispose()
     }
-  }, [accountId])
+  }, [accountId, command])
   return (
     <Dialog title={`Log in: ${accountName}`} onClose={onClose} width={760}>
-      <p className="mb-2 text-[12px] text-muted">This shell uses the account's own config directory. Follow the login prompts; the browser will open. Close this window when it says you are logged in, then click Check.</p>
+      <p className="mb-2 text-[12px] text-muted">{command ? `Running: ${command}. Follow the prompts; a browser may open. Close this window when it says you are signed in, then click Check.` : "This shell uses the account's own config directory. Follow the login prompts; the browser will open. Close this window when it says you are logged in, then click Check."}</p>
       <div ref={ref} className="h-[380px] w-full rounded-md bg-[#0b0d11] p-1" />
     </Dialog>
   )
