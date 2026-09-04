@@ -83,3 +83,11 @@ The Release workflow builds the app on macOS and publishes the DMG and zip to a 
 ## Website
 
 `site/` is a static page hosted on Cloudflare Pages (project `sinfonie`, https://sinfonie.pages.dev). Deploy with `pnpm site:deploy` after `npx wrangler login`. The download button reads the latest GitHub Release, so it needs no change per version.
+
+## Feedback and error reports
+
+`site/functions/api/feedback.js` is a Cloudflare Pages Function backed by the D1 database `sinfonie-feedback`. The site form and the app's Settings → Feedback post to it; the app also posts crash reports (message, stack, version, OS; never chat content) unless the user turns that off.
+
+- Read the queue: `pnpm feedback` (uses your Cloudflare login), or `GET https://sinfonie.dev/api/feedback?token=ADMIN_TOKEN` (secret set on the Pages project).
+- Local error log on each machine: `~/Library/Application Support/Sinfonie/logs/errors.log`, also reachable from Settings → Open logs folder.
+- Schema: `site/schema.sql`; apply with `wrangler d1 execute sinfonie-feedback --remote --file site/schema.sql --config site/wrangler.toml`.
