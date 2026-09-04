@@ -24,6 +24,16 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # electron-builder publishes straight to a non-draft release, and GitHub refuses those unless the
+      # tag already exists in the target repo. Create it first (pointing at that repo's current head) so
+      # the parallel asset uploads don't race to create the release and fail with 422.
+      - name: Ensure the tag exists in the releases repo
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          SHA=$(gh api repos/fpolliop/sinfonie-releases/commits/HEAD -q .sha)
+          gh api repos/fpolliop/sinfonie-releases/git/refs -f ref="refs/tags/${GITHUB_REF_NAME}" -f sha="$SHA" \
+            || echo "tag ${GITHUB_REF_NAME} already exists in sinfonie-releases"
       - name: Build and publish
         # Signing + notarization switch on automatically once these secrets exist:
         #   MAC_CERT_P12 (base64 of the Developer ID Application .p12), MAC_CERT_PASSWORD,
