@@ -27,7 +27,7 @@ export function TerminalPane({ workspaceId, visible }: { workspaceId: string; vi
             {r.repoName}
           </button>
         ))}
-        <span className="ml-auto text-[11px] text-muted">$CONDUCTOR_PORT and $SINFONIE_PORT are set</span>
+        <span className="ml-auto text-[11px] text-muted">$SINFONIE_PORT is set</span>
       </div>
       <div className="min-h-0 flex-1 bg-[#0b0d11]">
         {ws.repos.map((r) => (

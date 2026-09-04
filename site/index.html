@@ -218,26 +218,26 @@
     </div>
 
     <div class="mock" id="mock" aria-label="Sinfonie app preview">
-      <div class="titlebar"><i></i><i></i><i></i><span class="t">Sinfonie — Lumepic / enhanced-packages</span></div>
+      <div class="titlebar"><i></i><i></i><i></i><span class="t">Sinfonie — Acme / checkout-redesign</span></div>
       <div class="body">
         <aside class="side" style="display:flex;flex-direction:column">
-          <div class="sp"><i></i> Lumepic <span style="color:var(--dim);font-weight:400">3</span></div>
+          <div class="sp"><i></i> Acme <span style="color:var(--dim);font-weight:400">3</span></div>
           <div class="grp">In progress</div>
-          <div class="ws on"><b>enhanced-packages</b><small>SD-3825 · 2 repos · 1m</small><br><span class="lab">priority</span></div>
-          <div class="ws"><b>admin-accreditations</b><small>SD-3801 · 2 repos · 2h</small></div>
+          <div class="ws on"><b>checkout-redesign</b><small>ACME-142 · 2 repos · 1m</small><br><span class="lab">priority</span></div>
+          <div class="ws"><b>invoice-exports</b><small>ACME-137 · 2 repos · 2h</small></div>
           <div class="grp">In review</div>
-          <div class="ws"><b>attribution</b><small>SD-3787 · 3 repos · 1d</small></div>
-          <div class="dots"><i></i><span class="cur">Lumepic</span><i></i><i></i></div>
+          <div class="ws"><b>search-relevance</b><small>ACME-129 · 3 repos · 1d</small></div>
+          <div class="dots"><i></i><span class="cur">Acme</span><i></i><i></i></div>
         </aside>
         <div class="main">
-          <div class="hdr"><b>enhanced-packages</b><span class="pill">In progress</span><span class="pill acc">frontend-monorepo</span><span class="pill">backend-services</span><span class="pill warn" style="margin-left:auto">PR #7932 · 2 threads</span></div>
+          <div class="hdr"><b>checkout-redesign</b><span class="pill">In progress</span><span class="pill acc">web</span><span class="pill">api</span><span class="pill warn" style="margin-left:auto">PR #412 · 2 threads</span></div>
           <div class="chat" id="chat">
-            <div class="me">Implement SD-3825: assign the enhanced-packages arm per buyer via PostHog. Backend in backend-services, UI in frontend-monorepo. Explore, implement both sides, run the tests, review before you report back.</div>
+            <div class="me">Implement ACME-142: apply the new checkout discount rules per customer tier. Backend in api, UI in web. Explore, implement both sides, run the tests, review before you report back.</div>
             <div class="ai" id="ai1">Splitting this across the crew. Two independent delegations first.</div>
-            <div class="tool agent" data-t="900"><span class="n">explorer</span><span class="m">haiku-4-5</span>Find where package arms are resolved in both repos<span class="st"><i class="spin"></i></span></div>
-            <div class="tool agent" data-t="1500"><span class="n">implementer</span><span class="m">sonnet-5</span>backend-services: PostHog flag evaluation for buyer arm<span class="st"><i class="spin"></i></span></div>
-            <div class="tool agent" data-t="2100"><span class="n">implementer</span><span class="m">sonnet-5</span>frontend-monorepo: read arm from purchase payload<span class="st"><i class="spin"></i></span></div>
-            <div class="tool" data-t="3600"><span class="n" style="color:var(--text)">tester</span><span class="m">haiku-4-5</span>pnpm test --filter spotted-api · 212 passed<span class="st ok">done</span></div>
+            <div class="tool agent" data-t="900"><span class="n">explorer</span><span class="m">haiku-4-5</span>Find where discount rules are resolved in both repos<span class="st"><i class="spin"></i></span></div>
+            <div class="tool agent" data-t="1500"><span class="n">implementer</span><span class="m">sonnet-5</span>api: tier-based discount evaluation<span class="st"><i class="spin"></i></span></div>
+            <div class="tool agent" data-t="2100"><span class="n">implementer</span><span class="m">sonnet-5</span>web: show the tier discount at checkout<span class="st"><i class="spin"></i></span></div>
+            <div class="tool" data-t="3600"><span class="n" style="color:var(--text)">tester</span><span class="m">haiku-4-5</span>pnpm test --filter api · 212 passed<span class="st ok">done</span></div>
             <div class="tool agent" data-t="4300"><span class="n">reviewer</span><span class="m">opus-5</span>Diff review: 2 findings, safe to commit after fixing the nil guard<span class="st ok">done</span></div>
           </div>
           <div class="crew" id="crewbar">
@@ -261,7 +261,7 @@
       <div class="card reveal"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg></div><h3>Multi-repo workspaces</h3><p>One name, one branch, a worktree in each repo, side by side in one folder. Created, run and archived together, with a warning if anything is uncommitted or unpushed.</p></div>
       <div class="card reveal"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div><h3>A crew of models</h3><p>The chat model orchestrates. An explorer on Haiku, implementers on Sonnet, a reviewer on Opus. Every delegation is visible, with its model, steps and cost.</p></div>
       <div class="card reveal"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><path d="M6 9v12"/></svg></div><h3>Review cockpit</h3><p>Every PR waiting on you, per space. Run an AI review, approve findings one by one or all at once, post a single GitHub review with inline comments and a verdict.</p></div>
-      <div class="card reveal"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></div><h3>Spaces</h3><p>Personal, Lumepic, Howdy: each space owns its repos, Jira, GitHub orgs, MCP servers, Claude account and model defaults. Switch with a swipe, like Arc.</p></div>
+      <div class="card reveal"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></div><h3>Spaces</h3><p>Personal, work, client: each space owns its repos, Jira, accounts and defaults.</p></div>
       <div class="card reveal"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg></div><h3>Jira, GitHub, MCP</h3><p>Start a workspace from a ticket and get a branch name for free. PR status and review threads per repo. Log in to Jira once and Claude gets the Atlassian tools.</p></div>
       <div class="card reveal"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m8 6-6 6 6 6"/><path d="m16 6 6 6-6 6"/></svg></div><h3>Scriptable workspaces</h3><p>A <code>sinfonie.json</code> per repo runs your setup, dev server and cleanup with a dedicated port block per workspace. Fork, resume and queue messages like the CLI. Errors show in the chat, never silently.</p></div>
     </div>
@@ -277,18 +277,18 @@
     </div>
     <div class="steps">
       <div class="step reveal"><div class="n">01</div><h3>Add repos to a space</h3><p>Point Sinfonie at your frontend and backend. Pick the Claude account, Jira site and MCP servers the space should use.</p>
-<div class="tree"><b>Lumepic</b>
-├─ frontend-monorepo
-├─ backend-services
-└─ jira · github · posthog-mcp</div></div>
+<div class="tree"><b>Acme</b>
+├─ web
+├─ api
+└─ jira · github · analytics-mcp</div></div>
       <div class="step reveal"><div class="n">02</div><h3>New workspace</h3><p>Pick the ticket. Sinfonie cuts a branch in every repo, creates the worktrees, runs each repo's setup script.</p>
-<div class="tree">~/sinfonie/workspaces/<b>sd-3825-posthog-arm</b>/
-├─ frontend-monorepo   <span class="b">⎇ sd-3825-posthog-arm</span>
-└─ backend-services    <span class="b">⎇ sd-3825-posthog-arm</span></div></div>
+<div class="tree">~/sinfonie/workspaces/<b>acme-142-checkout</b>/
+├─ web   <span class="b">⎇ acme-142-checkout</span>
+└─ api   <span class="b">⎇ acme-142-checkout</span></div></div>
       <div class="step reveal"><div class="n">03</div><h3>Ship</h3><p>Talk to the orchestrator. It fans out to the crew, you watch every delegation live, then open both PRs from the app, linked to each other and to the ticket.</p>
-<div class="tree">PR #7932  frontend-monorepo   <span class="b">✓ checks</span>
-PR #1041  backend-services    <span class="b">✓ checks</span>
-Jira SD-3825 → <b>In review</b></div></div>
+<div class="tree">PR #412  web   <span class="b">✓ checks</span>
+PR #388  api   <span class="b">✓ checks</span>
+Jira ACME-142 → <b>In review</b></div></div>
     </div>
   </div>
 </section>
@@ -326,9 +326,9 @@ Jira SD-3825 → <b>In review</b></div></div>
 }</pre>
         <div class="quote">Each workspace gets a block of ten ports. Two full-stack workspaces running side by side <b>never collide</b>.</div>
         <div class="codehead" style="margin-top:22px"><i></i> what the orchestrator sees</div>
-<pre><span class="p">Workspace</span> "sd-3825-posthog-arm" spans 2 repositories.
-- frontend-monorepo: ~/sinfonie/workspaces/…/frontend-monorepo
-- backend-services:  ~/sinfonie/workspaces/…/backend-services
+<pre><span class="p">Workspace</span> "acme-142-checkout" spans 2 repositories.
+- web: ~/sinfonie/workspaces/acme-142-checkout/web
+- api: ~/sinfonie/workspaces/acme-142-checkout/api
 <span class="p">Crew:</span> explorer (haiku) · implementer (sonnet)
       tester (haiku) · reviewer (opus)
 <span class="c">Delegate exploration and tests. Keep judgment.
@@ -451,7 +451,7 @@ Never let two agents edit the same repo at once.</span></pre>
     })
   }
   runMock(); setInterval(runMock, 9000)
-  var typed = document.getElementById('typed'), msgs = ['Use the reviewer before you commit.', 'Open both PRs and link them to SD-3825.', 'Ask the explorer where package pricing is computed.']
+  var typed = document.getElementById('typed'), msgs = ['Use the reviewer before you commit.', 'Open both PRs and link them to ACME-142.', 'Ask the explorer where discounts are computed.']
   var mi = 0, ci = 0, dir = 1
   function type(){
     var m = msgs[mi]; ci += dir; typed.textContent = m.slice(0, ci)

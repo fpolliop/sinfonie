@@ -52,7 +52,7 @@ export function RunPane({ workspaceId }: { workspaceId: string }): React.JSX.Ele
           </Button>
         )}
         <span className="text-[11px] text-muted">
-          Runs each repo's <code>{kind}</code> script from conductor.json with CONDUCTOR_PORT={ws.port}…{ws.port + 9}
+          Runs each repo's <code>{kind}</code> script from sinfonie.json with SINFONIE_PORT={ws.port}…{ws.port + 9}
         </span>
         <Button size="sm" variant="ghost" className="ml-auto" onClick={() => clear(workspaceId, repoId, kind)}>
           <Trash2 size={12} /> Clear
@@ -74,7 +74,7 @@ export function RunPane({ workspaceId }: { workspaceId: string }): React.JSX.Ele
           })}
         </aside>
         <pre ref={preRef} className="min-w-0 flex-1 overflow-auto bg-[#0b0d11] p-3 font-mono text-[12px] leading-[18px] whitespace-pre-wrap">
-          {current?.output || (script ? `$ ${script}\n(not started)` : 'No script configured. Add a conductor.json to the repo:\n\n{\n  "scripts": {\n    "setup": "pnpm install",\n    "run": "pnpm dev --port $CONDUCTOR_PORT",\n    "archive": "..."\n  }\n}')}
+          {current?.output || (script ? `$ ${script}\n(not started)` : 'No script configured. Add a sinfonie.json to the repo:\n\n{\n  "scripts": {\n    "setup": "pnpm install",\n    "run": "pnpm dev --port $SINFONIE_PORT",\n    "archive": "..."\n  }\n}')}
         </pre>
       </div>
     </div>

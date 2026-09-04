@@ -6,7 +6,7 @@ export interface ConductorScripts {
   archive?: string
 }
 
-/** Mirrors conductor.json so existing repos work unchanged. */
+/** sinfonie.json per repository (conductor.json is read as a fallback). */
 export interface ConductorConfig {
   scripts?: ConductorScripts
   runScriptMode?: 'concurrent' | 'sequential'
@@ -139,7 +139,7 @@ export function parseModelRef(ref: string): { providerId: string; modelId: strin
   return { providerId: ref.slice(0, i), modelId: ref.slice(i + 1) }
 }
 
-/** A group of workspaces and repositories, e.g. "Personal", "Lumepic", "Howdy". */
+/** A group of workspaces and repositories, e.g. "Personal", "Work", "Client". */
 export interface Space {
   id: string
   name: string

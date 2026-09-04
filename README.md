@@ -2,9 +2,8 @@
 
 [Download for Mac](https://sinfonie.dev) · proprietary · [Releases](https://github.com/fpolliop/sinfonie-releases/releases)
 
-A desktop app for running coding agents in isolated workspaces, in the spirit of
-[Conductor](https://www.conductor.build/), with one difference: **a workspace spans
-several repositories**.
+A desktop app for running coding agents in isolated workspaces where **a workspace
+spans several repositories**.
 
 When you create a workspace, Sinfonie creates a git worktree on the same branch in
 every repository you select, puts them side by side in one folder, runs each repo's
@@ -23,18 +22,18 @@ workspace tears everything down together.
 - Claude Code chat per workspace, resumed across app restarts, with permission prompts
 - Changes tab: status and diff per repo, commit, push, and `gh pr create` with links to the sibling branches
 - Terminal tab: a shell per worktree with `CONDUCTOR_*` and `SINFONIE_*` env vars set
-- Run tab: runs each repo's `setup` / `run` script from `conductor.json`, concurrently or sequentially
-- A block of 10 ports per workspace, exposed as `CONDUCTOR_PORT` (existing `conductor.json` files work unchanged)
+- Run tab: runs each repo's `setup` / `run` script from `sinfonie.json`, concurrently or sequentially
+- A block of 10 ports per workspace, exposed as `SINFONIE_PORT`
 
-## conductor.json
+## sinfonie.json
 
-Sinfonie reads the same file Conductor does, at the root of each repository:
+One per repository, at its root (`conductor.json` is read as a fallback):
 
 ```json
 {
   "scripts": {
     "setup": "pnpm install",
-    "run": "pnpm dev --port $CONDUCTOR_PORT",
+    "run": "pnpm dev --port $SINFONIE_PORT",
     "archive": "./scripts/cleanup.sh"
   },
   "runScriptMode": "concurrent"

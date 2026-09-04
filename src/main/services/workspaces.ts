@@ -289,7 +289,7 @@ export async function runWorkspaceScript(workspaceId: string, kind: 'setup' | 'r
     const repo = getRepo(wr.repoId)
     const cmd = repo.config?.scripts?.[kind]
     if (!cmd) {
-      emit({ workspaceId: ws.id, repoId: repo.id, kind, data: `[no ${kind} script in conductor.json]\r\n`, done: true, exitCode: 0 })
+      emit({ workspaceId: ws.id, repoId: repo.id, kind, data: `[no ${kind} script in sinfonie.json]\r\n`, done: true, exitCode: 0 })
       return
     }
     await runScript(ws, repo, wr.worktreePath, kind, cmd, emit)

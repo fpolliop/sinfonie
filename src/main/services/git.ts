@@ -32,12 +32,13 @@ export async function detectDefaultBranch(path: string): Promise<string> {
 }
 
 export function readConductorConfig(repoPath: string): ConductorConfig | null {
-  const file = join(repoPath, 'conductor.json')
-  if (!existsSync(file)) return null
+  // sinfonie.json is the app's own file; conductor.json is honoured so existing repos need no change.
+  const file = ['sinfonie.json', 'conductor.json'].map((n) => join(repoPath, n)).find((f) => existsSync(f))
+  if (!file) return null
   try {
     return JSON.parse(readFileSync(file, 'utf8')) as ConductorConfig
   } catch (err) {
-    console.error(`Invalid conductor.json in ${repoPath}`, err)
+    console.error(`Invalid ${file} in ${repoPath}`, err)
     return null
   }
 }

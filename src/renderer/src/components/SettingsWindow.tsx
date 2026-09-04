@@ -178,7 +178,7 @@ function AppPageView({ page }: { page: AppPage }): React.JSX.Element {
           <Field label="Workspaces folder" hint="Each workspace becomes <folder>/<name>/<repo> so all worktrees of a feature sit together.">
             <input className={inputCls} defaultValue={settings.workspacesRoot} onBlur={(e) => e.target.value !== settings.workspacesRoot && go(() => update({ workspacesRoot: e.target.value }))} />
           </Field>
-          <Field label="Base port" hint="Each workspace gets a block of 10 ports starting here, exposed as CONDUCTOR_PORT.">
+          <Field label="Base port" hint="Each workspace gets a block of 10 ports starting here, exposed as SINFONIE_PORT.">
             <input type="number" className={clsx(inputCls, 'max-w-[200px]')} defaultValue={settings.basePort} onBlur={(e) => go(() => update({ basePort: Number(e.target.value) || 55000 }))} />
           </Field>
           <p className="text-[11px] text-muted">Engine, model and permission mode apply to sessions started after the change. Use New session in a chat to restart one.</p>
@@ -229,7 +229,7 @@ function SpacesPage(): React.JSX.Element {
   return (
     <div className="max-w-[640px]">
       <div className="mb-3 flex gap-2">
-        <input className={inputCls} placeholder="New space, e.g. Lumepic" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} />
+        <input className={inputCls} placeholder="New space, e.g. Work" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} />
         <Button variant="primary" disabled={!name.trim()} onClick={add}>
           <Plus size={13} /> Add space
         </Button>
@@ -254,7 +254,7 @@ function SpacesPage(): React.JSX.Element {
             </div>
           )
         })}
-        {spaces.length === 0 && <div className="rounded-md border border-dashed border-border p-3 text-center text-[12px] text-muted">No spaces yet. Spaces group workspaces and repositories, e.g. Personal, Lumepic, Howdy.</div>}
+        {spaces.length === 0 && <div className="rounded-md border border-dashed border-border p-3 text-center text-[12px] text-muted">No spaces yet. Spaces group workspaces and repositories, e.g. Personal, Work, Client.</div>}
       </div>
     </div>
   )
@@ -282,7 +282,7 @@ function ReposPage(): React.JSX.Element {
                 <div className="flex items-center gap-2 text-[13px] font-medium">
                   {r.name}
                   <Badge>{r.defaultBranch}</Badge>
-                  {r.config?.scripts ? <Badge tone="ok">conductor.json</Badge> : <Badge tone="warn">no conductor.json</Badge>}
+                  {r.config?.scripts ? <Badge tone="ok">sinfonie.json</Badge> : <Badge tone="warn">no conductor.json</Badge>}
                 </div>
                 <div className="truncate text-[11px] text-muted">{shortPath(r.path)}</div>
               </div>
@@ -294,7 +294,7 @@ function ReposPage(): React.JSX.Element {
                   </option>
                 ))}
               </select>
-              <button title="Reload conductor.json" className="rounded p-1 text-muted hover:text-text" onClick={() => go(() => api.invoke('repos:reloadConfig', r.id))}>
+              <button title="Reload sinfonie.json" className="rounded p-1 text-muted hover:text-text" onClick={() => go(() => api.invoke('repos:reloadConfig', r.id))}>
                 <RefreshCw size={13} />
               </button>
               <button title={inUse ? `Used by ${inUse} workspace(s)` : 'Remove'} disabled={inUse > 0} className="rounded p-1 text-muted hover:text-danger disabled:opacity-30" onClick={() => go(() => api.invoke('repos:remove', r.id))}>
@@ -544,7 +544,7 @@ function SpaceRepos({ space }: { space: Space }): React.JSX.Element {
               <div className="flex items-center gap-2 text-[13px] font-medium">
                 {r.name}
                 <Badge>{r.defaultBranch}</Badge>
-                {r.config?.scripts ? <Badge tone="ok">conductor.json</Badge> : null}
+                {r.config?.scripts ? <Badge tone="ok">sinfonie.json</Badge> : null}
               </div>
               <div className="truncate text-[11px] text-muted">{shortPath(r.path)}</div>
             </div>
