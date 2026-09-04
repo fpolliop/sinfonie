@@ -131,8 +131,12 @@ async function connectMcp(ws: Workspace, session: NativeSession): Promise<{ tool
   }
   const expose = space ? space.exposeJiraMcp !== false : true
   if (expose && !names.includes('jira')) {
-    const token = await jira.accessToken(jira.connectionForSpace(ws.spaceId))
-    if (token) await connect('jira', () => createMCPClient({ transport: { type: 'http', url: jira.JIRA_MCP_URL, headers: { Authorization: `Bearer ${token}` } } }))
+    try {
+      const token = await jira.accessToken(jira.connectionForSpace(ws.spaceId))
+      if (token) await connect('jira', () => createMCPClient({ transport: { type: 'http', url: jira.JIRA_MCP_URL, headers: { Authorization: `Bearer ${token}` } } }))
+    } catch (err) {
+      logError('native:jira', err)
+    }
   }
   return { tools, names }
 }

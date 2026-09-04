@@ -141,7 +141,7 @@ function toSdkMcp(spec: McpServerSpec): NonNullable<Options['mcpServers']>[strin
 }
 
 /** App-level servers, then the space's, then the space's Jira login as the Atlassian MCP. */
-async function mcpServersFor(ws: Workspace): Promise<Record<string, NonNullable<Options['mcpServers']>[string]>> {
+async function mcpServersFor(ws: Workspace, onWarning?: (text: string) => void): Promise<Record<string, NonNullable<Options['mcpServers']>[string]>> {
   const { settings, spaces } = getStore().get()
   const space = spaces.find((s) => s.id === ws.spaceId)
   const out: Record<string, NonNullable<Options['mcpServers']>[string]> = {}
@@ -153,8 +153,13 @@ async function mcpServersFor(ws: Workspace): Promise<Record<string, NonNullable<
   const connId = jira.connectionForSpace(ws.spaceId)
   const expose = space ? space.exposeJiraMcp !== false : true
   if (expose && !out.jira) {
-    const token = await jira.accessToken(connId)
-    if (token) out.jira = { type: 'http', url: jira.JIRA_MCP_URL, headers: { Authorization: `Bearer ${token}` } }
+    try {
+      const token = await jira.accessToken(connId)
+      if (token) out.jira = { type: 'http', url: jira.JIRA_MCP_URL, headers: { Authorization: `Bearer ${token}` } }
+    } catch (err) {
+      // An expired Jira login must not take the other MCP servers down with it, and must never open a browser here.
+      onWarning?.(`Jira tools are off for this session: ${err instanceof Error ? err.message : String(err)}`)
+    }
   }
   return out
 }
@@ -576,7 +581,7 @@ export async function sendMessage(workspaceId: string, text: string, emit: EmitE
   let mcp: Record<string, NonNullable<Options['mcpServers']>[string]> = {}
   try {
     mcp = await Promise.race([
-      mcpServersFor(getWorkspace(workspaceId)),
+      mcpServersFor(getWorkspace(workspaceId), (text) => emit({ type: 'notice', workspaceId, itemId: nanoid(8), level: 'warn', text, createdAt: new Date().toISOString() })),
       new Promise<never>((_, reject) => setTimeout(() => reject(new Error('MCP setup timed out')), 15_000))
     ])
   } catch (err) {
