@@ -153,7 +153,7 @@ export const useApp = create<AppState>((set, get) => ({
 
   onboarding: null,
   setOnboarding: (onboarding) => set({ onboarding }),
-  onboardingDraft: { name: '', color: '#7c9cff', root: '', repos: [], added: new Set() },
+  onboardingDraft: { name: 'Personal', color: '#7c9cff', root: '', repos: [], added: new Set() },
   setOnboardingDraft: (patch) => set((s) => ({ onboardingDraft: { ...s.onboardingDraft, ...patch } })),
   load: async () => {
     const d = await api.invoke('store:get')

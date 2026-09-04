@@ -251,7 +251,7 @@ export interface Space {
   browserSensitiveOrigins?: string[]
 }
 
-export const SPACE_COLORS = ['#7c9cff', '#4ade80', '#fbbf24', '#f472b6', '#22d3ee', '#a78bfa', '#fb923c', '#94a3b8']
+export const SPACE_COLORS = ['#7c9cff', '#60a5fa', '#22d3ee', '#2dd4bf', '#4ade80', '#a3e635', '#fbbf24', '#fb923c', '#f87171', '#f472b6', '#e879f9', '#a78bfa', '#c084fc', '#f5d0a9', '#94a3b8', '#e5e7eb']
 
 export interface Repo {
   id: string

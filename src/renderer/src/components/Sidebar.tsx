@@ -220,6 +220,7 @@ export function Sidebar(): React.JSX.Element {
           y={spaceMenu.y}
           onClose={() => setSpaceMenu(null)}
           entries={[
+            { label: 'Rename', icon: <Pencil size={14} />, onClick: () => setRenaming(spaceMenu.id) },
             { label: 'Space settings…', icon: <Settings size={14} />, onClick: () => setSpaceSettings(spaceMenu.id) },
             { label: 'Rename space…', icon: <Pencil size={14} />, onClick: () => setRenaming(spaceMenu.id) },
             { label: 'New workspace here', icon: <Plus size={14} />, onClick: () => setShowNewWorkspace(true, spaceMenu.id) },

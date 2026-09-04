@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import clsx from 'clsx'
-import { ArrowLeft, ArrowRight, Check, CheckCircle2, FolderOpen, GitBranch, Loader2, LogIn, RefreshCw, Sparkles, Users } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Check, CheckCircle2, FolderOpen, GitBranch, Loader2, LogIn, RefreshCw, Sparkles, Users, Palette } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { Button, Badge, inputCls } from '../ui'
@@ -343,6 +343,19 @@ function FirstSpace({ spaceId, onSpace }: { spaceId: string | null; onSpace: (id
   const [scanRoot, setScanRoot] = useState<string | null>(null)
   const [scan, setScan] = useState<ScannedRepo[] | null>(null)
   const [scanning, setScanning] = useState(false)
+  const [filter, setFilter] = useState('')
+  const filtered = useMemo(() => {
+    const q = filter.trim().toLowerCase()
+    return (scan ?? []).filter((r) => !q || r.name.toLowerCase().includes(q) || r.path.toLowerCase().includes(q))
+  }, [scan, filter])
+  const groups = useMemo(() => {
+    const m = new Map<string, ScannedRepo[]>()
+    for (const r of filtered) {
+      const dir = r.path.slice(0, r.path.lastIndexOf('/')) || '/'
+      m.set(dir, [...(m.get(dir) ?? []), r])
+    }
+    return Array.from(m.entries())
+  }, [filtered])
   void spaceId
   void onSpace
   const existing = spaces[0]
@@ -365,13 +378,18 @@ function FirstSpace({ spaceId, onSpace }: { spaceId: string | null; onSpace: (id
     // Try the usual place first; fall back to the home folder.
     void (async () => {
       setScanning(true)
-      const first = await api.invoke('repos:scan', '~/repos').catch(() => [] as ScannedRepo[])
-      if (first.length) {
-        setScanRoot('~/repos')
-        setScan(first)
-        setOnboardingDraft({ added: new Set(first.filter((x) => x.added).map((x) => x.path)) })
-        setScanning(false)
-      } else await runScan('~')
+      // The usual places first, home last: a home scan can list hundreds of repos.
+      for (const root of ['~/repos', '~/code', '~/dev', '~/projects', '~/src', '~/workspace', '~/Developer']) {
+        const found = await api.invoke('repos:scan', root).catch(() => [] as ScannedRepo[])
+        if (found.length) {
+          setScanRoot(root)
+          setScan(found)
+          setOnboardingDraft({ added: new Set(found.filter((x) => x.added).map((x) => x.path)) })
+          setScanning(false)
+          return
+        }
+      }
+      await runScan('~')
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -387,15 +405,21 @@ function FirstSpace({ spaceId, onSpace }: { spaceId: string | null; onSpace: (id
       <p className="mt-1 text-[13px] text-muted">A space groups repositories, workspaces and settings: personal projects, work, a client. Start with one; add more from the dots at the bottom of the sidebar.</p>
       <div className="mt-5 grid grid-cols-[1fr_auto] items-end gap-4">
         <label className="block">
-          <span className="mb-1 block text-[12px] text-muted">Name</span>
-          <input className={inputCls} value={draft.name} placeholder="Personal" onChange={(e) => setOnboardingDraft({ name: e.target.value })} />
+          <span className="mb-1 block text-[12px] text-muted">Space name (you can rename it later by double-clicking it in the sidebar)</span>
+          <input className={inputCls} value={draft.name} placeholder="e.g. Personal, Work, a client" autoFocus onFocus={(e) => e.target.select()} onChange={(e) => setOnboardingDraft({ name: e.target.value })} />
         </label>
         <div>
           <span className="mb-1 block text-[12px] text-muted">Color</span>
-          <div className="flex gap-1.5">
+          <div className="grid grid-cols-8 gap-1.5">
             {SPACE_COLORS.map((c) => (
-              <button key={c} className={clsx('h-6 w-6 rounded-full border-2 transition-transform', draft.color === c ? 'scale-110 border-text' : 'border-transparent hover:scale-110')} style={{ background: c }} onClick={() => setOnboardingDraft({ color: c })} />
+              <button key={c} type="button" title={c} aria-pressed={draft.color === c} className={clsx('flex h-6 w-6 items-center justify-center rounded-full ring-offset-2 ring-offset-bg transition-shadow', draft.color === c ? 'ring-2 ring-text' : 'hover:ring-2 hover:ring-border')} style={{ background: c }} onClick={() => setOnboardingDraft({ color: c })}>
+                {draft.color === c && <Check size={13} className="text-black/70" />}
+              </button>
             ))}
+            <label title="Custom colour" className="relative flex h-6 w-6 cursor-pointer items-center justify-center rounded-full border border-dashed border-border text-muted hover:border-text">
+              <Palette size={12} />
+              <input type="color" className="absolute inset-0 cursor-pointer opacity-0" value={draft.color} onChange={(e) => setOnboardingDraft({ color: e.target.value })} />
+            </label>
           </div>
         </div>
       </div>
@@ -408,32 +432,51 @@ function FirstSpace({ spaceId, onSpace }: { spaceId: string | null; onSpace: (id
       <div className="mt-5">
         <div className="mb-1 flex items-center gap-2">
           <span className="text-[12px] text-muted">Repositories for this space. Pick the ones a feature usually touches together.</span>
-          <span className="ml-auto text-[11px] text-muted">{scanRoot ? `Looking in ${shortPath(scanRoot)}` : ''}</span>
+          <span className="ml-auto truncate text-[11px] text-muted">{scanRoot ? `${filtered.length}${scan && filtered.length !== scan.length ? ` of ${scan.length}` : ''} in ${shortPath(scanRoot)}` : ''}</span>
           <Button size="sm" variant="ghost" onClick={() => void browse()}>
             <FolderOpen size={12} /> Browse…
           </Button>
         </div>
-        <div className="max-h-[220px] overflow-auto rounded-lg border border-border">
+        <input className={clsx(inputCls, 'mb-1.5')} placeholder="Filter by name or folder…" value={filter} onChange={(e) => setFilter(e.target.value)} />
+        <div className="max-h-[240px] overflow-auto rounded-lg border border-border">
           {scanning && (
             <div className="flex items-center gap-2 px-3 py-3 text-[12px] text-muted">
               <Loader2 size={13} className="animate-spin" /> Scanning for git repositories…
             </div>
           )}
           {!scanning && scan && scan.length === 0 && <div className="px-3 py-3 text-[12px] text-muted">No git repositories here. Browse to the folder that holds them, or skip and add repos later.</div>}
+          {!scanning && scan && scan.length > 0 && filtered.length === 0 && <div className="px-3 py-3 text-[12px] text-muted">Nothing matches "{filter}".</div>}
           {!scanning &&
-            scan?.map((r) => {
-              const on = r.added || draft.repos.includes(r.path)
-              return (
-                <label key={r.path} className={clsx('flex cursor-pointer items-center gap-3 border-b border-border px-3 py-2 last:border-b-0', on ? 'bg-accent/5' : 'hover:bg-panel')}>
-                  <input type="checkbox" checked={on} disabled={r.added} onChange={() => toggle(r.path)} />
-                  <span className="text-[13px] font-medium">{r.name}</span>
-                  <span className="truncate text-[11px] text-muted">{shortPath(r.path)}</span>
-                  {r.added && <Badge tone="ok">already added</Badge>}
-                </label>
-              )
-            })}
+            groups.map(([dir, list]) => (
+              <div key={dir}>
+                <div className="sticky top-0 border-b border-border bg-panel px-3 py-1 text-[11px] text-muted">{shortPath(dir)}</div>
+                {list.map((r) => {
+                  const on = r.added || draft.repos.includes(r.path)
+                  return (
+                    <button
+                      key={r.path}
+                      type="button"
+                      disabled={r.added}
+                      onClick={() => toggle(r.path)}
+                      className={clsx('flex w-full items-center gap-3 border-b border-border px-3 py-2 text-left last:border-b-0 disabled:cursor-default', on ? 'bg-accent/10' : 'hover:bg-panel')}
+                    >
+                      <span className={clsx('flex h-4 w-4 shrink-0 items-center justify-center rounded border', on ? 'border-accent bg-accent text-white' : 'border-border')}>{on && <Check size={11} />}</span>
+                      <span className="text-[13px] font-medium">{r.name}</span>
+                      {r.added && <Badge tone="ok">already added</Badge>}
+                    </button>
+                  )
+                })}
+              </div>
+            ))}
         </div>
-        <p className="mt-1 text-[11px] text-muted">{draft.repos.length ? `${draft.repos.length} selected` : 'Nothing selected yet. Two or more is where Sinfonie shines.'}</p>
+        <p className="mt-1 flex items-center gap-2 text-[11px] text-muted">
+          {draft.repos.length ? `${draft.repos.length} selected` : 'Nothing selected yet. Two or more is where Sinfonie shines.'}
+          {draft.repos.length > 0 && (
+            <button className="text-accent hover:underline" onClick={() => setOnboardingDraft({ repos: [] })}>
+              Clear
+            </button>
+          )}
+        </p>
       </div>
     </div>
   )

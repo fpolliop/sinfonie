@@ -218,10 +218,11 @@ export function registerIpc(): void {
       seen.add(p)
       out.push({ path: p, name: basename(p), added: known.has(p) })
     }
+    const SKIP = new Set(['node_modules', 'Library', 'Applications', 'Pictures', 'Music', 'Movies', 'Public', 'Desktop', 'Downloads', 'Documents', 'go', 'vendor', 'dist', 'build', 'target', 'venv', '.venv'])
     const children = (dir: string): string[] => {
       try {
         return readdirSync(dir, { withFileTypes: true })
-          .filter((e) => e.isDirectory() && !e.name.startsWith('.') && e.name !== 'node_modules')
+          .filter((e) => e.isDirectory() && !e.name.startsWith('.') && !SKIP.has(e.name))
           .map((e) => join(dir, e.name))
       } catch {
         return []
@@ -234,7 +235,7 @@ export function registerIpc(): void {
       if (out.length > 200) break
       if (!seen.has(c)) for (const g of children(c)) consider(g)
     }
-    return out.sort((a, b) => a.name.localeCompare(b.name))
+    return out.sort((a, b) => a.path.localeCompare(b.path))
   })
   handle('dialog:pickFolder', async (title, defaultPath) => {
     const r = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'], title, ...(defaultPath ? { defaultPath } : {}) })
