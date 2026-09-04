@@ -37,6 +37,7 @@ import * as acp from './services/acp/engine'
 import * as crewSuggest from './services/crew/suggest'
 import * as notes from './services/notes'
 import * as resources from './services/resources'
+import * as browser from './services/browser/service'
 
 function send<C extends keyof SinfonieEvents>(channel: C, payload: SinfonieEvents[C]): void {
   for (const win of BrowserWindow.getAllWindows()) win.webContents.send(channel, payload)
@@ -264,6 +265,7 @@ export function registerIpc(): void {
   handle('workspaces:setStage', (id, stage) => workspaces.setStage(id, stage))
   handle('workspaces:refreshJira', (id) => workspaces.refreshJiraStatus(id))
   handle('workspaces:delete', (id) => {
+    browser.closeWorkspace(id)
     agent.closeSession(id)
     clearTranscript(id)
     notes.deleteAll(id)
@@ -433,6 +435,31 @@ export function registerIpc(): void {
     busyCount: () => getStore().get().workspaces.filter((w) => agent.isBusy(w.id)).length,
     isBusy: (workspaceId) => agent.isBusy(workspaceId)
   })
+  // ---- workspace browser ----
+  browser.setEmitters(
+    (s) => send('browser:state', s),
+    (workspaceId) => send('browser:agentActive', { workspaceId })
+  )
+  handle('browser:state', (id) => browser.snapshot(id))
+  handle('browser:setBounds', (id, bounds) => browser.setBounds(id, bounds))
+  handle('browser:open', (id, url) => {
+    browser.newTab(id, url)
+    return browser.snapshot(id)
+  })
+  handle('browser:navigate', (id, url) => void browser.activeTab(id).navigate(url).catch((err) => console.warn('[browser]', err)))
+  handle('browser:tabAction', (id, action, tabId) => {
+    if (action === 'new') browser.newTab(id)
+    else if (action === 'select' && tabId) browser.selectTab(id, tabId)
+    else if (action === 'close' && tabId) browser.closeTab(id, tabId)
+    else {
+      const t = browser.activeTab(id)
+      if (action === 'back' && t.wc.navigationHistory.canGoBack()) t.wc.navigationHistory.goBack()
+      if (action === 'forward' && t.wc.navigationHistory.canGoForward()) t.wc.navigationHistory.goForward()
+      if (action === 'reload') t.wc.reload()
+    }
+    return browser.snapshot(id)
+  })
+  handle('browser:setPaused', (id, paused) => browser.setPaused(id, paused))
   handle('resources:get', () => resources.current())
   handle('resources:stopTask', (workspaceId, taskId) => agent.stopTask(workspaceId, taskId))
   handle('resources:cancelWaiting', (workspaceId) => resources.cancelWaiting(workspaceId))
@@ -493,6 +520,7 @@ export function registerIpc(): void {
   handle('terminal:dispose', (tid) => terminal.disposeTerminal(tid))
 
   app.on('before-quit', () => {
+    browser.closeAll()
     resources.stop()
     flushAllTranscripts()
     agent.closeAllSessions()

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { Play, Square, Wrench, Trash2 } from 'lucide-react'
+import { Play, Square, Wrench, Trash2, Globe } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { useScripts } from '@/stores/scripts'
@@ -54,7 +54,19 @@ export function RunPane({ workspaceId }: { workspaceId: string }): React.JSX.Ele
         <span className="text-[11px] text-muted">
           Runs each repo's <code>{kind}</code> script from sinfonie.json with SINFONIE_PORT={ws.port}…{ws.port + 9}
         </span>
-        <Button size="sm" variant="ghost" className="ml-auto" onClick={() => clear(workspaceId, repoId, kind)}>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="ml-auto"
+          title={`Open http://localhost:${ws.port} in the workspace browser`}
+          onClick={() => go(async () => {
+            await api.invoke('browser:open', workspaceId, `http://localhost:${ws.port}`)
+            useApp.getState().setTab('browser')
+          })}
+        >
+          <Globe size={12} /> Open in browser
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => clear(workspaceId, repoId, kind)}>
           <Trash2 size={12} /> Clear
         </Button>
       </div>

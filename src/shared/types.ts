@@ -247,6 +247,8 @@ export interface Space {
   model?: string
   permissionMode?: PermissionMode
   workspacesRoot?: string
+  /** Extra hostnames (optionally with a path prefix) where every browser action asks first. */
+  browserSensitiveOrigins?: string[]
 }
 
 export const SPACE_COLORS = ['#7c9cff', '#4ade80', '#fbbf24', '#f472b6', '#22d3ee', '#a78bfa', '#fb923c', '#94a3b8']
@@ -453,6 +455,8 @@ export interface Settings {
   /** First-run setup, tour and getting-started checklist state. */
   onboarding?: { setupDoneAt?: string; tourDoneAt?: string; checklistDismissedAt?: string }
   resources?: ResourceSettings
+  /** Expose browser_evaluate (arbitrary JavaScript in pages) to agents. Off by default. */
+  browserEvaluate?: boolean
 }
 
 /** A session note or todo on a workspace. The orchestrator can read and edit them too. */
@@ -778,6 +782,23 @@ export interface ErrorEntry {
   message: string
   stack?: string
   extra?: string
+}
+
+export interface BrowserTabInfo {
+  id: string
+  url: string
+  title: string
+  loading: boolean
+}
+/** The workspace browser as the renderer sees it. */
+export interface BrowserState {
+  workspaceId: string
+  tabs: BrowserTabInfo[]
+  activeId: string | null
+  /** An agent tool is acting on the browser right now (or did in the last moment). */
+  agentBusy: boolean
+  /** The user paused agent control; tool calls wait until resumed. */
+  paused: boolean
 }
 
 export interface UpdateInfo {

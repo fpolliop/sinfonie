@@ -1,4 +1,4 @@
-import type { ResourceSnapshot, LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion,
+import type { BrowserState, ResourceSnapshot, LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion,
   AgentEvent,
   ChatItem,
   JiraIssue,
@@ -162,6 +162,14 @@ export interface SinfonieInvoke {
   'terminal:write': (terminalId: string, data: string) => void
   'terminal:resize': (terminalId: string, cols: number, rows: number) => void
   'terminal:dispose': (terminalId: string) => void
+  // ---- workspace browser ----
+  'browser:state': (workspaceId: string) => BrowserState
+  /** Where the Browser pane sits in the window (CSS px), or null while hidden. */
+  'browser:setBounds': (workspaceId: string, bounds: { x: number; y: number; width: number; height: number } | null) => void
+  'browser:open': (workspaceId: string, url: string) => BrowserState
+  'browser:navigate': (workspaceId: string, url: string) => void
+  'browser:tabAction': (workspaceId: string, action: 'new' | 'select' | 'close' | 'back' | 'forward' | 'reload', tabId?: string) => BrowserState
+  'browser:setPaused': (workspaceId: string, paused: boolean) => void
   // ---- resources ----
   'resources:get': () => ResourceSnapshot
   'resources:stopTask': (workspaceId: string, taskId: string) => void
@@ -188,6 +196,9 @@ export interface SinfonieEvents {
   'errors:new': ErrorEntry
   /** Memory and process sample, every few seconds. */
   'resources:snapshot': ResourceSnapshot
+  'browser:state': BrowserState
+  /** An agent started using the browser of this workspace; the renderer brings the pane forward. */
+  'browser:agentActive': { workspaceId: string }
 }
 
 export type InvokeChannel = keyof SinfonieInvoke

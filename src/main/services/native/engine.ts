@@ -13,6 +13,7 @@ import { getWorkspace, patchWorkspace } from '../workspaces'
 import { buildTools, type ToolContext } from './tools'
 import { runWorker } from '../crew/workers'
 import * as resources from '../resources'
+import * as browserTools from '../browser/tools'
 import * as notes from '../notes'
 import { askPermission } from '../interaction'
 import { estimateCost, resolveModel } from '../providers'
@@ -92,6 +93,7 @@ function systemPrompt(ws: Workspace, crew: AgentSpec[], mcpNames: string[]): str
     ...ws.repos.map((r) => `- ${r.repoName}: ${r.worktreePath} (based on ${r.baseBranch})`),
     `Your working directory is the ${primary.repoName} worktree. Use absolute paths when working in another repository's worktree. Keep each repository's changes inside its own worktree and run git commands from inside the worktree they apply to. Never modify the original repositories outside these worktree paths.`,
     `Tools: Read, Write, Edit, LS, Glob, Grep for files; Bash for shell commands; AskUserQuestion when a decision is the user's. Read before you edit. Prefer Edit for small changes. Run the relevant tests or type-check when they are cheap. When a tool call is denied, do not retry it; ask or adapt.`,
+    browserTools.promptFor(ws.port),
     `Answer in concise markdown. State what you changed and anything the user should verify.`
   ]
   if (mcpNames.length) lines.push(`MCP tools are available from: ${mcpNames.join(', ')}.`)
@@ -194,8 +196,10 @@ function approvalPolicy(mode: PermissionMode, ws: Workspace) {
     const name = toolCall.toolName
     const input = (toolCall.input ?? {}) as Record<string, unknown>
     const readTools = new Set(['Read', 'LS', 'Glob', 'Grep', 'AskUserQuestion', 'Agent'])
-    if (readTools.has(name)) return undefined
+    if (readTools.has(name) || browserTools.isBrowserReadTool(name)) return undefined
     if (mode === 'bypassPermissions') return undefined
+    // Browser actions behave like Bash: free in Auto, asked elsewhere; sensitive origins ask inside the tool anyway.
+    if (browserTools.isBrowserTool(name)) return mode === 'auto' ? undefined : mode === 'plan' ? { type: 'denied' as const, reason: 'Plan mode: browsing is read-only.' } : ('user-approval' as const)
     if (mode === 'plan') {
       if (name === 'Write' || name === 'Edit') return { type: 'denied' as const, reason: 'Plan mode: no file changes. Describe the change instead.' }
       if (name === 'Bash' && typeof input.command === 'string' && !isReadOnlyCommand(input.command)) return { type: 'denied' as const, reason: 'Plan mode: read-only commands only.' }
@@ -225,7 +229,7 @@ async function runTurn(ws: Workspace, session: NativeSession, emit: Emit): Promi
   const builtin = buildTools(ctx)
   const crew = space?.useCrew === false ? [] : (space?.agents ?? settings.agents).filter((a) => a.enabled && a.name.trim())
   const mcp = await connectMcp(ws, session)
-  const tools: ToolSet = { ...builtin, ...mcp.tools, ...notes.aiTools(ws.id), ...(crew.length ? { Agent: crewTool(ws, crew, ctx, emit, mode) } : {}) }
+  const tools: ToolSet = { ...builtin, ...mcp.tools, ...notes.aiTools(ws.id), ...browserTools.aiTools(ws.id), ...(crew.length ? { Agent: crewTool(ws, crew, ctx, emit, mode) } : {}) }
   const agent = new ToolLoopAgent({
     model: resolveModel(modelRef),
     instructions: systemPrompt(ws, crew, mcp.names) + notes.promptFor(ws.id, true),

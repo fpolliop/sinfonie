@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import type { Label, Repo, Settings, Space, StoreData, Workspace } from '@shared/types'
 import { api } from '@/lib/api'
 
-export type Tab = 'chat' | 'changes' | 'prs' | 'terminal' | 'run'
+export type Tab = 'chat' | 'changes' | 'prs' | 'terminal' | 'run' | 'browser'
 export type AppPage = 'general' | 'spaces' | 'repos' | 'providers' | 'accounts' | 'logins' | 'crew' | 'resources' | 'mcp' | 'jira' | 'feedback' | 'about'
 export type SpacePage = 'general' | 'repos' | 'crew' | 'mcp' | 'jira' | 'github'
 export type SettingsTarget = { scope: 'app'; page: AppPage } | { scope: 'space'; spaceId: string; page: SpacePage }

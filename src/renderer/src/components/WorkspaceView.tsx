@@ -18,18 +18,24 @@ import { RunPane } from './RunPane'
 import { PrsPane } from './PrsPane'
 import { Badge, Button, Dialog, Field, inputCls } from './ui'
 import { shortPath } from '@/lib/format'
+import { BrowserPane } from './BrowserPane'
+import { useBrowser } from '@/stores/browser'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'chat', label: 'Chat' },
   { id: 'changes', label: 'Changes' },
   { id: 'prs', label: 'PRs' },
   { id: 'terminal', label: 'Terminal' },
-  { id: 'run', label: 'Run' }
+  { id: 'run', label: 'Run' },
+  { id: 'browser', label: 'Browser' }
 ]
 
 export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.JSX.Element {
   const ws = useApp((s) => s.workspaces.find((w) => w.id === workspaceId))
   const { tab, setTab, setError } = useApp()
+  const browserBusy = useBrowser((s) => s.states[workspaceId]?.agentBusy ?? false)
+  // An agent started a burst of browsing: bring the pane forward so the user sees it happen.
+  useEffect(() => api.on('browser:agentActive', ({ workspaceId: id }) => id === workspaceId && useApp.getState().tab !== 'browser' && setTab('browser')), [workspaceId, setTab])
   const [menu, setMenu] = useState(false)
   const [archiveDlg, setArchiveDlg] = useState<null | 'archive' | 'delete'>(null)
   const [jiraRefreshing, setJiraRefreshing] = useState(false)
@@ -150,8 +156,9 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
         </div>
         <nav className="no-drag ml-auto flex items-center gap-0.5 rounded-lg bg-panel p-0.5">
           {TABS.map((t) => (
-            <button key={t.id} onClick={() => setTab(t.id)} className={clsx('rounded-md px-3 py-1 text-[12px] font-medium', tab === t.id ? 'bg-panel-2 text-text' : 'text-muted hover:text-text')}>
+            <button key={t.id} onClick={() => setTab(t.id)} className={clsx('relative rounded-md px-3 py-1 text-[12px] font-medium', tab === t.id ? 'bg-panel-2 text-text' : 'text-muted hover:text-text')}>
               {t.label}
+              {t.id === 'browser' && browserBusy && <span className="absolute right-1 top-1 h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />}
             </button>
           ))}
         </nav>
@@ -196,6 +203,9 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
         </div>
         <div className={clsx('h-full', tab !== 'run' && 'hidden')}>
           <RunPane workspaceId={ws.id} />
+        </div>
+        <div className={clsx('h-full', tab !== 'browser' && 'hidden')}>
+          <BrowserPane workspaceId={ws.id} visible={tab === 'browser'} />
         </div>
       </div>
 

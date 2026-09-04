@@ -3,6 +3,7 @@ import { cpSync, existsSync, readdirSync } from 'fs'
 import { dirname, join } from 'path'
 import { registerIpc } from './ipc'
 import { startUpdateChecks } from './services/updates'
+import * as browser from './services/browser/service'
 import { installCrashHandlers, rendererConsoleError, logError, startUsagePings } from './services/telemetry'
 import { Menu, nativeImage } from 'electron'
 import { checkForUpdate } from './services/updates'
@@ -68,6 +69,7 @@ function createWindow(): void {
     }
   })
 
+  browser.setWindow(win)
   win.on('ready-to-show', () => win.show())
   // Renderer problems land in the terminal log, so a black window can be diagnosed.
   win.webContents.on('console-message', (_e, level, message, line, sourceId) => {
