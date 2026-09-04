@@ -1,7 +1,9 @@
 import React from 'react'
 import { useApp } from '@/stores/app'
 import { inputCls } from './ui'
-import type { Engine } from '@shared/types'
+import type { Engine, ProviderConfig } from '@shared/types'
+
+const EMPTY_PROVIDERS: ProviderConfig[] = []
 
 export const ENGINES: { id: Engine; label: string; hint: string }[] = [
   { id: 'claude-code', label: 'Claude Code', hint: 'Anthropic’s agent runtime with your Claude login. Claude models only.' },
@@ -24,7 +26,9 @@ export function EngineSelect({ value, onChange, allowDefault }: { value: string;
 
 /** Native-engine model picker: "<provider>/<model>" from the configured providers' fetched lists. */
 export function NativeModelSelect({ value, onChange, allowDefault, defaultLabel }: { value: string; onChange: (ref: string) => void; allowDefault?: boolean; defaultLabel?: string }): React.JSX.Element {
-  const providers = useApp((s) => s.settings.providers ?? [])
+  // Select the stored array itself; a `?? []` inside a selector makes a fresh array per read and loops React.
+  const providersRaw = useApp((s) => s.settings.providers)
+  const providers = providersRaw ?? EMPTY_PROVIDERS
   const known = new Set(providers.flatMap((p) => (p.models ?? []).map((m) => `${p.id}/${m}`)))
   return (
     <select className={inputCls} value={value} onChange={(e) => onChange(e.target.value)}>
