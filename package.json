@@ -40,7 +40,8 @@
     "publish": {
       "provider": "github",
       "owner": "fpolliop",
-      "repo": "sinfonie"
+      "repo": "sinfonie",
+      "releaseType": "release"
     }
   },
   "devDependencies": {
