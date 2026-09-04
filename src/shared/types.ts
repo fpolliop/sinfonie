@@ -781,6 +781,10 @@ export interface ErrorEntry {
 }
 
 export interface UpdateInfo {
+  /** available: offer the download. downloading: show progress. ready: offer the restart. error: the download failed. */
+  state: 'available' | 'downloading' | 'ready' | 'error'
+  percent?: number
+  error?: string
   version: string
   current: string
   /** Direct DMG download when available, else the release page. */

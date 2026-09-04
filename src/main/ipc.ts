@@ -29,7 +29,7 @@ import * as jira from './services/jira'
 import * as accounts from './services/accounts'
 import * as reviews from './services/reviews'
 import * as sessionsSvc from './services/sessions'
-import { checkForUpdate, latestKnownUpdate } from './services/updates'
+import { checkForUpdate, latestKnownUpdate, downloadUpdate, installUpdate } from './services/updates'
 import { clearErrors, listErrors, logsDir, sendFeedback, noteMessage } from './services/telemetry'
 import * as interaction from './services/interaction'
 import * as providers from './services/providers'
@@ -364,6 +364,8 @@ export function registerIpc(): void {
   handle('jira:search', (conn, q) => jira.search(conn, q))
   handle('jira:issue', (conn, key) => jira.issue(conn, key))
   handle('updates:check', async () => (await checkForUpdate()) ?? latestKnownUpdate())
+  handle('updates:download', () => downloadUpdate())
+  handle('updates:install', () => installUpdate())
   handle('app:version', () => app.getVersion())
   handle('feedback:send', async (p) => {
     let logs: string | undefined
