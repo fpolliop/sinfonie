@@ -3,7 +3,7 @@ name: Release
 # Push a tag like v0.2.0 to build the macOS app and publish a GitHub Release
 # with the DMG and zip to the public fpolliop/sinfonie-releases repo.
 # RELEASES_TOKEN: a fine-grained PAT with Contents: read/write on that repo.
-# Builds are unsigned until Apple signing secrets exist.
+# Signed and notarized when the Apple secrets below exist; unsigned otherwise.
 on:
   push:
     tags: ['v*']
