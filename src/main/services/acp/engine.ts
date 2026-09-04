@@ -7,6 +7,7 @@ import { ClientSideConnection, ndJsonStream, type Client } from '@agentclientpro
 import type * as schema from '@agentclientprotocol/sdk'
 import type { AcpProbe, AgentEvent, Engine, McpServerSpec, PermissionMode, Workspace } from '@shared/types'
 import { getStore } from '../../store'
+import { accountEnvFor } from '../accounts'
 import { getWorkspace, patchWorkspace } from '../workspaces'
 import { askPermission } from '../interaction'
 import { run } from '../native/tools'
@@ -109,9 +110,8 @@ function connect(engine: AcpEngine, cwd: string, client: (agent: ClientSideConne
 
 // ---------- probe / auth (settings UI) ----------
 
-/** Env for a specific stored account, resolved lazily to avoid a module cycle with accounts.ts. */
+/** Env for a specific stored account. accounts.ts imports probe() from here; the ESM cycle is fine because both sides only call each other at run time, and a lazy require breaks in the bundled build. */
 function accountEnvById(engine: AcpEngine, accountId: string | undefined): NodeJS.ProcessEnv {
-  const { accountEnvFor } = require('../accounts') as typeof import('../accounts')
   return accountEnvFor(engine, accountId)
 }
 
