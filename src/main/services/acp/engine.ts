@@ -47,8 +47,8 @@ function localOk(bin: string): boolean {
   }
 }
 
-function loginEnv(engine?: AcpEngine): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...process.env, PATH: `${process.env.HOME}/.grok/bin:${process.env.HOME}/.nvm/versions/node/v22.18.0/bin:/opt/homebrew/bin:/usr/local/bin:${process.env.PATH ?? ''}` }
+function loginEnv(engine?: AcpEngine, extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env, PATH: `${process.env.HOME}/.grok/bin:${process.env.HOME}/.nvm/versions/node/v22.18.0/bin:/opt/homebrew/bin:/usr/local/bin:${process.env.PATH ?? ''}`, ...extra }
   // Google no longer allows personal Google-account logins in the Gemini CLI; a Gemini API key from Model providers is the way in.
   if (engine === 'gemini' && !env.GEMINI_API_KEY) {
     const key = apiKeyForKind('google')
@@ -96,9 +96,9 @@ function within(roots: string[], p: string): boolean {
 }
 
 /** Spawn the agent and open an ACP connection. The client half handles updates, permissions, files and terminals. */
-function connect(engine: AcpEngine, cwd: string, client: (agent: ClientSideConnection) => Client): { child: ChildProcess; conn: ClientSideConnection } {
+function connect(engine: AcpEngine, cwd: string, client: (agent: ClientSideConnection) => Client, extraEnv: NodeJS.ProcessEnv = {}): { child: ChildProcess; conn: ClientSideConnection } {
   const [cmd, ...args] = PRESETS[engine].command()
-  const child = spawn(cmd, args, { cwd, env: loginEnv(engine), stdio: ['pipe', 'pipe', 'pipe'] })
+  const child = spawn(cmd, args, { cwd, env: loginEnv(engine, extraEnv), stdio: ['pipe', 'pipe', 'pipe'] })
   child.stderr?.on('data', (d: Buffer) => console.error(`[acp ${engine}]`, d.toString().trimEnd()))
   const stream = ndJsonStream(Writable.toWeb(child.stdin!) as WritableStream<Uint8Array>, Readable.toWeb(child.stdout!) as ReadableStream<Uint8Array>)
   let connRef: ClientSideConnection | null = null
@@ -109,7 +109,13 @@ function connect(engine: AcpEngine, cwd: string, client: (agent: ClientSideConne
 
 // ---------- probe / auth (settings UI) ----------
 
-export async function probe(engine: Engine): Promise<AcpProbe> {
+/** Env for a specific stored account, resolved lazily to avoid a module cycle with accounts.ts. */
+function accountEnvById(engine: AcpEngine, accountId: string | undefined): NodeJS.ProcessEnv {
+  const { accountEnvFor } = require('../accounts') as typeof import('../accounts')
+  return accountEnvFor(engine, accountId)
+}
+
+export async function probe(engine: Engine, accountId?: string): Promise<AcpProbe> {
   const e = engine as AcpEngine
   if (!PRESETS[e]) return { engine, installed: false, authMethods: [], models: [], modes: [], signedIn: false, error: 'Not an ACP engine' }
   const cwd = getStore().get().settings.workspacesRoot || process.env.HOME || '/'
@@ -117,7 +123,7 @@ export async function probe(engine: Engine): Promise<AcpProbe> {
   let child: ChildProcess | null = null
   const timer = setTimeout(() => child?.kill('SIGKILL'), 90_000)
   try {
-    const c = connect(e, cwd, () => ({ requestPermission: async (p) => ({ outcome: { outcome: 'selected', optionId: p.options[0].optionId } }), sessionUpdate: async () => undefined }))
+    const c = connect(e, cwd, () => ({ requestPermission: async (p) => ({ outcome: { outcome: 'selected', optionId: p.options[0].optionId } }), sessionUpdate: async () => undefined }), accountEnvById(e, accountId))
     child = c.child
     const init = await c.conn.initialize({ protocolVersion: 1, clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: true } })
     const out: AcpProbe = {
@@ -325,7 +331,7 @@ async function openSession(workspaceId: string, engine: AcpEngine, emit: Emit): 
     }
   })
 
-  const { child, conn } = connect(engine, primary.worktreePath, client)
+  const { child, conn } = connect(engine, primary.worktreePath, client, accountEnvById(engine, ws.claudeAccountId))
   session = { workspaceId, engine, child, conn, sessionId: '', busy: false, queue: [], interrupted: false, toolItems: new Map(), itemId: '', terminals: new Map(), modes: null, tokens: { input: 0, output: 0 }, emit }
   child.on('exit', (code) => {
     if (sessions.get(workspaceId) === session) {

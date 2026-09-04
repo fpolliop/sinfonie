@@ -1,20 +1,19 @@
 import React, { useEffect, useState } from 'react'
 import clsx from 'clsx'
-import { Plus, RefreshCw, Trash2, FolderGit2, Settings as SettingsIcon, Layers, Server, UserCircle2, Users, Plug, Ticket, GitPullRequest, MessageSquarePlus, Info, FolderTree, ChevronRight, LogIn } from 'lucide-react'
+import { Plus, RefreshCw, Trash2, FolderGit2, Settings as SettingsIcon, Layers, Server, UserCircle2, Users, Plug, Ticket, GitPullRequest, MessageSquarePlus, Info, FolderTree, ChevronRight } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp, type SettingsTarget, type AppPage, type SpacePage } from '@/stores/app'
 import { Badge, Button, Field, inputCls } from './ui'
 import { shortPath } from '@/lib/format'
 import { PERMISSION_MODES, SPACE_COLORS, jiraConnectionFor, type Space } from '@shared/types'
-import { LoginTerminal } from './LoginTerminal'
 import { JiraSection } from './JiraSection'
 import { McpSection } from './McpSection'
 import { AgentsSection, DEFAULT_CREW } from './AgentsSection'
 import { ModelSelect } from './ModelSelect'
 import { ProvidersSection } from './ProvidersSection'
 import { EngineSelect, NativeModelSelect } from './EngineSelect'
-import { AgentLoginsPage, acpProbeCache } from './AgentLoginsPage'
-import { ACP_ENGINES } from '@shared/types'
+import { AccountsPage, acpProbeCache } from './AccountsPage'
+import { ACP_ENGINES, VENDORS } from '@shared/types'
 
 /**
  * One settings window for everything. The rail on the left separates what
@@ -26,8 +25,7 @@ const APP_PAGES: { id: AppPage; label: string; icon: React.ReactNode; desc: stri
   { id: 'spaces', label: 'Spaces', icon: <Layers size={14} />, desc: 'Create and remove spaces. Each space has its own pages below.' },
   { id: 'repos', label: 'Repositories', icon: <FolderGit2 size={14} />, desc: 'Every git repository the app knows, and which space each belongs to.' },
   { id: 'providers', label: 'Model providers', icon: <Server size={14} />, desc: 'API keys and local servers for the native engine. Shared by all spaces.' },
-  { id: 'accounts', label: 'Claude accounts', icon: <UserCircle2 size={14} />, desc: 'Claude Code logins. Spaces and workspaces pick one of these.' },
-  { id: 'logins', label: 'Agent logins', icon: <LogIn size={14} />, desc: 'Codex, Gemini CLI and Grok Build with their own accounts, for use as engines.' },
+  { id: 'accounts', label: 'Accounts', icon: <UserCircle2 size={14} />, desc: 'Logins for Anthropic, OpenAI, Google and xAI agents. Several per vendor; spaces and workspaces pick one.' },
   { id: 'crew', label: 'Default crew', icon: <Users size={14} />, desc: 'The subagents a space gets unless it defines its own crew.' },
   { id: 'mcp', label: 'MCP servers', icon: <Plug size={14} />, desc: 'MCP servers available in every space.' },
   { id: 'jira', label: 'Jira', icon: <Ticket size={14} />, desc: 'The fallback Jira connection for spaces without their own.' },
@@ -199,9 +197,8 @@ function AppPageView({ page }: { page: AppPage }): React.JSX.Element {
     case 'providers':
       return <ProvidersSection />
     case 'accounts':
-      return <AccountsSection />
     case 'logins':
-      return <AgentLoginsPage />
+      return <AccountsPage />
     case 'crew':
       return <AgentsSection title="Default crew" intro="Orchestrator = the chat model; these handle delegated subtasks with cheaper or more focused models. Spaces inherit this list until they edit their own." agents={settings.agents} onChange={(agents) => go(() => update({ agents }))} onResetToDefaults={() => go(() => update({ agents: DEFAULT_CREW }))} />
     case 'mcp':
@@ -318,70 +315,6 @@ function ReposPage(): React.JSX.Element {
   )
 }
 
-function AccountsSection(): React.JSX.Element {
-  const { settings } = useApp()
-  const go = useGo()
-  const [name, setName] = useState('')
-  const [login, setLogin] = useState<{ id: string; name: string } | null>(null)
-  const [checking, setChecking] = useState<string | null>(null)
-  const check = async (id: string): Promise<void> => {
-    setChecking(id)
-    await go(() => api.invoke('accounts:check', id))
-    setChecking(null)
-  }
-  return (
-    <div className="max-w-[700px]">
-      <div className="mb-3 flex flex-col gap-1.5">
-        {settings.claudeAccounts.map((a) => (
-          <div key={a.id} className="flex items-center gap-3 rounded-lg border border-border px-3 py-2">
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2 text-[13px] font-medium">
-                {a.name}
-                {a.id === settings.defaultClaudeAccountId && <Badge tone="accent">default</Badge>}
-                {a.loggedIn === true && <Badge tone="ok">logged in</Badge>}
-                {a.loggedIn === false && <Badge tone="warn">not logged in</Badge>}
-              </div>
-              <div className="truncate text-[11px] text-muted">{a.detail || (a.configDir ? shortPath(a.configDir) : '~/.claude')}</div>
-            </div>
-            <Button size="sm" variant="ghost" onClick={() => check(a.id)} disabled={checking === a.id}>
-              {checking === a.id ? 'Checking…' : 'Check'}
-            </Button>
-            <Button size="sm" onClick={() => setLogin({ id: a.id, name: a.name })}>
-              Log in
-            </Button>
-            {a.id !== settings.defaultClaudeAccountId && (
-              <Button size="sm" variant="ghost" onClick={() => go(() => api.invoke('accounts:setDefault', a.id))}>
-                Make default
-              </Button>
-            )}
-            {a.id !== 'default' && (
-              <button title="Remove" className="rounded p-1 text-muted hover:text-danger" onClick={() => go(() => api.invoke('accounts:remove', a.id))}>
-                <Trash2 size={13} />
-              </button>
-            )}
-          </div>
-        ))}
-      </div>
-      <div className="flex gap-2">
-        <input className={inputCls} placeholder="Account name, e.g. Work" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && name.trim() && go(() => api.invoke('accounts:add', name)).then(() => setName(''))} />
-        <Button variant="primary" disabled={!name.trim()} onClick={() => go(() => api.invoke('accounts:add', name)).then(() => setName(''))}>
-          <Plus size={13} /> Add account
-        </Button>
-      </div>
-      {login && (
-        <LoginTerminal
-          accountId={login.id}
-          accountName={login.name}
-          onClose={() => {
-            setLogin(null)
-            void check(login.id)
-          }}
-        />
-      )}
-    </div>
-  )
-}
-
 function AboutPage(): React.JSX.Element {
   const [version, setVersion] = useState('')
   const [status, setStatus] = useState<string | null>(null)
@@ -478,14 +411,16 @@ function SpacePageView({ space, page }: { space: Space; page: SpacePage }): Reac
             <Field label="Workspaces folder" hint={`App default: ${settings.workspacesRoot}`}>
               <input className={inputCls} placeholder={settings.workspacesRoot} defaultValue={space.workspacesRoot ?? ''} onBlur={(e) => (e.target.value.trim() || '') !== (space.workspacesRoot ?? '') && go(() => upd({ workspacesRoot: e.target.value.trim() }))} />
             </Field>
-            <Field label="Claude account" hint={settings.claudeAccounts.length > 1 ? 'Used for new workspaces in this space.' : 'Add more accounts under Application → Claude accounts to choose here.'}>
+            <Field label="Account" hint="Which login the engine uses for workspaces in this space. Manage them under Application → Accounts.">
               <select className={inputCls} value={space.claudeAccountId ?? ''} onChange={(e) => go(() => upd({ claudeAccountId: e.target.value || undefined }))}>
-                <option value="">App default ({settings.claudeAccounts.find((a) => a.id === settings.defaultClaudeAccountId)?.name ?? 'Default'})</option>
-                {settings.claudeAccounts.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.name}
-                  </option>
-                ))}
+                <option value="">Vendor default</option>
+                {settings.claudeAccounts
+                  .filter((a) => (a.vendor ?? 'anthropic') === (VENDORS.find((v) => v.engine === engine)?.id ?? 'anthropic'))
+                  .map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name}
+                    </option>
+                  ))}
               </select>
             </Field>
           </Group>

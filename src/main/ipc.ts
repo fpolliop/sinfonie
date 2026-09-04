@@ -345,7 +345,7 @@ export function registerIpc(): void {
   })
 
   // ---- claude accounts ----
-  handle('accounts:add', (name) => accounts.addAccount(name))
+  handle('accounts:add', (name, vendor) => accounts.addAccount(name, vendor))
   handle('accounts:remove', (id) => accounts.removeAccount(id))
   handle('accounts:setDefault', (id) => accounts.setDefaultAccount(id))
   handle('accounts:check', (id) => accounts.checkAccount(id))
@@ -378,7 +378,7 @@ export function registerIpc(): void {
   handle('agent:answerQuestion', (r) => interaction.answerQuestion(r))
 
   // ---- vendor agents over ACP ----
-  handle('acp:probe', (engine) => acp.probe(engine))
+  handle('acp:probe', (engine, accountId) => acp.probe(engine, accountId))
   handle('acp:authenticate', (engine, methodId) => acp.authenticate(engine, methodId))
   handle('terminal:createCommand', (command) => {
     const tid = terminal.createTerminal(

@@ -188,7 +188,7 @@ export function NewWorkspaceDialog({ onClose }: { onClose: () => void }): React.
         })}
       </div>
       <p className="mb-3 text-[11px] text-muted">The primary repo is Claude Code's working directory; the others are added as extra directories. Setup scripts run in every repo after all worktrees exist.</p>
-      <AccountPicker value={accountId} onChange={setAccountId} className="mb-4" />
+      <AccountPicker value={accountId} onChange={setAccountId} className="mb-4" engine={space?.engine ?? settings.engine ?? 'claude-code'} />
       <div className="flex justify-end gap-2">
         <Button onClick={onClose}>Cancel</Button>
         <Button variant="primary" onClick={submit} disabled={busy || !name.trim() || selected.length === 0}>

@@ -4,68 +4,125 @@ import { mkdirSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
 import { nanoid } from 'nanoid'
-import type { ClaudeAccount, Settings } from '@shared/types'
+import type { ClaudeAccount, Engine, Settings, Vendor } from '@shared/types'
+import { VENDORS } from '@shared/types'
 import { getStore } from '../store'
 import { createTerminal, writeTerminal } from './terminal'
+import { probe } from './acp/engine'
 
 const exec = promisify(execFile)
 
+export function vendorOfEngine(engine: Engine): Vendor | null {
+  return VENDORS.find((v) => v.engine === engine)?.id ?? null
+}
+
+export function defaultAccountId(vendor: Vendor): string | undefined {
+  const { settings } = getStore().get()
+  if (vendor === 'anthropic') return settings.defaultClaudeAccountId
+  return settings.defaultAccounts?.[vendor] ?? `${vendor}-default`
+}
+
 export function getAccount(id: string | undefined): ClaudeAccount {
   const { settings } = getStore().get()
-  return settings.claudeAccounts.find((a) => a.id === id) ?? settings.claudeAccounts.find((a) => a.id === settings.defaultClaudeAccountId) ?? settings.claudeAccounts[0]
+  const list = settings.claudeAccounts
+  return list.find((a) => a.id === id) ?? list.find((a) => a.id === settings.defaultClaudeAccountId) ?? list[0]
 }
 
-/** Env additions that make the CLI / SDK use this account's credentials. */
+/** The account an engine should use for a workspace: the workspace's own if it belongs to that vendor, else the vendor default. */
+export function accountForEngine(engine: Engine, workspaceAccountId: string | undefined): ClaudeAccount | undefined {
+  const vendor = vendorOfEngine(engine)
+  if (!vendor) return undefined
+  const list = getStore().get().settings.claudeAccounts
+  const own = list.find((a) => a.id === workspaceAccountId)
+  if (own && (own.vendor ?? 'anthropic') === vendor) return own
+  return list.find((a) => a.id === defaultAccountId(vendor)) ?? list.find((a) => (a.vendor ?? 'anthropic') === vendor)
+}
+
+/** Env additions that make a vendor's CLI use this account's credentials. */
+export function envForAccount(acc: ClaudeAccount | undefined): NodeJS.ProcessEnv {
+  if (!acc || !acc.configDir) return {}
+  switch (acc.vendor ?? 'anthropic') {
+    case 'anthropic':
+      return { CLAUDE_CONFIG_DIR: acc.configDir }
+    case 'openai':
+      return { CODEX_HOME: acc.configDir }
+    case 'google':
+      // The Gemini CLI keeps its state under $HOME/.gemini; a private HOME isolates it.
+      return { HOME: acc.configDir, GEMINI_CLI_HOME: acc.configDir }
+    case 'xai':
+      return { HOME: acc.configDir }
+  }
+}
+
+/** Claude Code engine and review engine: env for a workspace's Anthropic account. */
 export function accountEnv(id: string | undefined): NodeJS.ProcessEnv {
-  const acc = getAccount(id)
-  return acc.configDir ? { CLAUDE_CONFIG_DIR: acc.configDir } : {}
+  return envForAccount(accountForEngine('claude-code', id))
 }
 
-export function addAccount(name: string): Settings {
+/** Any engine: env for the account that engine should use in this workspace. */
+export function accountEnvFor(engine: Engine, workspaceAccountId: string | undefined): NodeJS.ProcessEnv {
+  return envForAccount(accountForEngine(engine, workspaceAccountId))
+}
+
+export function addAccount(name: string, vendor: Vendor = 'anthropic'): Settings {
   const id = nanoid(6)
-  const dir = join(homedir(), '.sinfonie', 'claude-accounts', id)
+  const dir = join(homedir(), '.sinfonie', 'accounts', vendor, id)
   mkdirSync(dir, { recursive: true })
+  const label = VENDORS.find((v) => v.id === vendor)?.label ?? vendor
   return getStore().update((d) => {
-    d.settings.claudeAccounts.push({ id, name: name.trim() || `Account ${d.settings.claudeAccounts.length + 1}`, configDir: dir })
+    d.settings.claudeAccounts.push({ id, name: name.trim() || `${label} account`, vendor, configDir: dir })
   }).settings
 }
 
 export function removeAccount(id: string): Settings {
   return getStore().update((d) => {
-    if (id === 'default') return
+    const acc = d.settings.claudeAccounts.find((a) => a.id === id)
+    if (!acc || acc.configDir === null) return
     d.settings.claudeAccounts = d.settings.claudeAccounts.filter((a) => a.id !== id)
     if (d.settings.defaultClaudeAccountId === id) d.settings.defaultClaudeAccountId = 'default'
+    for (const [v, def] of Object.entries(d.settings.defaultAccounts ?? {})) if (def === id) delete d.settings.defaultAccounts![v as Vendor]
     for (const w of d.workspaces) if (w.claudeAccountId === id) delete w.claudeAccountId
+    for (const s of d.spaces) if (s.claudeAccountId === id) delete s.claudeAccountId
   }).settings
 }
 
 export function setDefaultAccount(id: string): Settings {
   return getStore().update((d) => {
-    d.settings.defaultClaudeAccountId = id
+    const acc = d.settings.claudeAccounts.find((a) => a.id === id)
+    if (!acc) return
+    const vendor = acc.vendor ?? 'anthropic'
+    if (vendor === 'anthropic') d.settings.defaultClaudeAccountId = id
+    else d.settings.defaultAccounts = { ...(d.settings.defaultAccounts ?? {}), [vendor]: id }
   }).settings
 }
 
-/** Runs `claude auth status` with the account's config dir and records the answer. */
+/** Ask the vendor CLI whether this account is signed in, and record the answer. */
 export async function checkAccount(id: string): Promise<Settings> {
   const acc = getAccount(id)
-  const env = { ...process.env, ...accountEnv(id) }
+  const vendor = acc.vendor ?? 'anthropic'
   let loggedIn = false
   let detail = ''
-  try {
-    const { stdout } = await exec('claude', ['auth', 'status', '--json'], { env, timeout: 20_000 })
+  if (vendor === 'anthropic') {
+    const env = { ...process.env, ...envForAccount(acc) }
     try {
-      const j = JSON.parse(stdout) as Record<string, unknown>
-      loggedIn = Boolean(j.loggedIn ?? j.logged_in ?? j.authenticated)
-      detail = [j.email, j.subscriptionType ?? j.subscription, j.authMethod ?? j.method].filter(Boolean).join(' · ')
-    } catch {
-      loggedIn = /logged in/i.test(stdout) && !/not logged in/i.test(stdout)
-      detail = stdout.trim().split('\n')[0] ?? ''
+      const { stdout } = await exec('claude', ['auth', 'status', '--json'], { env, timeout: 20_000 })
+      try {
+        const j = JSON.parse(stdout) as Record<string, unknown>
+        loggedIn = Boolean(j.loggedIn ?? j.logged_in ?? j.authenticated)
+        detail = [j.email, j.subscriptionType ?? j.subscription, j.authMethod ?? j.method].filter(Boolean).join(' · ')
+      } catch {
+        loggedIn = /logged in/i.test(stdout) && !/not logged in/i.test(stdout)
+        detail = stdout.trim().split('\n')[0] ?? ''
+      }
+    } catch (err) {
+      const e = err as { stdout?: string; stderr?: string; message?: string }
+      detail = (`${e.stdout ?? ''}${e.stderr ?? ''}`.trim() || e.message || String(err)).split('\n')[0]
     }
-  } catch (err) {
-    const e = err as { stdout?: string; stderr?: string; message?: string }
-    const text = `${e.stdout ?? ''}${e.stderr ?? ''}`.trim() || e.message || String(err)
-    loggedIn = false
-    detail = text.split('\n')[0]
+  } else {
+    const engine = VENDORS.find((v) => v.id === vendor)!.engine
+    const p = await probe(engine, acc.id)
+    loggedIn = p.signedIn
+    detail = p.signedIn ? [p.agent, p.currentModel ? `model ${p.currentModel}` : ''].filter(Boolean).join(' · ') : p.error ?? (p.installed ? 'not signed in' : 'agent not installed')
   }
   return getStore().update((d) => {
     const a = d.settings.claudeAccounts.find((x) => x.id === acc.id)
@@ -77,11 +134,18 @@ export async function checkAccount(id: string): Promise<Settings> {
   }).settings
 }
 
-/** Opens an in-app shell already running `claude auth login` for this account. */
+const LOGIN_COMMANDS: Record<Vendor, string> = {
+  anthropic: 'claude auth login',
+  openai: 'npx -y @openai/codex@latest login',
+  google: 'echo "Gemini signs in with the API key from Model providers → Google. Press Ctrl+D to close."',
+  xai: 'grok agent stdio --reauth'
+}
+
+/** Opens an in-app shell already running the vendor's login for this account. */
 export function loginTerminal(id: string, onData: (tid: string, d: string) => void, onExit: (tid: string, code: number) => void): string {
-  const env = { ...process.env, ...accountEnv(id) }
+  const acc = getAccount(id)
+  const env = { ...process.env, ...envForAccount(acc), PATH: `${homedir()}/.grok/bin:/opt/homebrew/bin:/usr/local/bin:${process.env.PATH ?? ''}` }
   const tid = createTerminal(homedir(), env, onData, onExit)
-  // Give the shell a moment to start, then run the login.
-  setTimeout(() => writeTerminal(tid, 'claude auth login\r'), 400)
+  setTimeout(() => writeTerminal(tid, LOGIN_COMMANDS[acc.vendor ?? 'anthropic'] + '\r'), 400)
   return tid
 }

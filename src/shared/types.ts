@@ -282,14 +282,26 @@ export interface JiraSettings {
   defaultJql: string
 }
 
+/** Who issues the login: each vendor has its own coding agent CLI with its own credentials. */
+export type Vendor = 'anthropic' | 'openai' | 'google' | 'xai'
+
+export const VENDORS: { id: Vendor; label: string; agent: string; engine: Engine; hint: string; envVar: string }[] = [
+  { id: 'anthropic', label: 'Anthropic', agent: 'Claude Code', engine: 'claude-code', hint: 'Claude Pro / Max login, or an API key, through the Claude Code CLI.', envVar: 'CLAUDE_CONFIG_DIR' },
+  { id: 'openai', label: 'OpenAI', agent: 'Codex', engine: 'codex', hint: 'ChatGPT Plus / Pro / Team login, or an API key, through the Codex CLI.', envVar: 'CODEX_HOME' },
+  { id: 'google', label: 'Google', agent: 'Gemini CLI', engine: 'gemini', hint: 'Google retired the personal Google login for the Gemini CLI; it signs in with the Gemini API key from Model providers.', envVar: 'HOME' },
+  { id: 'xai', label: 'xAI', agent: 'Grok Build', engine: 'grok', hint: 'grok.com (SuperGrok) login through the Grok CLI.', envVar: 'HOME' }
+]
+
 /**
- * A Claude Code login. Each account is a separate CLAUDE_CONFIG_DIR, which is
- * how the CLI keeps independent credentials. `configDir: null` is the default
- * ~/.claude login.
+ * A login for one vendor's agent. Each account is a separate config folder for
+ * that CLI, which is how they keep independent credentials. `configDir: null`
+ * is the user's normal login (~/.claude, ~/.codex, …).
  */
 export interface ClaudeAccount {
   id: string
   name: string
+  /** Absent on records from before multi-vendor accounts: treated as anthropic. */
+  vendor?: Vendor
   configDir: string | null
   loggedIn?: boolean
   detail?: string
@@ -302,8 +314,12 @@ export interface Settings {
   model: string
   permissionMode: PermissionMode
   jira: JiraSettings
+  /** Accounts for every vendor (the name predates multi-vendor support). */
   claudeAccounts: ClaudeAccount[]
+  /** Default Anthropic account. */
   defaultClaudeAccountId: string
+  /** Default account per other vendor. */
+  defaultAccounts?: Partial<Record<Vendor, string>>
   /** MCP servers available in every space. */
   mcpServers?: McpServerSpec[]
   /** Default for spaces: only use MCP servers configured in Sinfonie. */

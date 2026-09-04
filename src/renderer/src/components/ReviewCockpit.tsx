@@ -109,7 +109,7 @@ export function ReviewCockpit(): React.JSX.Element {
           <RefreshCw size={13} className={clsx(loadingPrs && 'animate-spin')} />
         </Button>
         <span className="ml-auto" />
-        <AccountPicker value={accountId} onChange={setAccountId} className="no-drag" always />
+        <AccountPicker value={accountId} onChange={setAccountId} className="no-drag" always engine="claude-code" />
       </header>
       {error && <div className="border-b border-danger/30 bg-danger/10 px-4 py-2 text-[12px] text-danger">{error}</div>}
       <div className="flex items-center gap-2 border-b border-border px-3 py-1.5">

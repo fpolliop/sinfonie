@@ -52,7 +52,7 @@ class Store {
           ...DEFAULT_SETTINGS,
           ...(raw.settings ?? {}),
           jira: { ...DEFAULT_SETTINGS.jira, ...(raw.settings?.jira ?? {}) },
-          claudeAccounts: raw.settings?.claudeAccounts?.length ? raw.settings.claudeAccounts : DEFAULT_SETTINGS.claudeAccounts,
+          claudeAccounts: withVendorDefaults(raw.settings?.claudeAccounts?.length ? raw.settings.claudeAccounts : DEFAULT_SETTINGS.claudeAccounts),
           defaultClaudeAccountId: raw.settings?.defaultClaudeAccountId ?? 'default',
           agents: raw.settings?.agents?.length ? raw.settings.agents : DEFAULT_CREW
         },
@@ -95,6 +95,18 @@ function migrateSecrets(s: Record<string, string | undefined>): Record<string, s
     if (out[oldKey] && !out[newKey]) out[newKey] = out[oldKey]
     delete out[oldKey]
   }
+  return out
+}
+
+/** Every vendor gets a built-in "your normal login" account; older records default to Anthropic. */
+function withVendorDefaults(list: Settings['claudeAccounts']): Settings['claudeAccounts'] {
+  const out = list.map((a) => ({ ...a, vendor: a.vendor ?? ('anthropic' as const) }))
+  const defaults: { id: string; name: string; vendor: 'openai' | 'google' | 'xai' }[] = [
+    { id: 'openai-default', name: 'Default (~/.codex)', vendor: 'openai' },
+    { id: 'google-default', name: 'Default (~/.gemini)', vendor: 'google' },
+    { id: 'xai-default', name: 'Default (~/.grok)', vendor: 'xai' }
+  ]
+  for (const d of defaults) if (!out.some((a) => a.id === d.id)) out.push({ ...d, configDir: null })
   return out
 }
 

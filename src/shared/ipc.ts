@@ -9,6 +9,7 @@ import type {
   PermissionMode,
   AcpProbe,
   Engine,
+  Vendor,
   ProviderConfig,
   ProviderKind,
   RepoSafety,
@@ -95,7 +96,7 @@ export interface SinfonieInvoke {
   'logs:clear': () => void
   'app:version': () => string
 
-  'accounts:add': (name: string) => Settings
+  'accounts:add': (name: string, vendor?: Vendor) => Settings
   'accounts:remove': (id: string) => Settings
   'accounts:setDefault': (id: string) => Settings
   'accounts:check': (id: string) => Settings
@@ -126,7 +127,7 @@ export interface SinfonieInvoke {
   'workspaces:fork': (workspaceId: string, name: string) => Workspace
 
   /** Launch the agent, read its auth methods, models and modes; tells whether it is usable now. */
-  'acp:probe': (engine: Engine) => AcpProbe
+  'acp:probe': (engine: Engine, accountId?: string) => AcpProbe
   /** Run the agent's own authentication method (browser or terminal flow). Returns the terminal command when one must be run instead. */
   'acp:authenticate': (engine: Engine, methodId: string) => { ok: boolean; terminalCommand?: string; error?: string }
   /** A shell already running `command`, for interactive logins. */
