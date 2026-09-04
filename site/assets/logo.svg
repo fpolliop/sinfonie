@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+<defs>
+<linearGradient id="g" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#7c9cff"/><stop offset=".6" stop-color="#a78bfa"/><stop offset="1" stop-color="#f472b6"/></linearGradient>
+<linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#10131b"/><stop offset="1" stop-color="#090b0f"/></linearGradient>
+</defs>
+<rect width="256" height="256" rx="56" fill="url(#bg)"/>
+<rect x=".5" y=".5" width="255" height="255" rx="56" fill="none" stroke="rgba(255,255,255,.07)"/>
+<path d="M128.0 220.2 L128.0 153.6" stroke="url(#g)" stroke-width="15.9" stroke-linecap="round" fill="none"/>
+<path d="M128.0 153.6 Q120.3 130.6 76.8 102.4" stroke="url(#g)" stroke-width="15.9" stroke-linecap="round" fill="none"/>
+<path d="M128.0 153.6 Q128.0 109.8 128.0 56.3" stroke="url(#g)" stroke-width="15.9" stroke-linecap="round" fill="none"/>
+<path d="M128.0 153.6 Q135.7 137.5 179.2 117.8" stroke="url(#g)" stroke-width="15.9" stroke-linecap="round" fill="none"/>
+<circle cx="76.8" cy="102.4" r="14.1" fill="url(#g)"/>
+<circle cx="72.6" cy="98.2" r="3.9" fill="rgba(255,255,255,.55)"/>
+<circle cx="128.0" cy="56.3" r="15.9" fill="url(#g)"/>
+<circle cx="123.2" cy="51.6" r="4.4" fill="rgba(255,255,255,.55)"/>
+<circle cx="179.2" cy="117.8" r="12.8" fill="url(#g)"/>
+<circle cx="175.4" cy="113.9" r="3.6" fill="rgba(255,255,255,.55)"/>
+</svg>

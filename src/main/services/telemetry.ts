@@ -1,5 +1,7 @@
 import { app, BrowserWindow } from 'electron'
-import { appendFileSync, existsSync, mkdirSync, renameSync, statSync } from 'fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'fs'
+import { nanoid } from 'nanoid'
+import type { ErrorEntry } from '@shared/types'
 import { join } from 'path'
 import { release } from 'os'
 import { getStore } from '../store'
@@ -18,8 +20,12 @@ export function logError(where: string, err: unknown, extra?: Record<string, unk
   try {
     const file = join(logsDir(), 'errors.log')
     if (existsSync(file) && statSync(file).size > MAX_LOG) renameSync(file, join(logsDir(), 'errors.1.log'))
-    const message = err instanceof Error ? `${err.name}: ${err.message}\n${err.stack ?? ''}` : String(err)
-    appendFileSync(file, `${new Date().toISOString()} [${where}] ${message}${extra ? ' ' + JSON.stringify(extra) : ''}\n`)
+    const message = err instanceof Error ? `${err.name}: ${err.message}` : String(err)
+    const stack = err instanceof Error ? (err.stack ?? '') : ''
+    const entry: ErrorEntry = { id: nanoid(8), ts: new Date().toISOString(), where, message, ...(stack ? { stack } : {}), ...(extra ? { extra: JSON.stringify(extra) } : {}) }
+    // One JSON object per line: easy to parse back for the Errors view, still readable in a text editor.
+    appendFileSync(file, JSON.stringify(entry) + '\n')
+    for (const win of BrowserWindow.getAllWindows()) win.webContents.send('errors:new', entry)
   } catch {
     /* never throw from the logger */
   }
@@ -81,6 +87,31 @@ export function rendererConsoleError(message: string, sourceId: string, line: nu
   // Ignore noise from devtools / extensions; keep real uncaught errors.
   if (!/Uncaught|TypeError|ReferenceError|RangeError|Error:/.test(message)) return
   reportCrash('renderer:console', new Error(message), { source: `${sourceId}:${line}` })
+}
+
+export function listErrors(): ErrorEntry[] {
+  const file = join(logsDir(), 'errors.log')
+  if (!existsSync(file)) return []
+  const out: ErrorEntry[] = []
+  for (const line of readFileSync(file, 'utf8').split('\n')) {
+    if (!line.trim()) continue
+    try {
+      out.push(JSON.parse(line) as ErrorEntry)
+    } catch {
+      // A line from the older plain-text format.
+      const m = /^(\S+) \[([^\]]+)\] ([\s\S]*)$/.exec(line)
+      out.push({ id: nanoid(8), ts: m?.[1] ?? '', where: m?.[2] ?? 'log', message: (m?.[3] ?? line).slice(0, 2000) })
+    }
+  }
+  return out.reverse().slice(0, 500)
+}
+
+export function clearErrors(): void {
+  try {
+    writeFileSync(join(logsDir(), 'errors.log'), '')
+  } catch {
+    /* ignore */
+  }
 }
 
 export function anyWindow(): BrowserWindow | undefined {

@@ -9,7 +9,10 @@
 <meta property="og:description" content="Multi-repo agent workspaces with a crew of models. Built for full-stack work.">
 <meta property="og:url" content="https://sinfonie.dev">
 <meta name="theme-color" content="#0b0d11">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230f1115'/%3E%3Crect x='14' y='30' width='8' height='20' rx='4' fill='%237c9cff'/%3E%3Crect x='28' y='16' width='8' height='34' rx='4' fill='%235b7cff'/%3E%3Crect x='42' y='24' width='8' height='26' rx='4' fill='%237c9cff'/%3E%3C/svg%3E">
+<link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
+<link rel="icon" type="image/png" sizes="64x64" href="/assets/favicon-64.png">
+<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
+<meta property="og:image" content="https://sinfonie.dev/assets/icon-512.png">
 <style>
   :root{
     --bg:#0b0d11;--bg2:#0f1115;--panel:#141821;--panel2:#1b2030;--border:#232a38;--border2:#2d3546;
@@ -34,8 +37,7 @@
   nav{position:sticky;top:0;z-index:20;backdrop-filter:blur(14px);background:rgba(11,13,17,.7);border-bottom:1px solid rgba(255,255,255,.05)}
   nav .wrap{display:flex;align-items:center;gap:28px;height:60px}
   .logo{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:-.01em;text-decoration:none}
-  .logo .mark{width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,#5b7cff,#a78bfa);display:flex;align-items:flex-end;justify-content:center;gap:2.5px;padding:6px}
-  .logo .mark i{display:block;width:3.5px;background:#fff;border-radius:2px}
+  .logo .mark{width:28px;height:28px;border-radius:8px;display:block}
   nav .links{display:flex;gap:22px;margin-left:8px;font-size:14px;color:var(--muted)}
   nav .links a{text-decoration:none}nav .links a:hover{color:var(--text)}
   nav .right{margin-left:auto;display:flex;gap:10px;align-items:center}
@@ -188,7 +190,7 @@
 
 <nav>
   <div class="wrap">
-    <a class="logo" href="#"><span class="mark"><i style="height:6px"></i><i style="height:14px"></i><i style="height:10px"></i></span>Sinfonie</a>
+    <a class="logo" href="#"><img class="mark" src="/assets/logo.svg" width="28" height="28" alt="">Sinfonie</a>
     <div class="links">
       <a href="#features">Features</a><a href="#how">How it works</a><a href="#crew">Crew</a><a href="#faq">FAQ</a><a href="#feedback">Feedback</a>
     </div>
@@ -202,6 +204,7 @@
 <header class="hero">
   <canvas id="stage" aria-hidden="true"></canvas>
   <div class="wrap">
+    <img src="/assets/logo.svg" width="72" height="72" alt="Sinfonie" style="display:block;margin-bottom:22px;border-radius:18px;box-shadow:0 20px 60px rgba(91,124,255,.25)">
     <span class="eyebrow"><i class="dot"></i> macOS · Apple Silicon · <span id="hv">v0.1.0</span></span>
     <h1>One workspace across <span class="grad">all your repositories.</span></h1>
     <p class="lead">Full-stack features live in two repos. Sinfonie runs Claude Code in isolated workspaces like Conductor does, with the difference that matters: <b>a workspace is a worktree on the same branch in every repo you pick</b>, and a crew of models works across them.</p>

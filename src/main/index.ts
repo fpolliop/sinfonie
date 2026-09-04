@@ -4,6 +4,34 @@ import { dirname, join } from 'path'
 import { registerIpc } from './ipc'
 import { startUpdateChecks } from './services/updates'
 import { installCrashHandlers, rendererConsoleError, logError } from './services/telemetry'
+import { Menu, nativeImage } from 'electron'
+import { checkForUpdate } from './services/updates'
+
+function sendToWindows(channel: string, payload: unknown): void {
+  for (const win of BrowserWindow.getAllWindows()) win.webContents.send(channel, payload)
+}
+
+function buildMenu(): void {
+  const template: Electron.MenuItemConstructorOptions[] = [
+    { role: 'appMenu' },
+    { role: 'fileMenu' },
+    { role: 'editMenu' },
+    { role: 'viewMenu' },
+    { role: 'windowMenu' },
+    {
+      role: 'help',
+      submenu: [
+        { label: 'Send Feedback…', accelerator: 'CmdOrCtrl+Shift+F', click: () => sendToWindows('ui:openFeedback', { tab: 'feedback' }) },
+        { label: 'Errors and Diagnostics…', click: () => sendToWindows('ui:openFeedback', { tab: 'errors' }) },
+        { type: 'separator' },
+        { label: 'Check for Updates…', click: () => void checkForUpdate() },
+        { label: 'sinfonie.dev', click: () => void shell.openExternal('https://sinfonie.dev') },
+        { label: 'Release Notes', click: () => void shell.openExternal('https://github.com/fpolliop/sinfonie-releases/releases') }
+      ]
+    }
+  ]
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+}
 
 /** The app used to be called Orchestra; move its data folder over on first launch. */
 function migrateLegacyUserData(): void {
@@ -63,6 +91,12 @@ installCrashHandlers()
 
 app.whenReady().then(() => {
   migrateLegacyUserData()
+  buildMenu()
+  if (!app.isPackaged && process.platform === 'darwin') {
+    // Packaged builds get the icon from the bundle; dev runs show Electron's unless we set it.
+    const icon = nativeImage.createFromPath(join(process.cwd(), 'build', 'icon.png'))
+    if (!icon.isEmpty()) app.dock?.setIcon(icon)
+  }
   registerIpc()
   createWindow()
   startUpdateChecks()

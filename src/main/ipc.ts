@@ -30,7 +30,7 @@ import * as accounts from './services/accounts'
 import * as reviews from './services/reviews'
 import * as sessionsSvc from './services/sessions'
 import { checkForUpdate, latestKnownUpdate } from './services/updates'
-import { logsDir, sendFeedback } from './services/telemetry'
+import { clearErrors, listErrors, logsDir, sendFeedback } from './services/telemetry'
 
 function send<C extends keyof SinfonieEvents>(channel: C, payload: SinfonieEvents[C]): void {
   for (const win of BrowserWindow.getAllWindows()) win.webContents.send(channel, payload)
@@ -318,7 +318,11 @@ export function registerIpc(): void {
     let logs: string | undefined
     if (p.includeLogs) {
       try {
-        logs = readFileSync(join(logsDir(), 'errors.log'), 'utf8').slice(-15000)
+        logs = listErrors()
+          .slice(0, 30)
+          .map((e) => `${e.ts} [${e.where}] ${e.message}${e.stack ? '\n' + e.stack.split('\n').slice(0, 6).join('\n') : ''}`)
+          .join('\n\n')
+          .slice(0, 15000)
       } catch {
         logs = undefined
       }
@@ -328,6 +332,8 @@ export function registerIpc(): void {
   handle('logs:open', () => {
     void shell.openPath(logsDir())
   })
+  handle('logs:list', () => listErrors())
+  handle('logs:clear', () => clearErrors())
   handle('shell:openExternal', (url) => {
     if (/^https?:\/\//.test(url)) void shell.openExternal(url)
   })

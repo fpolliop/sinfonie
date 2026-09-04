@@ -9,10 +9,13 @@ import { SettingsDialog } from './components/SettingsDialog'
 import { PermissionPrompt } from './components/PermissionPrompt'
 import { BranchRenamePrompt } from './components/BranchRenamePrompt'
 import { ReviewCockpit } from './components/ReviewCockpit'
+import { FeedbackDialog } from './components/FeedbackDialog'
+import { api } from '@/lib/api'
+import logo from './assets/logo.svg'
 import { Button } from './components/ui'
 
 export default function App(): React.JSX.Element {
-  const { loaded, load, selectedId, view, showNewWorkspace, showSettings, setShowNewWorkspace, setShowSettings, error, setError, stepSpace, setActiveSpace } = useApp()
+  const { loaded, load, selectedId, view, showNewWorkspace, showSettings, setShowNewWorkspace, setShowSettings, error, setError, stepSpace, setActiveSpace, feedbackDialog, setFeedbackDialog } = useApp()
   const subscribeChat = useChat((s) => s.subscribe)
   const subscribeScripts = useScripts((s) => s.subscribe)
 
@@ -22,8 +25,14 @@ export default function App(): React.JSX.Element {
     subscribeScripts()
   }, [load, subscribeChat, subscribeScripts])
 
+  useEffect(() => api.on('ui:openFeedback', ({ tab }) => setFeedbackDialog(tab)), [setFeedbackDialog])
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'f') {
+        e.preventDefault()
+        setFeedbackDialog('feedback')
+      }
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'n') {
         e.preventDefault()
         setShowNewWorkspace(true)
@@ -49,7 +58,7 @@ export default function App(): React.JSX.Element {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [setShowNewWorkspace, setShowSettings, stepSpace, setActiveSpace])
+  }, [setShowNewWorkspace, setShowSettings, stepSpace, setActiveSpace, setFeedbackDialog])
 
   if (!loaded) return <div className="flex h-full items-center justify-center text-muted">Loading…</div>
 
@@ -61,6 +70,7 @@ export default function App(): React.JSX.Element {
       </main>
       {showNewWorkspace && <NewWorkspaceDialog onClose={() => setShowNewWorkspace(false)} />}
       {showSettings && <SettingsDialog onClose={() => setShowSettings(false)} />}
+      {feedbackDialog && <FeedbackDialog tab={feedbackDialog} onClose={() => setFeedbackDialog(null)} />}
       <PermissionPrompt />
       <BranchRenamePrompt />
       {error && (
@@ -79,6 +89,7 @@ function EmptyState(): React.JSX.Element {
   const { repos, setShowNewWorkspace, setShowSettings } = useApp()
   return (
     <div className="drag flex h-full flex-col items-center justify-center gap-3 text-center">
+      <img src={logo} alt="" className="h-16 w-16 rounded-2xl shadow-[0_20px_60px_rgba(91,124,255,.25)]" />
       <div className="text-[18px] font-semibold">Sinfonie</div>
       <p className="max-w-md text-muted">
         One workspace, many repositories. Each workspace creates a worktree on the same branch in every repo you pick, so a full-stack feature lives in one place.

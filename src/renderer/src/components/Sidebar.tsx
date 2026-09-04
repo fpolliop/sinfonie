@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { Plus, Settings, Archive, Pencil, Folder, Code2, TerminalSquare, Trash2, GitPullRequest, Layers, ArrowDownWideNarrow, ArrowUpNarrowWide, Filter, ChevronRight } from 'lucide-react'
+import { Plus, Settings, Archive, Pencil, Folder, Code2, TerminalSquare, Trash2, GitPullRequest, Layers, ArrowDownWideNarrow, ArrowUpNarrowWide, Filter, ChevronRight, MessageSquarePlus } from 'lucide-react'
+import { ERRORS_SEEN_KEY } from './FeedbackDialog'
 import { WORKSPACE_STAGES } from '@shared/types'
 import { LabelChip, labelsFor } from './LabelPicker'
 import { useApp, spaceOrder } from '@/stores/app'
@@ -65,6 +66,7 @@ export function Sidebar(): React.JSX.Element {
         <button className="no-drag rounded-md p-1.5 text-muted hover:bg-panel-2 hover:text-text" title="New workspace (⇧⌘N)" onClick={() => setShowNewWorkspace(true, currentId)}>
           <Plus size={16} />
         </button>
+        <FeedbackButton />
         <button className="no-drag rounded-md p-1.5 text-muted hover:bg-panel-2 hover:text-text" title="Settings (⌘,)" onClick={() => setShowSettings(true)}>
           <Settings size={16} />
         </button>
@@ -196,6 +198,24 @@ export function Sidebar(): React.JSX.Element {
         />
       )}
     </aside>
+  )
+}
+
+/** Feedback entry point; shows a dot when errors were captured since the Errors tab was last opened. */
+function FeedbackButton(): React.JSX.Element {
+  const setFeedbackDialog = useApp((s) => s.setFeedbackDialog)
+  const feedbackDialog = useApp((s) => s.feedbackDialog)
+  const [unseen, setUnseen] = useState(0)
+  useEffect(() => {
+    const seen = localStorage.getItem(ERRORS_SEEN_KEY) ?? ''
+    api.invoke('logs:list').then((list) => setUnseen(list.filter((e) => e.ts > seen).length)).catch(() => undefined)
+    return api.on('errors:new', () => setUnseen((n) => n + 1))
+  }, [feedbackDialog])
+  return (
+    <button className="no-drag relative rounded-md p-1.5 text-muted hover:bg-panel-2 hover:text-text" title={unseen ? `Feedback · ${unseen} new error${unseen === 1 ? '' : 's'} captured (⇧⌘F)` : 'Feedback and requests (⇧⌘F)'} onClick={() => setFeedbackDialog(unseen ? 'errors' : 'feedback')}>
+      <MessageSquarePlus size={16} />
+      {unseen > 0 && <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-danger ring-2 ring-panel" />}
+    </button>
   )
 }
 

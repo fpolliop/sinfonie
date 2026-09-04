@@ -547,6 +547,16 @@ export interface SessionSummary {
   inWorkspace: boolean
 }
 
+/** One line of errors.log, parsed for the in-app Errors view. */
+export interface ErrorEntry {
+  id: string
+  ts: string
+  where: string
+  message: string
+  stack?: string
+  extra?: string
+}
+
 export interface UpdateInfo {
   version: string
   current: string

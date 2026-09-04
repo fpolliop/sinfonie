@@ -39,6 +39,8 @@ interface AppState {
   showArchived: boolean
   error: string | null
   branchPrompt: { workspaceId: string; name: string; newSlug: string; currentBranch: string } | null
+  feedbackDialog: 'feedback' | 'errors' | null
+  setFeedbackDialog: (v: 'feedback' | 'errors' | null) => void
 
   load: () => Promise<void>
   applyStore: (d: StoreData) => void
@@ -120,6 +122,8 @@ export const useApp = create<AppState>((set, get) => ({
   showArchived: false,
   error: null,
   branchPrompt: null,
+  feedbackDialog: null,
+  setFeedbackDialog: (feedbackDialog) => set({ feedbackDialog }),
 
   load: async () => {
     const d = await api.invoke('store:get')

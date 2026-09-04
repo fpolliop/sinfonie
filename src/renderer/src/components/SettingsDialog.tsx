@@ -49,62 +49,14 @@ function AboutRow(): React.JSX.Element {
 }
 
 function FeedbackSection(): React.JSX.Element {
-  const { settings, setError } = useApp()
-  const [kind, setKind] = useState<'feature' | 'bug' | 'feedback'>('feature')
-  const [message, setMessage] = useState('')
-  const [email, setEmail] = useState('')
-  const [includeLogs, setIncludeLogs] = useState(false)
-  const [status, setStatus] = useState<string | null>(null)
-  const send = async (): Promise<void> => {
-    if (!message.trim()) return
-    setStatus('Sending…')
-    const r = await api.invoke('feedback:send', { kind, message, email: email || undefined, includeLogs })
-    setStatus(r.ok ? 'Sent. Thank you.' : `Could not send: ${r.error}`)
-    if (r.ok) setMessage('')
-  }
+  const setFeedbackDialog = useApp((s) => s.setFeedbackDialog)
   return (
     <section className="mt-5">
       <h3 className="mb-2 text-[12px] font-medium uppercase tracking-wide text-muted">Feedback and diagnostics</h3>
-      <div className="mb-3 rounded-lg border border-border p-3">
-        <div className="mb-2 flex gap-1.5">
-          {(
-            [
-              ['feature', 'Feature request'],
-              ['bug', 'Bug'],
-              ['feedback', 'Feedback']
-            ] as const
-          ).map(([id, label]) => (
-            <button key={id} onClick={() => setKind(id)} className={clsx('rounded-full border px-2.5 py-0.5 text-[12px]', kind === id ? 'border-accent/60 bg-accent/15 text-accent' : 'border-border text-muted hover:text-text')}>
-              {label}
-            </button>
-          ))}
-        </div>
-        <textarea rows={3} className={inputCls} placeholder={kind === 'bug' ? 'What happened, and what did you expect?' : 'What would make Sinfonie better for you?'} value={message} onChange={(e) => setMessage(e.target.value)} />
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <input className={clsx(inputCls, 'max-w-[240px]')} placeholder="Email for a reply (optional)" value={email} onChange={(e) => setEmail(e.target.value)} />
-          {kind === 'bug' && (
-            <label className="flex items-center gap-1.5 text-[12px] text-muted">
-              <input type="checkbox" checked={includeLogs} onChange={(e) => setIncludeLogs(e.target.checked)} /> attach recent error log
-            </label>
-          )}
-          <span className="ml-auto flex items-center gap-2">
-            {status && <span className="text-[12px] text-muted">{status}</span>}
-            <Button size="sm" variant="primary" disabled={!message.trim()} onClick={send}>
-              Send
-            </Button>
-          </span>
-        </div>
-      </div>
       <div className="flex items-center gap-3 rounded-lg border border-border px-3 py-2 text-[12px]">
-        <label className="flex flex-1 items-center gap-2">
-          <input type="checkbox" checked={settings.crashReports !== false} onChange={(e) => api.invoke('settings:update', { crashReports: e.target.checked }).catch((err) => setError(String(err)))} />
-          <span>
-            Send crash reports automatically
-            <span className="block text-[11px] text-muted">Error message, stack trace, app version and macOS version. Never chat content, file paths from your repos, or tokens.</span>
-          </span>
-        </label>
-        <Button size="sm" onClick={() => void api.invoke('logs:open')}>
-          Open logs folder
+        <span className="flex-1 text-muted">Feature requests, bugs, the captured error log and the crash-report switch live in the Feedback dialog.</span>
+        <Button size="sm" onClick={() => setFeedbackDialog('feedback')}>
+          Open Feedback (⇧⌘F)
         </Button>
       </div>
     </section>

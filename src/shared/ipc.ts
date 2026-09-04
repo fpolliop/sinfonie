@@ -12,6 +12,7 @@ import type {
   ReviewPr,
   ReviewRun,
   ReviewVerdict,
+  ErrorEntry,
   SessionSummary,
   UpdateInfo,
   WorkspaceStage,
@@ -86,6 +87,8 @@ export interface SinfonieInvoke {
   'updates:check': () => UpdateInfo | null
   'feedback:send': (payload: { kind: 'feedback' | 'feature' | 'bug'; message: string; email?: string; includeLogs?: boolean }) => { ok: boolean; error?: string }
   'logs:open': () => void
+  'logs:list': () => ErrorEntry[]
+  'logs:clear': () => void
   'app:version': () => string
 
   'accounts:add': (name: string) => Settings
@@ -138,6 +141,10 @@ export interface SinfonieEvents {
   'terminal:exit': { terminalId: string; exitCode: number }
   'review:changed': ReviewRun
   'update:available': UpdateInfo
+  /** Main asks the renderer to open the Feedback dialog (Help menu, shortcut). */
+  'ui:openFeedback': { tab: 'feedback' | 'errors' }
+  /** A new error was logged; the sidebar badge updates. */
+  'errors:new': ErrorEntry
 }
 
 export type InvokeChannel = keyof SinfonieInvoke
