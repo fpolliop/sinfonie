@@ -11,7 +11,7 @@ export const acpProbeCache: Partial<Record<Engine, AcpProbe>> = {}
 
 /** Vendor agents that bring their own login: Codex (ChatGPT), Gemini CLI, Grok Build. */
 export function AgentLoginsPage(): React.JSX.Element {
-  const { settings, setError } = useApp()
+  const { settings, setError, openSettings } = useApp()
   const [probes, setProbes] = useState<Partial<Record<Engine, AcpProbe>>>({ ...acpProbeCache })
   const [busy, setBusy] = useState<Engine | null>(null)
   const [terminal, setTerminal] = useState<{ command: string; title: string } | null>(null)
@@ -66,7 +66,16 @@ export function AgentLoginsPage(): React.JSX.Element {
                 </Button>
               </div>
               {p?.error && !p.signedIn && <div className="mt-2 rounded-md bg-danger/10 px-2 py-1 text-[11px] text-danger">{p.error}</div>}
-              {p && p.authMethods.length > 0 && (
+              {p && e.id === 'gemini' && !p.signedIn && (
+                <div className="mt-2 flex items-center gap-2 text-[11px] text-muted">
+                  <span>Add a Gemini API key from aistudio.google.com under</span>
+                  <button className="text-accent hover:underline" onClick={() => openSettings({ scope: 'app', page: 'providers' })}>
+                    Model providers → Google
+                  </button>
+                  <span>, then Check.</span>
+                </div>
+              )}
+              {p && p.authMethods.length > 0 && e.id !== 'gemini' && (
                 <div className="mt-2 flex flex-wrap items-center gap-1.5">
                   <span className="text-[11px] text-muted">Sign in with:</span>
                   {p.authMethods.map((m) => (

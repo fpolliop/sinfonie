@@ -12,6 +12,7 @@ import { askPermission } from '../interaction'
 import { run } from '../native/tools'
 import * as jira from '../jira'
 import { logError } from '../telemetry'
+import { apiKeyForKind } from '../providers'
 
 type Emit = (e: AgentEvent) => void
 type AcpEngine = 'codex' | 'gemini' | 'grok'
@@ -28,7 +29,7 @@ const PRESETS: Record<AcpEngine, { command: () => string[]; loginCommand: (metho
   },
   gemini: {
     command: () => (localOk('gemini') ? ['gemini', '--acp'] : ['npx', '-y', '@google/gemini-cli@latest', '--acp']),
-    loginCommand: (m) => (m === 'gemini-api-key' ? 'echo "Set GEMINI_API_KEY in your shell profile, or add it under Model providers → Google." ' : null),
+    loginCommand: () => null,
     authEnvKey: 'GEMINI_API_KEY'
   },
   grok: {
@@ -46,8 +47,27 @@ function localOk(bin: string): boolean {
   }
 }
 
-function loginEnv(): NodeJS.ProcessEnv {
-  return { ...process.env, PATH: `${process.env.HOME}/.grok/bin:${process.env.HOME}/.nvm/versions/node/v22.18.0/bin:/opt/homebrew/bin:/usr/local/bin:${process.env.PATH ?? ''}` }
+function loginEnv(engine?: AcpEngine): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env, PATH: `${process.env.HOME}/.grok/bin:${process.env.HOME}/.nvm/versions/node/v22.18.0/bin:/opt/homebrew/bin:/usr/local/bin:${process.env.PATH ?? ''}` }
+  // Google no longer allows personal Google-account logins in the Gemini CLI; a Gemini API key from Model providers is the way in.
+  if (engine === 'gemini' && !env.GEMINI_API_KEY) {
+    const key = apiKeyForKind('google')
+    if (key) env.GEMINI_API_KEY = key
+  }
+  return env
+}
+
+/** When a session cannot be created for lack of auth, try the key-based method the agent offers and retry once. */
+async function newSessionWithAuth(conn: ClientSideConnection, engine: AcpEngine, params: schema.NewSessionRequest, authMethods: schema.AuthMethod[]): Promise<schema.NewSessionResponse> {
+  try {
+    return await conn.newSession(params)
+  } catch (err) {
+    const keyMethod = authMethods.find((m) => /api.?key/i.test(m.id))
+    const hasKey = engine === 'gemini' ? Boolean(apiKeyForKind('google') || process.env.GEMINI_API_KEY) : false
+    if (!keyMethod || !hasKey) throw err
+    await conn.authenticate({ methodId: keyMethod.id })
+    return conn.newSession(params)
+  }
 }
 
 interface Session {
@@ -78,7 +98,7 @@ function within(roots: string[], p: string): boolean {
 /** Spawn the agent and open an ACP connection. The client half handles updates, permissions, files and terminals. */
 function connect(engine: AcpEngine, cwd: string, client: (agent: ClientSideConnection) => Client): { child: ChildProcess; conn: ClientSideConnection } {
   const [cmd, ...args] = PRESETS[engine].command()
-  const child = spawn(cmd, args, { cwd, env: loginEnv(), stdio: ['pipe', 'pipe', 'pipe'] })
+  const child = spawn(cmd, args, { cwd, env: loginEnv(engine), stdio: ['pipe', 'pipe', 'pipe'] })
   child.stderr?.on('data', (d: Buffer) => console.error(`[acp ${engine}]`, d.toString().trimEnd()))
   const stream = ndJsonStream(Writable.toWeb(child.stdin!) as WritableStream<Uint8Array>, Readable.toWeb(child.stdout!) as ReadableStream<Uint8Array>)
   let connRef: ClientSideConnection | null = null
@@ -110,7 +130,7 @@ export async function probe(engine: Engine): Promise<AcpProbe> {
       signedIn: false
     }
     try {
-      const s = (await c.conn.newSession({ cwd, mcpServers: [] })) as schema.NewSessionResponse & { models?: { availableModels?: { modelId: string }[]; currentModelId?: string } }
+      const s = (await newSessionWithAuth(c.conn, e, { cwd, mcpServers: [] }, init.authMethods ?? [])) as schema.NewSessionResponse & { models?: { availableModels?: { modelId: string }[]; currentModelId?: string } }
       out.signedIn = true
       out.modes = (s.modes?.availableModes ?? []).map((m) => m.id)
       out.models = (s.models?.availableModels ?? []).map((m) => m.modelId)
@@ -316,7 +336,7 @@ async function openSession(workspaceId: string, engine: AcpEngine, emit: Emit): 
       }
     }
   })
-  await conn.initialize({ protocolVersion: 1, clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: true } })
+  const init = await conn.initialize({ protocolVersion: 1, clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: true } })
   const mcpServers = await acpMcpServers(ws)
   const stored = (ws as unknown as Record<string, string | undefined>)[sessionKey(ws, engine)]
   let s: schema.NewSessionResponse | null = null
@@ -329,7 +349,7 @@ async function openSession(workspaceId: string, engine: AcpEngine, emit: Emit): 
     }
   }
   if (!s) {
-    s = await conn.newSession({ cwd: primary.worktreePath, mcpServers })
+    s = await newSessionWithAuth(conn, engine, { cwd: primary.worktreePath, mcpServers }, init.authMethods ?? [])
     patchWorkspace(workspaceId, { [sessionKey(ws, engine)]: s.sessionId } as Partial<Workspace>)
   }
   session.sessionId = s.sessionId

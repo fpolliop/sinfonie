@@ -79,6 +79,12 @@ export function removeProvider(id: string): void {
   })
 }
 
+/** The stored key of the first provider of a kind, for engines that take it from the environment (Gemini CLI). */
+export function apiKeyForKind(kind: ProviderKind): string | undefined {
+  const p = listProviders().find((x) => x.kind === kind && x.hasKey)
+  return p ? apiKeyFor(p.id) : undefined
+}
+
 /** An AI SDK language model for "<providerId>/<modelId>". */
 export function resolveModel(ref: string): LanguageModel {
   const parsed = parseModelRef(ref)

@@ -111,7 +111,7 @@ export type Engine = 'claude-code' | 'native' | 'codex' | 'gemini' | 'grok'
 /** Engines that run a vendor CLI agent over the Agent Client Protocol, with the vendor's own login. */
 export const ACP_ENGINES: { id: Extract<Engine, 'codex' | 'gemini' | 'grok'>; label: string; vendor: string; loginHint: string }[] = [
   { id: 'codex', label: 'Codex (OpenAI)', vendor: 'OpenAI', loginHint: 'Sign in with your ChatGPT account (Plus, Pro, Team) or an OpenAI API key.' },
-  { id: 'gemini', label: 'Gemini CLI (Google)', vendor: 'Google', loginHint: 'Google retired the personal Google-account login for the Gemini CLI; use a Gemini API key from aistudio.google.com.' },
+  { id: 'gemini', label: 'Gemini CLI (Google)', vendor: 'Google', loginHint: 'Google retired the personal Google-account login for the Gemini CLI (it points to Antigravity instead). Add a Gemini API key under Model providers → Google and the engine signs in with it.' },
   { id: 'grok', label: 'Grok Build (xAI)', vendor: 'xAI', loginHint: 'Sign in with your grok.com account (SuperGrok) in the Grok CLI.' }
 ]
 
