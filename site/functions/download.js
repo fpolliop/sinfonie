@@ -1,7 +1,8 @@
 /**
  * GET /download[?arch=arm64|x64] → 302 to the latest DMG in the public releases repo.
- * Server-side so the button never depends on the visitor's browser reaching the GitHub API
- * (rate limits, blockers, a click before the script ran). The API answer is cached for 10 minutes.
+ * Server-side so the button never depends on the visitor's browser reaching GitHub's API.
+ * Uses GitHub's own /releases/latest redirect to learn the tag (no API, no rate limit) and the
+ * release's known asset naming (Sinfonie-<version>-<arch>.dmg, from electron-builder).
  */
 const REPO = 'fpolliop/sinfonie-releases'
 export async function onRequestGet({ request }) {
@@ -9,16 +10,10 @@ export async function onRequestGet({ request }) {
   const arch = url.searchParams.get('arch') === 'x64' ? 'x64' : 'arm64'
   let target = `https://github.com/${REPO}/releases/latest`
   try {
-    const res = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, {
-      headers: { 'User-Agent': 'sinfonie.dev download redirect', Accept: 'application/vnd.github+json' },
-      cf: { cacheTtl: 600, cacheEverything: true }
-    })
-    if (res.ok) {
-      const rel = await res.json()
-      const assets = rel.assets || []
-      const dmg = assets.find((a) => a.name.endsWith('.dmg') && a.name.includes(arch)) || assets.find((a) => a.name.endsWith('.dmg'))
-      if (dmg) target = dmg.browser_download_url
-    }
+    const res = await fetch(target, { redirect: 'manual', headers: { 'User-Agent': 'sinfonie.dev download redirect' }, cf: { cacheTtl: 600, cacheEverything: true } })
+    const loc = res.headers.get('location') || ''
+    const tag = /\/releases\/tag\/(v[\d.]+)/.exec(loc)?.[1]
+    if (tag) target = `https://github.com/${REPO}/releases/download/${tag}/Sinfonie-${tag.slice(1)}-${arch}.dmg`
   } catch {
     /* fall through to the release page */
   }
