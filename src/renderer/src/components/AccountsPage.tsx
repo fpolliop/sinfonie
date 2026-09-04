@@ -3,7 +3,7 @@ import { Plus, Trash2, RefreshCw, LogIn, Star } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { Badge, Button, inputCls } from './ui'
-import { LoginTerminal } from './LoginTerminal'
+import { LoginDialog } from './LoginDialog'
 import { shortPath } from '@/lib/format'
 import { VENDORS, type AcpProbe, type Engine, type Vendor } from '@shared/types'
 
@@ -14,7 +14,7 @@ export const acpProbeCache: Partial<Record<Engine, AcpProbe>> = {}
 export function AccountsPage(): React.JSX.Element {
   const { settings, setError, openSettings } = useApp()
   const [names, setNames] = useState<Partial<Record<Vendor, string>>>({})
-  const [login, setLogin] = useState<{ id: string; name: string } | null>(null)
+  const [login, setLogin] = useState<{ id: string; name: string; vendor: string } | null>(null)
   const [checking, setChecking] = useState<string | null>(null)
   const go = async (fn: () => Promise<unknown>): Promise<void> => {
     try {
@@ -79,7 +79,7 @@ export function AccountsPage(): React.JSX.Element {
                       <RefreshCw size={12} className={checking === a.id ? 'animate-spin' : ''} /> {checking === a.id ? 'Checking…' : 'Check'}
                     </Button>
                     {v.id !== 'google' && (
-                      <Button size="sm" onClick={() => setLogin({ id: a.id, name: `${v.agent} · ${a.name}` })}>
+                      <Button size="sm" onClick={() => setLogin({ id: a.id, name: a.name, vendor: v.label })}>
                         <LogIn size={12} /> Sign in
                       </Button>
                     )}
@@ -121,8 +121,9 @@ export function AccountsPage(): React.JSX.Element {
         })}
       </div>
       {login && (
-        <LoginTerminal
+        <LoginDialog
           accountId={login.id}
+          vendorLabel={login.vendor}
           accountName={login.name}
           onClose={() => {
             setLogin(null)

@@ -115,6 +115,16 @@ export const ACP_ENGINES: { id: Extract<Engine, 'codex' | 'gemini' | 'grok'>; la
   { id: 'grok', label: 'Grok Build (xAI)', vendor: 'xAI', loginHint: 'Sign in with your grok.com account (SuperGrok) in the Grok CLI.' }
 ]
 
+/** Progress of a vendor sign-in running in the background for one account. */
+export interface LoginProgress {
+  accountId: string
+  terminalId: string
+  phase: 'starting' | 'browser' | 'success' | 'failed'
+  /** The sign-in URL once the CLI printed it, for a "browser did not open" fallback. */
+  url?: string
+  message?: string
+}
+
 export interface AcpProbe {
   engine: Engine
   installed: boolean

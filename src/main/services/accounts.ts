@@ -4,10 +4,10 @@ import { mkdirSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
 import { nanoid } from 'nanoid'
-import type { ClaudeAccount, Engine, Settings, Vendor } from '@shared/types'
+import type { ClaudeAccount, Engine, LoginProgress, Settings, Vendor } from '@shared/types'
 import { VENDORS } from '@shared/types'
 import { getStore } from '../store'
-import { createTerminal, writeTerminal } from './terminal'
+import { createTerminal } from './terminal'
 import { probe } from './acp/engine'
 
 const exec = promisify(execFile)
@@ -138,14 +138,57 @@ const LOGIN_COMMANDS: Record<Vendor, string> = {
   anthropic: 'claude auth login',
   openai: 'npx -y @openai/codex@latest login',
   google: 'echo "Gemini signs in with the API key from Model providers → Google. Press Ctrl+D to close."',
-  xai: 'grok agent stdio --reauth'
+  xai: 'grok login --oauth'
 }
 
-/** Opens an in-app shell already running the vendor's login for this account. */
-export function loginTerminal(id: string, onData: (tid: string, d: string) => void, onExit: (tid: string, code: number) => void): string {
+const SUCCESS_RE = /successfully logged in|logged in as|login successful|you are now logged in|logged in successfully|authentication successful|successfully authenticated|signed in as/i
+const URL_RE = /https?:\/\/[^\s'"`)]+/
+
+/**
+ * Runs the vendor's sign-in for this account in a pty and reports progress: the sign-in URL once
+ * the CLI prints it (the CLI opens the browser itself), then success or failure on exit. The pty
+ * stays available to the renderer so an interactive prompt can still be answered.
+ */
+export function startLogin(id: string, onData: (tid: string, d: string) => void, onExit: (tid: string, code: number) => void, onProgress: (p: LoginProgress) => void): string {
   const acc = getAccount(id)
+  const vendor = acc.vendor ?? 'anthropic'
   const env = { ...process.env, ...envForAccount(acc), PATH: `${homedir()}/.grok/bin:/opt/homebrew/bin:/usr/local/bin:${process.env.PATH ?? ''}` }
-  const tid = createTerminal(homedir(), env, onData, onExit)
-  setTimeout(() => writeTerminal(tid, LOGIN_COMMANDS[acc.vendor ?? 'anthropic'] + '\r'), 400)
+  let url: string | undefined
+  let succeeded = false
+  let buffer = ''
+  const tid = createTerminal(
+    homedir(),
+    env,
+    (t, d) => {
+      onData(t, d)
+      buffer = (buffer + d.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '')).slice(-8000)
+      if (!url) {
+        const m = buffer.match(URL_RE)
+        if (m && !/localhost/.test(m[0])) {
+          url = m[0]
+          onProgress({ accountId: acc.id, terminalId: t, phase: 'browser', url })
+        }
+      }
+      if (!succeeded && SUCCESS_RE.test(buffer)) {
+        succeeded = true
+        onProgress({ accountId: acc.id, terminalId: t, phase: 'success', url })
+        void checkAccount(acc.id).catch(() => undefined)
+      }
+    },
+    (t, code) => {
+      onExit(t, code)
+      if (succeeded) return
+      if (code === 0) {
+        succeeded = true
+        onProgress({ accountId: acc.id, terminalId: t, phase: 'success', url })
+        void checkAccount(acc.id).catch(() => undefined)
+      } else {
+        const lines = buffer.trim().split('\n').map((l) => l.trim()).filter(Boolean)
+        onProgress({ accountId: acc.id, terminalId: t, phase: 'failed', url, message: lines.find((l) => /error/i.test(l)) ?? lines.at(-1) })
+      }
+    },
+    LOGIN_COMMANDS[vendor]
+  )
+  onProgress({ accountId: acc.id, terminalId: tid, phase: 'starting' })
   return tid
 }

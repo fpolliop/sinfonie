@@ -10,11 +10,12 @@ export function createTerminal(
   cwd: string,
   env: NodeJS.ProcessEnv,
   onData: DataHandler,
-  onExit: ExitHandler
+  onExit: ExitHandler,
+  command?: string
 ): string {
   const id = nanoid(10)
   const shell = process.env.SHELL || '/bin/zsh'
-  const term = pty.spawn(shell, ['-l'], {
+  const term = pty.spawn(shell, command ? ['-lc', command] : ['-l'], {
     name: 'xterm-256color',
     cols: 120,
     rows: 30,

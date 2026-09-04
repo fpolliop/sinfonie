@@ -1,4 +1,4 @@
-import type {
+import type { LoginProgress,
   AgentEvent,
   ChatItem,
   JiraIssue,
@@ -100,7 +100,7 @@ export interface SinfonieInvoke {
   'accounts:remove': (id: string) => Settings
   'accounts:setDefault': (id: string) => Settings
   'accounts:check': (id: string) => Settings
-  'accounts:loginTerminal': (id: string) => string
+  'accounts:login': (id: string) => string
 
   'reviews:orgs': () => string[]
   'reviews:list': (owners: string[], mode: 'requested' | 'all') => ReviewPr[]
@@ -131,7 +131,6 @@ export interface SinfonieInvoke {
   /** Run the agent's own authentication method (browser or terminal flow). Returns the terminal command when one must be run instead. */
   'acp:authenticate': (engine: Engine, methodId: string) => { ok: boolean; terminalCommand?: string; error?: string }
   /** A shell already running `command`, for interactive logins. */
-  'terminal:createCommand': (command: string) => string
 
   'providers:add': (cfg: { kind: ProviderKind; name: string; baseUrl?: string; apiKey?: string }) => ProviderConfig
   'providers:update': (id: string, patch: { name?: string; baseUrl?: string; apiKey?: string }) => ProviderConfig
@@ -157,6 +156,7 @@ export interface SinfonieEvents {
   'script:output': ScriptOutputEvent
   'terminal:data': TerminalDataEvent
   'terminal:exit': { terminalId: string; exitCode: number }
+  'accounts:loginProgress': LoginProgress
   'review:changed': ReviewRun
   'update:available': UpdateInfo
   /** Main asks the renderer to open the Feedback dialog (Help menu, shortcut). */

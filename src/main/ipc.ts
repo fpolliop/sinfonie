@@ -349,11 +349,12 @@ export function registerIpc(): void {
   handle('accounts:remove', (id) => accounts.removeAccount(id))
   handle('accounts:setDefault', (id) => accounts.setDefaultAccount(id))
   handle('accounts:check', (id) => accounts.checkAccount(id))
-  handle('accounts:loginTerminal', (id) =>
-    accounts.loginTerminal(
+  handle('accounts:login', (id) =>
+    accounts.startLogin(
       id,
       (terminalId, data) => send('terminal:data', { terminalId, data }),
-      (terminalId, exitCode) => send('terminal:exit', { terminalId, exitCode })
+      (terminalId, exitCode) => send('terminal:exit', { terminalId, exitCode }),
+      (p) => send('accounts:loginProgress', p)
     )
   )
 
@@ -380,17 +381,6 @@ export function registerIpc(): void {
   // ---- vendor agents over ACP ----
   handle('acp:probe', (engine, accountId) => acp.probe(engine, accountId))
   handle('acp:authenticate', (engine, methodId) => acp.authenticate(engine, methodId))
-  handle('terminal:createCommand', (command) => {
-    const tid = terminal.createTerminal(
-      process.env.HOME ?? '/',
-      { ...process.env, PATH: `${process.env.HOME}/.grok/bin:/opt/homebrew/bin:/usr/local/bin:${process.env.PATH ?? ''}` },
-      (terminalId, data) => send('terminal:data', { terminalId, data }),
-      (terminalId, exitCode) => send('terminal:exit', { terminalId, exitCode })
-    )
-    setTimeout(() => terminal.writeTerminal(tid, command + '\r'), 400)
-    return tid
-  })
-
   // ---- model providers (native engine) ----
   handle('providers:add', (cfg) => providers.addProvider(cfg))
   handle('providers:update', (id, patch) => providers.updateProvider(id, patch))
