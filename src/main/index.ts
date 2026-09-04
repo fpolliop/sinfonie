@@ -92,8 +92,11 @@ function createWindow(): void {
 
 installCrashHandlers()
 
+// A separate data folder, e.g. to try the app as a new user: SINFONIE_USER_DATA=/tmp/sinfonie-fresh pnpm dev
+if (process.env.SINFONIE_USER_DATA) app.setPath('userData', process.env.SINFONIE_USER_DATA)
+
 app.whenReady().then(() => {
-  migrateLegacyUserData()
+  if (!process.env.SINFONIE_USER_DATA) migrateLegacyUserData()
   buildMenu()
   if (!app.isPackaged && process.platform === 'darwin') {
     // Packaged builds get the icon from the bundle; dev runs show Electron's unless we set it.

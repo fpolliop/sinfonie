@@ -15,7 +15,8 @@
     "package": "electron-vite build && electron-builder --mac --publish never",
     "release": "electron-vite build && electron-builder --mac --publish always",
     "site:deploy": "wrangler pages deploy site --project-name sinfonie --branch main",
-    "feedback": "wrangler d1 execute sinfonie-feedback --remote --json --config site/wrangler.toml --command \"SELECT id, created_at, kind, source, count, app_version, email, substr(message,1,200) AS message FROM feedback ORDER BY id DESC LIMIT 50\""
+    "feedback": "wrangler d1 execute sinfonie-feedback --remote --json --config site/wrangler.toml --command \"SELECT id, created_at, kind, source, count, app_version, email, substr(message,1,200) AS message FROM feedback ORDER BY id DESC LIMIT 50\"",
+    "dev:fresh": "SINFONIE_USER_DATA=$HOME/.sinfonie-fresh electron-vite dev"
   },
   "build": {
     "appId": "dev.sinfonie.app",
