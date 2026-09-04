@@ -12,6 +12,7 @@ import { getStore } from '../../store'
 import { getWorkspace, patchWorkspace } from '../workspaces'
 import { buildTools, type ToolContext } from './tools'
 import { runWorker } from '../crew/workers'
+import * as notes from '../notes'
 import { askPermission } from '../interaction'
 import { estimateCost, resolveModel } from '../providers'
 import { isReadOnlyCommand } from '../readonly'
@@ -213,10 +214,10 @@ async function runTurn(ws: Workspace, session: NativeSession, emit: Emit): Promi
   const builtin = buildTools(ctx)
   const crew = space?.useCrew === false ? [] : (space?.agents ?? settings.agents).filter((a) => a.enabled && a.name.trim())
   const mcp = await connectMcp(ws, session)
-  const tools: ToolSet = { ...builtin, ...mcp.tools, ...(crew.length ? { Agent: crewTool(ws, crew, ctx, emit, mode) } : {}) }
+  const tools: ToolSet = { ...builtin, ...mcp.tools, ...notes.aiTools(ws.id), ...(crew.length ? { Agent: crewTool(ws, crew, ctx, emit, mode) } : {}) }
   const agent = new ToolLoopAgent({
     model: resolveModel(modelRef),
-    instructions: systemPrompt(ws, crew, mcp.names),
+    instructions: systemPrompt(ws, crew, mcp.names) + notes.promptFor(ws.id, true),
     tools,
     stopWhen: stepCountIs(120),
     toolApproval: approvalPolicy(mode, ws)

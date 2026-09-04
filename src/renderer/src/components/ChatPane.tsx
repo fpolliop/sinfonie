@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { ChevronRight, Square, RotateCcw, Send, ShieldCheck, XCircle, AlertTriangle, Info, History, Users, GitFork, ListTree, ArrowLeft } from 'lucide-react'
+import { ChevronRight, Square, RotateCcw, Send, ShieldCheck, XCircle, AlertTriangle, Info, History, Users, GitFork, ListTree, ArrowLeft, StickyNote } from 'lucide-react'
+import { NotesPanel } from './NotesPanel'
+import { useNotes } from '@/stores/notes'
 import { api } from '@/lib/api'
 import { PERMISSION_MODES, type PermissionMode } from '@shared/types'
 import { QuestionCard } from './QuestionCard'
@@ -13,7 +15,7 @@ import { Button, Spinner } from './ui'
 import type { ChatBlock, ChatItem, ChatToolBlock } from '@shared/types'
 
 /** Right panel state: closed, the activity overview, or one delegation's detail. */
-type PanelView = { kind: 'closed' } | { kind: 'activity' } | { kind: 'delegation'; id: string }
+type PanelView = { kind: 'closed' } | { kind: 'activity' } | { kind: 'delegation'; id: string } | { kind: 'notes' }
 const usePanel = (() => {
   let listeners: (() => void)[] = []
   let current: PanelView = { kind: 'closed' }
@@ -193,6 +195,7 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
                 )}
               </span>
               <span className="ml-auto" />
+              <NotesButton workspaceId={workspaceId} />
               <Button size="sm" variant="ghost" title="New workspace with a copy of this conversation (like /fork)" onClick={() => setForkDlg(true)} disabled={busy || disabled}>
                 <GitFork size={13} /> Fork
               </Button>
@@ -221,7 +224,7 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
         </div>
       </div>
     </div>
-    <SubagentPanel items={items} model={chat?.model ?? settingsModel} />
+    <SubagentPanel items={items} model={chat?.model ?? settingsModel} workspaceId={workspaceId} />
     </div>
   )
 }
@@ -408,9 +411,10 @@ function SubagentSteps({ block, compact }: { block: ChatToolBlock; compact?: boo
 }
 
 /** Per-actor summary and delegation history, or one delegation's live detail. */
-function SubagentPanel({ items, model }: { items: ChatItem[]; model: string }): React.JSX.Element | null {
+function SubagentPanel({ items, model, workspaceId }: { items: ChatItem[]; model: string; workspaceId: string }): React.JSX.Element | null {
   const [view, setView] = usePanel()
   if (view.kind === 'closed') return null
+  if (view.kind === 'notes') return <NotesPanel workspaceId={workspaceId} onClose={() => setView({ kind: 'closed' })} />
   const assistant = items.filter((it) => it.role === 'assistant')
   const allTools = assistant.flatMap((it) => it.blocks.filter((b): b is ChatToolBlock => b.type === 'tool'))
   const delegations = allTools.filter((b) => b.name === 'Agent' || b.name === 'Task')
@@ -654,5 +658,25 @@ function Collapsible({ label, body, muted }: { label: string; body: string; mute
       </button>
       {open && <pre className="mt-1 whitespace-pre-wrap rounded-md border border-border bg-bg p-2 font-sans text-[12px]">{body}</pre>}
     </div>
+  )
+}
+
+const NO_NOTES: never[] = []
+
+/** Toggles the Notes panel; shows how many todos are open. */
+function NotesButton({ workspaceId }: { workspaceId: string }): React.JSX.Element {
+  const [view, setView] = usePanel()
+  const notes = useNotes((s) => s.byWorkspace[workspaceId]) ?? NO_NOTES
+  const { load, subscribe } = useNotes()
+  useEffect(() => {
+    subscribe()
+    void load(workspaceId)
+  }, [workspaceId, load, subscribe])
+  const open = notes.filter((n) => n.kind === 'todo' && !n.done).length
+  const on = view.kind === 'notes'
+  return (
+    <Button size="sm" variant="ghost" data-tour="notes" title="Session notes and todos for this workspace (the agent can read and add to them)" onClick={() => setView(on ? { kind: 'closed' } : { kind: 'notes' })} className={on ? 'bg-panel-2 text-text' : ''}>
+      <StickyNote size={13} /> Notes{open > 0 && <span className="rounded-full bg-accent/20 px-1.5 text-[10px] text-accent">{open}</span>}
+    </Button>
   )
 }

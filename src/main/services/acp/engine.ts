@@ -14,6 +14,7 @@ import { run } from '../native/tools'
 import * as jira from '../jira'
 import { logError } from '../telemetry'
 import { apiKeyForKind } from '../providers'
+import * as notes from '../notes'
 
 type Emit = (e: AgentEvent) => void
 type AcpEngine = 'codex' | 'gemini' | 'grok'
@@ -444,7 +445,7 @@ function deliver(session: Session, text: string): void {
   emit({ type: 'user_message', workspaceId, itemId: nanoid(8), text, createdAt: new Date().toISOString() })
   emit({ type: 'status', workspaceId, busy: true })
   session.conn
-    .prompt({ sessionId: session.sessionId, prompt: [{ type: 'text', text }] })
+    .prompt({ sessionId: session.sessionId, prompt: [{ type: 'text', text: notes.prefixFor(workspaceId) + text }] })
     .then((r) => {
       if (session.itemId) emit({ type: 'assistant_end', workspaceId, itemId: session.itemId })
       if (session.interrupted || r.stopReason === 'cancelled') {

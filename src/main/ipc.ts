@@ -35,6 +35,7 @@ import * as interaction from './services/interaction'
 import * as providers from './services/providers'
 import * as acp from './services/acp/engine'
 import * as crewSuggest from './services/crew/suggest'
+import * as notes from './services/notes'
 
 function send<C extends keyof SinfonieEvents>(channel: C, payload: SinfonieEvents[C]): void {
   for (const win of BrowserWindow.getAllWindows()) win.webContents.send(channel, payload)
@@ -262,6 +263,7 @@ export function registerIpc(): void {
   handle('workspaces:delete', (id) => {
     agent.closeSession(id)
     clearTranscript(id)
+    notes.deleteAll(id)
     workspaces.deleteWorkspaceRecord(id)
   })
   handle('workspaces:rename', (id, name, opts) => workspaces.renameWorkspace(id, name, opts))
@@ -424,6 +426,12 @@ export function registerIpc(): void {
   // ---- vendor agents over ACP ----
   handle('acp:probe', (engine, accountId) => acp.probe(engine, accountId))
   handle('acp:probes', () => acp.probeCache)
+  // ---- session notes ----
+  notes.setNotesEmitter((workspaceId, list) => send('notes:changed', { workspaceId, notes: list }))
+  handle('notes:list', (wsId) => notes.list(wsId))
+  handle('notes:add', (wsId, text, kind) => notes.add(wsId, text, kind, 'user'))
+  handle('notes:update', (wsId, id, patch) => notes.update(wsId, id, patch))
+  handle('notes:remove', (wsId, id) => notes.remove(wsId, id))
   handle('crew:inventory', () => crewSuggest.inventory())
   handle('crew:suggest', (spaceId) => crewSuggest.suggest(spaceId))
   handle('acp:authenticate', (engine, methodId) => acp.authenticate(engine, methodId))
@@ -435,7 +443,11 @@ export function registerIpc(): void {
   handle('agent:unqueue', (id, mid) => agent.unqueue(id, mid, emitAgent))
   handle('sessions:list', (id, scope, q) => sessionsSvc.listResumable(id, scope, q))
   handle('sessions:resume', (id, sid) => sessionsSvc.resumeInto(id, sid))
-  handle('workspaces:fork', (id, name) => sessionsSvc.forkWorkspace(id, name, emitScript))
+  handle('workspaces:fork', async (id, name) => {
+    const created = await sessionsSvc.forkWorkspace(id, name, emitScript)
+    notes.copy(id, created.id)
+    return created
+  })
   handle('agent:reset', (id) => {
     agent.resetSession(id)
     clearTranscript(id)

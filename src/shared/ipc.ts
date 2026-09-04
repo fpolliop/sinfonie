@@ -1,4 +1,4 @@
-import type { LoginProgress, ScannedRepo, ModelInventoryItem, CrewSuggestion,
+import type { LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion,
   AgentEvent,
   ChatItem,
   JiraIssue,
@@ -150,6 +150,11 @@ export interface SinfonieInvoke {
   'agent:reset': (workspaceId: string) => void
   'agent:setMode': (workspaceId: string, mode: PermissionMode) => Workspace
   'chat:load': (workspaceId: string) => { items: ChatItem[]; busy: boolean }
+  // ---- session notes ----
+  'notes:list': (workspaceId: string) => Note[]
+  'notes:add': (workspaceId: string, text: string, kind: Note['kind']) => Note[]
+  'notes:update': (workspaceId: string, id: string, patch: Partial<Pick<Note, 'text' | 'done' | 'kind'>>) => Note[]
+  'notes:remove': (workspaceId: string, id: string) => Note[]
 
   'terminal:create': (workspaceId: string, repoId: string) => string
   'terminal:write': (terminalId: string, data: string) => void
@@ -172,6 +177,7 @@ export interface SinfonieEvents {
   /** Main asks the renderer to open the Feedback dialog (Help menu, shortcut). */
   'ui:openFeedback': { tab: 'feedback' | 'errors' }
   'ui:openOnboarding': { kind: 'setup' | 'tour' }
+  'notes:changed': { workspaceId: string; notes: Note[] }
   /** A new error was logged; the sidebar badge updates. */
   'errors:new': ErrorEntry
 }

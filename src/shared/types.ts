@@ -408,6 +408,18 @@ export interface Settings {
   onboarding?: { setupDoneAt?: string; tourDoneAt?: string; checklistDismissedAt?: string }
 }
 
+/** A session note or todo on a workspace. The orchestrator can read and edit them too. */
+export interface Note {
+  id: string
+  text: string
+  kind: 'note' | 'todo'
+  done: boolean
+  /** Who wrote it. */
+  source: 'user' | 'agent'
+  createdAt: string
+  updatedAt: string
+}
+
 /** A git repository found by scanning a folder, for the setup assistant. */
 export interface ScannedRepo {
   path: string

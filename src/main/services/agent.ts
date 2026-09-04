@@ -2,6 +2,7 @@ import { query, createSdkMcpServer, tool as sdkTool, type Options, type Query, t
 import { z } from 'zod'
 import { classifyModel } from '@shared/types'
 import { runWorker } from './crew/workers'
+import * as notes from './notes'
 import { nanoid } from 'nanoid'
 import type { AgentEvent, PermissionMode, PermissionRequest, Question, SubagentStep, Workspace } from '@shared/types'
 import { askPermission, askQuestion } from './interaction'
@@ -274,6 +275,7 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
   const crewCalls = new Map<string, string[]>()
   const crew = crewFor(ws, emit, crewCalls)
   if (crew.server) mcpServers = { ...mcpServers, crew: crew.server }
+  mcpServers = { ...mcpServers, notes: notes.sdkServer(ws.id) }
   const options: Options = {
     cwd: primary.worktreePath,
     additionalDirectories: others,
@@ -285,7 +287,7 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
     includePartialMessages: true,
     abortController: abort,
     canUseTool,
-    systemPrompt: { type: 'preset', preset: 'claude_code', append: systemPromptFor(ws) + (Object.keys(mcpServers).length ? `\nMCP servers available in this workspace: ${Object.keys(mcpServers).join(', ')}.` : '') + crew.prompt },
+    systemPrompt: { type: 'preset', preset: 'claude_code', append: systemPromptFor(ws) + (Object.keys(mcpServers).length ? `\nMCP servers available in this workspace: ${Object.keys(mcpServers).join(', ')}.` : '') + crew.prompt + notes.promptFor(ws.id, true) },
     ...(Object.keys(crew.agents).length ? { agents: crew.agents } : {}),
     ...(Object.keys(mcpServers).length ? { mcpServers } : {}),
     ...(space?.strictMcp ?? settings.strictMcp ? { strictMcpConfig: true } : {}),
@@ -309,7 +311,7 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
     if (stderrLines.length > 40) stderrLines.splice(0, stderrLines.length - 40)
   }
   const q = query({ prompt: input.iterable, options })
-  const session: Session = { workspaceId, q, push: input.push, end: input.end, abort, busy: false, stderr: stderrLines, queue: [], interrupted: false, mcpNames: Object.keys(mcpServers).filter((n) => n !== 'crew'), crewCalls }
+  const session: Session = { workspaceId, q, push: input.push, end: input.end, abort, busy: false, stderr: stderrLines, queue: [], interrupted: false, mcpNames: Object.keys(mcpServers).filter((n) => n !== 'crew' && n !== 'notes'), crewCalls }
   sessions.set(workspaceId, session)
   void pump(session, emit)
   return session
