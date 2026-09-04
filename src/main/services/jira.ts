@@ -76,9 +76,20 @@ export function connectionForSpace(spaceId: string | undefined): string {
 
 // ---------- OAuth provider backed by the store ----------
 
+/** Thrown when a non-interactive connection would need the user to log in again. */
+export class JiraReauthRequired extends Error {
+  constructor(public readonly connId: string) {
+    super('Jira login expired or was revoked. Reconnect it in Settings (or the space settings).')
+  }
+}
+
 class StoreOAuthProvider implements OAuthClientProvider {
   private verifier: string | undefined
-  constructor(private readonly connId: string) {}
+  /** interactive=false: never open a browser; fail so the caller can tell the user to reconnect. */
+  constructor(
+    private readonly connId: string,
+    private readonly interactive = false
+  ) {}
   private k(name: string): string {
     return `jira:${this.connId || 'default'}:${name}`
   }
@@ -107,6 +118,7 @@ class StoreOAuthProvider implements OAuthClientProvider {
     writeSecret(this.k('tokens'), tokens)
   }
   redirectToAuthorization(url: URL): void {
+    if (!this.interactive) throw new JiraReauthRequired(this.connId)
     void shell.openExternal(url.toString())
   }
   saveCodeVerifier(v: string): void {
@@ -208,7 +220,7 @@ export async function authenticate(connId: string): Promise<void> {
     pendingCallback.server.close()
     pendingCallback = null
   }
-  const provider = new StoreOAuthProvider(connId)
+  const provider = new StoreOAuthProvider(connId, true)
   provider.invalidateCredentials('tokens')
 
   const code = await new Promise<string>((resolve, reject) => {
@@ -275,8 +287,13 @@ export async function accessToken(connId: string): Promise<string | null> {
   try {
     await withTimeout(connect(connId), 10_000, 'Jira token refresh')
   } catch (err) {
-    console.warn('Jira MCP connect for token failed', err)
     dropClient(connId)
+    if (err instanceof JiraReauthRequired || err instanceof UnauthorizedError) {
+      // The refresh token is dead: mark the connection disconnected so the UI says so, and stop retrying every turn.
+      updateJiraSettings(connId, { connected: false, connectedAt: undefined })
+      throw new JiraReauthRequired(connId)
+    }
+    console.warn('Jira MCP connect for token failed', err)
     return null
   }
   return new StoreOAuthProvider(connId).tokens()?.access_token ?? null
