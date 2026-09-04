@@ -75,7 +75,7 @@ export function JiraSection({ connId, title, intro }: { connId: string; title?: 
           ) : (
             <>
               <div className="text-[13px] font-medium">Not connected</div>
-              <div className="text-[11px] text-muted">Opens Atlassian in your browser; approve once and Orchestra keeps a refresh token, encrypted on this Mac.</div>
+              <div className="text-[11px] text-muted">Opens Atlassian in your browser; approve once and Sinfonie keeps a refresh token, encrypted on this Mac.</div>
             </>
           )}
         </div>

@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
@@ -12,6 +12,40 @@ import { AgentsSection, DEFAULT_CREW } from './AgentsSection'
 import { ModelSelect } from './ModelSelect'
 import { SpaceSettingsDialog } from './SpaceSettingsDialog'
 import { SPACE_COLORS } from '@shared/types'
+
+function AboutRow(): React.JSX.Element {
+  const [version, setVersion] = useState('')
+  const [status, setStatus] = useState<string | null>(null)
+  useEffect(() => {
+    api.invoke('app:version').then(setVersion).catch(() => undefined)
+  }, [])
+  const check = async (): Promise<void> => {
+    setStatus('Checking…')
+    try {
+      const u = await api.invoke('updates:check')
+      setStatus(u ? `Version ${u.version} is available.` : `You're on the latest version.`)
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : String(err))
+    }
+  }
+  return (
+    <div className="mb-4 flex items-center gap-3 rounded-lg border border-border px-3 py-2 text-[12px]">
+      <span className="font-medium">Sinfonie {version}</span>
+      <button className="text-accent hover:underline" onClick={() => void api.invoke('shell:openExternal', 'https://sinfonie.dev')}>
+        sinfonie.dev
+      </button>
+      <button className="text-accent hover:underline" onClick={() => void api.invoke('shell:openExternal', 'https://github.com/fpolliop/sinfonie')}>
+        GitHub
+      </button>
+      <span className="ml-auto flex items-center gap-2">
+        {status && <span className="text-muted">{status}</span>}
+        <Button size="sm" onClick={check}>
+          Check for updates
+        </Button>
+      </span>
+    </div>
+  )
+}
 
 function SpacesSection(): React.JSX.Element {
   const { spaces, workspaces, repos, settings, setError } = useApp()
@@ -171,6 +205,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }): React.JSX.
 
   return (
     <Dialog title="Settings" onClose={onClose} width={640}>
+      <AboutRow />
       <SpacesSection />
       <section className="mb-5 mt-5">
         <div className="mb-2 flex items-center">

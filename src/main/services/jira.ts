@@ -87,7 +87,7 @@ class StoreOAuthProvider implements OAuthClientProvider {
   }
   get clientMetadata(): OAuthClientMetadata {
     return {
-      client_name: 'Orchestra',
+      client_name: 'Sinfonie',
       redirect_uris: [REDIRECT_URL],
       grant_types: ['authorization_code', 'refresh_token'],
       response_types: ['code'],
@@ -138,7 +138,7 @@ async function connect(connId: string): Promise<Conn> {
   const existing = conns.get(connId)
   if (existing) return existing
   const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: new StoreOAuthProvider(connId) })
-  const c = new Client({ name: 'orchestra', version: '0.1.0' })
+  const c = new Client({ name: 'sinfonie', version: '0.1.0' })
   await c.connect(transport)
   const tools = await c.listTools()
   const conn: Conn = { client: c, tools: new Map(tools.tools.map((t) => [t.name, (t.inputSchema as { properties?: Record<string, unknown> }).properties ?? {}])), cloudId: null }
@@ -212,7 +212,7 @@ export async function authenticate(connId: string): Promise<void> {
       const c = url.searchParams.get('code')
       res.writeHead(200, { 'Content-Type': 'text/html' })
       res.end(
-        `<!doctype html><meta charset=utf-8><body style="font-family:-apple-system,system-ui;background:#0f1115;color:#e6e8ec;display:grid;place-items:center;height:100vh;margin:0"><div style="text-align:center"><h2>${err ? 'Jira login failed' : 'Orchestra is connected to Jira'}</h2><p style="color:#8b93a1">${err ? `${err}: ${url.searchParams.get('error_description') ?? ''}` : 'You can close this window and go back to the app.'}</p></div>`
+        `<!doctype html><meta charset=utf-8><body style="font-family:-apple-system,system-ui;background:#0f1115;color:#e6e8ec;display:grid;place-items:center;height:100vh;margin:0"><div style="text-align:center"><h2>${err ? 'Jira login failed' : 'Sinfonie is connected to Jira'}</h2><p style="color:#8b93a1">${err ? `${err}: ${url.searchParams.get('error_description') ?? ''}` : 'You can close this window and go back to the app.'}</p></div>`
       )
       server.close()
       pendingCallback = null
@@ -224,7 +224,7 @@ export async function authenticate(connId: string): Promise<void> {
       pendingCallback = { server, resolve, reject }
       // Kicks off discovery + registration + PKCE, then opens the browser and throws UnauthorizedError.
       const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider })
-      const probe = new Client({ name: 'orchestra', version: '0.1.0' })
+      const probe = new Client({ name: 'sinfonie', version: '0.1.0' })
       probe
         .connect(transport)
         .then(() => {

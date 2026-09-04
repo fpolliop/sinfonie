@@ -244,7 +244,7 @@ export interface Settings {
   defaultClaudeAccountId: string
   /** MCP servers available in every space. */
   mcpServers?: McpServerSpec[]
-  /** Default for spaces: only use MCP servers configured in Orchestra. */
+  /** Default for spaces: only use MCP servers configured in Sinfonie. */
   strictMcp?: boolean
   /** Default crew for spaces without their own. */
   agents: AgentSpec[]
@@ -543,6 +543,15 @@ export interface SessionSummary {
   fileSize?: number
   /** True when the session was recorded inside one of the workspace's worktrees. */
   inWorkspace: boolean
+}
+
+export interface UpdateInfo {
+  version: string
+  current: string
+  /** Direct DMG download when available, else the release page. */
+  url: string
+  releaseUrl: string
+  notes: string
 }
 
 export interface PermissionResponse {

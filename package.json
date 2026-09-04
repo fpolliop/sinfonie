@@ -1,7 +1,7 @@
 {
-  "name": "orchestra",
+  "name": "sinfonie",
   "version": "0.1.0",
-  "description": "Multi-repo agent workspaces. Like Conductor, but one workspace spans many repositories.",
+  "description": "Multi-repo agent workspaces: one workspace spans many repositories, with a crew of models.",
   "main": "./out/main/index.js",
   "author": "Francisco Pollio",
   "license": "MIT",
@@ -12,11 +12,12 @@
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "postinstall": "electron-builder install-app-deps",
-    "package": "electron-vite build && electron-builder --mac"
+    "package": "electron-vite build && electron-builder --mac --publish never",
+    "release": "electron-vite build && electron-builder --mac --publish always"
   },
   "build": {
-    "appId": "dev.fpollio.orchestra",
-    "productName": "Orchestra",
+    "appId": "dev.sinfonie.app",
+    "productName": "Sinfonie",
     "directories": {
       "output": "dist"
     },
@@ -27,13 +28,20 @@
     "mac": {
       "category": "public.app-category.developer-tools",
       "target": [
-        "dmg"
-      ]
+        "dmg",
+        "zip"
+      ],
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
     },
     "asarUnpack": [
       "node_modules/node-pty/**",
       "node_modules/@anthropic-ai/claude-agent-sdk/**"
-    ]
+    ],
+    "publish": {
+      "provider": "github",
+      "owner": "fpolliop",
+      "repo": "sinfonie"
+    }
   },
   "devDependencies": {
     "@types/node": "^26.4.1",
@@ -72,5 +80,10 @@
       "electron-winstaller",
       "@anthropic-ai/claude-agent-sdk"
     ]
+  },
+  "homepage": "https://sinfonie.dev",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fpolliop/sinfonie"
   }
 }

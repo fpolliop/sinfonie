@@ -1,5 +1,5 @@
 import { app } from 'electron'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
 import type { Settings, StoreData } from '@shared/types'
@@ -8,7 +8,7 @@ import { DEFAULT_CREW } from '@shared/types'
 type Listener = (data: StoreData) => void
 
 const DEFAULT_SETTINGS: Settings = {
-  workspacesRoot: join(homedir(), 'orchestra', 'workspaces'),
+  workspacesRoot: join(homedir(), 'sinfonie', 'workspaces'),
   basePort: 55000,
   model: 'claude-opus-5',
   permissionMode: 'default',
@@ -30,7 +30,10 @@ class Store {
   constructor() {
     const dir = app.getPath('userData')
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
-    this.file = join(dir, 'orchestra.json')
+    this.file = join(dir, 'sinfonie.json')
+    // Earlier builds were called Orchestra; carry the store over once.
+    const legacy = join(dir, 'orchestra.json')
+    if (!existsSync(this.file) && existsSync(legacy)) renameSync(legacy, this.file)
     this.data = this.load()
   }
 

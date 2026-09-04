@@ -13,6 +13,7 @@ import type {
   ReviewRun,
   ReviewVerdict,
   SessionSummary,
+  UpdateInfo,
   WorkspaceStage,
   CreateWorkspaceInput,
   PermissionRequest,
@@ -30,7 +31,7 @@ import type {
 } from './types'
 
 /** Request/response channels (ipcRenderer.invoke). */
-export interface OrchestraInvoke {
+export interface SinfonieInvoke {
   'store:get': () => StoreData
   'settings:update': (patch: Partial<Settings>) => Settings
 
@@ -82,6 +83,8 @@ export interface OrchestraInvoke {
   'jira:issue': (connId: string, key: string) => JiraIssue
 
   'shell:openExternal': (url: string) => void
+  'updates:check': () => UpdateInfo | null
+  'app:version': () => string
 
   'accounts:add': (name: string) => Settings
   'accounts:remove': (id: string) => Settings
@@ -123,7 +126,7 @@ export interface OrchestraInvoke {
 }
 
 /** Push channels (main -> renderer). */
-export interface OrchestraEvents {
+export interface SinfonieEvents {
   'store:changed': StoreData
   'agent:event': AgentEvent
   'agent:permission': PermissionRequest
@@ -132,7 +135,8 @@ export interface OrchestraEvents {
   'terminal:data': TerminalDataEvent
   'terminal:exit': { terminalId: string; exitCode: number }
   'review:changed': ReviewRun
+  'update:available': UpdateInfo
 }
 
-export type InvokeChannel = keyof OrchestraInvoke
-export type EventChannel = keyof OrchestraEvents
+export type InvokeChannel = keyof SinfonieInvoke
+export type EventChannel = keyof SinfonieEvents

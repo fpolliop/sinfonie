@@ -108,7 +108,7 @@ export async function createWorkspace(input: CreateWorkspaceInput, emit: Emit): 
       await git.createWorktree(repo.path, wr.worktreePath, wr.branch, wr.baseBranch)
     }
     // Setup scripts run after every worktree exists, so a script in one repo
-    // can reference the sibling worktree via ORCHESTRA_WORKSPACE_ROOT.
+    // can reference the sibling worktree via SINFONIE_WORKSPACE_ROOT.
     await Promise.all(
       wsRepos.map(async (wr) => {
         const repo = getRepo(wr.repoId)

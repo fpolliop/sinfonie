@@ -80,7 +80,7 @@ export function McpSection({ servers, onChange, title, intro, jira, strict }: { 
         <label className="mb-2 flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-[12px]">
           <input type="checkbox" checked={strict.value} onChange={(e) => strict.onToggle(e.target.checked)} />
           <span className="flex-1">
-            Only Orchestra's MCP servers
+            Only Sinfonie's MCP servers
             <span className="block text-[11px] text-muted">Skip the servers Claude Code loads on its own: claude.ai connectors, plugins and ~/.claude.json. Those often show as "needs auth" here because their login lives in the CLI.{strict.inherited ? ' (app default)' : ''}</span>
           </span>
         </label>

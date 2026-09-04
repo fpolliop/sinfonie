@@ -47,11 +47,11 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
     const onMove = (e: Event): void => {
       if ((e as CustomEvent<string>).detail === workspaceId) setMoveDlg(true)
     }
-    window.addEventListener('orchestra:archive', onArchive)
-    window.addEventListener('orchestra:moveSpace', onMove)
+    window.addEventListener('sinfonie:archive', onArchive)
+    window.addEventListener('sinfonie:moveSpace', onMove)
     return () => {
-      window.removeEventListener('orchestra:archive', onArchive)
-      window.removeEventListener('orchestra:moveSpace', onMove)
+      window.removeEventListener('sinfonie:archive', onArchive)
+      window.removeEventListener('sinfonie:moveSpace', onMove)
     }
   }, [workspaceId])
   const jiraKey = ws?.jira?.key

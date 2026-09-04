@@ -11,7 +11,7 @@ function key(workspaceId: string, repoId: string, kind: string): string {
 
 /**
  * Env vars injected into every script and terminal. Both CONDUCTOR_* and
- * ORCHESTRA_* names are set, so conductor.json files keep working unchanged.
+ * SINFONIE_* names are set, so conductor.json files keep working unchanged.
  */
 export function workspaceEnv(ws: Workspace, repo: Repo, worktreePath: string): NodeJS.ProcessEnv {
   const vars = {
@@ -24,13 +24,13 @@ export function workspaceEnv(ws: Workspace, repo: Repo, worktreePath: string): N
   const env: NodeJS.ProcessEnv = { ...process.env }
   for (const [k, v] of Object.entries(vars)) {
     env[`CONDUCTOR_${k}`] = v
-    env[`ORCHESTRA_${k}`] = v
+    env[`SINFONIE_${k}`] = v
   }
   // Give each repo inside the workspace its own port slot within the block of 10.
   const idx = ws.repos.findIndex((r) => r.repoId === repo.id)
   if (idx > 0) {
     env.CONDUCTOR_PORT = String(ws.port + idx)
-    env.ORCHESTRA_PORT = String(ws.port + idx)
+    env.SINFONIE_PORT = String(ws.port + idx)
   }
   return env
 }

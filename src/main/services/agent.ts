@@ -35,7 +35,7 @@ interface Session {
   queue: { id: string; text: string }[]
   /** Set by Stop so the resulting error result is reported as a stop, not a failure. */
   interrupted: boolean
-  /** Names of the MCP servers Orchestra passed to this session. */
+  /** Names of the MCP servers Sinfonie passed to this session. */
   mcpNames: string[]
 }
 
@@ -123,7 +123,7 @@ function makeInputStream(): { iterable: AsyncIterable<SDKUserMessage>; push: (m:
 function systemPromptFor(ws: Workspace): string {
   const primary = ws.repos.find((r) => r.repoId === ws.primaryRepoId) ?? ws.repos[0]
   const lines = [
-    `You are working inside an Orchestra workspace named "${ws.name}" that spans ${ws.repos.length} git repositories.`,
+    `You are working inside an Sinfonie workspace named "${ws.name}" that spans ${ws.repos.length} git repositories.`,
     `Each repository has its own worktree on the branch "${primary.branch}". The worktrees are:`,
     ...ws.repos.map((r) => `- ${r.repoName}: ${r.worktreePath} (branch ${r.branch}, based on ${r.baseBranch})`),
     `Your working directory is the ${primary.repoName} worktree. The other worktrees are added as additional directories; you can read and edit files in all of them.`,
@@ -272,9 +272,9 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
     env: {
       ...process.env,
       ...accountEnv(ws.claudeAccountId),
-      ORCHESTRA_WORKSPACE_NAME: ws.slug,
-      ORCHESTRA_WORKSPACE_ROOT: ws.rootPath,
-      ORCHESTRA_PORT: String(ws.port)
+      SINFONIE_WORKSPACE_NAME: ws.slug,
+      SINFONIE_WORKSPACE_ROOT: ws.rootPath,
+      SINFONIE_PORT: String(ws.port)
     },
     ...(ws.sessionId ? { resume: ws.sessionId } : {})
   }
@@ -349,7 +349,7 @@ async function pump(session: Session, emit: EmitEvent): Promise<void> {
               if (w) w.sessionId = msg.session_id
             })
             emit({ type: 'init', workspaceId, sessionId: msg.session_id, model: msg.model, cwd: msg.cwd })
-            // Servers Orchestra configured get a warning each; everything inherited from Claude Code's own
+            // Servers Sinfonie configured get a warning each; everything inherited from Claude Code's own
             // config (claude.ai connectors, plugins) is folded into one quiet line, once per app run.
             const ours = new Set(session.mcpNames)
             const bad = msg.mcp_servers.filter((m) => m.status !== 'connected' && m.status !== 'pending')
@@ -358,7 +358,7 @@ async function pump(session: Session, emit: EmitEvent): Promise<void> {
             if (inherited.length && !mcpNoticeShown.has(workspaceId)) {
               mcpNoticeShown.add(workspaceId)
               const names = inherited.map((m) => `${m.name} (${m.status})`).join(', ')
-              notice('info', `${inherited.length} MCP server${inherited.length === 1 ? '' : 's'} from your Claude Code config ${inherited.length === 1 ? 'is' : 'are'} not available: ${names}. Turn on "Only Orchestra's MCP servers" in the space settings to stop loading them.`)
+              notice('info', `${inherited.length} MCP server${inherited.length === 1 ? '' : 's'} from your Claude Code config ${inherited.length === 1 ? 'is' : 'are'} not available: ${names}. Turn on "Only Sinfonie's MCP servers" in the space settings to stop loading them.`)
             }
           } else if (msg.subtype === 'api_retry') {
             notice('warn', `${describeError(msg.error)} Retrying (${msg.attempt}/${msg.max_retries}) in ${Math.round(msg.retry_delay_ms / 1000)}s…`)

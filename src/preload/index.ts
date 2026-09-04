@@ -1,12 +1,12 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { EventChannel, InvokeChannel, OrchestraEvents, OrchestraInvoke } from '@shared/ipc'
+import type { EventChannel, InvokeChannel, SinfonieEvents, SinfonieInvoke } from '@shared/ipc'
 
 type Invoke = <C extends InvokeChannel>(
   channel: C,
-  ...args: Parameters<OrchestraInvoke[C]>
-) => Promise<Awaited<ReturnType<OrchestraInvoke[C]>>>
+  ...args: Parameters<SinfonieInvoke[C]>
+) => Promise<Awaited<ReturnType<SinfonieInvoke[C]>>>
 
-type On = <C extends EventChannel>(channel: C, cb: (payload: OrchestraEvents[C]) => void) => () => void
+type On = <C extends EventChannel>(channel: C, cb: (payload: SinfonieEvents[C]) => void) => () => void
 
 const api = {
   invoke: ((channel, ...args) => ipcRenderer.invoke(channel, ...args)) as Invoke,
@@ -18,6 +18,6 @@ const api = {
   platform: process.platform
 }
 
-export type OrchestraApi = typeof api
+export type SinfonieApi = typeof api
 
-contextBridge.exposeInMainWorld('orchestra', api)
+contextBridge.exposeInMainWorld('sinfonie', api)

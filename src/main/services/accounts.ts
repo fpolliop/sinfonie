@@ -23,7 +23,7 @@ export function accountEnv(id: string | undefined): NodeJS.ProcessEnv {
 
 export function addAccount(name: string): Settings {
   const id = nanoid(6)
-  const dir = join(homedir(), '.orchestra', 'claude-accounts', id)
+  const dir = join(homedir(), '.sinfonie', 'claude-accounts', id)
   mkdirSync(dir, { recursive: true })
   return getStore().update((d) => {
     d.settings.claudeAccounts.push({ id, name: name.trim() || `Account ${d.settings.claudeAccounts.length + 1}`, configDir: dir })

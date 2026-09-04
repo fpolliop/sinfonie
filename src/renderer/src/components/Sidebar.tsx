@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { Plus, Settings, Archive, Pencil, Folder, Code2, TerminalSquare, Trash2, GitPullRequest, Layers, ArrowDownWideNarrow, ArrowUpNarrowWide, Filter, ChevronRight } from 'lucide-react'
 import { WORKSPACE_STAGES } from '@shared/types'
@@ -13,7 +13,7 @@ import { ContextMenu, type MenuEntry } from './ContextMenu'
 import { InlineRename } from './InlineRename'
 import { SpaceSettingsDialog } from './SpaceSettingsDialog'
 import { STAGE_DOT, stageLabel } from './StagePicker'
-import type { Workspace } from '@shared/types'
+import type { UpdateInfo, Workspace } from '@shared/types'
 
 export function Sidebar(): React.JSX.Element {
   const { workspaces, spaces, labels, labelFilter, toggleLabelFilter, clearLabelFilter, selectedId, select, setShowNewWorkspace, setShowSettings, showArchived, setShowArchived, view, setView, setError, activeSpaceId, setActiveSpace, stepSpace, sidebarView, sidebarDateDir, collapsedStages, setSidebarView, setSidebarDateDir, toggleStage } = useApp()
@@ -178,6 +178,7 @@ export function Sidebar(): React.JSX.Element {
           </>
         )}
       </div>
+      <UpdateBanner />
       <SpaceDots ids={ids} currentId={currentId} onPick={setActiveSpace} onAdd={() => setShowSettings(true)} />
       {spaceSettings && <SpaceSettingsDialog spaceId={spaceSettings} onClose={() => setSpaceSettings(null)} />}
       {spaceMenu && (
@@ -195,6 +196,37 @@ export function Sidebar(): React.JSX.Element {
         />
       )}
     </aside>
+  )
+}
+
+/** Shown when a newer release exists on GitHub. Unsigned builds update by download. */
+function UpdateBanner(): React.JSX.Element | null {
+  const [info, setInfo] = useState<UpdateInfo | null>(null)
+  const [dismissed, setDismissed] = useState<string | null>(() => localStorage.getItem('orchestra.dismissedUpdate'))
+  useEffect(() => api.on('update:available', setInfo), [])
+  if (!info || dismissed === info.version) return null
+  return (
+    <div className="mx-2 mb-2 rounded-lg border border-accent/40 bg-accent/10 p-2 text-[12px]">
+      <div className="mb-1 font-medium">Sinfonie {info.version} is available</div>
+      <div className="mb-2 text-[11px] text-muted">You have {info.current}. Download the new version and replace the app.</div>
+      <div className="flex gap-2">
+        <button className="rounded-md bg-accent-2 px-2 py-1 text-[11px] text-white hover:bg-accent" onClick={() => void api.invoke('shell:openExternal', info.url)}>
+          Download
+        </button>
+        <button className="text-[11px] text-muted hover:text-text" onClick={() => void api.invoke('shell:openExternal', info.releaseUrl)}>
+          What's new
+        </button>
+        <button
+          className="ml-auto text-[11px] text-muted hover:text-text"
+          onClick={() => {
+            localStorage.setItem('orchestra.dismissedUpdate', info.version)
+            setDismissed(info.version)
+          }}
+        >
+          Later
+        </button>
+      </div>
+    </div>
   )
 }
 
@@ -239,7 +271,7 @@ function WorkspaceRow({ ws, grouped, selected, busy, onClick }: { ws: Workspace;
   }
   const entries: MenuEntry[] = [
     { label: 'Rename…', icon: <Pencil size={14} />, onClick: () => setEditing(true) },
-    { label: 'Move to space…', icon: <Layers size={14} />, onClick: () => window.dispatchEvent(new CustomEvent('orchestra:moveSpace', { detail: ws.id })) },
+    { label: 'Move to space…', icon: <Layers size={14} />, onClick: () => window.dispatchEvent(new CustomEvent('sinfonie:moveSpace', { detail: ws.id })) },
     { separator: true },
     { label: 'Reveal in Finder', icon: <Folder size={14} />, onClick: () => run(() => api.invoke('workspaces:openIn', ws.id, 'finder')), disabled: ws.status === 'archived' },
     { label: 'Open in VS Code', icon: <Code2 size={14} />, onClick: () => run(() => api.invoke('workspaces:openIn', ws.id, 'vscode')), disabled: ws.status === 'archived' },
@@ -254,7 +286,7 @@ function WorkspaceRow({ ws, grouped, selected, busy, onClick }: { ws: Workspace;
             icon: <Archive size={14} />,
             onClick: () => {
               onClick()
-              window.dispatchEvent(new CustomEvent('orchestra:archive', { detail: { id: ws.id, mode: 'archive' } }))
+              window.dispatchEvent(new CustomEvent('sinfonie:archive', { detail: { id: ws.id, mode: 'archive' } }))
             }
           },
           {
@@ -263,7 +295,7 @@ function WorkspaceRow({ ws, grouped, selected, busy, onClick }: { ws: Workspace;
             danger: true,
             onClick: () => {
               onClick()
-              window.dispatchEvent(new CustomEvent('orchestra:archive', { detail: { id: ws.id, mode: 'delete' } }))
+              window.dispatchEvent(new CustomEvent('sinfonie:archive', { detail: { id: ws.id, mode: 'delete' } }))
             }
           }
         ])

@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sinfonie — multi-repo agent workspaces</title>
+<meta name="description" content="Sinfonie is a desktop app for running coding agents across several repositories at once: one workspace, one branch, a worktree per repo, and a crew of models.">
+<style>
+  :root{--bg:#0f1115;--panel:#161920;--border:#262b35;--text:#e6e8ec;--muted:#8b93a1;--accent:#7c9cff;--accent2:#5b7cff}
+  *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.55 -apple-system,BlinkMacSystemFont,"SF Pro Text",Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  main{max-width:820px;margin:0 auto;padding:72px 24px 96px}
+  .logo{display:flex;align-items:center;gap:12px;font-weight:600;font-size:18px}
+  .logo span{display:inline-flex;width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,#5b7cff,#7c9cff);align-items:flex-end;justify-content:center;gap:3px;padding:7px}
+  .logo i{display:block;width:4px;background:#fff;border-radius:2px}
+  h1{font-size:40px;line-height:1.15;margin:40px 0 12px;letter-spacing:-.02em}
+  .lead{color:var(--muted);font-size:18px;max-width:640px}
+  .cta{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:32px 0 8px}
+  .btn{display:inline-flex;align-items:center;gap:8px;background:var(--accent2);color:#fff;text-decoration:none;padding:12px 20px;border-radius:10px;font-weight:600}
+  .btn:hover{background:var(--accent)}
+  .btn.secondary{background:var(--panel);border:1px solid var(--border);color:var(--text)}
+  .note{color:var(--muted);font-size:13px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-top:56px}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px}
+  .card h3{margin:0 0 6px;font-size:15px}.card p{margin:0;color:var(--muted);font-size:14px}
+  pre{background:#0b0d11;border:1px solid var(--border);border-radius:10px;padding:14px 16px;overflow:auto;font-size:13px;color:var(--muted)}
+  footer{margin-top:64px;color:var(--muted);font-size:13px;display:flex;gap:16px;flex-wrap:wrap}
+  footer a{color:var(--muted)}
+  h2{font-size:22px;margin:56px 0 12px;letter-spacing:-.01em}
+</style>
+</head>
+<body>
+<main>
+  <div class="logo"><span><i style="height:8px"></i><i style="height:16px"></i><i style="height:12px"></i></span>Sinfonie</div>
+  <h1>One workspace across all your repositories.</h1>
+  <p class="lead">Sinfonie runs Claude Code in isolated workspaces the way Conductor does, with one difference that matters for full-stack work: a workspace creates a worktree on the same branch in every repository you pick, and a crew of models works across them.</p>
+  <div class="cta">
+    <a class="btn" id="download" href="https://github.com/fpolliop/sinfonie/releases/latest">Download for Mac <span id="ver"></span></a>
+    <a class="btn secondary" href="https://github.com/fpolliop/sinfonie">Source on GitHub</a>
+  </div>
+  <p class="note" id="arch">Apple Silicon. Needs a Claude Code login and git.</p>
+
+  <div class="grid">
+    <div class="card"><h3>Multi-repo workspaces</h3><p>Frontend and backend on one branch, side by side, created and archived together.</p></div>
+    <div class="card"><h3>A crew of models</h3><p>An orchestrator delegates exploration, tests and implementation to cheaper or more focused agents.</p></div>
+    <div class="card"><h3>Review cockpit</h3><p>AI review of open pull requests, findings you approve one by one, posted as a single GitHub review.</p></div>
+    <div class="card"><h3>Jira, GitHub, MCP</h3><p>Start work from a ticket, see PR status and review threads, hand Claude the MCP servers each space needs.</p></div>
+    <div class="card"><h3>Spaces</h3><p>Personal, work, client: each space owns its repos, Jira, accounts and defaults.</p></div>
+    <div class="card"><h3>conductor.json compatible</h3><p>Your existing setup, run and archive scripts keep working, ports included.</p></div>
+  </div>
+
+  <h2>Installing an unsigned build</h2>
+  <p class="note">Sinfonie is not notarized yet. On first launch macOS may block it: right-click the app, choose Open, then Open again. On recent macOS versions the option is under System Settings → Privacy &amp; Security → Open Anyway.</p>
+  <pre>xattr -d com.apple.quarantine /Applications/Sinfonie.app   # alternative, from a terminal</pre>
+
+  <footer>
+    <span>MIT licensed</span>
+    <a href="https://github.com/fpolliop/sinfonie/releases">All releases</a>
+    <a href="https://github.com/fpolliop/sinfonie/issues">Issues</a>
+  </footer>
+</main>
+<script>
+  // Point the button at the latest DMG so the page never goes stale.
+  fetch('https://api.github.com/repos/fpolliop/sinfonie/releases/latest').then(r => r.ok ? r.json() : null).then(rel => {
+    if (!rel) return
+    const dmg = (rel.assets || []).find(a => /arm64.*\.dmg$/.test(a.name)) || (rel.assets || []).find(a => /\.dmg$/.test(a.name))
+    if (dmg) document.getElementById('download').href = dmg.browser_download_url
+    document.getElementById('ver').textContent = rel.tag_name
+  }).catch(() => {})
+</script>
+</body>
+</html>

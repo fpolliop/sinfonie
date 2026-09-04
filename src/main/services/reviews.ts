@@ -95,7 +95,7 @@ export async function listPrs(owners: string[], mode: 'requested' | 'all'): Prom
 // ---------- checkout ----------
 
 function reviewsRoot(): string {
-  return join(homedir(), 'orchestra', 'reviews')
+  return join(homedir(), 'sinfonie', 'reviews')
 }
 
 function normalizeRemote(url: string): string {
@@ -130,9 +130,9 @@ async function checkout(pr: ReviewPr, key: string, emit: Emit): Promise<{ dir: s
   const local = await findLocalRepo(pr.nameWithOwner)
   if (local) {
     const g = git(local)
-    await g.fetch(['origin', `pull/${pr.number}/head:refs/orchestra/pr-${pr.number}`, '--force'])
+    await g.fetch(['origin', `pull/${pr.number}/head:refs/sinfonie/pr-${pr.number}`, '--force'])
     await g.fetch(['origin', meta.baseRefName])
-    await g.raw(['worktree', 'add', '--detach', dir, `refs/orchestra/pr-${pr.number}`])
+    await g.raw(['worktree', 'add', '--detach', dir, `refs/sinfonie/pr-${pr.number}`])
   } else {
     update(key, { phase: 'Cloning repository (shallow)' }, emit)
     await gh(['repo', 'clone', pr.nameWithOwner, dir, '--', '--depth', '1', '--branch', meta.baseRefName])
@@ -338,7 +338,7 @@ export async function submitReview(key: string, emit: Emit): Promise<ReviewRun> 
   const bodyParts = [run.verdict.summary.trim()]
   if (fileLevel.length) bodyParts.push(fileLevel.map((f) => `- \`${f.path}\`: ${formatComment(f).replace(/\n+/g, ' ')}`).join('\n'))
   // gh api with --input reads stdin; execFile has no stdin helper, so shell out via a temp file.
-  const tmp = join(app.getPath('temp'), `orchestra-review-${nanoid(6)}.json`)
+  const tmp = join(app.getPath('temp'), `sinfonie-review-${nanoid(6)}.json`)
   const send = async (comments: ReviewFinding[], extraBody: string): Promise<string> => {
     const payload = {
       event: EVENT[run.verdict!.decision],

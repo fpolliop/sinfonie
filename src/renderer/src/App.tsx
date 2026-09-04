@@ -79,7 +79,7 @@ function EmptyState(): React.JSX.Element {
   const { repos, setShowNewWorkspace, setShowSettings } = useApp()
   return (
     <div className="drag flex h-full flex-col items-center justify-center gap-3 text-center">
-      <div className="text-[18px] font-semibold">Orchestra</div>
+      <div className="text-[18px] font-semibold">Sinfonie</div>
       <p className="max-w-md text-muted">
         One workspace, many repositories. Each workspace creates a worktree on the same branch in every repo you pick, so a full-stack feature lives in one place.
       </p>

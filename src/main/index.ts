@@ -1,6 +1,22 @@
 import { app, BrowserWindow, shell } from 'electron'
-import { join } from 'path'
+import { cpSync, existsSync, readdirSync } from 'fs'
+import { dirname, join } from 'path'
 import { registerIpc } from './ipc'
+import { startUpdateChecks } from './services/updates'
+
+/** The app used to be called Orchestra; move its data folder over on first launch. */
+function migrateLegacyUserData(): void {
+  const dir = app.getPath('userData')
+  const legacy = join(dirname(dir), 'orchestra')
+  try {
+    const empty = !existsSync(dir) || readdirSync(dir).filter((f) => f.endsWith('.json')).length === 0
+    if (empty && existsSync(join(legacy, 'orchestra.json')) && legacy.toLowerCase() !== dir.toLowerCase()) {
+      cpSync(legacy, dir, { recursive: true, force: false, errorOnExist: false })
+    }
+  } catch (err) {
+    console.error('userData migration failed', err)
+  }
+}
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -9,7 +25,7 @@ function createWindow(): void {
     minWidth: 960,
     minHeight: 600,
     show: false,
-    title: 'Orchestra',
+    title: 'Sinfonie',
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 14, y: 14 },
     backgroundColor: '#0f1115',
@@ -40,8 +56,10 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  migrateLegacyUserData()
   registerIpc()
   createWindow()
+  startUpdateChecks()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })

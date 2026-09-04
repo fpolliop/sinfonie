@@ -1,8 +1,8 @@
-import type { OrchestraApi } from './index'
+import type { SinfonieApi } from './index'
 
 declare global {
   interface Window {
-    orchestra: OrchestraApi
+    sinfonie: SinfonieApi
   }
 }
 export {}

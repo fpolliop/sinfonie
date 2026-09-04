@@ -2,7 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { basename } from 'path'
 import { spawn } from 'child_process'
 import { nanoid } from 'nanoid'
-import type { OrchestraEvents, OrchestraInvoke } from '@shared/ipc'
+import type { SinfonieEvents, SinfonieInvoke } from '@shared/ipc'
 import type { Label, McpServerSpec, Repo, RepoGitStatus, Space } from '@shared/types'
 import { existsSync, readFileSync } from 'fs'
 import { join } from 'path'
@@ -29,16 +29,17 @@ import * as jira from './services/jira'
 import * as accounts from './services/accounts'
 import * as reviews from './services/reviews'
 import * as sessionsSvc from './services/sessions'
+import { checkForUpdate, latestKnownUpdate } from './services/updates'
 
-function send<C extends keyof OrchestraEvents>(channel: C, payload: OrchestraEvents[C]): void {
+function send<C extends keyof SinfonieEvents>(channel: C, payload: SinfonieEvents[C]): void {
   for (const win of BrowserWindow.getAllWindows()) win.webContents.send(channel, payload)
 }
 
-function handle<C extends keyof OrchestraInvoke>(
+function handle<C extends keyof SinfonieInvoke>(
   channel: C,
-  fn: (...args: Parameters<OrchestraInvoke[C]>) => ReturnType<OrchestraInvoke[C]> | Promise<ReturnType<OrchestraInvoke[C]>>
+  fn: (...args: Parameters<SinfonieInvoke[C]>) => ReturnType<SinfonieInvoke[C]> | Promise<ReturnType<SinfonieInvoke[C]>>
 ): void {
-  ipcMain.handle(channel, (_e, ...args) => fn(...(args as Parameters<OrchestraInvoke[C]>)))
+  ipcMain.handle(channel, (_e, ...args) => fn(...(args as Parameters<SinfonieInvoke[C]>)))
 }
 
 const emitScript = (e: Parameters<typeof send<'script:output'>>[1]): void => send('script:output', e)
@@ -310,6 +311,8 @@ export function registerIpc(): void {
   handle('jira:updateSettings', (conn, patch) => jira.updateJiraSettings(conn, patch))
   handle('jira:search', (conn, q) => jira.search(conn, q))
   handle('jira:issue', (conn, key) => jira.issue(conn, key))
+  handle('updates:check', async () => (await checkForUpdate()) ?? latestKnownUpdate())
+  handle('app:version', () => app.getVersion())
   handle('shell:openExternal', (url) => {
     if (/^https?:\/\//.test(url)) void shell.openExternal(url)
   })
