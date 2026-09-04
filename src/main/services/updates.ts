@@ -1,7 +1,7 @@
 import { app, BrowserWindow } from 'electron'
 import type { UpdateInfo } from '@shared/types'
 
-const REPO = 'fpolliop/sinfonie'
+const REPO = 'fpolliop/sinfonie-releases'
 const INTERVAL_MS = 6 * 60 * 60 * 1000
 let latest: UpdateInfo | null = null
 

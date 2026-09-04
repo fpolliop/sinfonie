@@ -34,8 +34,8 @@ function AboutRow(): React.JSX.Element {
       <button className="text-accent hover:underline" onClick={() => void api.invoke('shell:openExternal', 'https://sinfonie.dev')}>
         sinfonie.dev
       </button>
-      <button className="text-accent hover:underline" onClick={() => void api.invoke('shell:openExternal', 'https://github.com/fpolliop/sinfonie')}>
-        GitHub
+      <button className="text-accent hover:underline" onClick={() => void api.invoke('shell:openExternal', 'https://github.com/fpolliop/sinfonie-releases/releases')}>
+        Releases
       </button>
       <span className="ml-auto flex items-center gap-2">
         {status && <span className="text-muted">{status}</span>}

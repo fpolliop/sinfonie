@@ -1,6 +1,6 @@
 # Sinfonie
 
-[Download for Mac](https://sinfonie.dev) · MIT · [Releases](https://github.com/fpolliop/sinfonie/releases)
+[Download for Mac](https://sinfonie.dev) · proprietary · [Releases](https://github.com/fpolliop/sinfonie-releases/releases)
 
 A desktop app for running coding agents in isolated workspaces, in the spirit of
 [Conductor](https://www.conductor.build/), with one difference: **a workspace spans
@@ -78,7 +78,7 @@ Bump `version` in `package.json`, commit, tag and push:
 git tag v0.2.0 && git push origin main --tags
 ```
 
-The Release workflow builds the app on macOS and publishes the DMG and zip to a GitHub Release. Running copies of the app check that release feed on launch and show a download banner when a newer version exists. Builds are unsigned until Apple signing secrets are added to the workflow.
+The Release workflow builds the app on macOS and publishes the DMG and zip to a GitHub Release in the public `fpolliop/sinfonie-releases` repo (this source repo is private). It needs a `RELEASES_TOKEN` secret: a fine-grained personal access token with Contents read/write on `sinfonie-releases`. Running copies of the app check that release feed on launch and show a download banner when a newer version exists. Builds are unsigned until Apple signing secrets are added to the workflow.
 
 ## Website
 

@@ -34,8 +34,8 @@
   <h1>One workspace across all your repositories.</h1>
   <p class="lead">Sinfonie runs Claude Code in isolated workspaces the way Conductor does, with one difference that matters for full-stack work: a workspace creates a worktree on the same branch in every repository you pick, and a crew of models works across them.</p>
   <div class="cta">
-    <a class="btn" id="download" href="https://github.com/fpolliop/sinfonie/releases/latest">Download for Mac <span id="ver"></span></a>
-    <a class="btn secondary" href="https://github.com/fpolliop/sinfonie">Source on GitHub</a>
+    <a class="btn" id="download" href="https://github.com/fpolliop/sinfonie-releases/releases/latest">Download for Mac <span id="ver"></span></a>
+    <a class="btn secondary" href="https://github.com/fpolliop/sinfonie-releases/releases">Release notes</a>
   </div>
   <p class="note" id="arch">Apple Silicon. Needs a Claude Code login and git.</p>
 
@@ -53,14 +53,14 @@
   <pre>xattr -d com.apple.quarantine /Applications/Sinfonie.app   # alternative, from a terminal</pre>
 
   <footer>
-    <span>MIT licensed</span>
-    <a href="https://github.com/fpolliop/sinfonie/releases">All releases</a>
-    <a href="https://github.com/fpolliop/sinfonie/issues">Issues</a>
+    <span>© 2026 Francisco Pollio</span>
+    <a href="https://github.com/fpolliop/sinfonie-releases/releases">All releases</a>
+    <a href="https://github.com/fpolliop/sinfonie-releases/issues">Issues</a>
   </footer>
 </main>
 <script>
   // Point the button at the latest DMG so the page never goes stale.
-  fetch('https://api.github.com/repos/fpolliop/sinfonie/releases/latest').then(r => r.ok ? r.json() : null).then(rel => {
+  fetch('https://api.github.com/repos/fpolliop/sinfonie-releases/releases/latest').then(r => r.ok ? r.json() : null).then(rel => {
     if (!rel) return
     const dmg = (rel.assets || []).find(a => /arm64.*\.dmg$/.test(a.name)) || (rel.assets || []).find(a => /\.dmg$/.test(a.name))
     if (dmg) document.getElementById('download').href = dmg.browser_download_url

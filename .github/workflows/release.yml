@@ -1,7 +1,9 @@
 name: Release
 
 # Push a tag like v0.2.0 to build the macOS app and publish a GitHub Release
-# with the DMG and zip. Builds are unsigned until Apple signing secrets exist.
+# with the DMG and zip to the public fpolliop/sinfonie-releases repo.
+# RELEASES_TOKEN: a fine-grained PAT with Contents: read/write on that repo.
+# Builds are unsigned until Apple signing secrets exist.
 on:
   push:
     tags: ['v*']
@@ -24,6 +26,6 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Build and publish
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: pnpm release
