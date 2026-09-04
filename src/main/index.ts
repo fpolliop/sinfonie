@@ -6,6 +6,7 @@ import { startUpdateChecks } from './services/updates'
 import * as browser from './services/browser/service'
 import * as images from './services/images'
 import * as slack from './services/slack'
+import { adoptShellPath } from './services/shell-path'
 import * as oncall from './services/oncall/service'
 import { installCrashHandlers, rendererConsoleError, logError, startUsagePings } from './services/telemetry'
 import { Menu, nativeImage } from 'electron'
@@ -129,7 +130,8 @@ app.on('open-url', (e, url) => {
   handleDeepLink(url)
 })
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  await adoptShellPath()
   images.registerProtocol()
   if (!process.env.SINFONIE_USER_DATA) migrateLegacyUserData()
   buildMenu()
