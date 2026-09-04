@@ -14,6 +14,8 @@ permissions:
 jobs:
   mac:
     runs-on: macos-latest
+    env:
+      HAS_CERT: ${{ secrets.MAC_CERT_P12 != '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -24,6 +26,14 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # Import the Developer ID certificate with a well-tested action: electron-builder's own keychain
+      # setup fails intermittently on GitHub's macOS runners ("security set-key-partition-list ... failed 1").
+      - name: Import signing certificate
+        if: env.HAS_CERT == 'true'
+        uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.MAC_CERT_P12 }}
+          p12-password: ${{ secrets.MAC_CERT_PASSWORD }}
       # electron-builder publishes straight to a non-draft release, and GitHub refuses those unless the
       # tag already exists in the target repo. Create it first (pointing at that repo's current head) so
       # the parallel asset uploads don't race to create the release and fail with 422.
@@ -35,18 +45,15 @@ jobs:
           gh release view "${GITHUB_REF_NAME}" -R fpolliop/sinfonie-releases >/dev/null 2>&1 \
             || gh release create "${GITHUB_REF_NAME}" -R fpolliop/sinfonie-releases --title "Sinfonie ${GITHUB_REF_NAME#v}" --notes "See the changelog at https://sinfonie.dev" --target "$(gh api repos/fpolliop/sinfonie-releases/commits/HEAD -q .sha)"
       - name: Build and publish
-        # Signing + notarization switch on automatically once these secrets exist:
-        #   MAC_CERT_P12 (base64 of the Developer ID Application .p12), MAC_CERT_PASSWORD,
-        #   APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID.
+        # Signing uses the identity imported above (electron-builder auto-discovers it in the keychain);
+        # notarization needs APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID.
         env:
           GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
-          CSC_LINK: ${{ secrets.MAC_CERT_P12 }}
-          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          if [ -z "$CSC_LINK" ]; then
+          if [ "$HAS_CERT" != "true" ]; then
             echo "No signing certificate secret; building unsigned."
             export CSC_IDENTITY_AUTO_DISCOVERY=false
           fi
