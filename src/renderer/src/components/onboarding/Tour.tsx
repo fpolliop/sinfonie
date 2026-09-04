@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useLayoutEffect, useState } from 'react'
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
@@ -18,7 +18,10 @@ const STOPS: Stop[] = [
   { anchor: 'repos', title: 'The repos in a workspace', text: 'Every repo here is on the same branch. The dot shows its pull request state; click one to see the PR and review comments.' },
   { anchor: 'mode', title: 'Permission mode', text: 'How much the agent may do without asking. Plan only reads. Default asks before edits and commands. Auto-edit accepts edits. Auto also runs safe commands. Shift+Tab cycles.' },
   { anchor: 'activity', title: 'Crew activity', text: 'Who did what in this session: the orchestrator and every crew member it delegated to, on whatever vendor each runs. Click a running member to watch it.' },
-  { anchor: 'reviews', title: 'Review cockpit', text: 'Your open pull requests across all repos in one list. AI review reads the diff, you approve the findings that matter, and it drafts the reply.', prepare: () => useApp.getState().setView('workspace') },
+  { anchor: 'reviews', title: 'Review cockpit', text: 'Your open pull requests across all repos in one list. AI review reads the diff, you approve the findings that matter, and it drafts the reply.', prepare: () => {
+      if (useApp.getState().view !== 'workspace') useApp.getState().setView('workspace')
+    }
+  },
   { anchor: 'settings', title: 'Settings', text: 'Accounts for every vendor, model providers, the crew, MCP servers, Jira. Application-wide on the left, per space on the right. ⌘, opens it.' }
 ]
 
@@ -28,13 +31,23 @@ const PAD = 6
 export function Tour({ onClose }: { onClose: () => void }): React.JSX.Element | null {
   const [i, setI] = useState(0)
   const [rect, setRect] = useState<DOMRect | null>(null)
-  const settings = useApp((s) => s.settings)
+  // The parent passes a fresh onClose every render; keep finish stable so the layout effect below
+  // does not re-run on every store change (that looped: prepare → store set → parent render → effect…).
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
   const finish = useCallback((): void => {
+    const { settings } = useApp.getState()
     void api.invoke('settings:update', { onboarding: { ...(settings.onboarding ?? {}), tourDoneAt: new Date().toISOString() } }).catch(() => undefined)
-    onClose()
-  }, [onClose, settings.onboarding])
+    onCloseRef.current()
+  }, [])
 
-  const find = (idx: number): Element | null => document.querySelector(`[data-tour="${STOPS[idx].anchor}"]`)
+  /** The anchor element, if it is in the DOM and actually visible. */
+  const find = (idx: number): Element | null => {
+    const el = document.querySelector(`[data-tour="${STOPS[idx].anchor}"]`)
+    if (!el) return null
+    const r = el.getBoundingClientRect()
+    return r.width > 0 && r.height > 0 ? el : null
+  }
   const step = (dir: 1 | -1): void => {
     let n = i + dir
     while (n >= 0 && n < STOPS.length) {
@@ -52,13 +65,13 @@ export function Tour({ onClose }: { onClose: () => void }): React.JSX.Element | 
       const el = find(i)
       if (!el) {
         // Anchor vanished (e.g. no workspace selected): move on.
-        const next = STOPS.findIndex((_, k) => k > i && document.querySelector(`[data-tour="${STOPS[k].anchor}"]`))
+        const next = STOPS.findIndex((_, k) => k > i && find(k))
         if (next === -1) finish()
         else setI(next)
         return
       }
-      el.scrollIntoView({ block: 'nearest' })
-      setRect(el.getBoundingClientRect())
+      const r = el.getBoundingClientRect()
+      setRect((prev) => (prev && prev.left === r.left && prev.top === r.top && prev.width === r.width && prev.height === r.height ? prev : r))
     }
     measure()
     window.addEventListener('resize', measure)
@@ -67,7 +80,8 @@ export function Tour({ onClose }: { onClose: () => void }): React.JSX.Element | 
       window.removeEventListener('resize', measure)
       clearInterval(t)
     }
-  }, [i, finish])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [i])
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') finish()
