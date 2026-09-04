@@ -140,54 +140,77 @@ function Welcome(): React.JSX.Element {
       <p className="mx-auto mt-2 max-w-[520px] text-[14px] text-muted">A desktop home for agent-driven development across several repositories at once. Three things worth knowing before you start.</p>
       <div className="mt-8 grid grid-cols-3 gap-3 text-left">
         {FEATURES.map((f, i) => (
-          <button key={f.title} onMouseEnter={() => setActive(i)} onClick={() => setActive(i)} className={clsx('flex flex-col rounded-xl border p-4 transition-all duration-300', i === active ? 'border-accent/60 bg-panel shadow-[0_10px_40px_rgba(91,124,255,.12)]' : 'border-border bg-panel/40 hover:border-border')}>
+          <div key={f.title} onMouseEnter={() => setActive(i)} className={clsx('flex flex-col rounded-xl border p-4 transition-all duration-300', i === active ? 'border-accent/60 bg-panel shadow-[0_10px_40px_rgba(91,124,255,.12)]' : 'border-border bg-panel/40')}>
             <div className="flex h-[92px] items-center justify-center">{f.art}</div>
             <div className="mt-3 flex items-center gap-2 text-[13px] font-semibold">
               <span className="text-accent">{f.icon}</span> {f.title}
             </div>
             <p className="mt-1 text-[12px] leading-relaxed text-muted">{f.text}</p>
-          </button>
+          </div>
         ))}
       </div>
     </div>
   )
 }
 
-function ArtRepos(): React.JSX.Element {
+const SVG_TEXT = { fontFamily: 'inherit', fontSize: 10 } as const
+
+function Pill({ x, y, w, label, sub, accent }: { x: number; y: number; w: number; label: string; sub?: string; accent?: boolean }): React.JSX.Element {
+  const h = sub ? 30 : 22
   return (
-    <div className="relative flex flex-col gap-1.5">
-      {['frontend', 'backend', 'infra'].map((n, i) => (
-        <div key={n} className="flex items-center gap-2">
-          <span className="w-[54px] rounded-md border border-border bg-bg px-1.5 py-0.5 text-right text-[10px] text-muted">{n}</span>
-          <span className="h-px w-5 bg-accent/60" />
-          <span className={clsx('h-2 w-2 rounded-full', i === 1 ? 'bg-accent' : 'bg-accent/60')} />
-        </div>
-      ))}
-      <span className="absolute right-[3px] top-[7px] h-[44px] w-px bg-accent/60" />
-      <span className="absolute -right-[64px] top-[22px] rounded-full bg-accent/15 px-1.5 py-px text-[10px] text-accent">feature/login</span>
-    </div>
+    <g>
+      <rect x={x} y={y} width={w} height={h} rx={6} fill={accent ? 'rgba(124,156,255,.12)' : 'var(--color-bg)'} stroke={accent ? 'rgba(124,156,255,.6)' : 'var(--color-border)'} />
+      <text x={x + w / 2} y={y + (sub ? 12 : 15)} textAnchor="middle" fill={accent ? 'var(--color-accent)' : 'var(--color-text)'} style={SVG_TEXT} fontWeight={accent ? 600 : 500}>
+        {label}
+      </text>
+      {sub && (
+        <text x={x + w / 2} y={y + 24} textAnchor="middle" fill="var(--color-muted)" style={{ ...SVG_TEXT, fontSize: 9 }}>
+          {sub}
+        </text>
+      )}
+    </g>
   )
 }
 
-function ArtCrew(): React.JSX.Element {
-  const nodes = [
-    { n: 'explorer', m: 'haiku', x: -66, y: 24 },
-    { n: 'implementer', m: 'codex', x: 0, y: 34 },
-    { n: 'reviewer', m: 'opus', x: 66, y: 24 }
+/** Three repos joined into one branch. */
+function ArtRepos(): React.JSX.Element {
+  const rows = [
+    { n: 'frontend', y: 4 },
+    { n: 'backend', y: 34 },
+    { n: 'infra', y: 64 }
   ]
   return (
-    <div className="relative h-[80px] w-[200px]">
-      <div className="absolute left-1/2 top-0 -translate-x-1/2 rounded-md border border-accent/50 bg-accent/10 px-2 py-0.5 text-[10px] font-medium text-accent">orchestrator</div>
-      {nodes.map((d) => (
-        <React.Fragment key={d.n}>
-          <span className="absolute left-1/2 top-[18px] h-px w-[70px] origin-left bg-border" style={{ transform: `rotate(${Math.atan2(d.y, d.x || 0.001) * (180 / Math.PI)}deg)`, width: Math.hypot(d.x, d.y) }} />
-          <div className="absolute left-1/2 top-[18px] -translate-x-1/2 rounded-md border border-border bg-bg px-1.5 py-0.5 text-center text-[9px] leading-tight" style={{ transform: `translate(${d.x - 24}px, ${d.y}px)` }}>
-            <div className="text-text">{d.n}</div>
-            <div className="text-muted">{d.m}</div>
-          </div>
-        </React.Fragment>
+    <svg width={240} height={90} viewBox="0 0 240 90" aria-hidden>
+      {rows.map((r) => (
+        <g key={r.n}>
+          <Pill x={8} y={r.y} w={70} label={r.n} />
+          <path d={`M78 ${r.y + 11} C 110 ${r.y + 11}, 110 45, 138 45`} fill="none" stroke="rgba(124,156,255,.55)" strokeWidth={1.2} />
+        </g>
       ))}
-    </div>
+      <circle cx={140} cy={45} r={5} fill="var(--color-accent)" />
+      <line x1={145} y1={45} x2={156} y2={45} stroke="rgba(124,156,255,.55)" strokeWidth={1.2} />
+      <Pill x={156} y={34} w={80} label="feature/login" accent />
+    </svg>
+  )
+}
+
+/** An orchestrator delegating to three crew members on different vendors. */
+function ArtCrew(): React.JSX.Element {
+  const kids = [
+    { n: 'explorer', m: 'haiku', x: 6 },
+    { n: 'implementer', m: 'codex', x: 84 },
+    { n: 'reviewer', m: 'opus', x: 162 }
+  ]
+  return (
+    <svg width={240} height={90} viewBox="0 0 240 90" aria-hidden>
+      {kids.map((k) => (
+        <line key={k.n} x1={120} y1={24} x2={k.x + 36} y2={58} stroke="var(--color-border)" strokeWidth={1.2} />
+      ))}
+      <Pill x={78} y={2} w={84} label="orchestrator" accent />
+      {kids.map((k) => (
+        <Pill key={k.n} x={k.x} y={58} w={72} label={k.n} sub={k.m} />
+      ))}
+    </svg>
   )
 }
 
