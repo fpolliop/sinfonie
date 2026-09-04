@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex">
+<title>Sinfonie admin</title>
+<link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
+<style>
+  :root{--bg:#0b0d11;--bg2:#0f1115;--panel:#141821;--panel2:#1b2030;--border:#232a38;--border2:#2d3546;--text:#e8eaf0;--muted:#8f97a8;--dim:#5f6779;--accent:#7c9cff;--accent2:#5b7cff;--ok:#4ade80;--warn:#fbbf24;--danger:#ff6b6b;--pink:#f472b6;--violet:#a78bfa;--mono:ui-monospace,"SF Mono",Menlo,monospace;--sans:-apple-system,BlinkMacSystemFont,"SF Pro Text",Inter,system-ui,sans-serif}
+  *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 var(--sans)}
+  header{display:flex;align-items:center;gap:12px;padding:12px 20px;border-bottom:1px solid var(--border);background:var(--bg2);position:sticky;top:0;z-index:5}
+  header img{width:24px;height:24px;border-radius:6px}header b{font-size:15px}header .who{margin-left:auto;font:12px var(--mono);color:var(--dim)}
+  main{max-width:1180px;margin:0 auto;padding:20px}
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:18px}
+  .stat{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:12px 14px}
+  .stat .n{font-size:26px;font-weight:700;letter-spacing:-.02em}.stat .l{font:11px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--dim)}.stat .w{font-size:12px;color:var(--muted)}
+  .bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+  .tabs{display:flex;background:var(--panel);border:1px solid var(--border);border-radius:9px;padding:3px}
+  .tabs button{background:none;border:0;color:var(--muted);padding:6px 12px;border-radius:7px;cursor:pointer;font:13px var(--sans)}.tabs button.on{background:var(--panel2);color:var(--text)}
+  input,select,textarea{background:var(--bg2);border:1px solid var(--border2);border-radius:8px;color:var(--text);padding:7px 10px;font:13px var(--sans);outline:none}input:focus,select:focus,textarea:focus{border-color:var(--accent)}
+  .search{flex:1;min-width:200px}
+  table{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+  th{font:11px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--dim);text-align:left;padding:10px 12px;border-bottom:1px solid var(--border)}
+  td{padding:10px 12px;border-bottom:1px solid var(--border);vertical-align:top}
+  tr.row{cursor:pointer}tr.row:hover td{background:rgba(255,255,255,.02)}
+  .k{font:11px var(--mono);padding:2px 7px;border-radius:999px;border:1px solid var(--border2)}
+  .k.feature{color:var(--accent);border-color:rgba(124,156,255,.5)}.k.bug{color:var(--warn);border-color:rgba(251,191,36,.5)}.k.crash{color:var(--danger);border-color:rgba(255,107,107,.5)}.k.feedback{color:var(--violet);border-color:rgba(167,139,250,.5)}
+  .s{font:11px var(--mono);color:var(--muted)}.s.done{color:var(--ok)}.s.planned{color:var(--accent)}.s.in-progress{color:var(--warn)}.s.wontfix{color:var(--dim)}
+  .msg{max-width:560px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .meta{font:11px var(--mono);color:var(--dim);white-space:nowrap}
+  tr.detail td{background:var(--bg2);padding:14px 16px}
+  pre{margin:8px 0 0;background:#0a0c10;border:1px solid var(--border);border-radius:8px;padding:10px 12px;overflow:auto;font:12px/1.5 var(--mono);white-space:pre-wrap;max-height:360px}
+  .actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}
+  .btn{background:var(--panel2);border:1px solid var(--border2);color:var(--text);padding:6px 10px;border-radius:8px;cursor:pointer;font:13px var(--sans)}.btn.danger{color:var(--danger)}.btn.primary{background:var(--accent2);border-color:transparent;color:#fff}
+  .empty{padding:30px;text-align:center;color:var(--muted)}
+  .gate{max-width:420px;margin:80px auto;background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:22px}
+  .gate p{color:var(--muted);font-size:13px}
+</style>
+</head>
+<body>
+<header><img src="/assets/logo.svg" alt=""><b>Sinfonie admin</b><span class="who" id="who"></span></header>
+<main>
+  <div id="gate" class="gate" hidden>
+    <b>Admin token</b>
+    <p>Cloudflare Access is not configured yet, so this page falls back to the admin token. Once Access protects /admin, this prompt disappears and only your email can get in.</p>
+    <input id="tok" type="password" placeholder="ADMIN_TOKEN" style="width:100%"><div class="actions"><button class="btn primary" id="tokgo">Continue</button></div>
+  </div>
+  <div id="app" hidden>
+    <div class="stats" id="stats"></div>
+    <div class="bar">
+      <div class="tabs" id="tabs">
+        <button data-k="" class="on">All</button><button data-k="feature">Features</button><button data-k="bug">Bugs</button><button data-k="feedback">Feedback</button><button data-k="crash">Crashes</button>
+      </div>
+      <select id="status"><option value="">Any status</option><option value="new">New</option><option value="planned">Planned</option><option value="in-progress">In progress</option><option value="done">Done</option><option value="wontfix">Won't fix</option></select>
+      <input class="search" id="q" placeholder="Search message, email, version…">
+      <button class="btn" id="reload">Reload</button>
+    </div>
+    <table><thead><tr><th>#</th><th>Kind</th><th>Status</th><th>Message</th><th>From</th><th>When</th></tr></thead><tbody id="rows"></tbody></table>
+    <div class="empty" id="empty" hidden>Nothing here.</div>
+  </div>
+</main>
+<script>
+(function(){
+  var token = localStorage.getItem('sinfonie.adminToken') || ''
+  var state = { kind: '', status: '', q: '', items: [], open: null }
+  var $ = function(id){ return document.getElementById(id) }
+  function headers(){ var h = { 'Content-Type': 'application/json' }; if (token) h.Authorization = 'Bearer ' + token; return h }
+  function ago(iso){ if(!iso) return ''; var s=(Date.now()-new Date(iso.replace(' ','T')+'Z').getTime())/1000; if(s<60) return 'just now'; if(s<3600) return Math.floor(s/60)+'m ago'; if(s<86400) return Math.floor(s/3600)+'h ago'; return Math.floor(s/86400)+'d ago' }
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c] }) }
+  function load(){
+    var p = new URLSearchParams(); if(state.kind) p.set('kind', state.kind); if(state.status) p.set('status', state.status); if(state.q) p.set('q', state.q)
+    fetch('/api/admin/feedback?' + p, { headers: headers() }).then(function(r){ if(r.status===401) throw new Error('unauthorized'); return r.json() }).then(function(d){
+      $('gate').hidden = true; $('app').hidden = false
+      $('who').textContent = d.who + (d.via==='token' ? ' · token' : ' · Cloudflare Access')
+      state.items = d.items; render(); renderStats(d.counts)
+    }).catch(function(e){ if (String(e.message).indexOf('unauthorized')>=0) { localStorage.removeItem('sinfonie.adminToken'); token=''; $('app').hidden = true; $('gate').hidden = false } else { alert(e.message) } })
+  }
+  function renderStats(counts){
+    var by = {}; counts.forEach(function(c){ var k=by[c.kind]||(by[c.kind]={n:0,open:0,week:0,hits:0}); k.n+=c.n; k.week+=c.week; k.hits+=c.hits||0; if(c.status!=='done'&&c.status!=='wontfix') k.open+=c.n })
+    var order = ['feature','bug','feedback','crash']
+    $('stats').innerHTML = order.map(function(k){ var v=by[k]||{n:0,open:0,week:0,hits:0}; return '<div class="stat"><div class="l">'+k+'</div><div class="n">'+v.open+'</div><div class="w">open · '+v.n+' total · '+v.week+' this week'+(k==='crash'?' · '+v.hits+' hits':'')+'</div></div>' }).join('')
+  }
+  function render(){
+    var tb = $('rows'); tb.innerHTML = ''
+    $('empty').hidden = state.items.length > 0
+    state.items.forEach(function(it){
+      var tr = document.createElement('tr'); tr.className='row'
+      tr.innerHTML = '<td class="meta">'+it.id+'</td><td><span class="k '+esc(it.kind)+'">'+esc(it.kind)+'</span>'+(it.count>1?' <span class="meta">×'+it.count+'</span>':'')+'</td><td><span class="s '+esc(it.status)+'">'+esc(it.status)+'</span></td><td class="msg" title="'+esc(it.message)+'">'+esc(it.message)+'</td><td class="meta">'+esc(it.email||it.source)+(it.app_version?' · '+esc(it.app_version):'')+'</td><td class="meta">'+ago(it.created_at)+'</td>'
+      tr.onclick = function(){ state.open = state.open===it.id ? null : it.id; render() }
+      tb.appendChild(tr)
+      if (state.open === it.id) {
+        var d = document.createElement('tr'); d.className='detail'
+        var ctx = it.context && typeof it.context==='object' ? it.context : null
+        var stack = ctx && (ctx.stack || ctx.errorsLog) ? '<pre>'+esc(ctx.stack || ctx.errorsLog)+'</pre>' : ''
+        var rest = ctx ? Object.keys(ctx).filter(function(k){return k!=='stack'&&k!=='errorsLog'}).map(function(k){ return esc(k)+': '+esc(typeof ctx[k]==='string'?ctx[k]:JSON.stringify(ctx[k])) }).join(' · ') : ''
+        d.innerHTML = '<td colspan="6"><div style="white-space:pre-wrap">'+esc(it.message)+'</div>'+stack+(rest?'<div class="meta" style="margin-top:8px;white-space:normal">'+rest+'</div>':'')+
+          '<div class="meta" style="margin-top:6px;white-space:normal">'+esc(it.source)+' · '+esc(it.os||'')+' · '+esc(it.ip_country||'')+' · '+esc(it.created_at)+(it.email?' · <a href="mailto:'+esc(it.email)+'" style="color:var(--accent)">'+esc(it.email)+'</a>':'')+'</div>'+
+          '<div class="actions"><select data-act="status">'+['new','planned','in-progress','done','wontfix'].map(function(s){return '<option value="'+s+'"'+(s===it.status?' selected':'')+'>'+s+'</option>'}).join('')+'</select>'+
+          '<input data-act="note" placeholder="Note" value="'+esc(it.note||'')+'" style="flex:1;min-width:200px"><button class="btn" data-act="save">Save</button><button class="btn danger" data-act="del">Delete</button></div></td>'
+        d.querySelector('[data-act=save]').onclick = function(e){ e.stopPropagation(); fetch('/api/admin/feedback/'+it.id, { method:'PATCH', headers: headers(), body: JSON.stringify({ status: d.querySelector('[data-act=status]').value, note: d.querySelector('[data-act=note]').value }) }).then(load) }
+        d.querySelector('[data-act=del]').onclick = function(e){ e.stopPropagation(); if (!confirm('Delete #'+it.id+'?')) return; fetch('/api/admin/feedback/'+it.id, { method:'DELETE', headers: headers() }).then(load) }
+        d.querySelectorAll('select,input').forEach(function(el){ el.onclick = function(e){ e.stopPropagation() } })
+        tb.appendChild(d)
+      }
+    })
+  }
+  $('tabs').addEventListener('click', function(e){ var b=e.target.closest('button'); if(!b) return; state.kind=b.dataset.k; $('tabs').querySelectorAll('button').forEach(function(x){x.classList.toggle('on',x===b)}); load() })
+  $('status').onchange = function(){ state.status=this.value; load() }
+  var t; $('q').oninput = function(){ clearTimeout(t); var v=this.value; t=setTimeout(function(){ state.q=v; load() }, 250) }
+  $('reload').onclick = load
+  $('tokgo').onclick = function(){ token = $('tok').value.trim(); localStorage.setItem('sinfonie.adminToken', token); load() }
+  $('tok').addEventListener('keydown', function(e){ if(e.key==='Enter') $('tokgo').click() })
+  load()
+})()
+</script>
+</body>
+</html>

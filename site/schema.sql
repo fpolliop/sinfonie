@@ -13,3 +13,6 @@ CREATE TABLE IF NOT EXISTS feedback (
   count INTEGER NOT NULL DEFAULT 1
 );
 CREATE INDEX IF NOT EXISTS feedback_kind_created ON feedback (kind, created_at);
+ALTER TABLE feedback ADD COLUMN status TEXT NOT NULL DEFAULT 'new';
+ALTER TABLE feedback ADD COLUMN note TEXT;
+CREATE INDEX IF NOT EXISTS feedback_status ON feedback (status);
