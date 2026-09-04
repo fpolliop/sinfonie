@@ -30,6 +30,7 @@ import * as accounts from './services/accounts'
 import * as reviews from './services/reviews'
 import * as sessionsSvc from './services/sessions'
 import { checkForUpdate, latestKnownUpdate } from './services/updates'
+import { logsDir, sendFeedback } from './services/telemetry'
 
 function send<C extends keyof SinfonieEvents>(channel: C, payload: SinfonieEvents[C]): void {
   for (const win of BrowserWindow.getAllWindows()) win.webContents.send(channel, payload)
@@ -313,6 +314,20 @@ export function registerIpc(): void {
   handle('jira:issue', (conn, key) => jira.issue(conn, key))
   handle('updates:check', async () => (await checkForUpdate()) ?? latestKnownUpdate())
   handle('app:version', () => app.getVersion())
+  handle('feedback:send', async (p) => {
+    let logs: string | undefined
+    if (p.includeLogs) {
+      try {
+        logs = readFileSync(join(logsDir(), 'errors.log'), 'utf8').slice(-15000)
+      } catch {
+        logs = undefined
+      }
+    }
+    return sendFeedback({ kind: p.kind, message: p.message, email: p.email, context: logs ? { errorsLog: logs } : undefined })
+  })
+  handle('logs:open', () => {
+    void shell.openPath(logsDir())
+  })
   handle('shell:openExternal', (url) => {
     if (/^https?:\/\//.test(url)) void shell.openExternal(url)
   })

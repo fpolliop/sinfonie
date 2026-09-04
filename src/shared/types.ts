@@ -248,6 +248,8 @@ export interface Settings {
   strictMcp?: boolean
   /** Default crew for spaces without their own. */
   agents: AgentSpec[]
+  /** Send anonymised crash reports (error message, stack, version, OS) to sinfonie.dev. Default on. */
+  crashReports?: boolean
 }
 
 // ---- Review cockpit ----

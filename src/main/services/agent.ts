@@ -8,6 +8,7 @@ import { getStore } from '../store'
 import { getWorkspace, patchWorkspace } from './workspaces'
 import { accountEnv } from './accounts'
 import * as jira from './jira'
+import { logError } from './telemetry'
 import type { McpServerSpec } from '@shared/types'
 
 type EmitEvent = (e: AgentEvent) => void
@@ -491,6 +492,7 @@ async function pump(session: Session, emit: EmitEvent): Promise<void> {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     if (!session.abort.signal.aborted) {
+      logError('agent:session', err, { workspaceId, stderr: session.stderr.slice(-5) })
       const tail = session.stderr.slice(-5).join(' | ')
       notice('error', `The session ended unexpectedly: ${message}${tail ? ` · stderr: ${tail}` : ''}`)
       emit({ type: 'error', workspaceId, message })

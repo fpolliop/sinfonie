@@ -3,69 +3,529 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sinfonie — multi-repo agent workspaces</title>
-<meta name="description" content="Sinfonie is a desktop app for running coding agents across several repositories at once: one workspace, one branch, a worktree per repo, and a crew of models.">
+<title>Sinfonie — one workspace across all your repositories</title>
+<meta name="description" content="Sinfonie is a macOS app for running Claude Code across several repositories at once: one workspace, one branch, a worktree per repo, and a crew of models that plan, explore, implement, test and review.">
+<meta property="og:title" content="Sinfonie — one workspace across all your repositories">
+<meta property="og:description" content="Multi-repo agent workspaces with a crew of models. Built for full-stack work.">
+<meta property="og:url" content="https://sinfonie.dev">
+<meta name="theme-color" content="#0b0d11">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230f1115'/%3E%3Crect x='14' y='30' width='8' height='20' rx='4' fill='%237c9cff'/%3E%3Crect x='28' y='16' width='8' height='34' rx='4' fill='%235b7cff'/%3E%3Crect x='42' y='24' width='8' height='26' rx='4' fill='%237c9cff'/%3E%3C/svg%3E">
 <style>
-  :root{--bg:#0f1115;--panel:#161920;--border:#262b35;--text:#e6e8ec;--muted:#8b93a1;--accent:#7c9cff;--accent2:#5b7cff}
-  *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.55 -apple-system,BlinkMacSystemFont,"SF Pro Text",Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
-  main{max-width:820px;margin:0 auto;padding:72px 24px 96px}
-  .logo{display:flex;align-items:center;gap:12px;font-weight:600;font-size:18px}
-  .logo span{display:inline-flex;width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,#5b7cff,#7c9cff);align-items:flex-end;justify-content:center;gap:3px;padding:7px}
-  .logo i{display:block;width:4px;background:#fff;border-radius:2px}
-  h1{font-size:40px;line-height:1.15;margin:40px 0 12px;letter-spacing:-.02em}
-  .lead{color:var(--muted);font-size:18px;max-width:640px}
-  .cta{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:32px 0 8px}
-  .btn{display:inline-flex;align-items:center;gap:8px;background:var(--accent2);color:#fff;text-decoration:none;padding:12px 20px;border-radius:10px;font-weight:600}
-  .btn:hover{background:var(--accent)}
-  .btn.secondary{background:var(--panel);border:1px solid var(--border);color:var(--text)}
-  .note{color:var(--muted);font-size:13px}
-  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-top:56px}
-  .card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px}
-  .card h3{margin:0 0 6px;font-size:15px}.card p{margin:0;color:var(--muted);font-size:14px}
-  pre{background:#0b0d11;border:1px solid var(--border);border-radius:10px;padding:14px 16px;overflow:auto;font-size:13px;color:var(--muted)}
-  footer{margin-top:64px;color:var(--muted);font-size:13px;display:flex;gap:16px;flex-wrap:wrap}
-  footer a{color:var(--muted)}
-  h2{font-size:22px;margin:56px 0 12px;letter-spacing:-.01em}
+  :root{
+    --bg:#0b0d11;--bg2:#0f1115;--panel:#141821;--panel2:#1b2030;--border:#232a38;--border2:#2d3546;
+    --text:#e8eaf0;--muted:#8f97a8;--dim:#5f6779;
+    --accent:#7c9cff;--accent2:#5b7cff;--violet:#a78bfa;--ok:#4ade80;--warn:#fbbf24;--pink:#f472b6;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"SF Pro Text",Inter,system-ui,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--text);font:15px/1.6 var(--sans);-webkit-font-smoothing:antialiased;overflow-x:hidden}
+  a{color:inherit}
+  ::selection{background:rgba(124,156,255,.35)}
+
+  /* grid backdrop */
+  body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+    background-image:linear-gradient(rgba(255,255,255,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.035) 1px,transparent 1px);
+    background-size:48px 48px;mask-image:radial-gradient(ellipse 80% 60% at 50% 0%,#000 30%,transparent 70%)}
+  .wrap{position:relative;z-index:1;max-width:1120px;margin:0 auto;padding:0 24px}
+
+  /* nav */
+  nav{position:sticky;top:0;z-index:20;backdrop-filter:blur(14px);background:rgba(11,13,17,.7);border-bottom:1px solid rgba(255,255,255,.05)}
+  nav .wrap{display:flex;align-items:center;gap:28px;height:60px}
+  .logo{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:-.01em;text-decoration:none}
+  .logo .mark{width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,#5b7cff,#a78bfa);display:flex;align-items:flex-end;justify-content:center;gap:2.5px;padding:6px}
+  .logo .mark i{display:block;width:3.5px;background:#fff;border-radius:2px}
+  nav .links{display:flex;gap:22px;margin-left:8px;font-size:14px;color:var(--muted)}
+  nav .links a{text-decoration:none}nav .links a:hover{color:var(--text)}
+  nav .right{margin-left:auto;display:flex;gap:10px;align-items:center}
+  .btn{display:inline-flex;align-items:center;gap:8px;padding:10px 16px;border-radius:10px;font-weight:600;font-size:14px;text-decoration:none;border:1px solid transparent;transition:transform .15s,background .15s,border-color .15s;cursor:pointer;white-space:nowrap}
+  .btn.primary{background:linear-gradient(135deg,#5b7cff,#7c9cff);color:#fff;box-shadow:0 8px 30px rgba(91,124,255,.25)}
+  .btn.primary:hover{transform:translateY(-1px);box-shadow:0 10px 36px rgba(91,124,255,.35)}
+  .btn.ghost{background:rgba(255,255,255,.04);border-color:var(--border2);color:var(--text)}
+  .btn.ghost:hover{background:rgba(255,255,255,.07)}
+  .btn.sm{padding:7px 12px;font-size:13px}
+  .kbd{font:12px var(--mono);padding:2px 6px;border:1px solid var(--border2);border-bottom-width:2px;border-radius:5px;background:var(--panel);color:var(--muted)}
+
+  /* hero */
+  header.hero{position:relative;padding:96px 0 40px;overflow:hidden}
+  #stage{position:absolute;inset:0;z-index:0;opacity:.9}
+  header .wrap{position:relative;z-index:1}
+  .eyebrow{display:inline-flex;align-items:center;gap:8px;font:12px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--accent);border:1px solid rgba(124,156,255,.3);background:rgba(124,156,255,.08);padding:5px 10px;border-radius:999px}
+  .eyebrow .dot{width:6px;height:6px;border-radius:50%;background:var(--ok);box-shadow:0 0 12px var(--ok)}
+  h1{font-size:clamp(38px,6vw,68px);line-height:1.04;letter-spacing:-.035em;margin:22px 0 18px;max-width:900px;font-weight:750}
+  h1 .grad{background:linear-gradient(90deg,#7c9cff,#a78bfa 60%,#f472b6);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .lead{font-size:clamp(17px,2vw,20px);color:var(--muted);max-width:680px;margin:0 0 30px}
+  .lead b{color:var(--text);font-weight:600}
+  .cta{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+  .cta .meta{font:12px var(--mono);color:var(--dim)}
+  .cta .meta span{color:var(--muted)}
+
+  /* app mock */
+  .mock{margin:64px auto 0;max-width:1040px;border:1px solid var(--border2);border-radius:14px;background:linear-gradient(180deg,#12161f,#0e1117);box-shadow:0 40px 120px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,.02) inset;overflow:hidden;position:relative}
+  .mock::before{content:"";position:absolute;inset:-1px;border-radius:15px;padding:1px;background:linear-gradient(135deg,rgba(124,156,255,.5),transparent 40%,transparent 60%,rgba(167,139,250,.4));-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;pointer-events:none}
+  .titlebar{height:38px;display:flex;align-items:center;gap:8px;padding:0 14px;border-bottom:1px solid var(--border)}
+  .titlebar i{width:11px;height:11px;border-radius:50%;background:#2c3242}
+  .titlebar i:nth-child(1){background:#ff5f57}.titlebar i:nth-child(2){background:#febc2e}.titlebar i:nth-child(3){background:#28c840}
+  .titlebar .t{margin-left:10px;font:12px var(--mono);color:var(--dim)}
+  .body{display:grid;grid-template-columns:230px 1fr;min-height:440px}
+  .side{border-right:1px solid var(--border);padding:12px;font-size:12px}
+  .side .sp{display:flex;align-items:center;gap:8px;font-weight:600;margin:6px 4px 12px}
+  .side .sp i{width:9px;height:9px;border-radius:50%;background:#4ade80}
+  .side .grp{font:11px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--dim);margin:12px 4px 6px}
+  .ws{padding:8px 10px;border-radius:8px;margin-bottom:3px;color:var(--muted)}
+  .ws b{display:block;color:var(--text);font-weight:600;font-size:12.5px}
+  .ws small{font:11px var(--mono);color:var(--dim)}
+  .ws.on{background:var(--panel2)}
+  .ws .lab{display:inline-block;font-size:10px;padding:1px 6px;border-radius:999px;border:1px solid rgba(244,114,182,.5);color:var(--pink);margin-top:3px}
+  .dots{margin-top:auto;display:flex;gap:6px;align-items:center;padding:10px 4px 0;border-top:1px solid var(--border)}
+  .dots i{width:8px;height:8px;border-radius:50%;background:#8b93a1;opacity:.6}
+  .dots .cur{opacity:1;background:#4ade80;width:auto;height:auto;padding:2px 8px;border-radius:999px;color:#0b0d11;font:10px var(--mono);font-weight:700}
+  .main{display:flex;flex-direction:column}
+  .hdr{display:flex;align-items:center;gap:8px;padding:10px 16px;border-bottom:1px solid var(--border);font-size:12px}
+  .hdr b{font-size:13px}
+  .pill{font-size:10.5px;padding:2px 8px;border-radius:999px;border:1px solid var(--border2);color:var(--muted)}
+  .pill.acc{color:var(--accent);border-color:rgba(124,156,255,.4)}
+  .pill.warn{color:var(--warn);border-color:rgba(251,191,36,.4)}
+  .chat{flex:1;padding:16px 18px;display:flex;flex-direction:column;gap:10px;font-size:12.5px}
+  .me{align-self:flex-end;background:rgba(91,124,255,.22);padding:8px 12px;border-radius:14px 14px 4px 14px;max-width:80%}
+  .ai{color:var(--muted);max-width:90%}
+  .tool{display:flex;align-items:center;gap:8px;border:1px solid var(--border);border-radius:8px;padding:6px 10px;font:11.5px var(--mono);color:var(--muted);opacity:0;transform:translateY(6px);transition:opacity .35s,transform .35s}
+  .tool.show{opacity:1;transform:none}
+  .tool.agent{border-color:rgba(124,156,255,.4)}
+  .tool .n{color:var(--accent);font-weight:600}
+  .tool .m{font-size:10px;background:var(--panel2);padding:1px 5px;border-radius:4px}
+  .tool .st{margin-left:auto}
+  .tool .st.ok{color:var(--ok)}
+  .spin{width:9px;height:9px;border:2px solid #444c5c;border-top-color:var(--accent);border-radius:50%;animation:sp .8s linear infinite;display:inline-block}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  .crew{display:flex;gap:6px;flex-wrap:wrap;padding:0 18px 12px;font:11px var(--mono)}
+  .chip{display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:999px;border:1px solid var(--border2);color:var(--muted)}
+  .chip.orch{color:var(--accent);border-color:rgba(124,156,255,.5)}
+  .chip.run{color:var(--warn);border-color:rgba(251,191,36,.5);background:rgba(251,191,36,.08)}
+  .composer{margin:0 18px 16px;border:1px solid var(--border2);border-radius:12px;padding:10px 12px;font-size:12.5px;color:var(--dim);display:flex;align-items:center;gap:8px}
+  .composer .cur{width:7px;height:14px;background:var(--accent);animation:blink 1s steps(1) infinite}
+  @keyframes blink{50%{opacity:0}}
+
+  /* sections */
+  section{padding:88px 0}
+  .sec-head{max-width:640px;margin-bottom:40px}
+  .sec-head .eyebrow{color:var(--violet);border-color:rgba(167,139,250,.3);background:rgba(167,139,250,.08)}
+  h2{font-size:clamp(28px,3.6vw,40px);letter-spacing:-.03em;line-height:1.1;margin:16px 0 12px;font-weight:720}
+  .sec-head p{color:var(--muted);font-size:16px;margin:0}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}
+  .card{background:linear-gradient(180deg,rgba(255,255,255,.03),rgba(255,255,255,.01));border:1px solid var(--border);border-radius:14px;padding:22px;position:relative;overflow:hidden;transition:border-color .2s,transform .2s}
+  .card:hover{border-color:var(--border2);transform:translateY(-2px)}
+  .card .ic{width:36px;height:36px;border-radius:9px;display:grid;place-items:center;background:rgba(124,156,255,.12);color:var(--accent);margin-bottom:14px}
+  .card h3{margin:0 0 6px;font-size:16px;letter-spacing:-.01em}
+  .card p{margin:0;color:var(--muted);font-size:14px}
+  .card code{font:12px var(--mono);color:var(--accent)}
+
+  /* steps */
+  .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;counter-reset:s}
+  .step{padding:22px;border:1px solid var(--border);border-radius:14px;background:var(--bg2)}
+  .step .n{font:13px var(--mono);color:var(--accent);margin-bottom:10px}
+  .step h3{margin:0 0 8px;font-size:17px}.step p{margin:0;color:var(--muted);font-size:14px}
+  .tree{margin-top:14px;font:12px var(--mono);color:var(--muted);line-height:1.7;white-space:pre}
+  .tree b{color:var(--text);font-weight:600}.tree .b{color:var(--ok)}
+
+  /* crew */
+  .split{display:grid;grid-template-columns:1.1fr .9fr;gap:40px;align-items:start}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{text-align:left;padding:12px 10px;border-bottom:1px solid var(--border);vertical-align:top}
+  th{font:11px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--dim);font-weight:600}
+  td .m{font:12px var(--mono);padding:2px 7px;border-radius:5px;background:var(--panel2);color:var(--accent)}
+  td .ro{font:11px var(--mono);color:var(--dim)}
+  .quote{border-left:3px solid var(--accent);padding:6px 16px;color:var(--muted);font-size:15px;margin:18px 0}
+  .quote b{color:var(--text)}
+
+  /* code */
+  pre{margin:0;background:#0a0c10;border:1px solid var(--border);border-radius:14px;padding:18px 20px;overflow:auto;font:13px/1.65 var(--mono);color:#c9d1d9}
+  pre .k{color:#7c9cff}pre .s{color:#a5d6ff}pre .c{color:#5f6779}pre .p{color:#a78bfa}
+  .codehead{display:flex;align-items:center;gap:8px;font:12px var(--mono);color:var(--dim);margin-bottom:8px}
+  .codehead i{width:8px;height:8px;border-radius:50%;background:var(--ok)}
+
+  /* faq */
+  details{border:1px solid var(--border);border-radius:12px;padding:0 18px;margin-bottom:10px;background:var(--bg2)}
+  summary{cursor:pointer;padding:16px 0;font-weight:600;list-style:none;display:flex;align-items:center;gap:10px}
+  summary::-webkit-details-marker{display:none}
+  summary::before{content:"+";font:16px var(--mono);color:var(--accent);width:16px}
+  details[open] summary::before{content:"−"}
+  details p{margin:0 0 16px 26px;color:var(--muted);font-size:14.5px}
+  details code{font:12.5px var(--mono);background:var(--panel);padding:1px 5px;border-radius:4px}
+
+  /* download band */
+  .band{border:1px solid var(--border2);border-radius:20px;padding:48px;text-align:center;background:radial-gradient(60% 100% at 50% 0%,rgba(91,124,255,.18),transparent 70%),var(--bg2)}
+  .band h2{margin-top:0}
+  .band .sys{font:12px var(--mono);color:var(--dim);margin-top:14px}
+
+  footer{border-top:1px solid var(--border);padding:28px 0 40px;color:var(--dim);font-size:13px}
+  footer .wrap{display:flex;gap:20px;flex-wrap:wrap;align-items:center}
+  footer a{color:var(--muted);text-decoration:none}footer a:hover{color:var(--text)}
+  footer .sp{margin-left:auto}
+
+
+  /* feedback form */
+  .fb{border:1px solid var(--border);border-radius:16px;padding:18px;background:var(--bg2);display:flex;flex-direction:column;gap:12px}
+  .fb-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .fb-kind{position:relative}.fb-kind input{position:absolute;opacity:0}
+  .fb-kind span{display:inline-block;padding:6px 12px;border-radius:999px;border:1px solid var(--border2);color:var(--muted);font-size:13px;cursor:pointer}
+  .fb-kind input:checked+span{border-color:rgba(124,156,255,.6);background:rgba(124,156,255,.12);color:var(--accent)}
+  .fb textarea,.fb input[type=email]{width:100%;background:var(--bg);border:1px solid var(--border2);border-radius:10px;padding:10px 12px;color:var(--text);font:14px var(--sans);outline:none}
+  .fb textarea:focus,.fb input:focus{border-color:var(--accent)}
+  .fb input[type=email]{flex:1;min-width:200px}
+  .fb-status{font:12px var(--mono);color:var(--muted);min-height:16px}
+  .fb-status.ok{color:var(--ok)}.fb-status.err{color:#ff6b6b}
+
+  .reveal{opacity:0;transform:translateY(14px);transition:opacity .6s ease,transform .6s ease}
+  .reveal.in{opacity:1;transform:none}
+
+  @media (max-width:900px){.body{grid-template-columns:1fr}.side{display:none}.split{grid-template-columns:1fr}.steps{grid-template-columns:1fr}nav .links{display:none}}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}.reveal{opacity:1;transform:none}}
 </style>
 </head>
 <body>
-<main>
-  <div class="logo"><span><i style="height:8px"></i><i style="height:16px"></i><i style="height:12px"></i></span>Sinfonie</div>
-  <h1>One workspace across all your repositories.</h1>
-  <p class="lead">Sinfonie runs Claude Code in isolated workspaces the way Conductor does, with one difference that matters for full-stack work: a workspace creates a worktree on the same branch in every repository you pick, and a crew of models works across them.</p>
-  <div class="cta">
-    <a class="btn" id="download" href="https://github.com/fpolliop/sinfonie-releases/releases/latest">Download for Mac <span id="ver"></span></a>
-    <a class="btn secondary" href="https://github.com/fpolliop/sinfonie-releases/releases">Release notes</a>
+
+<nav>
+  <div class="wrap">
+    <a class="logo" href="#"><span class="mark"><i style="height:6px"></i><i style="height:14px"></i><i style="height:10px"></i></span>Sinfonie</a>
+    <div class="links">
+      <a href="#features">Features</a><a href="#how">How it works</a><a href="#crew">Crew</a><a href="#faq">FAQ</a><a href="#feedback">Feedback</a>
+    </div>
+    <div class="right">
+      <a class="btn ghost sm" href="https://github.com/fpolliop/sinfonie-releases/releases">Release notes</a>
+      <a class="btn primary sm dl" href="https://github.com/fpolliop/sinfonie-releases/releases/latest">Download</a>
+    </div>
   </div>
-  <p class="note" id="arch">Apple Silicon. Needs a Claude Code login and git.</p>
+</nav>
 
-  <div class="grid">
-    <div class="card"><h3>Multi-repo workspaces</h3><p>Frontend and backend on one branch, side by side, created and archived together.</p></div>
-    <div class="card"><h3>A crew of models</h3><p>An orchestrator delegates exploration, tests and implementation to cheaper or more focused agents.</p></div>
-    <div class="card"><h3>Review cockpit</h3><p>AI review of open pull requests, findings you approve one by one, posted as a single GitHub review.</p></div>
-    <div class="card"><h3>Jira, GitHub, MCP</h3><p>Start work from a ticket, see PR status and review threads, hand Claude the MCP servers each space needs.</p></div>
-    <div class="card"><h3>Spaces</h3><p>Personal, work, client: each space owns its repos, Jira, accounts and defaults.</p></div>
-    <div class="card"><h3>conductor.json compatible</h3><p>Your existing setup, run and archive scripts keep working, ports included.</p></div>
+<header class="hero">
+  <canvas id="stage" aria-hidden="true"></canvas>
+  <div class="wrap">
+    <span class="eyebrow"><i class="dot"></i> macOS · Apple Silicon · <span id="hv">v0.1.0</span></span>
+    <h1>One workspace across <span class="grad">all your repositories.</span></h1>
+    <p class="lead">Full-stack features live in two repos. Sinfonie runs Claude Code in isolated workspaces like Conductor does, with the difference that matters: <b>a workspace is a worktree on the same branch in every repo you pick</b>, and a crew of models works across them.</p>
+    <div class="cta">
+      <a class="btn primary dl" href="https://github.com/fpolliop/sinfonie-releases/releases/latest">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
+        Download for Mac
+      </a>
+      <a class="btn ghost" href="#how">See how it works</a>
+      <span class="meta"><span id="hsize"></span> Free while in beta · unsigned build, right-click → Open</span>
+    </div>
+
+    <div class="mock" id="mock" aria-label="Sinfonie app preview">
+      <div class="titlebar"><i></i><i></i><i></i><span class="t">Sinfonie — Lumepic / enhanced-packages</span></div>
+      <div class="body">
+        <aside class="side" style="display:flex;flex-direction:column">
+          <div class="sp"><i></i> Lumepic <span style="color:var(--dim);font-weight:400">3</span></div>
+          <div class="grp">In progress</div>
+          <div class="ws on"><b>enhanced-packages</b><small>SD-3825 · 2 repos · 1m</small><br><span class="lab">priority</span></div>
+          <div class="ws"><b>admin-accreditations</b><small>SD-3801 · 2 repos · 2h</small></div>
+          <div class="grp">In review</div>
+          <div class="ws"><b>attribution</b><small>SD-3787 · 3 repos · 1d</small></div>
+          <div class="dots"><i></i><span class="cur">Lumepic</span><i></i><i></i></div>
+        </aside>
+        <div class="main">
+          <div class="hdr"><b>enhanced-packages</b><span class="pill">In progress</span><span class="pill acc">frontend-monorepo</span><span class="pill">backend-services</span><span class="pill warn" style="margin-left:auto">PR #7932 · 2 threads</span></div>
+          <div class="chat" id="chat">
+            <div class="me">Implement SD-3825: assign the enhanced-packages arm per buyer via PostHog. Backend in backend-services, UI in frontend-monorepo. Explore, implement both sides, run the tests, review before you report back.</div>
+            <div class="ai" id="ai1">Splitting this across the crew. Two independent delegations first.</div>
+            <div class="tool agent" data-t="900"><span class="n">explorer</span><span class="m">haiku-4-5</span>Find where package arms are resolved in both repos<span class="st"><i class="spin"></i></span></div>
+            <div class="tool agent" data-t="1500"><span class="n">implementer</span><span class="m">sonnet-5</span>backend-services: PostHog flag evaluation for buyer arm<span class="st"><i class="spin"></i></span></div>
+            <div class="tool agent" data-t="2100"><span class="n">implementer</span><span class="m">sonnet-5</span>frontend-monorepo: read arm from purchase payload<span class="st"><i class="spin"></i></span></div>
+            <div class="tool" data-t="3600"><span class="n" style="color:var(--text)">tester</span><span class="m">haiku-4-5</span>pnpm test --filter spotted-api · 212 passed<span class="st ok">done</span></div>
+            <div class="tool agent" data-t="4300"><span class="n">reviewer</span><span class="m">opus-5</span>Diff review: 2 findings, safe to commit after fixing the nil guard<span class="st ok">done</span></div>
+          </div>
+          <div class="crew" id="crewbar">
+            <span class="chip orch"><i class="spin"></i> orchestrator <span style="opacity:.6">opus-5</span></span>
+          </div>
+          <div class="composer"><span id="typed"></span><span class="cur"></span></div>
+        </div>
+      </div>
+    </div>
   </div>
+</header>
 
-  <h2>Installing an unsigned build</h2>
-  <p class="note">Sinfonie is not notarized yet. On first launch macOS may block it: right-click the app, choose Open, then Open again. On recent macOS versions the option is under System Settings → Privacy &amp; Security → Open Anyway.</p>
-  <pre>xattr -d com.apple.quarantine /Applications/Sinfonie.app   # alternative, from a terminal</pre>
+<section id="features">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="eyebrow">Built for the way you actually work</span>
+      <h2>Everything Conductor does. Then the part it doesn't.</h2>
+      <p>Isolated worktrees, chat, diffs, terminals and run scripts, all per workspace. Plus the multi-repo model, spaces, a crew of models and a review cockpit.</p>
+    </div>
+    <div class="grid">
+      <div class="card reveal"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg></div><h3>Multi-repo workspaces</h3><p>One name, one branch, a worktree in each repo, side by side in one folder. Created, run and archived together, with a warning if anything is uncommitted or unpushed.</p></div>
+      <div class="card reveal"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div><h3>A crew of models</h3><p>The chat model orchestrates. An explorer on Haiku, implementers on Sonnet, a reviewer on Opus. Every delegation is visible, with its model, steps and cost.</p></div>
+      <div class="card reveal"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><path d="M6 9v12"/></svg></div><h3>Review cockpit</h3><p>Every PR waiting on you, per space. Run an AI review, approve findings one by one or all at once, post a single GitHub review with inline comments and a verdict.</p></div>
+      <div class="card reveal"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></div><h3>Spaces</h3><p>Personal, Lumepic, Howdy: each space owns its repos, Jira, GitHub orgs, MCP servers, Claude account and model defaults. Switch with a swipe, like Arc.</p></div>
+      <div class="card reveal"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg></div><h3>Jira, GitHub, MCP</h3><p>Start a workspace from a ticket and get a branch name for free. PR status and review threads per repo. Log in to Jira once and Claude gets the Atlassian tools.</p></div>
+      <div class="card reveal"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m8 6-6 6 6 6"/><path d="m16 6 6 6-6 6"/></svg></div><h3><code>conductor.json</code> compatible</h3><p>Your setup, run and archive scripts work unchanged, ports included. Fork, resume and queue messages like the CLI. Errors show in the chat, never silently.</p></div>
+    </div>
+  </div>
+</section>
 
-  <footer>
+<section id="how" style="background:linear-gradient(180deg,transparent,rgba(124,156,255,.04),transparent)">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="eyebrow">Three steps</span>
+      <h2>From ticket to two pull requests.</h2>
+      <p>The workspace is the unit of work. Everything else follows from it.</p>
+    </div>
+    <div class="steps">
+      <div class="step reveal"><div class="n">01</div><h3>Add repos to a space</h3><p>Point Sinfonie at your frontend and backend. Pick the Claude account, Jira site and MCP servers the space should use.</p>
+<div class="tree"><b>Lumepic</b>
+├─ frontend-monorepo
+├─ backend-services
+└─ jira · github · posthog-mcp</div></div>
+      <div class="step reveal"><div class="n">02</div><h3>New workspace</h3><p>Pick the ticket. Sinfonie cuts a branch in every repo, creates the worktrees, runs each repo's setup script.</p>
+<div class="tree">~/sinfonie/workspaces/<b>sd-3825-posthog-arm</b>/
+├─ frontend-monorepo   <span class="b">⎇ sd-3825-posthog-arm</span>
+└─ backend-services    <span class="b">⎇ sd-3825-posthog-arm</span></div></div>
+      <div class="step reveal"><div class="n">03</div><h3>Ship</h3><p>Talk to the orchestrator. It fans out to the crew, you watch every delegation live, then open both PRs from the app, linked to each other and to the ticket.</p>
+<div class="tree">PR #7932  frontend-monorepo   <span class="b">✓ checks</span>
+PR #1041  backend-services    <span class="b">✓ checks</span>
+Jira SD-3825 → <b>In review</b></div></div>
+    </div>
+  </div>
+</section>
+
+<section id="crew">
+  <div class="wrap">
+    <div class="split">
+      <div>
+        <div class="sec-head reveal">
+          <span class="eyebrow">Cost where it counts</span>
+          <h2>Frontier model for judgment. Cheaper models for the rest.</h2>
+          <p>Reading twenty files to answer "where is this used" costs a tenth on Haiku of what it costs on Opus. Sinfonie ships a default crew and lets you edit every member per space.</p>
+        </div>
+        <table class="reveal">
+          <thead><tr><th>Agent</th><th>Model</th><th>Does</th></tr></thead>
+          <tbody>
+            <tr><td><b>orchestrator</b><br><span class="ro">the chat</span></td><td><span class="m">opus · fable</span></td><td>Plans, delegates, integrates, talks to you</td></tr>
+            <tr><td><b>explorer</b><br><span class="ro">read-only</span></td><td><span class="m">haiku</span></td><td>Finds code, traces call sites, answers "where"</td></tr>
+            <tr><td><b>implementer</b></td><td><span class="m">sonnet</span></td><td>A well-specified change inside one repo</td></tr>
+            <tr><td><b>tester</b><br><span class="ro">shell only</span></td><td><span class="m">haiku</span></td><td>Runs tests and type-checks, reports failures</td></tr>
+            <tr><td><b>reviewer</b><br><span class="ro">read-only</span></td><td><span class="m">opus</span></td><td>Reviews the diff before commit, by severity</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="reveal">
+        <div class="codehead"><i></i> conductor.json · works as-is</div>
+<pre><span class="c">// per repository, picked up automatically</span>
+{
+  <span class="k">"scripts"</span>: {
+    <span class="k">"setup"</span>:   <span class="s">"pnpm install"</span>,
+    <span class="k">"run"</span>:     <span class="s">"pnpm dev --port $CONDUCTOR_PORT"</span>,
+    <span class="k">"archive"</span>: <span class="s">"./scripts/cleanup.sh"</span>
+  },
+  <span class="k">"runScriptMode"</span>: <span class="s">"concurrent"</span>
+}</pre>
+        <div class="quote">Each workspace gets a block of ten ports. Two full-stack workspaces running side by side <b>never collide</b>.</div>
+        <div class="codehead" style="margin-top:22px"><i></i> what the orchestrator sees</div>
+<pre><span class="p">Workspace</span> "sd-3825-posthog-arm" spans 2 repositories.
+- frontend-monorepo: ~/sinfonie/workspaces/…/frontend-monorepo
+- backend-services:  ~/sinfonie/workspaces/…/backend-services
+<span class="p">Crew:</span> explorer (haiku) · implementer (sonnet)
+      tester (haiku) · reviewer (opus)
+<span class="c">Delegate exploration and tests. Keep judgment.
+Never let two agents edit the same repo at once.</span></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="faq">
+  <div class="wrap">
+    <div class="sec-head reveal"><span class="eyebrow">Questions</span><h2>Straight answers.</h2></div>
+    <div style="max-width:760px">
+      <details class="reveal"><summary>Do I need an API key?</summary><p>No. Sinfonie runs Claude Code through the official Agent SDK with your existing Claude login. If you use Claude Code today, you're set. You can add more accounts and pick one per space.</p></details>
+      <details class="reveal"><summary>Why is the download unsigned?</summary><p>Sinfonie is in beta and not yet notarized with Apple. On first launch, right-click the app and choose Open, or allow it under System Settings → Privacy &amp; Security. The app checks for new versions itself and shows a download banner.</p></details>
+      <details class="reveal"><summary>Does it replace Conductor?</summary><p>For single-repo work they're equivalent: worktrees, chat, diffs, terminals, <code>conductor.json</code>. Sinfonie is for the moment a feature needs a worktree in more than one repository, and for running a crew of models rather than one.</p></details>
+      <details class="reveal"><summary>Where does my data live?</summary><p>On your Mac. Workspaces are plain git worktrees in a folder you choose. Chats, settings and tokens stay in your user library; Jira tokens are encrypted with the system keychain. Nothing is sent anywhere except to the services you connect.</p></details>
+      <details class="reveal"><summary>Can I use models from other providers?</summary><p>Today the crew is Claude models at different tiers. External workers such as Codex or Gemini CLI as crew members are next on the roadmap, exposed as tools the orchestrator can call inside a worktree.</p></details>
+    </div>
+  </div>
+</section>
+
+
+<section id="feedback">
+  <div class="wrap">
+    <div class="split">
+      <div class="sec-head reveal">
+        <span class="eyebrow">Shape it</span>
+        <h2>Tell me what you need.</h2>
+        <p>Sinfonie is in beta and built from user requests. Feature ideas, bugs, rough edges: everything lands in one queue that decides what ships next. You can also send feedback from inside the app.</p>
+      </div>
+      <form class="reveal fb" id="fbform">
+        <div class="fb-row">
+          <label class="fb-kind"><input type="radio" name="kind" value="feature" checked><span>Feature request</span></label>
+          <label class="fb-kind"><input type="radio" name="kind" value="bug"><span>Bug</span></label>
+          <label class="fb-kind"><input type="radio" name="kind" value="feedback"><span>Feedback</span></label>
+        </div>
+        <textarea name="message" required rows="5" placeholder="What would make Sinfonie better for you?"></textarea>
+        <div class="fb-row">
+          <input type="email" name="email" placeholder="Email, if you want a reply (optional)">
+          <button class="btn primary" type="submit">Send</button>
+        </div>
+        <div class="fb-status" id="fbstatus"></div>
+      </form>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="band reveal">
+      <h2>Stop juggling two Conductor windows.</h2>
+      <p style="color:var(--muted);max-width:520px;margin:0 auto 24px">One workspace per feature, every repo it touches, a crew that knows the difference between exploring and deciding.</p>
+      <a class="btn primary dl" href="https://github.com/fpolliop/sinfonie-releases/releases/latest"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg> Download Sinfonie <span id="bv"></span></a>
+      <div class="sys">macOS 13+ · Apple Silicon · needs git and a Claude Code login</div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
     <span>© 2026 Francisco Pollio</span>
-    <a href="https://github.com/fpolliop/sinfonie-releases/releases">All releases</a>
+    <a href="https://github.com/fpolliop/sinfonie-releases/releases">Releases</a>
     <a href="https://github.com/fpolliop/sinfonie-releases/issues">Issues</a>
-  </footer>
-</main>
+    <span class="sp">sinfonie.dev</span>
+  </div>
+</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
-  // Point the button at the latest DMG so the page never goes stale.
+(function(){
+  // ---- latest release → every download button ----
   fetch('https://api.github.com/repos/fpolliop/sinfonie-releases/releases/latest').then(r => r.ok ? r.json() : null).then(rel => {
     if (!rel) return
-    const dmg = (rel.assets || []).find(a => /arm64.*\.dmg$/.test(a.name)) || (rel.assets || []).find(a => /\.dmg$/.test(a.name))
-    if (dmg) document.getElementById('download').href = dmg.browser_download_url
-    document.getElementById('ver').textContent = rel.tag_name
-  }).catch(() => {})
+    var dmg = (rel.assets||[]).find(a => /arm64.*\.dmg$/.test(a.name)) || (rel.assets||[]).find(a => /\.dmg$/.test(a.name))
+    document.querySelectorAll('.dl').forEach(a => { if (dmg) a.href = dmg.browser_download_url })
+    document.getElementById('hv').textContent = rel.tag_name
+    document.getElementById('bv').textContent = rel.tag_name
+    if (dmg) document.getElementById('hsize').textContent = Math.round(dmg.size/1048576) + ' MB DMG · '
+  }).catch(function(){})
+
+
+  // ---- feedback form ----
+  var form = document.getElementById('fbform'), st = document.getElementById('fbstatus')
+  form.addEventListener('submit', function(e){
+    e.preventDefault()
+    var fd = new FormData(form)
+    st.className = 'fb-status'; st.textContent = 'Sending…'
+    fetch('/api/feedback', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: fd.get('kind'), message: fd.get('message'), email: fd.get('email') || undefined, source: 'site', context: { ua: navigator.userAgent, page: location.href } }) })
+      .then(r => r.ok ? r.json() : Promise.reject(r))
+      .then(function(){ st.className = 'fb-status ok'; st.textContent = 'Thanks. It\'s in the queue.'; form.reset() })
+      .catch(function(){ st.className = 'fb-status err'; st.textContent = 'Could not send. Try again, or open an issue on GitHub.' })
+  })
+
+  // ---- reveal on scroll ----
+  var io = new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target) } }), { threshold: .12 })
+  document.querySelectorAll('.reveal').forEach(el => io.observe(el))
+
+  // ---- app mock: delegations appear, crew bar fills, composer types ----
+  var tools = Array.prototype.slice.call(document.querySelectorAll('#chat .tool'))
+  var crewbar = document.getElementById('crewbar')
+  var chipFor = { explorer: 'haiku', implementer: 'sonnet', tester: 'haiku', reviewer: 'opus' }
+  function runMock(){
+    tools.forEach(t => t.classList.remove('show'))
+    crewbar.querySelectorAll('.chip:not(.orch)').forEach(c => c.remove())
+    tools.forEach(function(t){
+      setTimeout(function(){
+        t.classList.add('show')
+        var name = t.querySelector('.n').textContent
+        var chip = document.createElement('span'); chip.className = 'chip run'
+        chip.innerHTML = '<i class="spin"></i>' + name + ' <span style="opacity:.6">' + (chipFor[name]||'') + '</span>'
+        crewbar.appendChild(chip)
+        var done = t.querySelector('.st.ok')
+        setTimeout(function(){
+          if (!done) { t.querySelector('.st').innerHTML = '<span class="ok" style="color:var(--ok)">done</span>' }
+          chip.className = 'chip'; chip.innerHTML = '● ' + name
+          chip.style.color = 'var(--ok)'
+        }, 1400 + Math.random()*900)
+      }, +t.dataset.t)
+    })
+  }
+  runMock(); setInterval(runMock, 9000)
+  var typed = document.getElementById('typed'), msgs = ['Use the reviewer before you commit.', 'Open both PRs and link them to SD-3825.', 'Ask the explorer where package pricing is computed.']
+  var mi = 0, ci = 0, dir = 1
+  function type(){
+    var m = msgs[mi]; ci += dir; typed.textContent = m.slice(0, ci)
+    var wait = 55
+    if (dir > 0 && ci >= m.length) { dir = -1; wait = 2600 }
+    if (dir < 0 && ci <= 0) { dir = 1; mi = (mi+1)%msgs.length; wait = 500 }
+    setTimeout(type, dir < 0 ? 18 : wait)
+  }
+  type()
+
+  // ---- three.js: a score of particle lines flowing behind the hero ----
+  var canvas = document.getElementById('stage')
+  var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  if (!window.THREE || reduce) { canvas.style.background = 'radial-gradient(60% 60% at 50% 0%, rgba(91,124,255,.18), transparent 70%)'; return }
+  var renderer
+  try { renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, alpha: true }) } catch (e) { return }
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+  var scene = new THREE.Scene()
+  var camera = new THREE.PerspectiveCamera(55, 1, .1, 100)
+  camera.position.set(0, 0.6, 9)
+
+  // 7 staff lines × N points, each line a different voice
+  var LINES = 7, N = 220, W = 26
+  var positions = new Float32Array(LINES * N * 3), colors = new Float32Array(LINES * N * 3), phase = new Float32Array(LINES * N)
+  var palette = [[0.49,0.61,1],[0.36,0.49,1],[0.65,0.55,0.98],[0.96,0.45,0.71],[0.49,0.61,1],[0.65,0.55,0.98],[0.36,0.49,1]]
+  for (var l = 0; l < LINES; l++) for (var i = 0; i < N; i++) {
+    var idx = (l*N + i), x = -W/2 + (i/(N-1))*W
+    positions[idx*3] = x; positions[idx*3+1] = (l - LINES/2) * 0.55; positions[idx*3+2] = (Math.random()-.5) * 2
+    var c = palette[l]; colors[idx*3] = c[0]; colors[idx*3+1] = c[1]; colors[idx*3+2] = c[2]
+    phase[idx] = Math.random() * Math.PI * 2
+  }
+  var geo = new THREE.BufferGeometry()
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+  var mat = new THREE.PointsMaterial({ size: 0.055, vertexColors: true, transparent: true, opacity: .75, sizeAttenuation: true, depthWrite: false, blending: THREE.AdditiveBlending })
+  var points = new THREE.Points(geo, mat); scene.add(points)
+
+  // a few "batons": faint lines sweeping through, like a conductor's gesture
+  var batonGeo = new THREE.BufferGeometry(), bp = new Float32Array(2*3*3)
+  batonGeo.setAttribute('position', new THREE.BufferAttribute(bp, 3))
+  var baton = new THREE.LineSegments(batonGeo, new THREE.LineBasicMaterial({ color: 0x7c9cff, transparent: true, opacity: .18 })); scene.add(baton)
+
+  var mouse = { x: 0, y: 0 }, target = { x: 0, y: 0 }
+  window.addEventListener('pointermove', function(e){ target.x = (e.clientX / innerWidth - .5); target.y = (e.clientY / innerHeight - .5) }, { passive: true })
+  function resize(){ var w = canvas.clientWidth, h = canvas.clientHeight; renderer.setSize(w, h, false); camera.aspect = w/h; camera.updateProjectionMatrix() }
+  window.addEventListener('resize', resize); resize()
+
+  var t0 = performance.now(), visible = true
+  new IntersectionObserver(function(es){ visible = es[0].isIntersecting }).observe(canvas)
+  function frame(now){
+    requestAnimationFrame(frame)
+    if (!visible) return
+    var t = (now - t0) / 1000
+    var pos = geo.attributes.position.array
+    for (var l = 0; l < LINES; l++) {
+      var base = (l - LINES/2) * 0.55, speed = 0.5 + l*0.07, amp = 0.35 + (l%3)*0.12
+      for (var i = 0; i < N; i++) {
+        var idx = l*N + i, x = pos[idx*3]
+        pos[idx*3+1] = base + Math.sin(x*0.55 + t*speed + phase[idx]*0.15) * amp + Math.sin(x*1.7 - t*0.9 + l) * 0.08
+        pos[idx*3+2] = Math.cos(x*0.3 + t*0.4 + l) * 0.9
+      }
+    }
+    geo.attributes.position.needsUpdate = true
+    // baton sweeps
+    for (var b = 0; b < 3; b++) {
+      var tt = (t*0.35 + b/3) % 1, x0 = -W/2 + tt*W
+      bp[b*6] = x0; bp[b*6+1] = -3 + Math.sin(tt*6.28)*1.2; bp[b*6+2] = 0
+      bp[b*6+3] = x0 + 1.4; bp[b*6+4] = 3 + Math.cos(tt*6.28)*1.2; bp[b*6+5] = 0
+    }
+    batonGeo.attributes.position.needsUpdate = true
+    mouse.x += (target.x - mouse.x) * .04; mouse.y += (target.y - mouse.y) * .04
+    camera.position.x = mouse.x * 1.2; camera.position.y = 0.6 - mouse.y * 0.8; camera.lookAt(0, 0, 0)
+    points.rotation.z = Math.sin(t*0.1) * 0.03
+    renderer.render(scene, camera)
+  }
+  requestAnimationFrame(frame)
+})()
 </script>
 </body>
 </html>

@@ -1,0 +1,8 @@
+name = "sinfonie"
+compatibility_date = "2026-09-01"
+pages_build_output_dir = "."
+
+[[d1_databases]]
+binding = "DB"
+database_name = "sinfonie-feedback"
+database_id = "8c67fec7-4c92-497f-9be3-9653bf73f8b7"

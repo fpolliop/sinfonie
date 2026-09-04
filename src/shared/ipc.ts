@@ -84,6 +84,8 @@ export interface SinfonieInvoke {
 
   'shell:openExternal': (url: string) => void
   'updates:check': () => UpdateInfo | null
+  'feedback:send': (payload: { kind: 'feedback' | 'feature' | 'bug'; message: string; email?: string; includeLogs?: boolean }) => { ok: boolean; error?: string }
+  'logs:open': () => void
   'app:version': () => string
 
   'accounts:add': (name: string) => Settings

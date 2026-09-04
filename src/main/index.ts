@@ -3,6 +3,7 @@ import { cpSync, existsSync, readdirSync } from 'fs'
 import { dirname, join } from 'path'
 import { registerIpc } from './ipc'
 import { startUpdateChecks } from './services/updates'
+import { installCrashHandlers, rendererConsoleError, logError } from './services/telemetry'
 
 /** The app used to be called Orchestra; move its data folder over on first launch. */
 function migrateLegacyUserData(): void {
@@ -39,10 +40,13 @@ function createWindow(): void {
   win.on('ready-to-show', () => win.show())
   // Renderer problems land in the terminal log, so a black window can be diagnosed.
   win.webContents.on('console-message', (_e, level, message, line, sourceId) => {
-    if (level >= 2) console.error(`[renderer] ${message} (${sourceId}:${line})`)
+    if (level >= 2) {
+      console.error(`[renderer] ${message} (${sourceId}:${line})`)
+      rendererConsoleError(message, sourceId, line)
+    }
   })
   win.webContents.on('render-process-gone', (_e, details) => console.error('[renderer] process gone:', details.reason))
-  win.webContents.on('did-fail-load', (_e, code, desc, url) => console.error(`[renderer] failed to load ${url}: ${code} ${desc}`))
+  win.webContents.on('did-fail-load', (_e, code, desc, url) => logError('renderer:did-fail-load', new Error(`${code} ${desc}`), { url }))
   win.webContents.setWindowOpenHandler(({ url }) => {
     void shell.openExternal(url)
     return { action: 'deny' }
@@ -54,6 +58,8 @@ function createWindow(): void {
     void win.loadFile(join(__dirname, '../renderer/index.html'))
   }
 }
+
+installCrashHandlers()
 
 app.whenReady().then(() => {
   migrateLegacyUserData()
