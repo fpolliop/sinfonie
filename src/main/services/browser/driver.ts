@@ -10,6 +10,7 @@ export interface ConsoleEntry {
   at: string
 }
 export interface NetworkEntry {
+  id: string
   method: string
   url: string
   status?: number
@@ -111,17 +112,17 @@ export class BrowserTab {
       this.inflight.add(id)
       this.lastNet = Date.now()
       const req = p.request as { method: string; url: string }
-      if (!req.url.startsWith('data:')) this.network.push({ method: req.method, url: req.url.slice(0, 500), type: p.type as string, at: new Date().toISOString() })
+      if (!req.url.startsWith('data:')) this.network.push({ id, method: req.method, url: req.url.slice(0, 500), type: p.type as string, at: new Date().toISOString() })
       if (this.network.length > 300) this.network.splice(0, this.network.length - 300)
     } else if (method === 'Network.responseReceived') {
       const res = p.response as { url: string; status: number }
-      const e = [...this.network].reverse().find((n) => n.url === res.url.slice(0, 500) && n.status == null)
+      const e = this.network.find((n) => n.id === id)
       if (e) e.status = res.status
     } else if (method === 'Network.loadingFinished' || method === 'Network.loadingFailed') {
       this.inflight.delete(id)
       this.lastNet = Date.now()
       if (method === 'Network.loadingFailed') {
-        const e = this.network[this.network.length - 1]
+        const e = this.network.find((n) => n.id === id)
         if (e && e.status == null) e.failed = String(p.errorText ?? 'failed')
       }
     }
@@ -219,6 +220,22 @@ export class BrowserTab {
   async text(maxChars = 40_000): Promise<string> {
     const t = (await this.wc.executeJavaScript('document.body ? document.body.innerText : ""', true)) as string
     return t.length > maxChars ? t.slice(0, maxChars) + '\n… truncated' : t
+  }
+  /** Body of a finished response, by the id shown in browser_network. */
+  async responseBody(id: string, maxChars = 20_000): Promise<string> {
+    const r = await this.cdp<{ body: string; base64Encoded: boolean }>('Network.getResponseBody', { requestId: id }).catch((err) => {
+      throw new Error(`No body for request ${id} (${err instanceof Error ? err.message : String(err)}). Bodies are only kept for recent, finished requests.`)
+    })
+    const text = r.base64Encoded ? `(binary, ${Math.round((r.body.length * 3) / 4)} bytes)` : r.body
+    return text.length > maxChars ? text.slice(0, maxChars) + '\n… truncated' : text
+  }
+  /** Attach local files to a file input by ref. Callers confine the paths beforehand. */
+  async upload(ref: string, files: string[]): Promise<void> {
+    const backendNodeId = this.refs.get(ref)
+    if (!backendNodeId) throw new Error(`Unknown ref "${ref}". Take a new snapshot.`)
+    await this.cdp('DOM.getDocument', { depth: 0 }).catch(() => undefined)
+    await this.cdp('DOM.setFileInputFiles', { backendNodeId, files })
+    await this.settle(1500)
   }
   async evaluate(expression: string): Promise<string> {
     const r = await this.wc.executeJavaScript(expression, true)

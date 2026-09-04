@@ -1,6 +1,6 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { ArrowLeft, ArrowRight, RotateCw, Plus, X, Globe, Pause, Play, ExternalLink, ShieldAlert } from 'lucide-react'
+import { ArrowLeft, ArrowRight, RotateCw, Plus, X, Globe, Pause, Play, ExternalLink, ShieldAlert, Download } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { useBrowser, subscribeBrowser, loadBrowserState } from '@/stores/browser'
@@ -132,6 +132,11 @@ export function BrowserPane({ workspaceId, visible }: { workspaceId: string; vis
             spellCheck={false}
           />
         </form>
+        {state && state.downloads.length > 0 && (
+          <button className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-muted hover:bg-panel-2 hover:text-text" title={state.downloads.map((d) => `${d.state}: ${d.name}`).join('\n')} onClick={() => void api.invoke('shell:openExternal', `file://${state.downloads[0].path.replace(/\/[^/]*$/, '')}`)}>
+            <Download size={12} className={state.downloads.some((d) => d.state === 'progressing') ? 'animate-pulse' : ''} /> {state.downloads.length}
+          </button>
+        )}
         {active?.url && (
           <button className="rounded-md p-1 text-muted hover:bg-panel-2 hover:text-text" title="Open in your default browser" onClick={() => void api.invoke('shell:openExternal', active.url)}>
             <ExternalLink size={13} />

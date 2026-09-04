@@ -21,6 +21,11 @@ export function Button({ variant = 'subtle', size = 'md', className, ...rest }: 
 }
 
 export function Dialog({ title, onClose, children, width = 520 }: { title: string; onClose: () => void; children: React.ReactNode; width?: number }): React.JSX.Element {
+  // Native browser pages draw above the DOM; hide them while a modal is open.
+  useEffect(() => {
+    void window.sinfonie.invoke('browser:suspend', true)
+    return () => void window.sinfonie.invoke('browser:suspend', false)
+  }, [])
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') onClose()

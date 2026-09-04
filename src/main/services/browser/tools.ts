@@ -10,12 +10,13 @@ import type { BrowserTab, Shot } from './driver'
 import { askPermission } from '../interaction'
 import { getStore } from '../../store'
 import { getWorkspace } from '../workspaces'
+import { isAbsolute, relative, resolve } from 'path'
 
 interface Out {
   text: string
   image?: Shot
 }
-interface Def {
+export interface Def {
   name: string
   kind: 'read' | 'act'
   description: string
@@ -26,6 +27,7 @@ interface Def {
 /** Consoles where a click can change production: every acting tool asks the user, whatever the mode. */
 export const DEFAULT_SENSITIVE_ORIGINS = ['console.aws.amazon.com', 'dash.cloudflare.com', 'console.cloud.google.com', 'portal.azure.com', 'vercel.com', 'app.netlify.com', 'github.com/settings', 'github.com/organizations', 'dashboard.stripe.com', 'app.datadoghog.com', 'app.datadoghq.com', 'fly.io', 'railway.app', 'dashboard.render.com', 'supabase.com/dashboard', 'cloud.digitalocean.com', 'dashboard.heroku.com', 'console.hetzner.cloud', 'cloud.mongodb.com', 'console.upstash.com', 'app.planetscale.com', 'console.neon.tech', 'admin.google.com', 'id.atlassian.com', 'admin.atlassian.com', 'app.1password.com', 'accounts.google.com']
 
+const errText = (err: unknown): string => (err instanceof Error ? err.message : String(err))
 const allowedOrigins = new Map<string, Set<string>>() // workspaceId -> hostnames allowed for this session
 
 function isSensitive(url: string, workspaceId: string): boolean {
@@ -197,18 +199,51 @@ const DEFS: Def[] = [
   {
     name: 'browser_network',
     kind: 'read',
-    description: 'Recent network requests of the tab: method, status, type, URL. Optional substring filter on the URL. Failed requests are marked.',
-    shape: { filter: z.string().optional(), ...tabIdArg },
+    description: 'Recent network requests of the tab: id, method, status, type, URL, with an optional substring filter on the URL. Failed requests are marked. Pass body_of=<id> to get that response body (JSON APIs, error pages).',
+    shape: { filter: z.string().optional(), body_of: z.string().optional(), ...tabIdArg },
     run: (ws, i) =>
       browser.agentOp(
         ws,
         async (tab) => {
+          if (i.body_of) return { text: await tab.responseBody(String(i.body_of)) }
           const f = (i.filter as string | undefined) ?? ''
           const rows = tab.network.filter((n) => !f || n.url.includes(f)).slice(-150)
-          return { text: rows.length ? rows.map((n) => `${n.method} ${n.status ?? (n.failed ? `FAILED ${n.failed}` : '…')} ${n.type ?? ''} ${n.url}`).join('\n') : '(no requests recorded)' }
+          return { text: rows.length ? rows.map((n) => `${n.id}  ${n.method} ${n.status ?? (n.failed ? `FAILED ${n.failed}` : '…')} ${n.type ?? ''} ${n.url}`).join('\n') : '(no requests recorded)' }
         },
         i.tab_id as string | undefined
       )
+  },
+  {
+    name: 'browser_upload',
+    kind: 'act',
+    description: 'Attach workspace files to a file input (ref of the input or its button). Paths must be inside the workspace worktrees.',
+    shape: { ref: z.string(), paths: z.array(z.string()).min(1), ...tabIdArg },
+    run: (ws, i) =>
+      browser.agentOp(
+        ws,
+        async (tab) => {
+          const roots = getWorkspace(ws).repos.map((r) => r.worktreePath)
+          const files = (i.paths as string[]).map((p) => {
+            const abs = isAbsolute(p) ? p : resolve(roots[0] ?? '/', p)
+            if (!roots.some((r) => !relative(r, abs).startsWith('..') && !isAbsolute(relative(r, abs)))) throw new Error(`${p} is outside the workspace.`)
+            return abs
+          })
+          await guard(ws, 'browser_upload', { ...i, paths: files }, tab)
+          await tab.upload(String(i.ref), files)
+          return after(tab, `Attached ${files.length} file${files.length === 1 ? '' : 's'} to ${i.ref}.`)
+        },
+        i.tab_id as string | undefined
+      )
+  },
+  {
+    name: 'browser_downloads',
+    kind: 'read',
+    description: 'Files downloaded through the workspace browser. They are saved under <workspace>/.sinfonie/downloads and can be read with the file tools.',
+    shape: {},
+    run: async (ws) => {
+      const d = browser.snapshot(ws).downloads
+      return { text: d.length ? d.map((x) => `${x.state.padEnd(11)} ${x.size} bytes  ${x.path}`).join('\n') : '(no downloads yet)' }
+    }
   },
   {
     name: 'browser_tabs',
@@ -260,8 +295,19 @@ const EVALUATE: Def = {
     )
 }
 
-function defs(): Def[] {
+export function toolDefs(): Def[] {
   return getStore().get().settings.browserEvaluate ? [...DEFS, EVALUATE] : DEFS
+}
+const defs = toolDefs
+
+/** Run one tool and shape the result the MCP way (text plus an optional image), never throwing. */
+export async function runForMcp(workspaceId: string, d: Def, args: Record<string, unknown>): Promise<{ content: ({ type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string })[]; isError?: boolean }> {
+  try {
+    const out = await d.run(workspaceId, args)
+    return { content: [{ type: 'text', text: out.text }, ...(out.image ? [{ type: 'image' as const, data: out.image.data, mimeType: out.image.mimeType }] : [])] }
+  } catch (err) {
+    return { content: [{ type: 'text', text: `Error: ${errText(err)}` }], isError: true }
+  }
 }
 
 export const READ_TOOLS = DEFS.filter((d) => d.kind === 'read').map((d) => d.name)
@@ -280,21 +326,10 @@ export function promptFor(port: number): string {
   return `You have a browser inside Sinfonie (tools browser_*). Use it to check the running app at http://localhost:${port} (this workspace owns ports ${port}-${port + 9}), read documentation, or operate web consoles the user is logged into. Take browser_snapshot before acting; click and type by the [ref=eN] handles it returns, and take a new snapshot after the page changes. Actions on infrastructure consoles ask the user first; never enter credentials yourself, ask the user to sign in.`
 }
 
-const errText = (err: unknown): string => (err instanceof Error ? err.message : String(err))
-
 export function sdkServer(workspaceId: string): NonNullable<Options['mcpServers']>[string] {
   return createSdkMcpServer({
     name: 'browser',
-    tools: defs().map((d) =>
-      sdkTool(d.name, d.description, d.shape, async (args) => {
-        try {
-          const out = await d.run(workspaceId, args as Record<string, unknown>)
-          return { content: [{ type: 'text', text: out.text }, ...(out.image ? [{ type: 'image' as const, data: out.image.data, mimeType: out.image.mimeType }] : [])] }
-        } catch (err) {
-          return { content: [{ type: 'text', text: `Error: ${errText(err)}` }], isError: true }
-        }
-      })
-    )
+    tools: defs().map((d) => sdkTool(d.name, d.description, d.shape, (args) => runForMcp(workspaceId, d, args as Record<string, unknown>)))
   })
 }
 

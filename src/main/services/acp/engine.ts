@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from 'child_process'
 import * as resources from '../resources'
+import * as browserHttp from '../browser/http'
 import { Readable, Writable } from 'stream'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { dirname, isAbsolute, relative, resolve } from 'path'
@@ -200,21 +201,26 @@ function spaceOf(ws: Workspace) {
   return { settings, space: spaces.find((x) => x.id === ws.spaceId) }
 }
 
-function acpMcpServers(ws: Workspace): Promise<schema.McpServer[]> {
+async function acpMcpServers(ws: Workspace): Promise<schema.McpServer[]> {
   const { settings, space } = spaceOf(ws)
   const specs: McpServerSpec[] = [...(settings.mcpServers ?? []), ...(space?.mcpServers ?? [])].filter((s) => s.enabled)
   const out: schema.McpServer[] = []
+  // The workspace browser, served over localhost MCP so vendor agents get the same browser_* tools.
+  try {
+    out.push({ type: 'http', name: 'browser', url: await browserHttp.urlFor(ws.id), headers: [] })
+  } catch (err) {
+    console.warn('[acp] browser MCP unavailable', err)
+  }
   for (const s of specs) {
     if (s.transport === 'stdio' && s.command) out.push({ name: s.name, command: s.command, args: s.args ?? [], env: Object.entries(s.env ?? {}).map(([name, value]) => ({ name, value })) })
     else if (s.url && s.transport === 'http') out.push({ type: 'http', name: s.name, url: s.url, headers: Object.entries(s.headers ?? {}).map(([name, value]) => ({ name, value })) })
     else if (s.url && s.transport === 'sse') out.push({ type: 'sse', name: s.name, url: s.url, headers: Object.entries(s.headers ?? {}).map(([name, value]) => ({ name, value })) })
   }
   const expose = space ? space.exposeJiraMcp !== false : true
-  if (!expose || out.some((m) => m.name === 'jira')) return Promise.resolve(out)
-  return jira.accessToken(jira.connectionForSpace(ws.spaceId)).then((token) => {
-    if (token) out.push({ type: 'http', name: 'jira', url: jira.JIRA_MCP_URL, headers: [{ name: 'Authorization', value: `Bearer ${token}` }] })
-    return out
-  })
+  if (!expose || out.some((m) => m.name === 'jira')) return out
+  const token = await jira.accessToken(jira.connectionForSpace(ws.spaceId))
+  if (token) out.push({ type: 'http', name: 'jira', url: jira.JIRA_MCP_URL, headers: [{ name: 'Authorization', value: `Bearer ${token}` }] })
+  return out
 }
 
 function sessionKey(ws: Workspace, engine: AcpEngine): string {

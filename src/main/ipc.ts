@@ -38,6 +38,7 @@ import * as crewSuggest from './services/crew/suggest'
 import * as notes from './services/notes'
 import * as resources from './services/resources'
 import * as browser from './services/browser/service'
+import * as browserHttp from './services/browser/http'
 
 function send<C extends keyof SinfonieEvents>(channel: C, payload: SinfonieEvents[C]): void {
   for (const win of BrowserWindow.getAllWindows()) win.webContents.send(channel, payload)
@@ -460,6 +461,7 @@ export function registerIpc(): void {
     return browser.snapshot(id)
   })
   handle('browser:setPaused', (id, paused) => browser.setPaused(id, paused))
+  handle('browser:suspend', (on) => browser.setSuspended(on))
   handle('resources:get', () => resources.current())
   handle('resources:stopTask', (workspaceId, taskId) => agent.stopTask(workspaceId, taskId))
   handle('resources:cancelWaiting', (workspaceId) => resources.cancelWaiting(workspaceId))
@@ -520,6 +522,7 @@ export function registerIpc(): void {
   handle('terminal:dispose', (tid) => terminal.disposeTerminal(tid))
 
   app.on('before-quit', () => {
+    browserHttp.stop()
     browser.closeAll()
     resources.stop()
     flushAllTranscripts()

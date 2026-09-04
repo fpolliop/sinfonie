@@ -46,6 +46,11 @@ const SPACE_PAGES: { id: SpacePage; label: string; icon: React.ReactNode; desc: 
 export function SettingsWindow({ target, onClose }: { target: SettingsTarget; onClose: () => void }): React.JSX.Element {
   const { spaces, openSettings } = useApp()
   const space = target.scope === 'space' ? spaces.find((s) => s.id === target.spaceId) : undefined
+  // Hide any workspace browser page while settings are up, so this overlay stays clickable.
+  useEffect(() => {
+    void api.invoke('browser:suspend', true)
+    return () => void api.invoke('browser:suspend', false)
+  }, [])
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') onClose()
@@ -186,6 +191,13 @@ function AppPageView({ page }: { page: AppPage }): React.JSX.Element {
           <Field label="Workspaces folder" hint="Each workspace becomes <folder>/<name>/<repo> so all worktrees of a feature sit together.">
             <input className={inputCls} defaultValue={settings.workspacesRoot} onBlur={(e) => e.target.value !== settings.workspacesRoot && go(() => update({ workspacesRoot: e.target.value }))} />
           </Field>
+          <label className="mb-3 flex items-start gap-2 text-[13px]">
+            <input type="checkbox" className="mt-0.5" checked={Boolean(settings.browserEvaluate)} onChange={(e) => go(() => update({ browserEvaluate: e.target.checked }))} />
+            <span>
+              Let agents run JavaScript in the workspace browser (browser_evaluate)
+              <span className="block text-[11px] text-muted">Off by default: arbitrary scripts in a logged-in console are the sharpest tool in the box. Sensitive sites still ask first.</span>
+            </span>
+          </label>
           <Field label="Base port" hint="Each workspace gets a block of 10 ports starting here, exposed as SINFONIE_PORT.">
             <input type="number" className={clsx(inputCls, 'max-w-[200px]')} defaultValue={settings.basePort} onBlur={(e) => go(() => update({ basePort: Number(e.target.value) || 55000 }))} />
           </Field>
@@ -438,6 +450,9 @@ function SpacePageView({ space, page }: { space: Space; page: SpacePage }): Reac
             </div>
             <Field label="Workspaces folder" hint={`App default: ${settings.workspacesRoot}`}>
               <input className={inputCls} placeholder={settings.workspacesRoot} defaultValue={space.workspacesRoot ?? ''} onBlur={(e) => (e.target.value.trim() || '') !== (space.workspacesRoot ?? '') && go(() => upd({ workspacesRoot: e.target.value.trim() }))} />
+            </Field>
+            <Field label="Browser: sites that always ask" hint="One per line, host with optional path (e.g. admin.example.com or example.com/admin). Agent actions there prompt whatever the permission mode. AWS, Cloudflare, GCP, Azure, Vercel, Stripe and other consoles are always included.">
+              <textarea className={clsx(inputCls, 'min-h-[64px] font-mono text-[12px]')} defaultValue={(space.browserSensitiveOrigins ?? []).join('\n')} onBlur={(e) => go(() => upd({ browserSensitiveOrigins: e.target.value.split('\n').map((l) => l.trim()).filter(Boolean) }))} />
             </Field>
             <Field label="Account" hint="Which login the engine uses for workspaces in this space. Manage them under Application → Accounts.">
               <select className={inputCls} value={space.claudeAccountId ?? ''} onChange={(e) => go(() => upd({ claudeAccountId: e.target.value || undefined }))}>

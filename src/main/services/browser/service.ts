@@ -2,11 +2,13 @@
  * Per-workspace browser tabs, shown in the Browser pane and driven by agents. Only the active tab of
  * the selected workspace is attached to the window, at the bounds the renderer reports.
  */
-import { BrowserWindow, type Rectangle } from 'electron'
+import { BrowserWindow, session, type Rectangle } from 'electron'
+import { existsSync, mkdirSync } from 'fs'
+import { basename, extname, join } from 'path'
 import { nanoid } from 'nanoid'
 import { BrowserTab } from './driver'
 import { getWorkspace } from '../workspaces'
-import type { BrowserState } from '@shared/types'
+import type { BrowserState, BrowserDownload } from '@shared/types'
 
 interface WsBrowser {
   tabs: BrowserTab[]
@@ -16,12 +18,16 @@ interface WsBrowser {
   agentOps: number
   lastAgentAt: number
   paused: boolean
+  downloads: BrowserDownload[]
 }
 
 const state = new Map<string, WsBrowser>()
 let mainWindow: BrowserWindow | null = null
 let emitState: ((s: BrowserState) => void) | null = null
 let emitAgentActive: ((workspaceId: string) => void) | null = null
+/** While > 0 (a dialog is open in the renderer) no page is drawn, so dialogs stay clickable. */
+let suspended = 0
+const downloadHooked = new Set<string>()
 
 export function setWindow(win: BrowserWindow): void {
   mainWindow = win
@@ -36,7 +42,7 @@ export function setEmitters(onState: (s: BrowserState) => void, onAgentActive: (
 
 function get(workspaceId: string): WsBrowser {
   let s = state.get(workspaceId)
-  if (!s) state.set(workspaceId, (s = { tabs: [], activeId: null, bounds: null, attachedId: null, agentOps: 0, lastAgentAt: 0, paused: false }))
+  if (!s) state.set(workspaceId, (s = { tabs: [], activeId: null, bounds: null, attachedId: null, agentOps: 0, lastAgentAt: 0, paused: false, downloads: [] }))
   return s
 }
 function partitionFor(workspaceId: string): string {
@@ -55,7 +61,8 @@ export function snapshot(workspaceId: string): BrowserState {
     tabs: s.tabs.map((t) => ({ id: t.id, url: t.url(), title: t.title() || t.url() || 'New tab', loading: !t.wc.isDestroyed() && t.wc.isLoading() })),
     activeId: s.activeId,
     agentBusy: s.agentOps > 0 || Date.now() - s.lastAgentAt < 1500,
-    paused: s.paused
+    paused: s.paused,
+    downloads: s.downloads
   }
 }
 function publish(workspaceId: string): void {
@@ -69,7 +76,7 @@ function sync(workspaceId: string): void {
   if (!win || win.isDestroyed()) return
   const active = s.tabs.find((t) => t.id === s.activeId) ?? null
   for (const t of s.tabs) {
-    const show = t === active && s.bounds && s.bounds.width > 0 && s.bounds.height > 0
+    const show = suspended === 0 && t === active && s.bounds && s.bounds.width > 0 && s.bounds.height > 0
     if (show) {
       if (s.attachedId !== t.id) {
         win.contentView.addChildView(t.view)
@@ -84,9 +91,47 @@ function sync(workspaceId: string): void {
   if (s.attachedId && !s.tabs.some((t) => t.id === s.attachedId)) s.attachedId = null
 }
 
+/** Downloads from a space's browser profile land in the owning workspace's .sinfonie/downloads folder. */
+function hookDownloads(partition: string): void {
+  if (downloadHooked.has(partition)) return
+  downloadHooked.add(partition)
+  session.fromPartition(partition).on('will-download', (_e, item, wc) => {
+    const owner = Array.from(state.entries()).find(([, s]) => s.tabs.some((t) => t.wc === wc))
+    if (!owner) return item.cancel()
+    const [workspaceId, s] = owner
+    let dir: string
+    try {
+      dir = join(getWorkspace(workspaceId).rootPath, '.sinfonie', 'downloads')
+    } catch {
+      return item.cancel()
+    }
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+    const name = item.getFilename() || 'download'
+    let path = join(dir, name)
+    for (let i = 1; existsSync(path); i++) path = join(dir, `${basename(name, extname(name))}-${i}${extname(name)}`)
+    item.setSavePath(path)
+    const entry: BrowserDownload = { name: basename(path), path, size: item.getTotalBytes(), at: new Date().toISOString(), state: 'progressing' }
+    s.downloads.unshift(entry)
+    if (s.downloads.length > 50) s.downloads.length = 50
+    publish(workspaceId)
+    item.on('done', (_ev, st) => {
+      entry.state = st === 'completed' ? 'completed' : 'failed'
+      entry.size = item.getReceivedBytes()
+      publish(workspaceId)
+    })
+  })
+}
+
+export function setSuspended(on: boolean): void {
+  suspended = Math.max(0, suspended + (on ? 1 : -1))
+  for (const id of state.keys()) sync(id)
+}
+
 export function newTab(workspaceId: string, url?: string): BrowserTab {
   const s = get(workspaceId)
-  const tab = new BrowserTab(nanoid(6), partitionFor(workspaceId), (u) => void newTab(workspaceId, u).navigate(u))
+  const partition = partitionFor(workspaceId)
+  hookDownloads(partition)
+  const tab = new BrowserTab(nanoid(6), partition, (u) => void newTab(workspaceId, u).navigate(u))
   tab.onChange = () => publish(workspaceId)
   s.tabs.push(tab)
   s.activeId = tab.id

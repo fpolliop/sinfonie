@@ -784,6 +784,13 @@ export interface ErrorEntry {
   extra?: string
 }
 
+export interface BrowserDownload {
+  name: string
+  path: string
+  size: number
+  at: string
+  state: 'progressing' | 'completed' | 'failed'
+}
 export interface BrowserTabInfo {
   id: string
   url: string
@@ -799,6 +806,7 @@ export interface BrowserState {
   agentBusy: boolean
   /** The user paused agent control; tool calls wait until resumed. */
   paused: boolean
+  downloads: BrowserDownload[]
 }
 
 export interface UpdateInfo {

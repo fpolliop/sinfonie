@@ -42,7 +42,7 @@ export interface SinfonieInvoke {
   'settings:update': (patch: Partial<Settings>) => Settings
 
   'spaces:create': (name: string) => Space
-  'spaces:update': (id: string, patch: Partial<Pick<Space, 'name' | 'color' | 'claudeAccountId' | 'model' | 'permissionMode' | 'workspacesRoot' | 'githubOwners' | 'mcpServers' | 'exposeJiraMcp' | 'strictMcp' | 'agents' | 'useCrew' | 'engine'>>) => Space
+  'spaces:update': (id: string, patch: Partial<Pick<Space, 'name' | 'color' | 'claudeAccountId' | 'model' | 'permissionMode' | 'workspacesRoot' | 'browserSensitiveOrigins' | 'githubOwners' | 'mcpServers' | 'exposeJiraMcp' | 'strictMcp' | 'agents' | 'useCrew' | 'engine'>>) => Space
   /** MCP servers found in Claude Code's own config (~/.claude.json), for importing. */
   'mcp:importable': () => McpServerSpec[]
   'spaces:delete': (id: string) => void
@@ -170,6 +170,8 @@ export interface SinfonieInvoke {
   'browser:navigate': (workspaceId: string, url: string) => void
   'browser:tabAction': (workspaceId: string, action: 'new' | 'select' | 'close' | 'back' | 'forward' | 'reload', tabId?: string) => BrowserState
   'browser:setPaused': (workspaceId: string, paused: boolean) => void
+  /** A modal is open (true) or closed (false): pages are hidden while any modal is up. */
+  'browser:suspend': (on: boolean) => void
   // ---- resources ----
   'resources:get': () => ResourceSnapshot
   'resources:stopTask': (workspaceId: string, taskId: string) => void
