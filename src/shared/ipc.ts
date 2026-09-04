@@ -1,4 +1,4 @@
-import type { LoginProgress, ModelInventoryItem, CrewSuggestion,
+import type { LoginProgress, ScannedRepo, ModelInventoryItem, CrewSuggestion,
   AgentEvent,
   ChatItem,
   JiraIssue,
@@ -54,6 +54,10 @@ export interface SinfonieInvoke {
   'repos:setSpace': (repoId: string, spaceId: string | null) => Repo
 
   'repos:pickAndAdd': (spaceId?: string) => Repo | null
+  /** Git repositories directly under a folder (and one level below), for the setup assistant. */
+  'repos:scan': (root: string) => ScannedRepo[]
+  'repos:addPaths': (paths: string[], spaceId?: string) => Repo[]
+  'dialog:pickFolder': (title: string, defaultPath?: string) => string | null
   'repos:remove': (repoId: string) => void
   'repos:branches': (repoId: string) => string[]
   'repos:reloadConfig': (repoId: string) => Repo
@@ -167,6 +171,7 @@ export interface SinfonieEvents {
   'update:available': UpdateInfo
   /** Main asks the renderer to open the Feedback dialog (Help menu, shortcut). */
   'ui:openFeedback': { tab: 'feedback' | 'errors' }
+  'ui:openOnboarding': { kind: 'setup' | 'tour' }
   /** A new error was logged; the sidebar badge updates. */
   'errors:new': ErrorEntry
 }

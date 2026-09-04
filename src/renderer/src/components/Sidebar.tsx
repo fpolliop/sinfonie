@@ -65,16 +65,16 @@ export function Sidebar(): React.JSX.Element {
   return (
     <aside className="flex w-[260px] shrink-0 flex-col border-r border-border bg-panel" onWheel={onWheel}>
       <div className="drag flex h-[52px] items-center justify-end gap-1 pl-[80px] pr-2">
-        <button className="no-drag rounded-md p-1.5 text-muted hover:bg-panel-2 hover:text-text" title="New workspace (⇧⌘N)" onClick={() => setShowNewWorkspace(true, currentId)}>
+        <button data-tour="new-workspace" className="no-drag rounded-md p-1.5 text-muted hover:bg-panel-2 hover:text-text" title="New workspace (⇧⌘N)" onClick={() => setShowNewWorkspace(true, currentId)}>
           <Plus size={16} />
         </button>
         <FeedbackButton />
-        <button className="no-drag rounded-md p-1.5 text-muted hover:bg-panel-2 hover:text-text" title="Settings (⌘,)" onClick={() => setShowSettings(true)}>
+        <button data-tour="settings" className="no-drag rounded-md p-1.5 text-muted hover:bg-panel-2 hover:text-text" title="Settings (⌘,)" onClick={() => setShowSettings(true)}>
           <Settings size={16} />
         </button>
       </div>
       <div className="px-2">
-        <button onClick={() => setView('reviews')} className={clsx('mb-2 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] font-medium', view === 'reviews' ? 'bg-panel-2' : 'hover:bg-panel-2/60')}>
+        <button data-tour="reviews" onClick={() => setView('reviews')} className={clsx('mb-2 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] font-medium', view === 'reviews' ? 'bg-panel-2' : 'hover:bg-panel-2/60')}>
           <GitPullRequest size={14} className="text-accent" /> Review cockpit
         </button>
       </div>
@@ -255,7 +255,7 @@ function UpdateBanner(): React.JSX.Element | null {
 function SpaceDots({ ids, currentId, onPick, onAdd }: { ids: string[]; currentId: string; onPick: (id: string) => void; onAdd: () => void }): React.JSX.Element {
   const spaces = useApp((s) => s.spaces)
   return (
-    <div className="flex h-10 shrink-0 items-center gap-1.5 border-t border-border px-3">
+    <div data-tour="spaces" className="flex h-10 shrink-0 items-center gap-1.5 border-t border-border px-3">
       {ids.map((id, i) => {
         const sp = spaces.find((s) => s.id === id)
         const name = sp?.name ?? (spaces.length ? 'Other' : 'Workspaces')

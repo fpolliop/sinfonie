@@ -24,6 +24,9 @@ function buildMenu(): void {
         { label: 'Send Feedback…', accelerator: 'CmdOrCtrl+Shift+F', click: () => sendToWindows('ui:openFeedback', { tab: 'feedback' }) },
         { label: 'Errors and Diagnostics…', click: () => sendToWindows('ui:openFeedback', { tab: 'errors' }) },
         { type: 'separator' },
+        { label: 'Setup Assistant…', click: () => sendToWindows('ui:openOnboarding', { kind: 'setup' }) },
+        { label: 'Take the Tour', click: () => sendToWindows('ui:openOnboarding', { kind: 'tour' }) },
+        { type: 'separator' },
         { label: 'Check for Updates…', click: () => void checkForUpdate() },
         { label: 'sinfonie.dev', click: () => void shell.openExternal('https://sinfonie.dev') },
         { label: 'Release Notes', click: () => void shell.openExternal('https://github.com/fpolliop/sinfonie-releases/releases') }

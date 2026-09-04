@@ -399,6 +399,16 @@ export interface Settings {
   grokModel?: string
   /** Send anonymised crash reports (error message, stack, version, OS) to sinfonie.dev. Default on. */
   crashReports?: boolean
+  /** First-run setup, tour and getting-started checklist state. */
+  onboarding?: { setupDoneAt?: string; tourDoneAt?: string; checklistDismissedAt?: string }
+}
+
+/** A git repository found by scanning a folder, for the setup assistant. */
+export interface ScannedRepo {
+  path: string
+  name: string
+  /** Already in the app. */
+  added: boolean
 }
 
 // ---- Review cockpit ----

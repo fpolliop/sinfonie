@@ -230,7 +230,7 @@ function ModePicker({ mode, onChange }: { mode: PermissionMode; onChange: (m: Pe
   const current = PERMISSION_MODES.find((m) => m.id === mode) ?? PERMISSION_MODES[0]
   const tone = mode === 'bypassPermissions' ? 'text-danger bg-danger/15' : mode === 'plan' ? 'text-warn bg-warn/15' : mode === 'default' ? 'text-muted bg-panel-2' : 'text-ok bg-ok/15'
   return (
-    <label className={clsx('relative inline-flex cursor-pointer items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-medium', tone)} title={`${current.hint}. Shift+Tab cycles modes.`}>
+    <label data-tour="mode" className={clsx('relative inline-flex cursor-pointer items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-medium', tone)} title={`${current.hint}. Shift+Tab cycles modes.`}>
       <ShieldCheck size={12} />
       <span>{current.label}</span>
       <span className="opacity-60">▾</span>
@@ -306,7 +306,7 @@ function CrewBar({ items, busy, model, crewNames }: { items: ChatItem[]; busy: b
           {d.sub && <span className="opacity-70">{d.sub.toolCalls} calls{d.sub.lastTool ? ` · ${d.sub.lastTool}` : ''}</span>}
         </button>
       ))}
-      <button onClick={() => setPanel({ kind: 'activity' })} className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-muted hover:text-text" title="Activity: who did what in this session">
+      <button data-tour="activity" onClick={() => setPanel({ kind: 'activity' })} className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-muted hover:text-text" title="Activity: who did what in this session">
         <ListTree size={11} /> Activity{done > 0 ? ` · ${done} done` : ''}
       </button>
       {crewNames.length > 0 && running.length === 0 && (

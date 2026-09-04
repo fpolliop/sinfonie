@@ -10,12 +10,15 @@ import { PermissionPrompt } from './components/PermissionPrompt'
 import { BranchRenamePrompt } from './components/BranchRenamePrompt'
 import { ReviewCockpit } from './components/ReviewCockpit'
 import { FeedbackDialog } from './components/FeedbackDialog'
+import { SetupWizard } from './components/onboarding/SetupWizard'
+import { Tour } from './components/onboarding/Tour'
+import { GettingStarted } from './components/onboarding/GettingStarted'
 import { api } from '@/lib/api'
 import logo from './assets/logo.svg'
 import { Button } from './components/ui'
 
 export default function App(): React.JSX.Element {
-  const { loaded, load, selectedId, view, showNewWorkspace, settingsTarget, closeSettings, setShowNewWorkspace, setShowSettings, error, setError, stepSpace, setActiveSpace, feedbackDialog, setFeedbackDialog } = useApp()
+  const { loaded, load, selectedId, view, showNewWorkspace, settingsTarget, closeSettings, setShowNewWorkspace, setShowSettings, error, setError, stepSpace, setActiveSpace, feedbackDialog, setFeedbackDialog, onboarding, setOnboarding } = useApp()
   const subscribeChat = useChat((s) => s.subscribe)
   const subscribeScripts = useScripts((s) => s.subscribe)
 
@@ -26,6 +29,7 @@ export default function App(): React.JSX.Element {
   }, [load, subscribeChat, subscribeScripts])
 
   useEffect(() => api.on('ui:openFeedback', ({ tab }) => setFeedbackDialog(tab)), [setFeedbackDialog])
+  useEffect(() => api.on('ui:openOnboarding', ({ kind }) => setOnboarding(kind)), [setOnboarding])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -73,6 +77,8 @@ export default function App(): React.JSX.Element {
       {feedbackDialog && <FeedbackDialog tab={feedbackDialog} onClose={() => setFeedbackDialog(null)} />}
       <PermissionPrompt />
       <BranchRenamePrompt />
+      {onboarding === 'setup' && <SetupWizard onClose={() => setOnboarding(null)} />}
+      {onboarding === 'tour' && <Tour onClose={() => setOnboarding(null)} />}
       {error && (
         <div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-lg border border-danger/40 bg-panel px-4 py-2 text-[12px] shadow-xl">
           <span className="text-danger">{error}</span>
@@ -105,6 +111,7 @@ function EmptyState(): React.JSX.Element {
           </Button>
         )}
       </div>
+      <GettingStarted />
     </div>
   )
 }

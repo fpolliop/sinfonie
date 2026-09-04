@@ -128,7 +128,7 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
             )}
           </div>
         </div>
-        <div className="ml-2 flex min-w-0 items-center gap-1.5 overflow-hidden">
+        <div data-tour="repos" className="ml-2 flex min-w-0 items-center gap-1.5 overflow-hidden">
           {ws.repos.map((r) => {
             const pr = prs?.find((p) => p.repoId === r.repoId)?.pr
             const open = prs?.find((p) => p.repoId === r.repoId)?.threads.filter((t) => !t.isResolved).length ?? 0

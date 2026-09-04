@@ -47,6 +47,12 @@ interface AppState {
   branchPrompt: { workspaceId: string; name: string; newSlug: string; currentBranch: string } | null
   feedbackDialog: 'feedback' | 'errors' | null
   setFeedbackDialog: (v: 'feedback' | 'errors' | null) => void
+  /** The first-run setup assistant or the spotlight tour, when one is showing. */
+  onboarding: 'setup' | 'tour' | null
+  setOnboarding: (v: 'setup' | 'tour' | null) => void
+  /** What the setup assistant's First space step has collected so far. */
+  onboardingDraft: { name: string; color: string; root: string; repos: string[]; added: Set<string> }
+  setOnboardingDraft: (patch: Partial<AppState['onboardingDraft']>) => void
 
   load: () => Promise<void>
   applyStore: (d: StoreData) => void
@@ -134,10 +140,16 @@ export const useApp = create<AppState>((set, get) => ({
   feedbackDialog: null,
   setFeedbackDialog: (feedbackDialog) => set({ feedbackDialog }),
 
+  onboarding: null,
+  setOnboarding: (onboarding) => set({ onboarding }),
+  onboardingDraft: { name: '', color: '#7c9cff', root: '', repos: [], added: new Set() },
+  setOnboardingDraft: (patch) => set((s) => ({ onboardingDraft: { ...s.onboardingDraft, ...patch } })),
   load: async () => {
     const d = await api.invoke('store:get')
     get().applyStore(d)
-    set({ loaded: true })
+    // First run: nothing signed in, nothing created. Existing installs never see the assistant unasked.
+    const fresh = !d.settings.onboarding?.setupDoneAt && d.workspaces.length === 0 && d.repos.length === 0 && !d.settings.claudeAccounts.some((a) => a.loggedIn)
+    set({ loaded: true, ...(fresh ? { onboarding: 'setup' as const } : {}) })
     api.on('store:changed', (data) => get().applyStore(data))
   },
   applyStore: (d) => {

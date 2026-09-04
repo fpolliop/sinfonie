@@ -343,8 +343,19 @@ function AboutPage(): React.JSX.Element {
       setStatus(err instanceof Error ? err.message : String(err))
     }
   }
+  const setOnboarding = useApp((s) => s.setOnboarding)
+  const closeSettings = useApp((s) => s.closeSettings)
   return (
     <div className="max-w-[640px]">
+      <div className="mb-4 flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-[12px]">
+        <span className="text-muted">New here?</span>
+        <Button size="sm" variant="ghost" onClick={() => { closeSettings(); setOnboarding('setup') }}>
+          Run the setup assistant
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => { closeSettings(); setOnboarding('tour') }}>
+          Take the tour
+        </Button>
+      </div>
       <div className="flex items-center gap-3 rounded-lg border border-border px-3 py-3 text-[13px]">
         <span className="font-semibold">Sinfonie {version}</span>
         <button className="text-accent hover:underline" onClick={() => void api.invoke('shell:openExternal', 'https://sinfonie.dev')}>

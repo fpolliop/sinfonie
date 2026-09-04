@@ -3,8 +3,8 @@ import { basename } from 'path'
 import { spawn } from 'child_process'
 import { nanoid } from 'nanoid'
 import type { SinfonieEvents, SinfonieInvoke } from '@shared/ipc'
-import type { Label, McpServerSpec, Repo, RepoGitStatus, Space } from '@shared/types'
-import { existsSync, readFileSync } from 'fs'
+import type { Label, McpServerSpec, Repo, RepoGitStatus, ScannedRepo, Space } from '@shared/types'
+import { existsSync, readFileSync, readdirSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
 
@@ -159,10 +159,7 @@ export function registerIpc(): void {
   })
 
   // ---- repos ----
-  handle('repos:pickAndAdd', async (spaceId) => {
-    const r = await dialog.showOpenDialog({ properties: ['openDirectory'], title: 'Add a git repository' })
-    if (r.canceled || r.filePaths.length === 0) return null
-    const path = r.filePaths[0]
+  const addRepoAt = async (path: string, spaceId?: string): Promise<Repo> => {
     if (!(await git.isGitRepo(path))) throw new Error(`${path} is not the root of a git repository`)
     const existing = getStore().get().repos.find((x) => x.path === path)
     if (existing) {
@@ -185,6 +182,48 @@ export function registerIpc(): void {
     }
     getStore().update((d) => d.repos.push(repo))
     return repo
+  }
+  handle('repos:pickAndAdd', async (spaceId) => {
+    const r = await dialog.showOpenDialog({ properties: ['openDirectory'], title: 'Add a git repository' })
+    if (r.canceled || r.filePaths.length === 0) return null
+    return addRepoAt(r.filePaths[0], spaceId)
+  })
+  handle('repos:addPaths', async (paths, spaceId) => {
+    const out: Repo[] = []
+    for (const p of paths) out.push(await addRepoAt(p, spaceId))
+    return out
+  })
+  handle('repos:scan', async (rootIn) => {
+    const root = rootIn.startsWith('~') ? join(homedir(), rootIn.slice(1)) : rootIn
+    const known = new Set(getStore().get().repos.map((r) => r.path))
+    const out: ScannedRepo[] = []
+    const seen = new Set<string>()
+    const consider = (p: string): void => {
+      if (seen.has(p) || !existsSync(join(p, '.git'))) return
+      seen.add(p)
+      out.push({ path: p, name: basename(p), added: known.has(p) })
+    }
+    const children = (dir: string): string[] => {
+      try {
+        return readdirSync(dir, { withFileTypes: true })
+          .filter((e) => e.isDirectory() && !e.name.startsWith('.') && e.name !== 'node_modules')
+          .map((e) => join(dir, e.name))
+      } catch {
+        return []
+      }
+    }
+    if (!existsSync(root)) return out
+    consider(root)
+    for (const c of children(root)) {
+      consider(c)
+      if (out.length > 200) break
+      if (!seen.has(c)) for (const g of children(c)) consider(g)
+    }
+    return out.sort((a, b) => a.name.localeCompare(b.name))
+  })
+  handle('dialog:pickFolder', async (title, defaultPath) => {
+    const r = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'], title, ...(defaultPath ? { defaultPath } : {}) })
+    return r.canceled || r.filePaths.length === 0 ? null : r.filePaths[0]
   })
   handle('repos:remove', (repoId) => {
     getStore().update((d) => {
