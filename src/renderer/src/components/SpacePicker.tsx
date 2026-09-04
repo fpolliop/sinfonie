@@ -9,7 +9,7 @@ export function SpacePicker({ value, onChange, className, pill }: { value: strin
   const current = spaces.find((s) => s.id === value)
   if (pill) {
     return (
-      <label className={clsx('no-drag relative inline-flex cursor-pointer items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-muted hover:text-text', className)} title="Space">
+      <label className={clsx('no-drag relative inline-flex shrink-0 cursor-pointer items-center gap-1 whitespace-nowrap rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-muted hover:text-text', className)} title="Space">
         <span className="h-1.5 w-1.5 rounded-full" style={{ background: current?.color ?? '#8b93a1' }} />
         {current?.name ?? 'No space'}
         <span className="opacity-60">▾</span>

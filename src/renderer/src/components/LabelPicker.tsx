@@ -13,7 +13,7 @@ export function labelsFor(labels: Label[], spaceId: string | undefined): Label[]
 
 export function LabelChip({ label, small, onRemove }: { label: Label; small?: boolean; onRemove?: () => void }): React.JSX.Element {
   return (
-    <span className={clsx('inline-flex items-center gap-1 rounded-full border px-1.5 font-medium', small ? 'py-px text-[10px]' : 'py-0.5 text-[11px]')} style={{ borderColor: label.color + '80', color: label.color, background: label.color + '1a' }}>
+    <span className={clsx('inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border px-1.5 font-medium', small ? 'py-px text-[10px]' : 'py-0.5 text-[11px]')} style={{ borderColor: label.color + '80', color: label.color, background: label.color + '1a' }}>
       {label.name}
       {onRemove && (
         <button className="opacity-60 hover:opacity-100" onClick={(e) => (e.stopPropagation(), onRemove())} title="Remove label">
@@ -57,11 +57,11 @@ export function LabelPicker({ ws }: { ws: Workspace }): React.JSX.Element {
     })
   }
   return (
-    <div ref={ref} className="no-drag relative flex min-w-0 items-center gap-1">
+    <div ref={ref} className="no-drag relative flex shrink-0 items-center gap-1">
       {mine.map((l) => (
         <LabelChip key={l.id} label={l} onRemove={() => toggle(l.id)} />
       ))}
-      <button onClick={() => setOpen(!open)} className="inline-flex items-center gap-1 rounded-full border border-dashed border-border px-1.5 py-0.5 text-[11px] text-muted hover:text-text" title="Labels">
+      <button onClick={() => setOpen(!open)} className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-dashed border-border px-1.5 py-0.5 text-[11px] text-muted hover:text-text" title="Labels">
         <Tag size={11} /> {mine.length === 0 ? 'Add label' : ''}
       </button>
       {open && (

@@ -23,7 +23,7 @@ export function stageLabel(stage: WorkspaceStage): string {
 /** Coloured pill with a native select underneath, so it works with keyboard and screen readers. */
 export function StagePicker({ stage, onChange, disabled }: { stage: WorkspaceStage; onChange: (s: WorkspaceStage) => void; disabled?: boolean }): React.JSX.Element {
   return (
-    <label className={clsx('no-drag relative inline-flex cursor-pointer items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium', STAGE_TONE[stage], disabled && 'opacity-60')} title="Workspace stage">
+    <label className={clsx('no-drag relative inline-flex shrink-0 cursor-pointer items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium', STAGE_TONE[stage], disabled && 'opacity-60')} title="Workspace stage">
       <span className={clsx('h-1.5 w-1.5 rounded-full', STAGE_DOT[stage])} />
       {stageLabel(stage)}
       <span className="opacity-60">▾</span>

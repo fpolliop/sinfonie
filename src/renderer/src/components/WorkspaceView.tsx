@@ -100,7 +100,7 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
                 />
               </div>
             ) : (
-              <h1 className="no-drag cursor-text truncate text-[14px] font-semibold" title="Double-click to rename" onDoubleClick={() => setEditingTitle(true)}>
+              <h1 className="no-drag min-w-0 cursor-text truncate text-[14px] font-semibold" title="Double-click to rename" onDoubleClick={() => setEditingTitle(true)}>
                 {ws.name}
               </h1>
             )}
