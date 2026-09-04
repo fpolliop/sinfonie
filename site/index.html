@@ -51,7 +51,7 @@
 
   /* hero */
   header.hero{position:relative;padding:96px 0 40px;overflow:hidden}
-  #stage{position:absolute;inset:0;z-index:0;opacity:.9}
+  #stage{position:absolute;inset:0;width:100%;height:100%;z-index:0;opacity:.9;pointer-events:none}
   header .wrap{position:relative;z-index:1}
   .eyebrow{display:inline-flex;align-items:center;gap:8px;font:12px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--accent);border:1px solid rgba(124,156,255,.3);background:rgba(124,156,255,.08);padding:5px 10px;border-radius:999px}
   .eyebrow .dot{width:6px;height:6px;border-radius:50%;background:var(--ok);box-shadow:0 0 12px var(--ok)}
@@ -128,11 +128,13 @@
   .step{padding:22px;border:1px solid var(--border);border-radius:14px;background:var(--bg2)}
   .step .n{font:13px var(--mono);color:var(--accent);margin-bottom:10px}
   .step h3{margin:0 0 8px;font-size:17px}.step p{margin:0;color:var(--muted);font-size:14px}
-  .tree{margin-top:14px;font:12px var(--mono);color:var(--muted);line-height:1.7;white-space:pre}
+  .tree{margin-top:14px;font:12px var(--mono);color:var(--muted);line-height:1.7;white-space:pre;overflow-x:auto}
   .tree b{color:var(--text);font-weight:600}.tree .b{color:var(--ok)}
 
   /* crew */
   .split{display:grid;grid-template-columns:1.1fr .9fr;gap:40px;align-items:start}
+  .split>*,.steps>*,.grid>*{min-width:0}
+  .tablewrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
   table{width:100%;border-collapse:collapse;font-size:14px}
   th,td{text-align:left;padding:12px 10px;border-bottom:1px solid var(--border);vertical-align:top}
   th{font:11px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--dim);font-weight:600}
@@ -182,7 +184,27 @@
   .reveal{opacity:0;transform:translateY(14px);transition:opacity .6s ease,transform .6s ease}
   .reveal.in{opacity:1;transform:none}
 
-  @media (max-width:900px){.body{grid-template-columns:1fr}.side{display:none}.split{grid-template-columns:1fr}.steps{grid-template-columns:1fr}nav .links{display:none}}
+  @media (max-width:900px){.body{grid-template-columns:1fr}.side{display:none}.split{grid-template-columns:1fr;gap:28px}.steps{grid-template-columns:1fr}nav .links{display:none}}
+  @media (max-width:640px){
+    header.hero{padding:44px 0 24px}
+    .mock{margin-top:36px;border-radius:12px}
+    .body{min-height:0}
+    .hdr{flex-wrap:wrap;row-gap:6px}
+    .tool{flex-wrap:wrap;font-size:11px;line-height:1.45}
+    .tool .st{margin-left:auto}
+    .cta .meta{flex-basis:100%}
+    section{padding:52px 0}
+    .sec-head{margin-bottom:24px}
+    .band{padding:28px 18px;border-radius:14px}
+    .band h2{font-size:26px}
+    nav .wrap{gap:12px}
+    nav .right .btn.ghost{display:none}
+    .card{padding:18px}
+    pre{padding:14px;font-size:12px}
+    th,td{padding:9px 8px;font-size:13px}
+    .fb{padding:14px}
+    footer .wrap{gap:12px}
+  }
   @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}.reveal{opacity:1;transform:none}}
 </style>
 </head>
@@ -302,7 +324,7 @@ Jira ACME-142 → <b>In review</b></div></div>
           <h2>Frontier model for judgment. Cheaper models for the rest.</h2>
           <p>Reading twenty files to answer "where is this used" costs a tenth on Haiku of what it costs on Opus. Sinfonie ships a default crew and lets you edit every member per space.</p>
         </div>
-        <table class="reveal">
+        <div class="tablewrap reveal"><table>
           <thead><tr><th>Agent</th><th>Model</th><th>Does</th></tr></thead>
           <tbody>
             <tr><td><b>orchestrator</b><br><span class="ro">the chat</span></td><td><span class="m">opus · fable</span></td><td>Plans, delegates, integrates, talks to you</td></tr>
@@ -311,7 +333,7 @@ Jira ACME-142 → <b>In review</b></div></div>
             <tr><td><b>tester</b><br><span class="ro">shell only</span></td><td><span class="m">haiku</span></td><td>Runs tests and type-checks, reports failures</td></tr>
             <tr><td><b>reviewer</b><br><span class="ro">read-only</span></td><td><span class="m">opus</span></td><td>Reviews the diff before commit, by severity</td></tr>
           </tbody>
-        </table>
+        </table></div>
       </div>
       <div class="reveal">
         <div class="codehead"><i></i> sinfonie.json · one per repository</div>
@@ -474,7 +496,7 @@ Never let two agents edit the same repo at once.</span></pre>
   camera.position.set(0, 0.6, 9)
 
   // 7 staff lines × N points, each line a different voice
-  var LINES = 7, N = 220, W = 26
+  var LINES = 7, N = window.innerWidth < 640 ? 110 : 220, W = 26
   var positions = new Float32Array(LINES * N * 3), colors = new Float32Array(LINES * N * 3), phase = new Float32Array(LINES * N)
   var palette = [[0.49,0.61,1],[0.36,0.49,1],[0.65,0.55,0.98],[0.96,0.45,0.71],[0.49,0.61,1],[0.65,0.55,0.98],[0.36,0.49,1]]
   for (var l = 0; l < LINES; l++) for (var i = 0; i < N; i++) {
@@ -496,7 +518,8 @@ Never let two agents edit the same repo at once.</span></pre>
 
   var mouse = { x: 0, y: 0 }, target = { x: 0, y: 0 }
   window.addEventListener('pointermove', function(e){ target.x = (e.clientX / innerWidth - .5); target.y = (e.clientY / innerHeight - .5) }, { passive: true })
-  function resize(){ var w = canvas.clientWidth, h = canvas.clientHeight; renderer.setSize(w, h, false); camera.aspect = w/h; camera.updateProjectionMatrix() }
+  function resize(){ var box = canvas.parentElement.getBoundingClientRect(), w = Math.max(1, Math.round(box.width)), h = Math.max(1, Math.round(box.height)); renderer.setSize(w, h, false); camera.aspect = w/h; camera.updateProjectionMatrix() }
+  if (window.ResizeObserver) new ResizeObserver(resize).observe(canvas.parentElement)
   window.addEventListener('resize', resize); resize()
 
   var t0 = performance.now(), visible = true
