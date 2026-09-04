@@ -5,9 +5,7 @@
 </defs>
 <rect width="256" height="256" rx="56" fill="url(#bg)"/>
 <rect x=".5" y=".5" width="255" height="255" rx="56" fill="none" stroke="rgba(255,255,255,.07)"/>
-<path d="M128.0 220.2 L128.0 153.6" stroke="url(#g)" stroke-width="15.9" stroke-linecap="round" fill="none"/>
 <path d="M128.0 153.6 Q120.3 130.6 76.8 102.4" stroke="url(#g)" stroke-width="15.9" stroke-linecap="round" fill="none"/>
-<path d="M128.0 153.6 Q128.0 109.8 128.0 56.3" stroke="url(#g)" stroke-width="15.9" stroke-linecap="round" fill="none"/>
 <path d="M128.0 153.6 Q135.7 137.5 179.2 117.8" stroke="url(#g)" stroke-width="15.9" stroke-linecap="round" fill="none"/>
 <circle cx="76.8" cy="102.4" r="14.1" fill="url(#g)"/>
 <circle cx="72.6" cy="98.2" r="3.9" fill="rgba(255,255,255,.55)"/>
