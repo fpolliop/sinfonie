@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { MessageSquarePlus, Bug, ChevronRight, Trash2, FolderOpen, Copy, Send, CheckCircle2 } from 'lucide-react'
+import { MessageSquarePlus, Bug, ChevronRight, Trash2, FolderOpen, Copy, Send, CheckCircle2, ImagePlus, X } from 'lucide-react'
+import { imageFiles, prepareImage, type PendingImage } from '@/lib/images'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { Badge, Button, Dialog, inputCls } from './ui'
@@ -35,17 +36,46 @@ function FeedbackForm({ prefill, onClose }: { prefill?: string; onClose?: () => 
   const [sending, setSending] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
   const [sent, setSent] = useState<{ kind: typeof kind; withEmail: boolean } | null>(null)
+  const [shots, setShots] = useState<PendingImage[]>([])
+  const [dragging, setDragging] = useState(false)
+  const fileInput = useRef<HTMLInputElement>(null)
+  const MAX_SHOTS = 4
+  // Screenshots are stored with the report, so keep them small: 1600 px, ~450 KB each.
+  const addFiles = async (files: File[]): Promise<void> => {
+    const room = MAX_SHOTS - shots.length
+    if (room <= 0) return setFailure(`At most ${MAX_SHOTS} screenshots per report.`)
+    setFailure(null)
+    const prepared: PendingImage[] = []
+    for (const f of files.slice(0, room)) {
+      try {
+        prepared.push(await prepareImage(f, f.name || 'screenshot', { maxSide: 1600, maxBytes: 450 * 1024 }))
+      } catch (err) {
+        setFailure(err instanceof Error ? err.message : String(err))
+      }
+    }
+    if (prepared.length) setShots((s) => [...s, ...prepared])
+  }
+  const removeShot = (id: string): void => {
+    setShots((s) => {
+      const gone = s.find((x) => x.id === id)
+      if (gone) URL.revokeObjectURL(gone.preview)
+      return s.filter((x) => x.id !== id)
+    })
+  }
   const send = async (): Promise<void> => {
     if (!message.trim() || sending) return
     setSending(true)
     setFailure(null)
     localStorage.setItem('orchestra.feedbackEmail', email)
     try {
-      const r = await api.invoke('feedback:send', { kind, message, email: email || undefined, includeLogs })
+      const attachments = shots.map((s) => ({ name: s.name, mime: s.mimeType, data: s.data }))
+      const r = await api.invoke('feedback:send', { kind, message, email: email || undefined, includeLogs, attachments: attachments.length ? attachments : undefined })
       if (r.ok) {
         setSent({ kind, withEmail: Boolean(email.trim()) })
         setMessage('')
         setIncludeLogs(false)
+        shots.forEach((s) => URL.revokeObjectURL(s.preview))
+        setShots([])
       } else setFailure(r.error ?? 'Unknown error')
     } catch (err) {
       setFailure(err instanceof Error ? err.message : String(err))
@@ -92,12 +122,70 @@ function FeedbackForm({ prefill, onClose }: { prefill?: string; onClose?: () => 
           </button>
         ))}
       </div>
-      <textarea autoFocus rows={6} className={inputCls} placeholder={kind === 'bug' ? 'What happened, what did you expect, and how to reproduce it?' : kind === 'feature' ? 'What would you like Sinfonie to do?' : 'Anything at all.'} value={message} onChange={(e) => setMessage(e.target.value)} />
+      <div
+        className={clsx('rounded-md', dragging && 'ring-2 ring-accent/60')}
+        onDragOver={(e) => {
+          if (Array.from(e.dataTransfer.types).includes('Files')) {
+            e.preventDefault()
+            setDragging(true)
+          }
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(e) => {
+          const files = imageFiles(e.dataTransfer)
+          setDragging(false)
+          if (!files.length) return
+          e.preventDefault()
+          void addFiles(files)
+        }}
+      >
+        <textarea
+          autoFocus
+          rows={6}
+          className={inputCls}
+          placeholder={kind === 'bug' ? 'What happened, what did you expect, and how to reproduce it? Paste or drop screenshots here.' : kind === 'feature' ? 'What would you like Sinfonie to do?' : 'Anything at all.'}
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+          onPaste={(e) => {
+            const files = imageFiles(e.clipboardData)
+            if (!files.length) return
+            e.preventDefault()
+            void addFiles(files)
+          }}
+        />
+      </div>
+      {shots.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-2">
+          {shots.map((s) => (
+            <div key={s.id} className="group relative h-16 w-24 overflow-hidden rounded-md border border-border bg-bg" title={s.name}>
+              <img src={s.preview} alt={s.name} className="h-full w-full object-cover" />
+              <button onClick={() => removeShot(s.id)} className="absolute right-0.5 top-0.5 hidden rounded-full bg-black/70 p-0.5 text-white group-hover:block" title="Remove">
+                <X size={11} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <input
+        ref={fileInput}
+        type="file"
+        accept="image/*"
+        multiple
+        hidden
+        onChange={(e) => {
+          const files = Array.from(e.target.files ?? []).filter((f) => f.type.startsWith('image/'))
+          e.target.value = ''
+          void addFiles(files)
+        }}
+      />
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <input className={clsx(inputCls, 'max-w-[260px]')} placeholder="Email for a reply (optional)" value={email} onChange={(e) => setEmail(e.target.value)} />
         <label className="flex items-center gap-1.5 text-[12px] text-muted" title="Attaches the last 30 captured errors. No chat content.">
           <input type="checkbox" checked={includeLogs} onChange={(e) => setIncludeLogs(e.target.checked)} /> attach error log
         </label>
+        <Button size="sm" variant="ghost" disabled={shots.length >= MAX_SHOTS} onClick={() => fileInput.current?.click()} title="Add screenshots (or paste / drop them in the text box)">
+          <ImagePlus size={12} /> {shots.length ? `${shots.length}/${MAX_SHOTS} screenshots` : 'Screenshot'}
+        </Button>
         <span className="ml-auto flex items-center gap-2">
           {failure && <span className="text-[12px] text-danger">Could not send: {failure}</span>}
           <Button variant="primary" disabled={!message.trim() || sending} onClick={send}>

@@ -1,6 +1,6 @@
 /**
  * Feedback, feature requests and error reports, from the site form and the app.
- *   POST /api/feedback   { kind, message, email?, appVersion?, os?, context?, source }
+ *   POST /api/feedback   { kind, message, email?, appVersion?, os?, context?, source, attachments?: [{ name, mime, data(base64) }] }
  *   GET  /api/feedback?token=ADMIN_TOKEN[&kind=bug][&limit=200]   → JSON, newest first
  */
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET,POST,OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type' }
@@ -33,7 +33,18 @@ export async function onRequestPost({ request, env }) {
   const r = await env.DB.prepare(
     'INSERT INTO feedback (kind, message, email, app_version, os, context, source, ip_country) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)'
   ).bind(kind, message, email, body.appVersion ?? null, body.os ?? null, context, source, request.cf?.country ?? null).run()
-  return json({ ok: true, id: r.meta.last_row_id })
+  const id = r.meta.last_row_id
+  // Screenshots: up to 4, each at most ~700 KB of base64, kept in D1 next to the report.
+  const atts = Array.isArray(body.attachments) ? body.attachments.slice(0, 4) : []
+  let stored = 0
+  for (const a of atts) {
+    const data = typeof a?.data === 'string' ? a.data : ''
+    const mime = /^image\/(png|jpeg|webp|gif)$/.test(a?.mime) ? a.mime : null
+    if (!data || !mime || data.length > 700_000) continue
+    await env.DB.prepare('INSERT INTO attachments (feedback_id, mime, name, data) VALUES (?1,?2,?3,?4)').bind(id, mime, String(a.name ?? 'screenshot').slice(0, 120), data).run()
+    stored++
+  }
+  return json({ ok: true, id, attachments: stored })
 }
 
 export async function onRequestGet({ request, env }) {

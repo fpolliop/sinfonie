@@ -423,7 +423,7 @@ export function registerIpc(): void {
         logs = undefined
       }
     }
-    return sendFeedback({ kind: p.kind, message: p.message, email: p.email, context: logs ? { errorsLog: logs } : undefined })
+    return sendFeedback({ kind: p.kind, message: p.message, email: p.email, context: logs ? { errorsLog: logs } : undefined, attachments: p.attachments?.slice(0, 4) })
   })
   handle('logs:open', () => {
     void shell.openPath(logsDir())

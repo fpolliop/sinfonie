@@ -84,7 +84,7 @@
     $('empty').hidden = state.items.length > 0
     state.items.forEach(function(it){
       var tr = document.createElement('tr'); tr.className='row'
-      tr.innerHTML = '<td class="meta">'+it.id+'</td><td><span class="k '+esc(it.kind)+'">'+esc(it.kind)+'</span>'+(it.count>1?' <span class="meta">×'+it.count+'</span>':'')+'</td><td><span class="s '+esc(it.status)+'">'+esc(it.status)+'</span></td><td class="msg" title="'+esc(it.message)+'">'+esc(it.message)+'</td><td class="meta">'+esc(it.email||it.source)+(it.app_version?' · '+esc(it.app_version):'')+'</td><td class="meta">'+ago(it.created_at)+'</td>'
+      tr.innerHTML = '<td class="meta">'+it.id+'</td><td><span class="k '+esc(it.kind)+'">'+esc(it.kind)+'</span>'+(it.count>1?' <span class="meta">×'+it.count+'</span>':'')+'</td><td><span class="s '+esc(it.status)+'">'+esc(it.status)+'</span></td><td class="msg" title="'+esc(it.message)+'">'+((it.attachments||[]).length?'📎 ':'')+esc(it.message)+'</td><td class="meta">'+esc(it.email||it.source)+(it.app_version?' · '+esc(it.app_version):'')+'</td><td class="meta">'+ago(it.created_at)+'</td>'
       tr.onclick = function(){ state.open = state.open===it.id ? null : it.id; render() }
       tb.appendChild(tr)
       if (state.open === it.id) {
@@ -92,7 +92,8 @@
         var ctx = it.context && typeof it.context==='object' ? it.context : null
         var stack = ctx && (ctx.stack || ctx.errorsLog) ? '<pre>'+esc(ctx.stack || ctx.errorsLog)+'</pre>' : ''
         var rest = ctx ? Object.keys(ctx).filter(function(k){return k!=='stack'&&k!=='errorsLog'}).map(function(k){ return esc(k)+': '+esc(typeof ctx[k]==='string'?ctx[k]:JSON.stringify(ctx[k])) }).join(' · ') : ''
-        d.innerHTML = '<td colspan="6"><div style="white-space:pre-wrap">'+esc(it.message)+'</div>'+stack+(rest?'<div class="meta" style="margin-top:8px;white-space:normal">'+rest+'</div>':'')+
+        var shots = (it.attachments||[]).map(function(a){ var u='/api/admin/attachment/'+a.id+'?token='+encodeURIComponent(token); return '<a href="'+u+'" target="_blank" rel="noopener" title="'+esc(a.name||'')+'"><img src="'+u+'" style="max-height:160px;max-width:260px;border:1px solid #2a2f3a;border-radius:8px;margin:8px 8px 0 0;vertical-align:top"></a>' }).join('')
+        d.innerHTML = '<td colspan="6"><div style="white-space:pre-wrap">'+esc(it.message)+'</div>'+shots+stack+(rest?'<div class="meta" style="margin-top:8px;white-space:normal">'+rest+'</div>':'')+
           '<div class="meta" style="margin-top:6px;white-space:normal">'+esc(it.source)+' · '+esc(it.os||'')+' · '+esc(it.ip_country||'')+' · '+esc(it.created_at)+(it.email?' · <a href="mailto:'+esc(it.email)+'" style="color:var(--accent)">'+esc(it.email)+'</a>':'')+'</div>'+
           '<div class="actions"><select data-act="status">'+['new','planned','in-progress','done','wontfix'].map(function(s){return '<option value="'+s+'"'+(s===it.status?' selected':'')+'>'+s+'</option>'}).join('')+'</select>'+
           '<input data-act="note" placeholder="Note" value="'+esc(it.note||'')+'" style="flex:1;min-width:200px"><button class="btn" data-act="save">Save</button><button class="btn danger" data-act="del">Delete</button></div></td>'

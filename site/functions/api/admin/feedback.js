@@ -15,8 +15,12 @@ export async function onRequestGet({ request, env }) {
   if (q) { where.push('(message LIKE ? OR email LIKE ? OR app_version LIKE ?)'); binds.push(`%${q}%`, `%${q}%`, `%${q}%`) }
   const sql = `SELECT * FROM feedback ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY id DESC LIMIT ?`
   const { results } = await env.DB.prepare(sql).bind(...binds, limit).all()
+  const ids = results.map((r) => r.id)
+  const atts = ids.length ? (await env.DB.prepare(`SELECT id, feedback_id, mime, name FROM attachments WHERE feedback_id IN (${ids.map(() => '?').join(',')})`).bind(...ids).all()).results : []
+  const byFeedback = {}
+  for (const a of atts) (byFeedback[a.feedback_id] ||= []).push({ id: a.id, mime: a.mime, name: a.name })
   const counts = await env.DB.prepare("SELECT kind, status, COUNT(*) AS n, SUM(count) AS hits, SUM(CASE WHEN created_at > datetime('now','-7 day') THEN 1 ELSE 0 END) AS week FROM feedback GROUP BY kind, status").all()
-  return json({ who: who.email, via: who.via, items: results.map((r) => ({ ...r, context: safeJson(r.context) })), counts: counts.results })
+  return json({ who: who.email, via: who.via, items: results.map((r) => ({ ...r, context: safeJson(r.context), attachments: byFeedback[r.id] ?? [] })), counts: counts.results })
 }
 
 function safeJson(s) { try { return s ? JSON.parse(s) : null } catch { return s } }

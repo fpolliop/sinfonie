@@ -108,7 +108,7 @@ export interface SinfonieInvoke {
   'updates:check': () => UpdateInfo | null
   'updates:download': () => void
   'updates:install': () => void
-  'feedback:send': (payload: { kind: 'feedback' | 'feature' | 'bug'; message: string; email?: string; includeLogs?: boolean }) => { ok: boolean; error?: string }
+  'feedback:send': (payload: { kind: 'feedback' | 'feature' | 'bug'; message: string; email?: string; includeLogs?: boolean; attachments?: { name: string; mime: string; data: string }[] }) => { ok: boolean; error?: string }
   'logs:open': () => void
   'logs:list': () => ErrorEntry[]
   'logs:clear': () => void

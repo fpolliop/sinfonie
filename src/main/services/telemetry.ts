@@ -40,6 +40,8 @@ export interface FeedbackPayload {
   message: string
   email?: string
   context?: Record<string, unknown>
+  /** Screenshots, base64 without the data: prefix. */
+  attachments?: { name: string; mime: string; data: string }[]
 }
 
 /** Send to the feedback API. Crash reports respect the "send crash reports" setting. */

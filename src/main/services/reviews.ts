@@ -608,16 +608,46 @@ function formatComment(f: ReviewFinding): string {
   return `${head}\n\n${f.body}${sugg}`
 }
 
+let viewerLogin: string | null = null
+async function viewer(): Promise<string> {
+  if (viewerLogin) return viewerLogin
+  try {
+    viewerLogin = (await gh(['api', 'user', '--jq', '.login'])).trim()
+  } catch {
+    viewerLogin = ''
+  }
+  return viewerLogin
+}
+/** GitHub's own explanation from a failed `gh api` call, instead of the bare HTTP status. */
+function githubError(e: unknown): string {
+  const err = e as { stderr?: string; stdout?: string }
+  try {
+    const j = JSON.parse(err.stdout ?? '') as { message?: string; errors?: ({ message?: string } | string)[] }
+    const details = (j.errors ?? []).map((x) => (typeof x === 'string' ? x : x.message ?? '')).filter(Boolean)
+    const msg = [j.message, ...details].filter(Boolean).join(': ')
+    if (msg) return msg
+  } catch {
+    /* not json */
+  }
+  return (err.stderr || err.stdout || '').trim().split('\n').slice(0, 3).join(' ') || 'gh api failed'
+}
+
 /** Posts one GitHub review: the verdict as body, approved findings as inline comments. */
 export async function submitReview(key: string, emit: Emit): Promise<ReviewRun> {
   load()
   const run = runs.get(key)
   if (!run) throw new Error(`No review ${key}`)
   if (!run.verdict) throw new Error('Set a verdict first')
+  // GitHub refuses approvals and change requests on your own pull request; say so before it does.
+  if (run.verdict.decision !== 'comment') {
+    const me = await viewer()
+    if (me && me.toLowerCase() === run.pr.author.toLowerCase()) throw new Error(`GitHub does not let you ${run.verdict.decision === 'approve' ? 'approve' : 'request changes on'} your own pull request (${me}). Switch the verdict to Comment to post the findings, or ask a teammate to approve.`)
+  }
   const approved = run.findings.filter((f) => f.approved)
   const inline = approved.filter((f) => f.line != null)
   const fileLevel = approved.filter((f) => f.line == null)
-  const bodyParts = [run.verdict.summary.trim()]
+  // A comment or change-request review must carry a body; an approval may be empty.
+  const bodyParts = [run.verdict.summary.trim() || (run.verdict.decision === 'approve' ? '' : approved.length ? 'Review findings below.' : 'Reviewed with Sinfonie.')]
   if (fileLevel.length) bodyParts.push(fileLevel.map((f) => `- \`${f.path}\`: ${formatComment(f).replace(/\n+/g, ' ')}`).join('\n'))
   // gh api with --input reads stdin; execFile has no stdin helper, so shell out via a temp file.
   const tmp = join(app.getPath('temp'), `sinfonie-review-${nanoid(6)}.json`)
@@ -633,8 +663,7 @@ export async function submitReview(key: string, emit: Emit): Promise<ReviewRun> 
       const j = JSON.parse(stdout) as { html_url?: string }
       return j.html_url ?? run.pr.url
     } catch (e) {
-      const err = e as { stderr?: string; stdout?: string }
-      throw new Error((err.stderr || err.stdout || '').trim().split('\n').slice(0, 3).join(' ') || 'gh api failed')
+      throw new Error(githubError(e))
     }
   }
   let url: string

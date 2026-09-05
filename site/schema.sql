@@ -36,3 +36,14 @@ CREATE TABLE IF NOT EXISTS oauth_codes (
   code TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Screenshots attached to feedback (base64 in D1; small and few).
+CREATE TABLE IF NOT EXISTS attachments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  feedback_id INTEGER NOT NULL,
+  mime TEXT NOT NULL,
+  name TEXT,
+  data TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS attachments_feedback ON attachments(feedback_id);
