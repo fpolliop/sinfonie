@@ -1,4 +1,4 @@
-import type { AuthLink, BrowserState, LimitAlternative, UsageSnapshot, ChatImageInput, Incident, IncidentStatus, LinearIssue, LinearSettings, OnCallState, ResourceSnapshot, Severity, SlackConnection, LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion,
+import type { AuthLink, BrowserState, CrewPriority, LimitAlternative, UsageSnapshot, ChatImageInput, Incident, IncidentStatus, LinearIssue, LinearSettings, OnCallState, ResourceSnapshot, Severity, SlackConnection, LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion,
   AgentEvent,
   ChatItem,
   JiraIssue,
@@ -42,7 +42,7 @@ export interface SinfonieInvoke {
   'settings:update': (patch: Partial<Settings>) => Settings
 
   'spaces:create': (name: string) => Space
-  'spaces:update': (id: string, patch: Partial<Pick<Space, 'name' | 'color' | 'claudeAccountId' | 'model' | 'permissionMode' | 'workspacesRoot' | 'browserSensitiveOrigins' | 'githubOwners' | 'exposeLinearMcp' | 'oncall' | 'mcpServers' | 'exposeJiraMcp' | 'strictMcp' | 'agents' | 'useCrew' | 'engine'>>) => Space
+  'spaces:update': (id: string, patch: Partial<Pick<Space, 'name' | 'color' | 'claudeAccountId' | 'model' | 'permissionMode' | 'workspacesRoot' | 'browserSensitiveOrigins' | 'githubOwners' | 'exposeLinearMcp' | 'oncall' | 'budgetMode' | 'mcpServers' | 'exposeJiraMcp' | 'strictMcp' | 'agents' | 'useCrew' | 'engine'>>) => Space
   /** MCP servers found in Claude Code's own config (~/.claude.json), for importing. */
   'mcp:importable': () => McpServerSpec[]
   'spaces:delete': (id: string) => void
@@ -146,7 +146,7 @@ export interface SinfonieInvoke {
   /** Every model the crew can use, from every source. */
   'crew:inventory': () => ModelInventoryItem[]
   /** Ask Claude to assign a model to the orchestrator and each crew member, given the inventory. */
-  'crew:suggest': (spaceId?: string) => CrewSuggestion
+  'crew:suggest': (spaceId?: string, priority?: CrewPriority) => CrewSuggestion
   /** Run the agent's own authentication method (browser or terminal flow). Returns the terminal command when one must be run instead. */
   'acp:authenticate': (engine: Engine, methodId: string) => { ok: boolean; terminalCommand?: string; error?: string }
   /** A shell already running `command`, for interactive logins. */

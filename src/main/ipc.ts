@@ -105,6 +105,7 @@ export function registerIpc(): void {
         for (const [k, v] of Object.entries(patch)) {
           if (v === '' || v === undefined || v === null || (Array.isArray(v) && v.length === 0 && k !== 'mcpServers' && k !== 'agents')) delete target[k]
           else if (v === false && k === 'strictMcp') delete target[k]
+          else if (k === 'budgetMode' && typeof v === 'boolean') target[k] = v
           else if (v === true && k === 'useCrew') delete target[k]
           else target[k] = v
         }
@@ -605,7 +606,7 @@ export function registerIpc(): void {
   handle('notes:update', (wsId, id, patch) => notes.update(wsId, id, patch))
   handle('notes:remove', (wsId, id) => notes.remove(wsId, id))
   handle('crew:inventory', () => crewSuggest.inventory())
-  handle('crew:suggest', (spaceId) => crewSuggest.suggest(spaceId))
+  handle('crew:suggest', (spaceId, priority) => crewSuggest.suggest(spaceId, priority))
   handle('acp:authenticate', (engine, methodId) => acp.authenticate(engine, methodId))
   // ---- model providers (native engine) ----
   handle('providers:add', (cfg) => providers.addProvider(cfg))

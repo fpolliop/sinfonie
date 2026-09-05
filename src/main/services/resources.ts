@@ -73,6 +73,11 @@ export function delegationVeto(workspaceId: string): string | null {
   const s = resourceSettings()
   if (s.governor === 'off') return null
   const running = runningTasks(workspaceId).length
+  const { spaces, settings: app, workspaces } = getStore().get()
+  const ws = workspaces.find((w) => w.id === workspaceId)
+  const space = spaces.find((x) => x.id === ws?.spaceId)
+  const cap = (space?.budgetMode ?? app.budgetMode) ? Math.min(2, s.maxSubagentsPerSession) : s.maxSubagentsPerSession
+  if (running >= cap) return `${running} subagent${running === 1 ? ' is' : 's are'} already running in this session (limit ${cap}${cap < s.maxSubagentsPerSession ? ', budget mode' : ''}). Wait for one to finish before delegating again, or do the work yourself.`
   if (running >= s.maxSubagentsPerSession) return `${running} subagent${running === 1 ? ' is' : 's are'} already running in this session (limit ${s.maxSubagentsPerSession}). Wait for one to finish before delegating again, or do the work yourself.`
   if (s.governor === 'enforce' && snapshot.level !== 'normal') return `the Mac is under memory pressure (Sinfonie is using ${gb(snapshot.appRss)} of its ${gb(snapshot.budget)} budget; macOS reports ${snapshot.osPressure}). Do the work yourself or wait for running subagents to finish; no new subagents start until pressure eases.`
   return null

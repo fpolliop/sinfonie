@@ -61,6 +61,11 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
   const canSend = !disabled && (Boolean(draft.trim()) || pendingImages.length > 0)
   const settingsModel = useApp((s) => s.settings.model)
   const settingsMode = useApp((s) => s.settings.permissionMode)
+  const budgetMode = useApp((s) => {
+    const w = s.workspaces.find((x) => x.id === workspaceId)
+    const sp = s.spaces.find((x) => x.id === w?.spaceId)
+    return sp?.budgetMode ?? s.settings.budgetMode ?? false
+  })
   const engineLabel = useApp((s) => {
     const sp = s.spaces.find((x) => x.id === ws?.spaceId)
     const e = sp?.engine ?? s.settings.engine ?? 'claude-code'
@@ -222,6 +227,11 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
               <ModePicker mode={mode} onChange={changeMode} />
               <span className="text-[11px] text-muted">
                 <span className="rounded bg-panel-2 px-1 py-px text-[10px] uppercase tracking-wide">{engineLabel}</span>{' '}
+                {budgetMode && (
+                  <span className="mr-1 rounded bg-ok/15 px-1 py-px text-[10px] uppercase tracking-wide text-ok" title="Budget mode: Sonnet orchestrator, low effort, two subagents, a spend cap per turn. Change it in the space settings.">
+                    budget
+                  </span>
+                )}
                 {chat?.model ?? `model: ${settingsModel}`}
                 {chat?.contextTokens ? (
                   <span className={clsx('ml-1', chat.contextTokens >= 120000 ? 'text-warn' : '')} title="Tokens the model re-reads on every message in this session. Start a new session for a new task to keep this small.">

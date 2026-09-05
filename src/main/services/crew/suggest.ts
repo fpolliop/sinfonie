@@ -2,7 +2,7 @@ import { claudeExecutableOption } from '../claude-cli'
 import * as usage from '../usage'
 import { defaultAccountId } from '../accounts'
 import { query, type Options, type SDKMessage } from '@anthropic-ai/claude-agent-sdk'
-import type { AgentSpec, CrewSuggestion, Engine, ModelInventoryItem } from '@shared/types'
+import type { CrewPriority, AgentSpec, CrewSuggestion, Engine, ModelInventoryItem } from '@shared/types'
 import { ACP_ENGINES, CLAUDE_MODELS, PROVIDER_KINDS, classifyModel } from '@shared/types'
 import { getStore } from '../../store'
 import { accountEnv } from '../accounts'
@@ -55,7 +55,7 @@ const SCHEMA = {
 }
 
 /** Ask Claude which of the user's models should drive the orchestrator and each crew member. */
-export async function suggest(spaceId?: string): Promise<CrewSuggestion> {
+export async function suggest(spaceId?: string, priority: CrewPriority = 'balanced'): Promise<CrewSuggestion> {
   const { settings, spaces } = getStore().get()
   const space = spaces.find((s) => s.id === spaceId)
   const engine: Engine = space?.engine ?? settings.engine ?? 'claude-code'
@@ -72,7 +72,11 @@ export async function suggest(spaceId?: string): Promise<CrewSuggestion> {
   const prompt = [
     'You are configuring a coding crew inside Sinfonie: an orchestrator model that talks to the user and plans, plus subagents it delegates to. Assign a model to the orchestrator and to every crew member, from the inventory below, and explain each choice in one short sentence.',
     '',
-    'Principles: the orchestrator needs the strongest judgment available (planning, integration, talking to the user). Exploration and test-running are high-volume and should use the cheapest capable model. Implementation needs a strong coding model. Review needs the most careful model. Prefer models included in a subscription the user already pays for (Claude login, vendor agents marked "subscription") over per-token API keys when quality is similar; use local models only for cheap read-only work unless nothing else is available. Mixing vendors is fine and often good: a different vendor for review catches different mistakes.',
+    priority === 'cost'
+      ? 'The user is on a limited subscription and wants to stretch it. Principles: the orchestrator should be a mid-tier model (Claude Sonnet, not Opus or Fable) unless the crew cannot carry the load; exploration and test-running must use the cheapest capable model (Haiku or a local model); implementation uses Sonnet; review uses Sonnet, or a different vendor\u2019s mid-tier model. Effort low for high-volume roles, medium at most for the orchestrator. Never recommend Opus or Fable for cost mode.'
+      : priority === 'quality'
+        ? 'The user wants the best result and accepts the cost. Principles: the orchestrator gets the strongest judgment available (Fable or Opus); review gets the most careful model, ideally a different vendor\u2019s strongest; implementation a strong coding model; exploration and test-running can still use a cheap model, since they only gather facts. Effort high for orchestrator and reviewer.'
+        : 'Principles: the orchestrator needs the strongest judgment available (planning, integration, talking to the user). Exploration and test-running are high-volume and should use the cheapest capable model. Implementation needs a strong coding model. Review needs the most careful model. Prefer models included in a subscription the user already pays for (Claude login, vendor agents marked "subscription") over per-token API keys when quality is similar; use local models only for cheap read-only work unless nothing else is available. Mixing vendors is fine and often good: a different vendor for review catches different mistakes.',
     orchestratorRule,
     'Crew members may use any entry regardless of engine. Use the exact "ref" strings. Effort is one of low, medium, high, xhigh, max; omit it for models that do not support it (only Claude models do).',
     '',

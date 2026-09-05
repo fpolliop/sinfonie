@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react'
+import clsx from 'clsx'
 import { Loader2, Sparkles } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { Badge, Button, Dialog } from './ui'
 import { modelLabel } from './ModelSelect'
-import type { AgentSpec, CrewSuggestion, ProviderConfig } from '@shared/types'
+import type { CrewPriority, AgentSpec, CrewSuggestion, ProviderConfig } from '@shared/types'
 
 const EMPTY_PROVIDERS: ProviderConfig[] = []
 
@@ -18,10 +19,13 @@ export function SuggestCrewDialog({ spaceId, agents, orchestrator, onApply, onCl
   const [result, setResult] = useState<CrewSuggestion | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [picked, setPicked] = useState<Set<string>>(new Set())
+  const [priority, setPriority] = useState<CrewPriority>('balanced')
   useEffect(() => {
     let alive = true
+    setResult(null)
+    setError(null)
     api
-      .invoke('crew:suggest', spaceId)
+      .invoke('crew:suggest', spaceId, priority)
       .then((r) => {
         if (!alive) return
         setResult(r)
@@ -31,7 +35,7 @@ export function SuggestCrewDialog({ spaceId, agents, orchestrator, onApply, onCl
     return () => {
       alive = false
     }
-  }, [spaceId])
+  }, [spaceId, priority])
   const toggle = (id: string): void =>
     setPicked((p) => {
       const n = new Set(p)
@@ -56,6 +60,22 @@ export function SuggestCrewDialog({ spaceId, agents, orchestrator, onApply, onCl
     : []
   return (
     <Dialog title="Suggested models for your crew" onClose={onClose} width={760}>
+      <div className="mb-3 flex items-center gap-2 text-[12px]">
+        <span className="text-muted">Optimise for</span>
+        <div className="flex rounded-md bg-panel p-0.5">
+          {(
+            [
+              ['cost', 'Cost', 'Stretch a subscription: Sonnet orchestrator, Haiku for the busy roles, low effort.'],
+              ['balanced', 'Balanced', 'Strong where judgment matters, cheap where volume matters.'],
+              ['quality', 'Quality', 'Best result regardless of cost: Opus or Fable at the top, careful review.']
+            ] as const
+          ).map(([id, label, hint]) => (
+            <button key={id} title={hint} onClick={() => setPriority(id)} className={clsx('rounded px-2.5 py-0.5', priority === id ? 'bg-panel-2 text-text' : 'text-muted hover:text-text')}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
       {!result && !error && (
         <div className="flex items-center gap-3 rounded-lg border border-border bg-bg px-4 py-4 text-[13px]">
           <Loader2 size={18} className="animate-spin text-accent" />

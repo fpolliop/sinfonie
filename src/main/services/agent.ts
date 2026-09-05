@@ -277,6 +277,7 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
   const wsCwd = primary?.worktreePath ?? ws.rootPath
   const others = ws.repos.filter((r) => r !== primary).map((r) => r.worktreePath)
   const flags = { restartAfterTurn: false }
+  const budget = space?.budgetMode ?? settings.budgetMode ?? false
   const abort = new AbortController()
   const input = makeInputStream()
 
@@ -324,7 +325,8 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
     additionalDirectories: others,
     permissionMode: mode,
     ...(mode === 'bypassPermissions' ? { allowDangerouslySkipPermissions: true } : {}),
-    model: space?.model || settings.model,
+    model: budget ? (/haiku|sonnet/.test(space?.model || settings.model) ? space?.model || settings.model : 'sonnet') : space?.model || settings.model,
+    ...(budget ? { effort: 'low' as const, maxBudgetUsd: settings.turnBudgetUsd ?? 2 } : {}),
     // Opus 5 / Fable hide reasoning by default; ask for the readable summary so the Thinking block has content.
     thinking: { type: 'adaptive', display: 'summarized' },
     includePartialMessages: true,

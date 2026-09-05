@@ -248,6 +248,8 @@ export interface Space {
   agents?: AgentSpec[]
   /** Give the orchestrator its crew at all. Default on. */
   useCrew?: boolean
+  /** Budget mode: Sonnet orchestrator, low effort, two subagents, a per-turn spend cap. Absent = app default. */
+  budgetMode?: boolean
   /** Which runtime drives chats in this space. Absent = app default. */
   engine?: Engine
   /** Per-space overrides; absent means the app default from Settings. */
@@ -473,7 +475,14 @@ export interface Settings {
   slack?: SlackConnection
   oncall?: OnCallSettings
   usage?: UsageSettings
+  /** Budget mode default for spaces that do not set their own. */
+  budgetMode?: boolean
+  /** Per-turn spend cap in budget mode, USD at list price. */
+  turnBudgetUsd?: number
 }
+
+/** What the crew optimizer favours when assigning models. */
+export type CrewPriority = 'cost' | 'balanced' | 'quality'
 
 /** A session note or todo on a workspace. The orchestrator can read and edit them too. */
 export interface Note {

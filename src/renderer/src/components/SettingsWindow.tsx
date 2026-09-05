@@ -197,6 +197,13 @@ function AppPageView({ page }: { page: AppPage }): React.JSX.Element {
           {ACP_ENGINES.some((e) => e.id === settings.engine) && (
             <p className="mb-3 text-[11px] text-muted">The default model for this engine is chosen under Accounts.</p>
           )}
+          <label className="mb-3 flex items-start gap-2 text-[13px]">
+            <input type="checkbox" className="mt-0.5" checked={Boolean(settings.budgetMode)} onChange={(e) => go(() => update({ budgetMode: e.target.checked }))} />
+            <span>
+              Budget mode by default
+              <span className="block text-[11px] text-muted">For limited subscriptions: Sonnet as orchestrator, low reasoning effort, at most two subagents, reviews on Sonnet, and a spend cap of ${settings.turnBudgetUsd ?? 2} per turn. Spaces can override it.</span>
+            </span>
+          </label>
           <Field label="Permission mode" hint="Each chat can still switch its own mode from the composer or with Shift+Tab.">
             <select className={inputCls} value={settings.permissionMode} onChange={(e) => go(() => update({ permissionMode: e.target.value as typeof settings.permissionMode }))}>
               {PERMISSION_MODES.map((m) => (
@@ -467,6 +474,13 @@ function SpacePageView({ space, page }: { space: Space; page: SpacePage }): Reac
                 ) : (
                   <ModelSelect value={space.model ?? ''} allowDefault defaultLabel={`App default (${settings.model})`} onChange={(model) => go(() => upd({ model }))} />
                 )}
+              </Field>
+              <Field label="Budget mode" hint={`App default: ${settings.budgetMode ? 'on' : 'off'}. Sonnet orchestrator, low effort, two subagents, a per-turn spend cap.`}>
+                <select className={inputCls} value={space.budgetMode === undefined ? '' : space.budgetMode ? 'on' : 'off'} onChange={(e) => go(() => upd({ budgetMode: e.target.value === '' ? undefined : e.target.value === 'on' }))}>
+                  <option value="">App default</option>
+                  <option value="on">On</option>
+                  <option value="off">Off</option>
+                </select>
               </Field>
               <Field label="Permission mode" hint={`App default: ${PERMISSION_MODES.find((m) => m.id === settings.permissionMode)?.label ?? settings.permissionMode}`}>
                 <select className={inputCls} value={space.permissionMode ?? ''} onChange={(e) => go(() => upd({ permissionMode: (e.target.value || undefined) as never }))}>

@@ -250,7 +250,7 @@ async function execute(run: ReviewRun, emit: Emit): Promise<void> {
         }
         return { behavior: 'deny', message: `${tool} is not available during a review${tool === 'Bash' ? ' unless the command is read-only (git diff/log/show/blame/fetch, grep, head, cat…)' : ''}; use Read, Grep, Glob and read-only git commands.` }
       },
-      model: settings.model,
+      model: settings.budgetMode && !/haiku|sonnet/.test(settings.model) ? 'sonnet' : settings.model,
       maxTurns: 80,
       abortController: abort,
       settingSources: ['user'],
