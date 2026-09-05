@@ -50,3 +50,8 @@ Sinfonie uses large language models (the user chooses the provider: Anthropic, O
 
 ## Support contact
 hello@sinfonie.dev
+
+## Screenshots
+- docs/marketing/screenshots/on-call.png (On call view with a triaged incident and a drafted reply)
+- docs/marketing/screenshots/slack-settings.png (Integrations, Slack)
+- docs/marketing/screenshots/on-call-settings.png (a space's On call page)
