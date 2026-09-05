@@ -446,8 +446,9 @@ export function registerIpc(): void {
   // ---- review cockpit ----
   const emitReview = (run: Parameters<typeof send<'review:changed'>>[1]): void => send('review:changed', run)
   handle('reviews:orgs', () => reviews.listOrgs())
-  handle('reviews:list', (owners, mode) => reviews.listPrs(owners, mode))
+  handle('reviews:list', (owners, mode, repos) => reviews.listPrs(owners, mode, repos ?? []))
   handle('reviews:detectOwners', (spaceId) => reviews.detectOwners(spaceId))
+  handle('reviews:detectRepos', (spaceId) => reviews.detectRepos(spaceId))
   handle('reviews:runs', () => reviews.listRuns())
   handle('reviews:start', (pr, accountId) => reviews.startReview(pr, accountId, emitReview))
   handle('reviews:cancel', (key) => reviews.cancelReview(key))

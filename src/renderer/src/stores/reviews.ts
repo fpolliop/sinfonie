@@ -20,8 +20,10 @@ export const STATUS_FILTERS: { id: StatusFilter; label: string }[] = [
 
 interface ReviewsState {
   orgs: string[]
-  /** Owners currently listed, and the space they came from. */
+  /** Owners the space configured explicitly (whole-org listing); empty means repositories only. */
   owners: string[]
+  /** GitHub repositories behind the space's registered repos; these always drive the list. */
+  repos: string[]
   spaceId: string | null
   mode: 'requested' | 'all'
   repoFilter: string
@@ -50,6 +52,7 @@ export const keyOf = (pr: ReviewPr): string => `${pr.nameWithOwner}#${pr.number}
 export const useReviews = create<ReviewsState>((set, get) => ({
   orgs: [],
   owners: [],
+  repos: [],
   spaceId: null,
   mode: (localStorage.getItem('orchestra.reviews.mode') as 'requested' | 'all') ?? 'requested',
   repoFilter: localStorage.getItem('orchestra.reviews.repo') ?? '',
@@ -73,17 +76,24 @@ export const useReviews = create<ReviewsState>((set, get) => ({
   },
   useSpace: async (spaceId, configured) => {
     set({ spaceId, error: undefined })
+    let repos: string[] = []
+    try {
+      repos = await api.invoke('reviews:detectRepos', spaceId)
+    } catch (err) {
+      set({ error: err instanceof Error ? err.message : String(err) })
+    }
+    // Repositories of the space always count. Configured owners widen the list to whole orgs; a space
+    // with neither falls back to everything the user can see.
     let owners = configured?.length ? configured : []
-    if (owners.length === 0) {
+    if (repos.length === 0 && owners.length === 0) {
       try {
         owners = await api.invoke('reviews:detectOwners', spaceId)
-      } catch (err) {
-        set({ error: err instanceof Error ? err.message : String(err) })
+      } catch {
+        /* handled above */
       }
+      if (owners.length === 0) owners = get().orgs
     }
-    // A space with no repos and nothing configured: fall back to everything the user can see.
-    if (owners.length === 0) owners = get().orgs
-    set({ owners, prs: [] })
+    set({ owners, repos, prs: [] })
     await get().refreshPrs()
   },
   setMode: (mode) => {
@@ -104,11 +114,11 @@ export const useReviews = create<ReviewsState>((set, get) => ({
     set({ sortDir })
   },
   refreshPrs: async () => {
-    const { owners, mode } = get()
-    if (owners.length === 0) return
+    const { owners, repos, mode } = get()
+    if (owners.length === 0 && repos.length === 0) return
     set({ loadingPrs: true, error: undefined })
     try {
-      const prs = await api.invoke('reviews:list', owners, mode)
+      const prs = await api.invoke('reviews:list', owners, mode, repos)
       set({ prs, loadingPrs: false })
     } catch (err) {
       set({ loadingPrs: false, error: err instanceof Error ? err.message : String(err) })

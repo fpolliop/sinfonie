@@ -86,12 +86,47 @@ export async function detectOwners(spaceId: string): Promise<string[]> {
   return Array.from(owners)
 }
 
-export async function listPrs(owners: string[], mode: 'requested' | 'all'): Promise<ReviewPr[]> {
-  if (owners.length === 0) return []
-  const args = ['search', 'prs', ...owners.flatMap((o) => ['--owner', o]), '--state', 'open', '--limit', '100', '--sort', 'updated', '--json', 'number,title,repository,author,updatedAt,url,isDraft']
+/** The GitHub repositories behind a space's registered repos, as owner/name. */
+export async function detectRepos(spaceId: string): Promise<string[]> {
+  const repos = getStore().get().repos.filter((r) => (spaceId ? r.spaceId === spaceId : !r.spaceId))
+  const out = new Set<string>()
+  for (const r of repos) {
+    try {
+      const url = await git(r.path).remote(['get-url', 'origin'])
+      const norm = normalizeRemote(String(url ?? ''))
+      if (/^[^/]+\/[^/]+$/.test(norm) && /github\.com/.test(String(url))) out.add(norm)
+    } catch {
+      /* no origin */
+    }
+  }
+  return Array.from(out).sort()
+}
+
+type RawPr = { number: number; title: string; repository: { nameWithOwner: string }; author: { login: string }; updatedAt: string; url: string; isDraft: boolean }
+async function searchPrs(scope: string[], mode: 'requested' | 'all'): Promise<ReviewPr[]> {
+  const args = ['search', 'prs', ...scope, '--state', 'open', '--limit', '100', '--sort', 'updated', '--json', 'number,title,repository,author,updatedAt,url,isDraft']
   if (mode === 'requested') args.push('--review-requested', '@me')
-  const raw = JSON.parse(await gh(args)) as { number: number; title: string; repository: { nameWithOwner: string }; author: { login: string }; updatedAt: string; url: string; isDraft: boolean }[]
+  const raw = JSON.parse(await gh(args)) as RawPr[]
   return raw.map((p) => ({ nameWithOwner: p.repository.nameWithOwner, number: p.number, title: p.title, author: p.author?.login ?? '', url: p.url, updatedAt: p.updatedAt, isDraft: p.isDraft }))
+}
+/** Open PRs in the space's repositories, plus whole owners when the space configured some. */
+export async function listPrs(owners: string[], mode: 'requested' | 'all', repos: string[] = []): Promise<ReviewPr[]> {
+  const jobs: Promise<ReviewPr[]>[] = []
+  // gh accepts many --repo flags, but very long argument lists get slow; batch them.
+  for (let i = 0; i < repos.length; i += 20) jobs.push(searchPrs(repos.slice(i, i + 20).flatMap((r) => ['--repo', r]), mode))
+  if (owners.length) jobs.push(searchPrs(owners.flatMap((o) => ['--owner', o]), mode))
+  if (jobs.length === 0) return []
+  const seen = new Set<string>()
+  const out: ReviewPr[] = []
+  for (const list of await Promise.all(jobs)) {
+    for (const p of list) {
+      const k = `${p.nameWithOwner}#${p.number}`
+      if (seen.has(k)) continue
+      seen.add(k)
+      out.push(p)
+    }
+  }
+  return out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
 }
 
 // ---------- checkout ----------

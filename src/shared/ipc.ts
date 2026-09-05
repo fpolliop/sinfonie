@@ -116,9 +116,12 @@ export interface SinfonieInvoke {
   'accounts:login': (id: string) => string
 
   'reviews:orgs': () => string[]
-  'reviews:list': (owners: string[], mode: 'requested' | 'all') => ReviewPr[]
+  /** PRs from the given repositories (owner/name) plus, when owners are given, every repository of those owners. */
+  'reviews:list': (owners: string[], mode: 'requested' | 'all', repos?: string[]) => ReviewPr[]
   /** Owners detected from the origin remotes of a space's repos ('' = repos in no space). */
   'reviews:detectOwners': (spaceId: string) => string[]
+  /** GitHub repositories (owner/name) behind a space's registered repos. */
+  'reviews:detectRepos': (spaceId: string) => string[]
   'reviews:runs': () => ReviewRun[]
   'reviews:start': (pr: ReviewPr, accountId: string) => ReviewRun
   'reviews:cancel': (key: string) => void
