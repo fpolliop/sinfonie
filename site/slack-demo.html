@@ -1,0 +1,35 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sinfonie — Slack walkthrough</title><meta name="description" content="Screenshots of Sinfonie's Slack sign-in, setup and on-call functionality, for reviewers.">
+<link rel="icon" type="image/svg+xml" href="/assets/logo.svg"><link rel="stylesheet" href="/_page.css">
+<style>main{max-width:960px}figure{margin:28px 0}figure img{width:100%;border:1px solid #2a2f3a;border-radius:10px}figcaption{color:#8b93a1;font-size:14px;margin-top:8px}ol.steps li{margin-bottom:6px}</style></head><body><main>
+<div class="top"><img src="/assets/icon-512.png" alt=""><a href="/" style="color:inherit;text-decoration:none">Sinfonie</a></div>
+<h1>Slack walkthrough</h1>
+<p class="meta">Installation, OAuth flow, setup and functionality, in order. Sinfonie is a macOS desktop app; download at <a href="/download">sinfonie.dev/download</a>.</p>
+
+<h2>1. Sign in with Slack</h2>
+<p>Settings → Integrations → Slack → <strong>Sign in with Slack</strong>. The app shows the Slack authorization link; the user opens it in the browser (or copies it to a browser that is signed in) and approves the requested user scopes on Slack's page. No bot, no workspace install step.</p>
+<figure><img src="/assets/demo/1-sign-in.png" alt="Sign in to Slack dialog with Open in browser and Copy link"><figcaption>The sign-in dialog. Slack's standard authorization page follows in the browser.</figcaption></figure>
+
+<h2>2. Connected</h2>
+<p>Slack redirects to sinfonie.dev, which hands the authorization code back to the app. The app exchanges it for the user's token and shows who is connected. Disconnect removes the token from the Mac.</p>
+<figure><img src="/assets/demo/2-connected.png" alt="Slack page showing connected as the user"><figcaption>Connected as the signed-in user, with Disconnect.</figcaption></figure>
+
+<h2>3. Choose channels to watch</h2>
+<p>In a space's On call page the user searches their channels and adds the ones to watch, as support requests or alerts, then enables the watcher. Only these channels are ever read, at most once per minute each.</p>
+<figure><img src="/assets/demo/3-channels.png" alt="On call settings with channel picker"><figcaption>Channel picker and triage settings.</figcaption></figure>
+
+<h2>4. Incidents, triage and approved replies</h2>
+<p>Each new message in a watched channel becomes an incident. An AI model (the user's own provider) writes a triage report and may draft a reply. Nothing is posted until the user presses <strong>Send in thread as you</strong> on that exact message; Dismiss discards it. Follow-up questions run the same read-only investigation.</p>
+<figure><img src="/assets/demo/4-incident.png" alt="On call view with a triaged incident and a drafted reply"><figcaption>An incident with its report, the drafted reply awaiting approval, and the thread.</figcaption></figure>
+
+<h2>Test steps</h2>
+<ol class="steps">
+<li>Install Sinfonie from <a href="/download">sinfonie.dev/download</a> (macOS, Apple silicon; signed and notarized). Open it and skip setup, or create a space named Test.</li>
+<li>Settings (⌘,) → Integrations → Slack → Sign in with Slack → Open in browser → approve. The page turns to “connected as …” within seconds.</li>
+<li>Settings → Spaces → Test → On call: search a channel you are a member of, add it as “support requests”, tick “Watch the channels below”.</li>
+<li>Post a message in that channel. It appears in the On call view (sidebar) within one to two minutes.</li>
+<li>Open the incident. With an AI provider configured a triage report and possibly a draft reply appear; without one the incident is listed untriaged. Press Send in thread as you to post the draft, or Dismiss.</li>
+<li>Settings → Integrations → Slack → Disconnect removes the token.</li>
+</ol>
+<p>More: <a href="/privacy">privacy policy</a>, <a href="/security">security</a>, <a href="/support">support</a>.</p>
+</main></body></html>
