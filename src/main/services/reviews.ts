@@ -1,5 +1,6 @@
 import { claudeExecutableOption } from './claude-cli'
 import * as usage from './usage'
+import { costModeFor, leanModel, LEAN } from './cost-mode'
 import { app, BrowserWindow, Notification } from 'electron'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
@@ -241,8 +242,9 @@ const SCHEMA = {
   }
 } as const
 
-function prompt(pr: ReviewPr, base: string): string {
+function prompt(pr: ReviewPr, base: string, lean = false): string {
   return [
+    ...(lean ? ['Lean mode: the user is on a tight token budget. Review the diff itself; open files outside the diff only when a finding depends on them, and read small ranges. No exploratory reads, no repository tour.'] : []),
     `Review pull request #${pr.number} "${pr.title}" by ${pr.author} in ${pr.nameWithOwner}.`,
     `You are in a checkout of the PR head. The base is ${base}. Start with \`git diff ${base}...HEAD --stat\` and \`git diff ${base}...HEAD\`, then read whatever surrounding code you need to judge the change properly.`,
     ``,
@@ -316,8 +318,8 @@ async function execute(run: ReviewRun, emit: Emit): Promise<void> {
         }
         return { behavior: 'deny', message: `${tool} is not available during a review${tool === 'Bash' ? ' unless the command is read-only (git diff/log/show/blame/fetch, grep, head, cat…)' : ''}; use Read, Grep, Glob and read-only git commands.` }
       },
-      model: settings.budgetMode && !/haiku|sonnet/.test(settings.model) ? 'sonnet' : settings.model,
-      maxTurns: 80,
+      model: costModeFor() !== 'standard' ? leanModel(settings.model) : settings.model,
+      maxTurns: costModeFor() === 'lean' ? LEAN.reviewTurns : 80,
       abortController: abort,
       settingSources: ['user'],
       outputFormat: { type: 'json_schema', schema: SCHEMA as unknown as Record<string, unknown> },
@@ -327,7 +329,7 @@ async function execute(run: ReviewRun, emit: Emit): Promise<void> {
     let structured: unknown
     let cost = 0
     let tools = 0
-    for await (const msg of query({ prompt: prompt(run.pr, base), options }) as AsyncIterable<SDKMessage>) {
+    for await (const msg of query({ prompt: prompt(run.pr, base, costModeFor() === 'lean'), options }) as AsyncIterable<SDKMessage>) {
       if (msg.type === 'assistant') {
         for (const block of msg.message.content) {
           if (block.type === 'tool_use') {
@@ -430,8 +432,8 @@ export async function fixFindings(key: string, ids: string[] | 'all', emit: Emit
         }
         return { behavior: 'allow', updatedInput: input }
       },
-      model: settings.budgetMode && !/haiku|sonnet/.test(settings.model) ? 'sonnet' : settings.model,
-      maxTurns: 120,
+      model: costModeFor() !== 'standard' ? leanModel(settings.model) : settings.model,
+      maxTurns: costModeFor() === 'lean' ? LEAN.fixTurns : 120,
       abortController: abort,
       settingSources: ['user'],
       outputFormat: { type: 'json_schema', schema: FIX_SCHEMA as unknown as Record<string, unknown> },
@@ -512,6 +514,8 @@ export async function iterate(key: string, maxRounds: number, emit: Emit): Promi
   if (run.iteration?.status === 'running') return run
   if (run.isFork) throw new Error(`This PR comes from a fork (${run.headRepo}); Sinfonie can only push to branches of ${run.pr.nameWithOwner}.`)
   iterationStops.delete(key)
+  // Lean mode: one fix round, then stop; every round is a full review plus a full fix pass.
+  if (costModeFor() === 'lean') maxRounds = Math.min(maxRounds, 1)
   update(key, { iteration: { status: 'running', maxRounds, round: 0, startedAt: new Date().toISOString(), phase: 'Starting' } }, emit)
   void (async () => {
     const it = (): NonNullable<ReviewRun['iteration']> => runs.get(key)!.iteration!

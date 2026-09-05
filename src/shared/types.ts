@@ -250,6 +250,8 @@ export interface Space {
   useCrew?: boolean
   /** Budget mode: Sonnet orchestrator, low effort, two subagents, a per-turn spend cap. Absent = app default. */
   budgetMode?: boolean
+  /** Overrides the app default; undefined inherits. */
+  leanMode?: boolean
   /** Which runtime drives chats in this space. Absent = app default. */
   engine?: Engine
   /** Per-space overrides; absent means the app default from Settings. */
@@ -477,6 +479,8 @@ export interface Settings {
   usage?: UsageSettings
   /** Budget mode default for spaces that do not set their own. */
   budgetMode?: boolean
+  /** Lean mode: one Sonnet agent, no crew, trimmed tools and context, a tool-call cap per turn. Beats budget mode. */
+  leanMode?: boolean
   /** Per-turn spend cap in budget mode, USD at list price. */
   turnBudgetUsd?: number
 }
@@ -1110,7 +1114,7 @@ export interface UsageSettings {
 }
 /** What the user can do when a limit is near or hit. */
 export interface LimitAlternative {
-  kind: 'proceed' | 'account' | 'engine' | 'native' | 'cancel'
+  kind: 'proceed' | 'account' | 'engine' | 'native' | 'lean' | 'cancel'
   id?: string
   label: string
   hint?: string

@@ -42,7 +42,7 @@ export interface SinfonieInvoke {
   'settings:update': (patch: Partial<Settings>) => Settings
 
   'spaces:create': (name: string) => Space
-  'spaces:update': (id: string, patch: Partial<Pick<Space, 'name' | 'color' | 'claudeAccountId' | 'model' | 'permissionMode' | 'workspacesRoot' | 'browserSensitiveOrigins' | 'githubOwners' | 'exposeLinearMcp' | 'oncall' | 'budgetMode' | 'mcpServers' | 'exposeJiraMcp' | 'strictMcp' | 'agents' | 'useCrew' | 'engine'>>) => Space
+  'spaces:update': (id: string, patch: Partial<Pick<Space, 'name' | 'color' | 'claudeAccountId' | 'model' | 'permissionMode' | 'workspacesRoot' | 'browserSensitiveOrigins' | 'githubOwners' | 'exposeLinearMcp' | 'oncall' | 'budgetMode' | 'leanMode' | 'mcpServers' | 'exposeJiraMcp' | 'strictMcp' | 'agents' | 'useCrew' | 'engine'>>) => Space
   /** MCP servers found in Claude Code's own config (~/.claude.json), for importing. */
   'mcp:importable': () => McpServerSpec[]
   'spaces:delete': (id: string) => void

@@ -1,5 +1,5 @@
 import { claudeExecutableOption } from './claude-cli'
-import { query, createSdkMcpServer, tool as sdkTool, type Options, type Query, type SDKMessage, type SDKUserMessage, type PermissionResult, type SpawnedProcess } from '@anthropic-ai/claude-agent-sdk'
+import { query, createSdkMcpServer, tool as sdkTool, type Options, type Query, type SDKMessage, type SDKUserMessage, type PermissionResult, type SpawnedProcess, type HookInput } from '@anthropic-ai/claude-agent-sdk'
 import { spawn } from 'child_process'
 import * as resources from './resources'
 import * as browserTools from './browser/tools'
@@ -7,6 +7,7 @@ import * as workspaceTools from './workspace-tools'
 import { toBase64 } from './images'
 import * as usage from './usage'
 import * as limits from './limits'
+import { costModeFor, leanModel, leanBashCommand, leanPrompt, LEAN, LEAN_DISALLOWED } from './cost-mode'
 import type { ChatImageRef } from '@shared/types'
 import { z } from 'zod'
 import { classifyModel } from '@shared/types'
@@ -50,7 +51,9 @@ interface Session {
   /** Pending tool_use ids per external crew member, so worker activity attaches to the right call. */
   crewCalls: Map<string, string[]>
   /** Set when the workspace gained a repository mid-turn: restart the session at turn end so the new worktree is a working directory. */
-  flags: { restartAfterTurn: boolean }
+  flags: { restartAfterTurn: boolean; leanCalls: number; leanCapNoted: boolean }
+  /** Lean mode: one agent, trimmed context, per-turn tool cap. */
+  lean: boolean
   emitPermission: EmitPermission
   /** Cumulative per-model usage already written to the ledger (SDK totals are cumulative per session). */
   usageSeen: Record<string, { costUsd: number; inputTokens: number; outputTokens: number; cacheReadTokens: number }>
@@ -140,7 +143,7 @@ function makeInputStream(): { iterable: AsyncIterable<SDKUserMessage>; push: (m:
   }
 }
 
-function systemPromptFor(ws: Workspace): string {
+function systemPromptFor(ws: Workspace, lean = false): string {
   const primary = ws.repos.find((r) => r.repoId === ws.primaryRepoId) ?? ws.repos[0]
   const lines = primary
     ? [
@@ -154,7 +157,7 @@ function systemPromptFor(ws: Workspace): string {
     : [`You are working inside an Sinfonie workspace named "${ws.name}". Your working directory is its folder, ${ws.rootPath}.`]
   lines.push(workspaceTools.promptFor(ws.id))
   lines.push('Context hygiene: the user pays for every token you re-read. Prefer targeted reads over whole files, avoid echoing large outputs, and when a note tells you the window is filling, suggest compacting or a new session before a fresh task.')
-  lines.push(`Sinfonie runs on the user's Mac next to other sessions and limits you to ${resources.resourceSettings().maxSubagentsPerSession} subagents at once; under memory pressure it refuses new ones. When a delegation is refused, the tool result says why: do that work yourself or wait for running subagents instead of retrying.`)
+  if (!lean) lines.push(`Sinfonie runs on the user's Mac next to other sessions and limits you to ${resources.resourceSettings().maxSubagentsPerSession} subagents at once; under memory pressure it refuses new ones. When a delegation is refused, the tool result says why: do that work yourself or wait for running subagents instead of retrying.`)
   return lines.join('\n')
 }
 
@@ -280,8 +283,10 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
   const primary = ws.repos.find((r) => r.repoId === ws.primaryRepoId) ?? ws.repos[0]
   const wsCwd = primary?.worktreePath ?? ws.rootPath
   const others = ws.repos.filter((r) => r !== primary).map((r) => r.worktreePath)
-  const flags = { restartAfterTurn: false }
-  const budget = space?.budgetMode ?? settings.budgetMode ?? false
+  const flags = { restartAfterTurn: false, leanCalls: 0, leanCapNoted: false }
+  const costMode = costModeFor(ws.spaceId)
+  const budget = costMode === 'budget'
+  const lean = costMode === 'lean'
   const abort = new AbortController()
   const input = makeInputStream()
 
@@ -310,9 +315,11 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
       const r: PermissionResult = { behavior: 'deny', message: decision.message || 'User denied this tool call' }
       return r
     }
+    // Lean mode trims shell output here for the modes that ask; bypass mode gets the same trim from the hook below.
+    const finalInput = lean && toolName === 'Bash' && typeof (toolInput as { command?: unknown }).command === 'string' ? { ...toolInput, command: leanBashCommand((toolInput as { command: string }).command) } : toolInput
     const r: PermissionResult = {
       behavior: 'allow',
-      updatedInput: toolInput,
+      updatedInput: finalInput,
       ...(decision.decision === 'always' && opts.suggestions ? { updatedPermissions: opts.suggestions } : {})
     }
     return r
@@ -320,30 +327,61 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
 
   const mode = ws.permissionMode ?? space?.permissionMode ?? settings.permissionMode
   const crewCalls = new Map<string, string[]>()
-  const crew = crewFor(ws, emit, crewCalls)
+  const crew = lean ? { agents: {}, prompt: '' } : crewFor(ws, emit, crewCalls)
   if (crew.server) mcpServers = { ...mcpServers, crew: crew.server }
-  mcpServers = { ...mcpServers, notes: notes.sdkServer(ws.id), browser: browserTools.sdkServer(ws.id), workspace: workspaceTools.sdkServer(ws.id, () => (flags.restartAfterTurn = true)) }
+  // Lean keeps only the workspace tools (two small ones) and whatever MCP servers the user configured themselves.
+  mcpServers = lean ? { ...mcpServers, workspace: workspaceTools.sdkServer(ws.id, () => (flags.restartAfterTurn = true)) } : { ...mcpServers, notes: notes.sdkServer(ws.id), browser: browserTools.sdkServer(ws.id), workspace: workspaceTools.sdkServer(ws.id, () => (flags.restartAfterTurn = true)) }
   const options: Options = {
     ...claudeExecutableOption(),
     cwd: wsCwd,
     additionalDirectories: others,
     permissionMode: mode,
     ...(mode === 'bypassPermissions' ? { allowDangerouslySkipPermissions: true } : {}),
-    model: budget ? (/haiku|sonnet/.test(space?.model || settings.model) ? space?.model || settings.model : 'sonnet') : space?.model || settings.model,
-    ...(budget ? { effort: 'low' as const, maxBudgetUsd: settings.turnBudgetUsd ?? 2 } : {}),
+    model: budget || lean ? leanModel(space?.model || settings.model) : space?.model || settings.model,
+    // No maxBudgetUsd: the SDK applies it to the whole session and then ends it with an error; the per-turn brake is the tool cap in the hook below.
+    ...(budget ? { effort: 'low' as const } : {}),
+    ...(lean ? { effort: LEAN.effort, disallowedTools: LEAN_DISALLOWED } : {}),
     // Opus 5 / Fable hide reasoning by default; ask for the readable summary so the Thinking block has content.
     thinking: { type: 'adaptive', display: 'summarized' },
     includePartialMessages: true,
     abortController: abort,
     canUseTool,
-    systemPrompt: { type: 'preset', preset: 'claude_code', append: systemPromptFor(ws) + (Object.keys(mcpServers).length ? `\nMCP servers available in this workspace: ${Object.keys(mcpServers).join(', ')}.` : '') + crew.prompt + notes.promptFor(ws.id, true) + '\n' + browserTools.promptFor(ws.port) },
+    systemPrompt: lean
+      ? { type: 'preset', preset: 'claude_code', append: systemPromptFor(ws, true) + (Object.keys(mcpServers).length ? `\nMCP servers available in this workspace: ${Object.keys(mcpServers).join(', ')}.` : '') + leanPrompt() }
+      : { type: 'preset', preset: 'claude_code', append: systemPromptFor(ws) + (Object.keys(mcpServers).length ? `\nMCP servers available in this workspace: ${Object.keys(mcpServers).join(', ')}.` : '') + crew.prompt + notes.promptFor(ws.id, true) + '\n' + browserTools.promptFor(ws.port) },
     ...(Object.keys(crew.agents).length ? { agents: crew.agents } : {}),
     ...(Object.keys(mcpServers).length ? { mcpServers } : {}),
     ...(space?.strictMcp ?? settings.strictMcp ? { strictMcpConfig: true } : {}),
     settingSources: ['user', 'project', 'local'],
-    allowedTools: [...browserTools.sdkAllowedTools(), ...workspaceTools.SDK_ALLOWED],
+    allowedTools: lean ? [...workspaceTools.SDK_ALLOWED] : [...browserTools.sdkAllowedTools(), ...workspaceTools.SDK_ALLOWED],
     hooks: {
       PreToolUse: [
+        ...(lean || budget
+          ? [
+              {
+                hooks: [
+                  async (raw: HookInput) => {
+                    const cap = lean ? LEAN.toolCap : LEAN.budgetToolCap
+                    const input = raw as { tool_name?: string; tool_input?: unknown }
+                    const toolInput = (input.tool_input && typeof input.tool_input === 'object' ? input.tool_input : {}) as Record<string, unknown>
+                    flags.leanCalls += 1
+                    if (flags.leanCalls > cap) {
+                      if (!flags.leanCapNoted) {
+                        flags.leanCapNoted = true
+                        emit({ type: 'notice', workspaceId, itemId: nanoid(8), level: 'info', text: `${lean ? 'Lean' : 'Budget'} mode: ${cap} tool calls this turn. The agent stops here and reports; say "continue" to go on.`, createdAt: new Date().toISOString() })
+                      }
+                      return { hookSpecificOutput: { hookEventName: 'PreToolUse' as const, permissionDecision: 'deny' as const, permissionDecisionReason: `${lean ? 'Lean' : 'Budget'} mode: ${cap} tool calls used this turn. Stop now, report what is done and what remains in a few lines, and wait for the user.` } }
+                    }
+                    // Bypass mode never reaches canUseTool, so trim shell output here.
+                    if (lean && mode === 'bypassPermissions' && input.tool_name === 'Bash' && typeof toolInput.command === 'string') {
+                      return { hookSpecificOutput: { hookEventName: 'PreToolUse' as const, permissionDecision: 'allow' as const, updatedInput: { ...toolInput, command: leanBashCommand(toolInput.command) } } }
+                    }
+                    return {}
+                  }
+                ]
+              }
+            ]
+          : []),
         {
           matcher: 'Agent|Task',
           hooks: [
@@ -384,7 +422,7 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
     if (stderrLines.length > 40) stderrLines.splice(0, stderrLines.length - 40)
   }
   const q = query({ prompt: input.iterable, options })
-  const session: Session = { workspaceId, q, push: input.push, end: input.end, abort, busy: false, stderr: stderrLines, queue: [], interrupted: false, mcpNames: Object.keys(mcpServers).filter((n) => n !== 'crew' && n !== 'notes' && n !== 'browser' && n !== 'workspace'), crewCalls, flags, emitPermission, usageSeen: {}, contextWarned: false, context: { tokens: 0, notedBand: 0 } }
+  const session: Session = { workspaceId, q, push: input.push, end: input.end, abort, busy: false, stderr: stderrLines, queue: [], interrupted: false, mcpNames: Object.keys(mcpServers).filter((n) => n !== 'crew' && n !== 'notes' && n !== 'browser' && n !== 'workspace'), crewCalls, flags, lean, emitPermission, usageSeen: {}, contextWarned: false, context: { tokens: 0, notedBand: 0 } }
   sessions.set(workspaceId, session)
   void pump(session, emit)
   return session
@@ -659,7 +697,9 @@ function contextNote(session: Session): string {
   const { tokens, window } = session.context
   if (!tokens) return ''
   const pct = window ? tokens / window : tokens / 200_000
-  const band = pct >= 0.8 ? 2 : pct >= 0.6 ? 1 : 0
+  // Lean mode nudges earlier: every extra 100k in context is re-read on each call.
+  const [hi, lo] = session.lean ? [0.6, 0.4] : [0.8, 0.6]
+  const band = pct >= hi ? 2 : pct >= lo ? 1 : 0
   if (band === 0 || band <= session.context.notedBand) return ''
   session.context.notedBand = band
   return `[Sinfonie: this conversation now uses about ${Math.round(pct * 100)}% of the context window (${Math.round(tokens / 1000)}k tokens). Every message re-reads it. If the remaining work is separable from what came before, tell the user in one sentence that compacting the conversation (the Compact button next to the model) or starting a new session would save tokens, then continue.]\n\n`
@@ -668,6 +708,8 @@ function contextNote(session: Session): string {
 function deliver(session: Session, text: string, emit: EmitEvent, announce = true, images?: ChatImageRef[]): void {
   const { workspaceId } = session
   session.busy = true
+  session.flags.leanCalls = 0
+  session.flags.leanCapNoted = false
   const note = text.startsWith('/') ? '' : contextNote(session)
   if (announce) emit({ type: 'user_message', workspaceId, itemId: nanoid(8), text, createdAt: new Date().toISOString(), ...(images?.length ? { images } : {}) })
   emit({ type: 'status', workspaceId, busy: true })

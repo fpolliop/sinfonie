@@ -110,7 +110,7 @@ export function registerIpc(): void {
         for (const [k, v] of Object.entries(patch)) {
           if (v === '' || v === undefined || v === null || (Array.isArray(v) && v.length === 0 && k !== 'mcpServers' && k !== 'agents')) delete target[k]
           else if (v === false && k === 'strictMcp') delete target[k]
-          else if (k === 'budgetMode' && typeof v === 'boolean') target[k] = v
+          else if ((k === 'budgetMode' || k === 'leanMode') && typeof v === 'boolean') target[k] = v
           else if (v === true && k === 'useCrew') delete target[k]
           else target[k] = v
         }
@@ -513,6 +513,16 @@ export function registerIpc(): void {
         workspaces.patchWorkspace(id, { claudeAccountId: choice.id })
         carrySessionToAccount(id, ws.claudeAccountId)
         emitAgent({ type: 'notice', workspaceId: id, itemId: nanoid(8), level: 'info', text: `Continuing on ${choice.label.replace(/^Continue on /, '')}. The conversation carries over.`, createdAt: new Date().toISOString() })
+        if (pending) await go(pending.text, pending.images)
+        return
+      }
+      case 'lean': {
+        agent.closeSession(id)
+        getStore().update((d) => {
+          const s = d.spaces.find((x) => x.id === ws.spaceId)
+          if (s) s.leanMode = true
+        })
+        emitAgent({ type: 'notice', workspaceId: id, itemId: nanoid(8), level: 'info', text: 'Lean mode is on for this space: one Sonnet agent, no crew, trimmed context, capped turns. The conversation continues. Turn it off under the space settings.', createdAt: new Date().toISOString() })
         if (pending) await go(pending.text, pending.images)
         return
       }

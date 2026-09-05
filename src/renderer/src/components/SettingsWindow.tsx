@@ -201,7 +201,14 @@ function AppPageView({ page }: { page: AppPage }): React.JSX.Element {
             <input type="checkbox" className="mt-0.5" checked={Boolean(settings.budgetMode)} onChange={(e) => go(() => update({ budgetMode: e.target.checked }))} />
             <span>
               Budget mode by default
-              <span className="block text-[11px] text-muted">For limited subscriptions: Sonnet as orchestrator, low reasoning effort, at most two subagents, reviews on Sonnet, and a spend cap of ${settings.turnBudgetUsd ?? 2} per turn. Spaces can override it.</span>
+              <span className="block text-[11px] text-muted">For limited subscriptions: Sonnet as orchestrator, low reasoning effort, at most two subagents, reviews on Sonnet, and 60 tool calls per message before the agent stops and reports. Spaces can override it.</span>
+            </span>
+          </label>
+          <label className="mb-3 flex items-start gap-2 text-[13px]">
+            <input type="checkbox" className="mt-0.5" checked={Boolean(settings.leanMode)} onChange={(e) => go(() => update({ leanMode: e.target.checked }))} />
+            <span>
+              Lean mode by default
+              <span className="block text-[11px] text-muted">The fewest tokens that still get the job done: one Sonnet agent with no crew or subagents, no browser, notes or web tools, shell output cut to the last lines, 25 tool calls per message before it stops and reports, reviews capped at 30 turns and one fix round. Overrides Budget mode. Spaces can override it.</span>
             </span>
           </label>
           <Field label="Permission mode" hint="Each chat can still switch its own mode from the composer or with Shift+Tab.">
@@ -475,8 +482,15 @@ function SpacePageView({ space, page }: { space: Space; page: SpacePage }): Reac
                   <ModelSelect value={space.model ?? ''} allowDefault defaultLabel={`App default (${settings.model})`} onChange={(model) => go(() => upd({ model }))} />
                 )}
               </Field>
-              <Field label="Budget mode" hint={`App default: ${settings.budgetMode ? 'on' : 'off'}. Sonnet orchestrator, low effort, two subagents, a per-turn spend cap.`}>
+              <Field label="Budget mode" hint={`App default: ${settings.budgetMode ? 'on' : 'off'}. Sonnet orchestrator, low effort, two subagents, 60 tool calls per message.`}>
                 <select className={inputCls} value={space.budgetMode === undefined ? '' : space.budgetMode ? 'on' : 'off'} onChange={(e) => go(() => upd({ budgetMode: e.target.value === '' ? undefined : e.target.value === 'on' }))}>
+                  <option value="">App default</option>
+                  <option value="on">On</option>
+                  <option value="off">Off</option>
+                </select>
+              </Field>
+              <Field label="Lean mode" hint={`App default: ${settings.leanMode ? 'on' : 'off'}. One Sonnet agent, no crew, trimmed tools and context, 25 tool calls per message, lean reviews. Overrides Budget mode.`}>
+                <select className={inputCls} value={space.leanMode === undefined ? '' : space.leanMode ? 'on' : 'off'} onChange={(e) => go(() => upd({ leanMode: e.target.value === '' ? undefined : e.target.value === 'on' }))}>
                   <option value="">App default</option>
                   <option value="on">On</option>
                   <option value="off">Off</option>

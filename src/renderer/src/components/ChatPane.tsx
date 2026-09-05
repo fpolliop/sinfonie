@@ -68,6 +68,11 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
     const sp = s.spaces.find((x) => x.id === w?.spaceId)
     return sp?.budgetMode ?? s.settings.budgetMode ?? false
   })
+  const leanMode = useApp((s) => {
+    const w = s.workspaces.find((x) => x.id === workspaceId)
+    const sp = s.spaces.find((x) => x.id === w?.spaceId)
+    return sp?.leanMode ?? s.settings.leanMode ?? false
+  })
   const engineLabel = useApp((s) => {
     const sp = s.spaces.find((x) => x.id === ws?.spaceId)
     const e = sp?.engine ?? s.settings.engine ?? 'claude-code'
@@ -77,9 +82,9 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
   const space = useApp((s) => s.spaces.find((x) => x.id === ws?.spaceId))
   const defaultAgents = useApp((s) => s.settings.agents)
   const crewNames = useMemo(() => {
-    if (space?.useCrew === false) return []
+    if (space?.useCrew === false || leanMode) return []
     return (space?.agents ?? defaultAgents).filter((a) => a.enabled).map((a) => `${a.name} (${a.model})`)
-  }, [space, defaultAgents])
+  }, [space, defaultAgents, leanMode])
   const setError = useApp((s) => s.setError)
   const mode: PermissionMode = ws?.permissionMode ?? settingsMode
   const [resumeDlg, setResumeDlg] = useState(false)
@@ -236,7 +241,7 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
             />
             <div className="flex items-center gap-2 px-2 pb-2">
               <ModePicker mode={mode} onChange={changeMode} />
-              <SessionPill workspaceId={workspaceId} engineLabel={engineLabel} budgetMode={budgetMode} model={chat?.model ?? settingsModel} contextTokens={chat?.contextTokens} contextWindow={chat?.contextWindow} cacheRead={chat?.contextCacheRead} history={chat?.contextHistory} result={chat?.lastResult} busy={busy} onNewSession={() => void reset(workspaceId)} />
+              <SessionPill workspaceId={workspaceId} engineLabel={engineLabel} budgetMode={budgetMode} leanMode={leanMode} model={chat?.model ?? settingsModel} contextTokens={chat?.contextTokens} contextWindow={chat?.contextWindow} cacheRead={chat?.contextCacheRead} history={chat?.contextHistory} result={chat?.lastResult} busy={busy} onNewSession={() => void reset(workspaceId)} />
               <span className="ml-auto" />
               <Button size="sm" variant="ghost" title="Attach images (or paste / drop them into the message)" onClick={() => fileInput.current?.click()} disabled={disabled}>
                 <Paperclip size={13} />
@@ -340,7 +345,7 @@ function Block({ block }: { block: ChatBlock }): React.JSX.Element | null {
 const NO_IMAGES: never[] = []
 
 /** The session's vitals in one small pill; the details, the context window and Compact open on click. */
-function SessionPill({ workspaceId, engineLabel, budgetMode, model, contextTokens, contextWindow, cacheRead, history, result, busy, onNewSession }: { workspaceId: string; engineLabel: string; budgetMode: boolean; model: string; contextTokens?: number; contextWindow?: number; cacheRead?: number; history?: number[]; result?: ChatTurnResult; busy: boolean; onNewSession: () => void }): React.JSX.Element {
+function SessionPill({ workspaceId, engineLabel, budgetMode, leanMode, model, contextTokens, contextWindow, cacheRead, history, result, busy, onNewSession }: { workspaceId: string; engineLabel: string; budgetMode: boolean; leanMode: boolean; model: string; contextTokens?: number; contextWindow?: number; cacheRead?: number; history?: number[]; result?: ChatTurnResult; busy: boolean; onNewSession: () => void }): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const [usage, setUsage] = useState<ContextUsage | null>(null)
   const [detail, setDetail] = useState(false)
@@ -382,7 +387,7 @@ function SessionPill({ workspaceId, engineLabel, budgetMode, model, contextToken
     <div ref={ref} className="relative">
       <button onClick={() => setOpen(!open)} className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[11px] text-muted hover:bg-panel-2 hover:text-text" title="Session and context details">
         <span className="rounded bg-panel-2 px-1 py-px text-[10px] uppercase tracking-wide">{engineLabel}</span>
-        {budgetMode && <span className="rounded bg-ok/15 px-1 py-px text-[10px] uppercase tracking-wide text-ok">budget</span>}
+        {leanMode ? <span className="rounded bg-ok/15 px-1 py-px text-[10px] uppercase tracking-wide text-ok" title="Lean mode: one Sonnet agent, no crew, trimmed context, 25 tool calls per message">lean</span> : budgetMode && <span className="rounded bg-ok/15 px-1 py-px text-[10px] uppercase tracking-wide text-ok">budget</span>}
         <span className="font-mono">{shortModel(model)}</span>
         {contextTokens ? (
           <span className={clsx('inline-flex items-center gap-1 font-mono', tone === 'danger' ? 'text-danger' : tone === 'warn' ? 'text-warn' : '')} title={`Context: ${contextTokens.toLocaleString()} of ${window.toLocaleString()} tokens`}>
@@ -494,7 +499,7 @@ function SessionPill({ workspaceId, engineLabel, budgetMode, model, contextToken
           <div className="border-t border-border pt-2">
             <Row k="Engine" v={engineLabel} />
             <Row k="Model" v={model} />
-            {budgetMode && <Row k="Budget mode" v="Sonnet orchestrator, low effort, two subagents, per-turn cap" />}
+            {leanMode ? <Row k="Lean mode" v="One Sonnet agent, no crew, trimmed tools, 25 calls per message" /> : budgetMode && <Row k="Budget mode" v="Sonnet orchestrator, low effort, two subagents, 60 calls per message" />}
             {result && (
               <>
                 <Row k="Session cost" v={`$${result.costUsd.toFixed(2)}`} />

@@ -7,6 +7,7 @@ import { nanoid } from 'nanoid'
 import { getStore } from '../store'
 import { defaultAccountId } from './accounts'
 import * as usage from './usage'
+import { costModeFor } from './cost-mode'
 import { probeCache } from './acp/engine'
 import type { AgentEvent, LimitAlternative, Workspace } from '@shared/types'
 
@@ -18,6 +19,7 @@ export function alternativesFor(ws: Workspace, accountId: string, mode: 'preflig
   const { settings } = getStore().get()
   const out: LimitAlternative[] = []
   if (mode === 'preflight') out.push({ kind: 'proceed', label: 'Proceed anyway', hint: 'Start the task on this account; you may run out midway.' })
+  if (costModeFor(ws.spaceId) !== 'lean') out.push({ kind: 'lean', label: 'Continue in Lean mode', hint: 'Turns Lean mode on for this space: one Sonnet agent, no crew, trimmed context, capped turns. Usually several times fewer tokens per task. The conversation continues.' })
   for (const a of settings.claudeAccounts) {
     if ((a.vendor ?? 'anthropic') !== 'anthropic' || a.id === accountId || a.loggedIn === false) continue
     const risk = usage.riskyLimit(a.id)
