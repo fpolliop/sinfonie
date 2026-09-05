@@ -485,6 +485,11 @@ function WorkspaceRow({ ws, grouped, selected, busy, onClick }: { ws: Workspace;
               {ws.jira.key}
             </span>
           )}
+          {ws.linear && (
+            <span className="shrink-0 text-accent" title={`${ws.linear.identifier}: ${ws.linear.title}${ws.linearStatus ? ` · ${ws.linearStatus}` : ''}`}>
+              {ws.linear.identifier}
+            </span>
+          )}
           {rowLabels.slice(0, 2).map((l) => (
             <LabelChip key={l.id} label={l} small />
           ))}

@@ -26,6 +26,7 @@ import { clearTranscript, flushAllTranscripts, getTranscript, markInterrupted, r
 import { runScript, stopScript, workspaceEnv } from './services/scripts'
 import { repoPrStatus } from './services/github'
 import * as jira from './services/jira'
+import * as linear from './services/linear'
 import * as accounts from './services/accounts'
 import * as reviews from './services/reviews'
 import * as sessionsSvc from './services/sessions'
@@ -341,6 +342,7 @@ export function registerIpc(): void {
     const siblings = ws.repos.filter((r) => r.repoId !== repoId).map((r) => `- ${r.repoName} on branch \`${r.branch}\``)
     const footer: string[] = []
     if (ws.jira) footer.push(`Jira: [${ws.jira.key}](${ws.jira.url}) ${ws.jira.summary}`)
+    if (ws.linear) footer.push(`Linear: [${ws.linear.identifier}](${ws.linear.url}) ${ws.linear.title}`)
     if (siblings.length) footer.push(`Part of workspace **${ws.name}**. Related branches:\n${siblings.join('\n')}`)
     const fullBody = footer.length ? `${body}\n\n---\n${footer.join('\n\n')}` : body
     return new Promise<string>((resolve, reject) => {
@@ -376,6 +378,12 @@ export function registerIpc(): void {
   handle('jira:updateSettings', (conn, patch) => jira.updateJiraSettings(conn, patch))
   handle('jira:search', (conn, q) => jira.search(conn, q))
   handle('jira:issue', (conn, key) => jira.issue(conn, key))
+  handle('linear:authenticate', (conn) => linear.authenticate(conn))
+  handle('linear:disconnect', (conn) => linear.disconnect(conn))
+  handle('linear:updateSettings', (conn, patch) => linear.updateLinearSettings(conn, patch))
+  handle('linear:search', (conn, q) => linear.search(conn, q))
+  handle('linear:issue', (conn, id) => linear.issue(conn, id))
+  handle('workspaces:refreshLinear', (id) => workspaces.refreshLinearStatus(id))
   handle('updates:check', async () => (await checkForUpdate()) ?? latestKnownUpdate())
   handle('updates:download', () => downloadUpdate())
   handle('updates:install', () => installUpdate())

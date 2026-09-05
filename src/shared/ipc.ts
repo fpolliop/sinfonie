@@ -1,4 +1,4 @@
-import type { BrowserState, ChatImageInput, Incident, IncidentStatus, OnCallState, ResourceSnapshot, Severity, SlackConnection, LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion,
+import type { BrowserState, ChatImageInput, Incident, IncidentStatus, LinearIssue, LinearSettings, OnCallState, ResourceSnapshot, Severity, SlackConnection, LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion,
   AgentEvent,
   ChatItem,
   JiraIssue,
@@ -42,7 +42,7 @@ export interface SinfonieInvoke {
   'settings:update': (patch: Partial<Settings>) => Settings
 
   'spaces:create': (name: string) => Space
-  'spaces:update': (id: string, patch: Partial<Pick<Space, 'name' | 'color' | 'claudeAccountId' | 'model' | 'permissionMode' | 'workspacesRoot' | 'browserSensitiveOrigins' | 'githubOwners' | 'mcpServers' | 'exposeJiraMcp' | 'strictMcp' | 'agents' | 'useCrew' | 'engine'>>) => Space
+  'spaces:update': (id: string, patch: Partial<Pick<Space, 'name' | 'color' | 'claudeAccountId' | 'model' | 'permissionMode' | 'workspacesRoot' | 'browserSensitiveOrigins' | 'githubOwners' | 'exposeLinearMcp' | 'mcpServers' | 'exposeJiraMcp' | 'strictMcp' | 'agents' | 'useCrew' | 'engine'>>) => Space
   /** MCP servers found in Claude Code's own config (~/.claude.json), for importing. */
   'mcp:importable': () => McpServerSpec[]
   'spaces:delete': (id: string) => void
@@ -91,6 +91,13 @@ export interface SinfonieInvoke {
   'jira:updateSettings': (connId: string, patch: Partial<JiraSettings>) => void
   'jira:search': (connId: string, query: string) => JiraIssue[]
   'jira:issue': (connId: string, key: string) => JiraIssue
+  // ---- linear ----
+  'linear:authenticate': (connId: string) => void
+  'linear:disconnect': (connId: string) => void
+  'linear:updateSettings': (connId: string, patch: Partial<LinearSettings>) => void
+  'linear:search': (connId: string, query: string) => LinearIssue[]
+  'linear:issue': (connId: string, identifier: string) => LinearIssue
+  'workspaces:refreshLinear': (workspaceId: string) => Workspace
 
   'shell:openExternal': (url: string) => void
   'updates:check': () => UpdateInfo | null

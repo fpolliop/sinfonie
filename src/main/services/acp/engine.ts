@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from 'child_process'
 import * as resources from '../resources'
 import * as browserHttp from '../browser/http'
 import { toBase64 } from '../images'
+import * as linear from '../linear'
 import type { ChatImageRef } from '@shared/types'
 import { Readable, Writable } from 'stream'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
@@ -222,6 +223,10 @@ async function acpMcpServers(ws: Workspace): Promise<schema.McpServer[]> {
   if (!expose || out.some((m) => m.name === 'jira')) return out
   const token = await jira.accessToken(jira.connectionForSpace(ws.spaceId))
   if (token) out.push({ type: 'http', name: 'jira', url: jira.JIRA_MCP_URL, headers: [{ name: 'Authorization', value: `Bearer ${token}` }] })
+  if ((space ? space.exposeLinearMcp !== false : true) && !out.some((m) => m.name === 'linear')) {
+    const lt = await linear.accessToken(linear.connectionForSpace(ws.spaceId)).catch(() => null)
+    if (lt) out.push({ type: 'http', name: 'linear', url: linear.LINEAR_MCP_URL, headers: [{ name: 'Authorization', value: `Bearer ${lt}` }] })
+  }
   return out
 }
 

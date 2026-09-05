@@ -230,11 +230,14 @@ export interface Space {
   claudeAccountId?: string
   /** The space's own Jira connection. Absent means "use the default one from Settings". */
   jira?: JiraSettings
+  linear?: LinearSettings
   /** GitHub users/orgs whose PRs the review cockpit lists for this space. Empty means "detect from the space's repos". */
   githubOwners?: string[]
   mcpServers?: McpServerSpec[]
   /** Hand Claude the Atlassian MCP using this space's Jira login. Default on when Jira is connected. */
   exposeJiraMcp?: boolean
+  /** Expose the Linear MCP server (with this space's login) to sessions. Default on. */
+  exposeLinearMcp?: boolean
   /** Ignore MCP servers from Claude Code's own config (claude.ai connectors, plugins, ~/.claude.json). Absent = app default. */
   strictMcp?: boolean
   /** This space's crew. Absent = the app defaults in Settings. */
@@ -311,6 +314,9 @@ export interface Workspace {
   /** Per-workspace override of the settings default; changed live from the chat. */
   permissionMode?: PermissionMode
   jira?: WorkspaceJira
+  linear?: WorkspaceLinear
+  linearStatus?: string
+  linearStatusAt?: string
   stage: WorkspaceStage
   labelIds?: string[]
   spaceId?: string
@@ -423,6 +429,7 @@ export interface Settings {
   model: string
   permissionMode: PermissionMode
   jira: JiraSettings
+  linear?: LinearSettings
   /** Accounts for every vendor (the name predates multi-vendor support). */
   claudeAccounts: ClaudeAccount[]
   /** Default Anthropic account. */
@@ -562,6 +569,36 @@ export function jiraConnectionFor(space: Space | undefined): string {
   return j.connected || Boolean(j.siteUrl && j.email && j.hasToken) ? space.id : ''
 }
 
+export interface LinearSettings {
+  /** OAuth through Linear's MCP server (dynamic client registration; nothing to create). */
+  connected: boolean
+  connectedAt?: string
+  userName?: string
+  orgName?: string
+  /** Text search used when the picker's box is empty; empty means "my open issues". */
+  defaultQuery: string
+}
+export interface LinearIssue {
+  id: string
+  identifier: string
+  title: string
+  state: string
+  priority?: string
+  assignee?: string
+  updated?: string
+  url: string
+  description?: string
+}
+export interface WorkspaceLinear {
+  id: string
+  identifier: string
+  title: string
+  url: string
+}
+export function linearConnectionFor(space: Space | undefined): string {
+  return space?.linear?.connected ? space.id : ''
+}
+
 export interface WorkspaceJira {
   key: string
   summary: string
@@ -575,6 +612,7 @@ export interface CreateWorkspaceInput {
   jira?: WorkspaceJira
   claudeAccountId?: string
   spaceId?: string
+  linear?: WorkspaceLinear
 }
 
 // ---- GitHub ----

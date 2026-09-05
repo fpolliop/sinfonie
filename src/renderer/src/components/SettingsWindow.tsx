@@ -1,12 +1,14 @@
 import React, { useEffect, useState } from 'react'
 import clsx from 'clsx'
-import { Plus, RefreshCw, Trash2, FolderGit2, Settings as SettingsIcon, Layers, Server, UserCircle2, Users, Plug, Ticket, GitPullRequest, MessageSquarePlus, Info, FolderTree, ChevronRight, Gauge, Siren } from 'lucide-react'
+import { Plus, RefreshCw, Trash2, FolderGit2, Settings as SettingsIcon, Layers, Server, UserCircle2, Users, Plug, Ticket, GitPullRequest, MessageSquarePlus, Info, FolderTree, ChevronRight, Gauge, Siren, CircleDot, Hash } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp, type SettingsTarget, type AppPage, type SpacePage } from '@/stores/app'
 import { Badge, Button, Field, inputCls } from './ui'
 import { shortPath } from '@/lib/format'
-import { PERMISSION_MODES, SPACE_COLORS, jiraConnectionFor, type Space } from '@shared/types'
+import { PERMISSION_MODES, SPACE_COLORS, jiraConnectionFor, linearConnectionFor, type Space } from '@shared/types'
 import { JiraSection } from './JiraSection'
+import { LinearSection } from './LinearSection'
+import { SlackConnectionCard } from './SlackConnectionCard'
 import { McpSection } from './McpSection'
 import { AgentsSection, DEFAULT_CREW } from './AgentsSection'
 import { ModelSelect } from './ModelSelect'
@@ -22,7 +24,7 @@ import { ACP_ENGINES, VENDORS } from '@shared/types'
  * applies to the whole application from what belongs to one space; every page
  * says which of the two it is, and space pages say what they override.
  */
-const APP_PAGES: { id: AppPage; label: string; icon: React.ReactNode; desc: string }[] = [
+const APP_PAGES: { id: AppPage; label: string; icon: React.ReactNode; desc: string; group?: string }[] = [
   { id: 'general', label: 'General', icon: <SettingsIcon size={14} />, desc: 'Defaults every space starts from: engine, models, permission mode, folders, ports.' },
   { id: 'spaces', label: 'Spaces', icon: <Layers size={14} />, desc: 'Create and remove spaces. Each space has its own pages below.' },
   { id: 'repos', label: 'Repositories', icon: <FolderGit2 size={14} />, desc: 'Every git repository the app knows, and which space each belongs to.' },
@@ -31,18 +33,21 @@ const APP_PAGES: { id: AppPage; label: string; icon: React.ReactNode; desc: stri
   { id: 'crew', label: 'Default crew', icon: <Users size={14} />, desc: 'The subagents a space gets unless it defines its own crew.' },
   { id: 'resources', label: 'Resources', icon: <Gauge size={14} />, desc: 'Memory per session, subagent and session limits, and what happens under pressure.' },
   { id: 'oncall', label: 'On call', icon: <Siren size={14} />, desc: 'Slack channels to watch, the triage agent, and how it drafts replies.' },
-  { id: 'mcp', label: 'MCP servers', icon: <Plug size={14} />, desc: 'MCP servers available in every space.' },
-  { id: 'jira', label: 'Jira', icon: <Ticket size={14} />, desc: 'The fallback Jira connection for spaces without their own.' },
+  { id: 'jira', label: 'Jira', icon: <Ticket size={14} />, desc: 'The fallback Jira connection for spaces without their own.', group: 'Integrations' },
+  { id: 'linear', label: 'Linear', icon: <CircleDot size={14} />, desc: 'The fallback Linear connection for spaces without their own.', group: 'Integrations' },
+  { id: 'slack', label: 'Slack', icon: <Hash size={14} />, desc: 'Your Slack sign-in, used by the on-call agent and available to sessions.', group: 'Integrations' },
+  { id: 'mcp', label: 'MCP servers', icon: <Plug size={14} />, desc: 'MCP servers available in every space.', group: 'Integrations' },
   { id: 'feedback', label: 'Feedback & diagnostics', icon: <MessageSquarePlus size={14} />, desc: 'Send feedback, review captured errors, control crash reports.' },
   { id: 'about', label: 'About & updates', icon: <Info size={14} />, desc: 'Version, links, and update checks.' }
 ]
-const SPACE_PAGES: { id: SpacePage; label: string; icon: React.ReactNode; desc: string; overrides?: AppPage }[] = [
+const SPACE_PAGES: { id: SpacePage; label: string; icon: React.ReactNode; desc: string; overrides?: AppPage; group?: string }[] = [
   { id: 'general', label: 'General', icon: <SettingsIcon size={14} />, desc: 'Name, colour, and this space’s engine, model, permission mode, folder and account.', overrides: 'general' },
   { id: 'repos', label: 'Repositories', icon: <FolderGit2 size={14} />, desc: 'Repositories this space owns. New workspaces here offer these.', overrides: 'repos' },
   { id: 'crew', label: 'Crew', icon: <Users size={14} />, desc: 'Subagents the orchestrator can delegate to in this space.', overrides: 'crew' },
-  { id: 'mcp', label: 'MCP servers', icon: <Plug size={14} />, desc: 'Servers for this space, on top of the application-wide ones.', overrides: 'mcp' },
-  { id: 'jira', label: 'Jira', icon: <Ticket size={14} />, desc: 'This space’s Jira site and login.', overrides: 'jira' },
-  { id: 'github', label: 'GitHub', icon: <GitPullRequest size={14} />, desc: 'Which GitHub owners the review cockpit lists for this space.' }
+  { id: 'jira', label: 'Jira', icon: <Ticket size={14} />, desc: 'This space’s Jira site and login.', overrides: 'jira', group: 'Integrations' },
+  { id: 'linear', label: 'Linear', icon: <CircleDot size={14} />, desc: 'This space’s Linear login.', overrides: 'linear', group: 'Integrations' },
+  { id: 'github', label: 'GitHub', icon: <GitPullRequest size={14} />, desc: 'Which GitHub owners the review cockpit lists for this space.', group: 'Integrations' },
+  { id: 'mcp', label: 'MCP servers', icon: <Plug size={14} />, desc: 'Servers for this space, on top of the application-wide ones.', overrides: 'mcp', group: 'Integrations' }
 ]
 
 export function SettingsWindow({ target, onClose }: { target: SettingsTarget; onClose: () => void }): React.JSX.Element {
@@ -72,8 +77,12 @@ export function SettingsWindow({ target, onClose }: { target: SettingsTarget; on
         {/* rail */}
         <nav className="flex w-[232px] shrink-0 flex-col overflow-auto border-r border-border bg-bg/60 p-2">
           <div className="px-2 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted">Application</div>
-          {APP_PAGES.map((p) => (
-            <NavItem key={p.id} active={target.scope === 'app' && target.page === p.id} icon={p.icon} label={p.label} onClick={() => openSettings({ scope: 'app', page: p.id })} />
+          {APP_PAGES.map((p, i) => (
+            <React.Fragment key={p.id}>
+              {p.group && APP_PAGES[i - 1]?.group !== p.group && <div className="mt-3 px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-muted">{p.group}</div>}
+              {!p.group && APP_PAGES[i - 1]?.group && <div className="mt-3 px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-muted">Help</div>}
+              <NavItem active={target.scope === 'app' && target.page === p.id} icon={p.icon} label={p.label} onClick={() => openSettings({ scope: 'app', page: p.id })} />
+            </React.Fragment>
           ))}
           <div className="mt-3 flex items-center px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-muted">
             Spaces
@@ -89,8 +98,11 @@ export function SettingsWindow({ target, onClose }: { target: SettingsTarget; on
                 <NavItem active={open && target.page === 'general'} icon={<span className="h-2.5 w-2.5 rounded-full" style={{ background: s.color }} />} label={s.name} chevron={open} onClick={() => openSettings({ scope: 'space', spaceId: s.id, page: 'general' })} />
                 {open && (
                   <div className="mb-1 ml-3 border-l border-border pl-1">
-                    {SPACE_PAGES.map((p) => (
-                      <NavItem key={p.id} small active={target.page === p.id} icon={p.icon} label={p.label} onClick={() => openSettings({ scope: 'space', spaceId: s.id, page: p.id })} />
+                    {SPACE_PAGES.map((p, i) => (
+                      <React.Fragment key={p.id}>
+                        {p.group && SPACE_PAGES[i - 1]?.group !== p.group && <div className="mt-1.5 px-2 pb-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted">{p.group}</div>}
+                        <NavItem small active={target.page === p.id} icon={p.icon} label={p.label} onClick={() => openSettings({ scope: 'space', spaceId: s.id, page: p.id })} />
+                      </React.Fragment>
                     ))}
                   </div>
                 )}
@@ -238,6 +250,15 @@ function AppPageView({ page }: { page: AppPage }): React.JSX.Element {
       return <McpSection title="MCP servers for every space" intro="Available in all workspaces. Add space-specific servers on a space’s MCP page." servers={settings.mcpServers ?? []} onChange={(mcpServers) => go(() => update({ mcpServers }))} strict={{ value: Boolean(settings.strictMcp), onToggle: (v) => go(() => update({ strictMcp: v })) }} />
     case 'jira':
       return <JiraSection connId="" title="Default Jira connection" intro="Used by spaces that have not connected their own Jira. Connect a space’s own site on its Jira page." />
+    case 'linear':
+      return <LinearSection connId="" title="Default Linear connection" intro="Used by spaces that have not connected their own Linear. Connect a space’s own on its Linear page." />
+    case 'slack':
+      return (
+        <div className="max-w-[760px]">
+          <SlackConnectionCard />
+          <p className="text-[11px] text-muted">The on-call agent uses this sign-in to watch channels and send the replies you approve. Set up channels under Application → On call.</p>
+        </div>
+      )
     case 'feedback':
       return (
         <div className="max-w-[640px]">
@@ -505,10 +526,13 @@ function SpacePageView({ space, page }: { space: Space; page: SpacePage }): Reac
           onChange={(mcpServers) => go(() => upd({ mcpServers }))}
           strict={{ value: space.strictMcp ?? Boolean(settings.strictMcp), inherited: space.strictMcp === undefined, onToggle: (v) => go(() => upd({ strictMcp: v })) }}
           jira={{ connected: Boolean(jiraConnectionFor(space)) || settings.jira.connected, exposed: space.exposeJiraMcp !== false, onToggle: (v) => go(() => upd({ exposeJiraMcp: v })) }}
+          linear={{ connected: Boolean(linearConnectionFor(space)) || Boolean(settings.linear?.connected), exposed: space.exposeLinearMcp !== false, onToggle: (v) => go(() => upd({ exposeLinearMcp: v })) }}
         />
       )
     case 'jira':
       return <JiraSection connId={space.id} title="Jira for this space" intro="Connect the Jira site this space’s tickets live in. Leave it disconnected to use the application’s default connection." />
+    case 'linear':
+      return <LinearSection connId={space.id} title="Linear for this space" intro="Connect the Linear workspace this space’s issues live in. Leave it disconnected to use the application’s default connection." />
     case 'github':
       return <GithubOwnersSection spaceId={space.id} configured={space.githubOwners ?? []} onChange={(owners) => go(() => upd({ githubOwners: owners }))} />
   }

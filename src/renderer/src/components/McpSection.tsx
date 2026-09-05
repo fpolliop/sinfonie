@@ -23,7 +23,7 @@ function kvText(o?: Record<string, string>): string {
  * Edits a list of MCP servers. Used in a space's settings (servers for that
  * space) and in app Settings (servers for every space).
  */
-export function McpSection({ servers, onChange, title, intro, jira, strict }: { servers: McpServerSpec[]; onChange: (s: McpServerSpec[]) => void; title: string; intro: string; jira?: { connected: boolean; exposed: boolean; onToggle: (v: boolean) => void }; strict?: { value: boolean; inherited?: boolean; onToggle: (v: boolean) => void } }): React.JSX.Element {
+export function McpSection({ servers, onChange, title, intro, jira, linear, strict }: { servers: McpServerSpec[]; onChange: (s: McpServerSpec[]) => void; title: string; intro: string; jira?: { connected: boolean; exposed: boolean; onToggle: (v: boolean) => void }; linear?: { connected: boolean; exposed: boolean; onToggle: (v: boolean) => void }; strict?: { value: boolean; inherited?: boolean; onToggle: (v: boolean) => void } }): React.JSX.Element {
   const setError = useApp((s) => s.setError)
   const [adding, setAdding] = useState(false)
   const [draft, setDraft] = useState<McpServerSpec>({ id: '', name: '', transport: 'http', enabled: true })
@@ -94,6 +94,17 @@ export function McpSection({ servers, onChange, title, intro, jira, strict }: { 
             <span className="block text-[11px] text-muted">{jira.connected ? 'Claude gets Jira tools (search, read, create tickets) using the Jira connection above. No separate setup.' : 'Connect Jira above to enable this.'}</span>
           </span>
           {jira.connected && jira.exposed && <Badge tone="ok">on</Badge>}
+        </label>
+      )}
+      {linear && (
+        <label className="mb-2 flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-[12px]">
+          <input type="checkbox" checked={linear.exposed} disabled={!linear.connected} onChange={(e) => linear.onToggle(e.target.checked)} />
+          <Plug size={13} className="text-muted" />
+          <span className="flex-1">
+            Linear MCP with this Linear login
+            <span className="block text-[11px] text-muted">{linear.connected ? 'Agents get Linear tools (search, read, create and update issues) using the Linear connection. No separate setup.' : 'Connect Linear above to enable this.'}</span>
+          </span>
+          {linear.connected && linear.exposed && <Badge tone="ok">on</Badge>}
         </label>
       )}
 

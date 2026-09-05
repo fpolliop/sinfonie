@@ -3,6 +3,7 @@ import { join } from 'path'
 import { nanoid } from 'nanoid'
 import type { CreateWorkspaceInput, Repo, RepoSafety, ScriptOutputEvent, Workspace, WorkspaceRepo, WorkspaceStage } from '@shared/types'
 import * as jira from './jira'
+import * as linear from './linear'
 import { getStore } from '../store'
 import * as git from './git'
 import { runScript, stopAllScripts } from './scripts'
@@ -94,6 +95,7 @@ export async function createWorkspace(input: CreateWorkspaceInput, emit: Emit): 
     stage: 'in-progress',
     createdAt: new Date().toISOString(),
     ...(input.jira ? { jira: input.jira } : {}),
+    ...(input.linear ? { linear: input.linear } : {}),
     ...(input.claudeAccountId ? { claudeAccountId: input.claudeAccountId } : {}),
     ...(input.spaceId ? { spaceId: input.spaceId } : {}),
     ...(space?.permissionMode ? { permissionMode: space.permissionMode } : {})
@@ -184,6 +186,13 @@ export async function refreshJiraStatus(workspaceId: string): Promise<Workspace>
   if (!ws.jira) return ws
   const issue = await jira.issue(jira.connectionForSpace(ws.spaceId), ws.jira.key)
   return patchWorkspace(workspaceId, { jiraStatus: issue.status, jiraStatusAt: new Date().toISOString(), jira: { ...ws.jira, summary: issue.summary || ws.jira.summary } })
+}
+
+export async function refreshLinearStatus(workspaceId: string): Promise<Workspace> {
+  const ws = getWorkspace(workspaceId)
+  if (!ws.linear) return ws
+  const issue = await linear.issue(linear.connectionForSpace(ws.spaceId), ws.linear.identifier)
+  return patchWorkspace(workspaceId, { linearStatus: issue.state, linearStatusAt: new Date().toISOString(), linear: { ...ws.linear, title: issue.title || ws.linear.title } })
 }
 
 /** Add another repository to a live workspace: worktree on the workspace branch, setup script, done. */

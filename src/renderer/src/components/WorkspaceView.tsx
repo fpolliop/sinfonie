@@ -62,6 +62,13 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
   }, [workspaceId])
   const jiraKey = ws?.jira?.key
   const jiraStatusAt = ws?.jiraStatusAt
+  const linearKey = ws?.linear?.identifier
+  const linearStatusAt = ws?.linearStatusAt
+  useEffect(() => {
+    if (!linearKey) return
+    if (linearStatusAt && Date.now() - new Date(linearStatusAt).getTime() < 5 * 60 * 1000) return
+    api.invoke('workspaces:refreshLinear', workspaceId).catch(() => undefined)
+  }, [workspaceId, linearKey, linearStatusAt])
   useEffect(() => {
     // Refresh the ticket status when the workspace opens, unless it was checked in the last five minutes.
     if (!jiraKey) return
@@ -129,6 +136,19 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
                 </span>
                 <button className="text-muted hover:text-text" title="Refresh Jira status" onClick={() => void refreshJira()}>
                   <RefreshCw size={10} className={clsx(jiraRefreshing && 'animate-spin')} />
+                </button>
+              </span>
+            )}
+            {ws.linear && (
+              <span className="no-drag ml-1 inline-flex items-center gap-1">
+                <button className="inline-flex items-center gap-1 text-accent hover:underline" title={ws.linear.title} onClick={() => void api.invoke('shell:openExternal', ws.linear!.url)}>
+                  {ws.linear.identifier} <ExternalLink size={10} />
+                </button>
+                <span className="rounded bg-panel-2 px-1.5 py-px text-[10px] text-text" title={ws.linearStatusAt ? `Linear state, checked ${new Date(ws.linearStatusAt).toLocaleTimeString()}` : 'Linear state'}>
+                  {ws.linearStatus ?? '…'}
+                </span>
+                <button className="text-muted hover:text-text" title="Refresh Linear state" onClick={() => void api.invoke('workspaces:refreshLinear', ws.id).catch((e) => setError(String(e)))}>
+                  <RefreshCw size={10} />
                 </button>
               </span>
             )}

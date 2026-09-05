@@ -22,6 +22,7 @@ import { askPermission } from '../interaction'
 import { estimateCost, resolveModel } from '../providers'
 import { isReadOnlyCommand } from '../readonly'
 import * as jira from '../jira'
+import * as linear from '../linear'
 import { logError } from '../telemetry'
 
 type Emit = (e: AgentEvent) => void
@@ -144,6 +145,14 @@ async function connectMcp(ws: Workspace, session: NativeSession): Promise<{ tool
       if (token) await connect('jira', () => createMCPClient({ transport: { type: 'http', url: jira.JIRA_MCP_URL, headers: { Authorization: `Bearer ${token}` } } }))
     } catch (err) {
       logError('native:jira', err)
+    }
+  }
+  if ((space ? space.exposeLinearMcp !== false : true) && !names.includes('linear')) {
+    try {
+      const token = await linear.accessToken(linear.connectionForSpace(ws.spaceId))
+      if (token) await connect('linear', () => createMCPClient({ transport: { type: 'http', url: linear.LINEAR_MCP_URL, headers: { Authorization: `Bearer ${token}` } } }))
+    } catch (err) {
+      logError('native:linear', err)
     }
   }
   return { tools, names }

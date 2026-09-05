@@ -78,7 +78,7 @@ export function PrsPane({ workspaceId }: { workspaceId: string }): React.JSX.Ele
       {prDlg && (
         <CreatePrDialog
           onClose={() => setPrDlg(null)}
-          defaultTitle={ws.jira ? `${ws.jira.key}: ${ws.jira.summary}` : ws.name}
+          defaultTitle={ws.jira ? `${ws.jira.key}: ${ws.jira.summary}` : ws.linear ? `${ws.linear.identifier}: ${ws.linear.title}` : ws.name}
           onSubmit={async (t, b) => {
             try {
               const out = await api.invoke('git:createPr', workspaceId, prDlg, t, b)

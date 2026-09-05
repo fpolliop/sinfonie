@@ -23,6 +23,7 @@ import { getStore } from '../store'
 import { getWorkspace, patchWorkspace } from './workspaces'
 import { accountEnv } from './accounts'
 import * as jira from './jira'
+import * as linear from './linear'
 import { logError } from './telemetry'
 import type { McpServerSpec } from '@shared/types'
 
@@ -173,6 +174,15 @@ async function mcpServersFor(ws: Workspace, onWarning?: (text: string) => void):
     } catch (err) {
       // An expired Jira login must not take the other MCP servers down with it, and must never open a browser here.
       onWarning?.(`Jira tools are off for this session: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+  const exposeLinear = space ? space.exposeLinearMcp !== false : true
+  if (exposeLinear && !out.linear) {
+    try {
+      const token = await linear.accessToken(linear.connectionForSpace(ws.spaceId))
+      if (token) out.linear = { type: 'http', url: linear.LINEAR_MCP_URL, headers: { Authorization: `Bearer ${token}` } }
+    } catch (err) {
+      onWarning?.(`Linear tools are off for this session: ${err instanceof Error ? err.message : String(err)}`)
     }
   }
   return out

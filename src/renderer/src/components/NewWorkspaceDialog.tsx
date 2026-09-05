@@ -8,7 +8,7 @@ import { Badge, Button, Dialog, Field, inputCls } from './ui'
 import { AccountPicker } from './AccountPicker'
 import { SpacePicker } from './SpacePicker'
 import { shortPath } from '@/lib/format'
-import { jiraConnectionFor, type JiraIssue, type WorkspaceJira } from '@shared/types'
+import { jiraConnectionFor, linearConnectionFor, type JiraIssue, type LinearIssue, type WorkspaceJira, type WorkspaceLinear } from '@shared/types'
 
 /** "SD-3281" + "Relevance ranked packages" -> "sd-3281-relevance-ranked-packages" */
 export function suggestName(issue: { key: string; summary: string }): string {
@@ -42,6 +42,9 @@ export function NewWorkspaceDialog({ onClose }: { onClose: () => void }): React.
   const setDraft = useChat((s) => s.setDraft)
   const [name, setName] = useState('')
   const [jira, setJira] = useState<WorkspaceJira | null>(null)
+  const [linear, setLinear] = useState<WorkspaceLinear | null>(null)
+  const linearConn = linearConnectionFor(space)
+  const linearReady = linearConn ? true : Boolean(settings.linear?.connected)
   const [accountId, setAccountId] = useState(space?.claudeAccountId ?? settings.defaultClaudeAccountId)
   const jiraConn = jiraConnectionFor(space)
   const jiraReady = jiraConn ? true : settings.jira.connected || Boolean(settings.jira.siteUrl && settings.jira.email && settings.jira.hasToken)
@@ -89,11 +92,20 @@ export function NewWorkspaceDialog({ onClose }: { onClose: () => void }): React.
         repos: selected.map((s) => ({ repoId: s.repoId, baseBranch: s.baseBranch })),
         ...(selected.length ? { primaryRepoId: primary || selected[0].repoId } : {}),
         ...(jira ? { jira } : {}),
+        ...(linear ? { linear } : {}),
         claudeAccountId: accountId,
         ...(spaceId ? { spaceId } : {})
       })
       select(ws.id)
       onClose()
+      if (linear) {
+        try {
+          const full = await api.invoke('linear:issue', linearConn, linear.identifier)
+          setDraft(ws.id, `Implement ${full.identifier}: ${full.title}\n${full.url}\n\n${(full.description ?? '').trim() || '(no description in Linear)'}\n\nStart by reading the relevant code in each repo and propose a plan before changing anything.`)
+        } catch {
+          setDraft(ws.id, `Implement ${linear.identifier}: ${linear.title}\n${linear.url}`)
+        }
+      }
       if (jira) {
         // Pre-fill the first message with the ticket so the agent starts from the real spec.
         try {
@@ -112,21 +124,40 @@ export function NewWorkspaceDialog({ onClose }: { onClose: () => void }): React.
 
   return (
     <Dialog title="New workspace" onClose={onClose} width={560}>
-      <JiraPicker
-        key={jiraConn}
-        connId={jiraConn}
-        enabled={jiraReady}
-        selected={jira}
-        onSelect={(issue) => {
-          if (!issue) {
+      {(jiraReady || !linearReady) && (
+        <IssuePicker<JiraIssue>
+          key={`jira-${jiraConn}`}
+          label="Jira ticket"
+          enabled={jiraReady}
+          selected={jira ? { key: jira.key, title: jira.summary, url: jira.url } : null}
+          search={(q) => api.invoke('jira:search', jiraConn, q)}
+          view={(i) => ({ key: i.key, title: i.summary, meta: `${i.type} · ${i.status}`, url: i.url })}
+          onSelect={(issue) => {
+            if (!issue) return setJira(null)
+            setLinear(null)
+            setJira({ key: issue.key, summary: issue.summary, url: issue.url })
+            setName(suggestName({ key: issue.key, summary: issue.summary }))
+          }}
+          onConfigure={() => (onClose(), openSettings(spaceId ? { scope: 'space', spaceId, page: 'jira' } : { scope: 'app', page: 'jira' }))}
+        />
+      )}
+      {linearReady && (
+        <IssuePicker<LinearIssue>
+          key={`linear-${linearConn}`}
+          label="Linear issue"
+          enabled={linearReady}
+          selected={linear ? { key: linear.identifier, title: linear.title, url: linear.url } : null}
+          search={(q) => api.invoke('linear:search', linearConn, q)}
+          view={(i) => ({ key: i.identifier, title: i.title, meta: [i.state, i.priority].filter(Boolean).join(' · '), url: i.url })}
+          onSelect={(issue) => {
+            if (!issue) return setLinear(null)
             setJira(null)
-            return
-          }
-          setJira({ key: issue.key, summary: issue.summary, url: issue.url })
-          setName(suggestName(issue))
-        }}
-        onConfigure={() => (onClose(), openSettings(spaceId ? { scope: 'space', spaceId, page: 'jira' } : { scope: 'app', page: 'jira' }))}
-      />
+            setLinear({ id: issue.id, identifier: issue.identifier, title: issue.title, url: issue.url })
+            setName(suggestName({ key: issue.identifier, summary: issue.title }))
+          }}
+          onConfigure={() => (onClose(), openSettings(spaceId ? { scope: 'space', spaceId, page: 'linear' } : { scope: 'app', page: 'linear' }))}
+        />
+      )}
       <Field label="Name" hint="Becomes the branch name in every selected repo and the folder name on disk.">
         <input autoFocus className={inputCls} placeholder="e.g. checkout-redesign" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && submit()} />
       </Field>
@@ -199,10 +230,10 @@ export function NewWorkspaceDialog({ onClose }: { onClose: () => void }): React.
   )
 }
 
-function JiraPicker({ connId, enabled, selected, onSelect, onConfigure }: { connId: string; enabled: boolean; selected: WorkspaceJira | null; onSelect: (i: JiraIssue | null) => void; onConfigure: () => void }): React.JSX.Element {
+function IssuePicker<T>({ label, enabled, selected, search, view, onSelect, onConfigure }: { label: string; enabled: boolean; selected: { key: string; title: string; url: string } | null; search: (q: string) => Promise<T[]>; view: (i: T) => { key: string; title: string; meta: string; url: string }; onSelect: (i: T | null) => void; onConfigure: () => void }): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
-  const [results, setResults] = useState<JiraIssue[]>([])
+  const [results, setResults] = useState<T[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const timer = useRef<number | null>(null)
@@ -211,7 +242,7 @@ function JiraPicker({ connId, enabled, selected, onSelect, onConfigure }: { conn
     setLoading(true)
     setError(null)
     try {
-      setResults(await api.invoke('jira:search', connId, q))
+      setResults(await search(q))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -232,8 +263,8 @@ function JiraPicker({ connId, enabled, selected, onSelect, onConfigure }: { conn
     return (
       <div className="mb-3 flex items-center gap-2 rounded-lg border border-accent/40 bg-accent/5 px-3 py-2">
         <Badge tone="accent">{selected.key}</Badge>
-        <span className="min-w-0 flex-1 truncate text-[13px]">{selected.summary}</span>
-        <button className="text-muted hover:text-text" title="Open in Jira" onClick={() => void api.invoke('shell:openExternal', selected.url)}>
+        <span className="min-w-0 flex-1 truncate text-[13px]">{selected.title}</span>
+        <button className="text-muted hover:text-text" title="Open" onClick={() => void api.invoke('shell:openExternal', selected.url)}>
           <ExternalLink size={13} />
         </button>
         <button className="text-muted hover:text-text" title="Clear" onClick={() => onSelect(null)}>
@@ -247,13 +278,13 @@ function JiraPicker({ connId, enabled, selected, onSelect, onConfigure }: { conn
       <div className="mb-3 flex items-center gap-2 text-[12px] text-muted">
         {enabled ? (
           <button className="text-accent hover:underline" onClick={() => setOpen(true)}>
-            Create from a Jira ticket…
+            Create from a {label}…
           </button>
         ) : (
           <>
-            <span>Create from a Jira ticket?</span>
+            <span>Create from a {label}?</span>
             <button className="text-accent hover:underline" onClick={onConfigure}>
-              Connect Jira in Settings
+              Connect it in Settings
             </button>
           </>
         )}
@@ -264,7 +295,7 @@ function JiraPicker({ connId, enabled, selected, onSelect, onConfigure }: { conn
     <div className="mb-3 rounded-lg border border-border">
       <div className="flex items-center gap-2 border-b border-border px-2 py-1.5">
         <Search size={13} className="text-muted" />
-        <input autoFocus className="flex-1 bg-transparent text-[13px] outline-none placeholder:text-muted" placeholder="Ticket key or words in the summary… (empty = your open tickets)" value={query} onChange={(e) => setQuery(e.target.value)} />
+        <input autoFocus className="flex-1 bg-transparent text-[13px] outline-none placeholder:text-muted" placeholder={`${label} key or words in the title… (empty = your open ones)`} value={query} onChange={(e) => setQuery(e.target.value)} />
         <button className="text-muted hover:text-text" onClick={() => setOpen(false)}>
           <X size={13} />
         </button>
@@ -272,14 +303,17 @@ function JiraPicker({ connId, enabled, selected, onSelect, onConfigure }: { conn
       <div className="max-h-56 overflow-auto">
         {error && <div className="px-3 py-2 text-[12px] text-danger">{error}</div>}
         {loading && results.length === 0 && <div className="px-3 py-2 text-[12px] text-muted">Searching…</div>}
-        {!loading && !error && results.length === 0 && <div className="px-3 py-2 text-[12px] text-muted">No tickets found.</div>}
-        {results.map((i) => (
-          <button key={i.key} onClick={() => onSelect(i)} className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-panel-2">
-            <Badge tone="accent">{i.key}</Badge>
-            <span className="min-w-0 flex-1 truncate text-[13px]">{i.summary}</span>
-            <span className="shrink-0 text-[11px] text-muted">{i.type} · {i.status}</span>
-          </button>
-        ))}
+        {!loading && !error && results.length === 0 && <div className="px-3 py-2 text-[12px] text-muted">Nothing found.</div>}
+        {results.map((i) => {
+          const v = view(i)
+          return (
+            <button key={v.key} onClick={() => onSelect(i)} className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-panel-2">
+              <Badge tone="accent">{v.key}</Badge>
+              <span className="min-w-0 flex-1 truncate text-[13px]">{v.title}</span>
+              <span className="shrink-0 text-[11px] text-muted">{v.meta}</span>
+            </button>
+          )
+        })}
       </div>
     </div>
   )
