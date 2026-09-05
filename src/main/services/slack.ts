@@ -5,7 +5,8 @@
  * for tokens with the secret. Advanced users can plug in their own client id/secret instead.
  * Polling and posting use the Web API; agent sessions get the MCP URL with the bearer token.
  */
-import { shell, safeStorage } from 'electron'
+import { safeStorage } from 'electron'
+import { presentAuthLink } from './auth-link'
 import { createHash, randomBytes } from 'crypto'
 import { getStore } from '../store'
 import type { SlackConnection } from '@shared/types'
@@ -112,7 +113,7 @@ export async function startAuth(connId = ''): Promise<void> {
   url.searchParams.set('scope', SCOPES.join(' '))
   url.searchParams.set('resource', 'https://mcp.slack.com/')
   url.searchParams.set('state', randomBytes(12).toString('base64url'))
-  await shell.openExternal(url.toString())
+  presentAuthLink('slack', connId, url.toString())
 }
 
 /** Exchange a code or refresh token: directly when the user brought their own client, else through sinfonie.dev. */

@@ -846,6 +846,14 @@ export interface ErrorEntry {
   extra?: string
 }
 
+/** A sign-in URL the renderer shows with Open / Copy, instead of the app opening a browser on its own. */
+export interface AuthLink {
+  provider: 'jira' | 'linear' | 'slack'
+  /** '' for the application connection, else the space id. */
+  connId: string
+  url: string
+}
+
 // ---- On call ----
 
 export interface SlackConnection {

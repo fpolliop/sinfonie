@@ -1,4 +1,5 @@
-import { safeStorage, shell } from 'electron'
+import { safeStorage } from 'electron'
+import { presentAuthLink } from './auth-link'
 import { createServer, type Server } from 'http'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
@@ -119,7 +120,7 @@ class StoreOAuthProvider implements OAuthClientProvider {
   }
   redirectToAuthorization(url: URL): void {
     if (!this.interactive) throw new JiraReauthRequired(this.connId)
-    void shell.openExternal(url.toString())
+    presentAuthLink('jira', this.connId, url.toString())
   }
   saveCodeVerifier(v: string): void {
     this.verifier = v

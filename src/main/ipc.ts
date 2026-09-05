@@ -27,6 +27,7 @@ import { runScript, stopScript, workspaceEnv } from './services/scripts'
 import { repoPrStatus } from './services/github'
 import * as jira from './services/jira'
 import * as linear from './services/linear'
+import { setAuthLinkEmitters, authDone } from './services/auth-link'
 import * as accounts from './services/accounts'
 import * as reviews from './services/reviews'
 import * as sessionsSvc from './services/sessions'
@@ -66,6 +67,10 @@ const emitAgent = (e: Parameters<typeof send<'agent:event'>>[1]): void => {
 const emitPermission = (e: Parameters<typeof send<'agent:permission'>>[1]): void => send('agent:permission', e)
 
 export function registerIpc(): void {
+  setAuthLinkEmitters(
+    (l) => send('ui:authLink', l),
+    (l) => send('ui:authDone', l)
+  )
   interaction.setInteractionEmitters(
     (p) => send('agent:permission', p),
     (q) => send('agent:question', q)
@@ -373,13 +378,19 @@ export function registerIpc(): void {
     }
     return result
   })
-  handle('jira:authenticate', (conn) => jira.authenticate(conn))
+  handle('jira:authenticate', async (conn) => {
+    await jira.authenticate(conn)
+    authDone('jira', conn)
+  })
   handle('jira:disconnect', (conn) => jira.disconnect(conn))
   handle('jira:saveToken', (conn, token) => jira.saveToken(conn, token))
   handle('jira:updateSettings', (conn, patch) => jira.updateJiraSettings(conn, patch))
   handle('jira:search', (conn, q) => jira.search(conn, q))
   handle('jira:issue', (conn, key) => jira.issue(conn, key))
-  handle('linear:authenticate', (conn) => linear.authenticate(conn))
+  handle('linear:authenticate', async (conn) => {
+    await linear.authenticate(conn)
+    authDone('linear', conn)
+  })
   handle('linear:disconnect', (conn) => linear.disconnect(conn))
   handle('linear:updateSettings', (conn, patch) => linear.updateLinearSettings(conn, patch))
   handle('linear:search', (conn, q) => linear.search(conn, q))
@@ -466,6 +477,7 @@ export function registerIpc(): void {
   handle('oncall:slackFinish', async (code, conn) => {
     const c = await slack.finishAuth(code, conn)
     oncall.reconcile()
+    authDone('slack', conn ?? '')
     return c
   })
   handle('oncall:slackDisconnect', (conn) => {

@@ -1,4 +1,4 @@
-import type { BrowserState, ChatImageInput, Incident, IncidentStatus, LinearIssue, LinearSettings, OnCallState, ResourceSnapshot, Severity, SlackConnection, LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion,
+import type { AuthLink, BrowserState, ChatImageInput, Incident, IncidentStatus, LinearIssue, LinearSettings, OnCallState, ResourceSnapshot, Severity, SlackConnection, LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion,
   AgentEvent,
   ChatItem,
   JiraIssue,
@@ -226,6 +226,10 @@ export interface SinfonieEvents {
   'resources:snapshot': ResourceSnapshot
   'browser:state': BrowserState
   'oncall:changed': OnCallState
+  /** A sign-in link to show the user (Open in browser / Copy link). */
+  'ui:authLink': AuthLink
+  /** That sign-in finished; close the dialog. */
+  'ui:authDone': { provider: AuthLink['provider']; connId: string }
   /** Open the On call view on this incident (notification click, deep link). */
   'ui:openOnCall': { incidentId?: string }
   /** An agent started using the browser of this workspace; the renderer brings the pane forward. */

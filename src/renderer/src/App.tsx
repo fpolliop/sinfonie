@@ -1,10 +1,12 @@
-import React, { useEffect } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useApp, spaceOrder } from '@/stores/app'
 import { useChat } from '@/stores/chat'
 import { useScripts } from '@/stores/scripts'
 import { Sidebar } from './components/Sidebar'
 import { WorkspaceView } from './components/WorkspaceView'
 import { OnCallView } from './components/OnCallView'
+import { AuthLinkDialog } from './components/AuthLinkDialog'
+import type { AuthLink } from '@shared/types'
 import { useOnCall } from './stores/oncall'
 import { NewWorkspaceDialog } from './components/NewWorkspaceDialog'
 import { SettingsWindow } from './components/SettingsWindow'
@@ -30,6 +32,9 @@ export default function App(): React.JSX.Element {
     subscribeScripts()
   }, [load, subscribeChat, subscribeScripts])
 
+  const [authLink, setAuthLink] = useState<AuthLink | null>(null)
+  useEffect(() => api.on('ui:authLink', setAuthLink), [])
+  useEffect(() => api.on('ui:authDone', (d) => setAuthLink((cur) => (cur && cur.provider === d.provider ? null : cur))), [])
   useEffect(() => api.on('ui:openFeedback', ({ tab }) => setFeedbackDialog(tab)), [setFeedbackDialog])
   useEffect(() => api.on('ui:openOnboarding', ({ kind }) => setOnboarding(kind)), [setOnboarding])
   useEffect(
@@ -88,6 +93,7 @@ export default function App(): React.JSX.Element {
       <PermissionPrompt />
       <BranchRenamePrompt />
       {onboarding === 'setup' && <SetupWizard onClose={() => setOnboarding(null)} />}
+      {authLink && <AuthLinkDialog link={authLink} onClose={() => setAuthLink(null)} />}
       {onboarding === 'tour' && <Tour onClose={() => setOnboarding(null)} />}
       {error && (
         <div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-lg border border-danger/40 bg-panel px-4 py-2 text-[12px] shadow-xl">

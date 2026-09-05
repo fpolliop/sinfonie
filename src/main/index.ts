@@ -8,6 +8,7 @@ import * as images from './services/images'
 import * as slack from './services/slack'
 import { adoptShellPath } from './services/shell-path'
 import * as oncall from './services/oncall/service'
+import { authDone } from './services/auth-link'
 import { installCrashHandlers, rendererConsoleError, logError, startUsagePings } from './services/telemetry'
 import { Menu, nativeImage } from 'electron'
 import { checkForUpdate } from './services/updates'
@@ -113,7 +114,10 @@ function handleDeepLink(raw: string): void {
       if (code)
         void slack
           .finishAuth(code)
-          .then(() => oncall.reconcile())
+          .then((c) => {
+            oncall.reconcile()
+            authDone('slack', '')
+          })
           .catch((e) => logError('slack:oauth', e))
       const win = BrowserWindow.getAllWindows()[0]
       if (win) {
