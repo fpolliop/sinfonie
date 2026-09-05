@@ -16,7 +16,7 @@ export const REDIRECT_URL = 'https://sinfonie.dev/oauth/slack/callback'
 const TOKEN_URL = 'https://slack.com/api/oauth.v2.user.access'
 const TOKEN_PROXY = 'https://sinfonie.dev/oauth/slack/token'
 /** Sinfonie's registered Slack OAuth client. Empty until the vendor registers one; the secret never ships. */
-export const SINFONIE_SLACK_CLIENT_ID = process.env.SINFONIE_SLACK_CLIENT_ID ?? ''
+export const SINFONIE_SLACK_CLIENT_ID = process.env.SINFONIE_SLACK_CLIENT_ID ?? '11997181824868.11991600098838'
 const SCOPES = ['channels:history', 'channels:read', 'groups:history', 'groups:read', 'chat:write', 'search:read.public', 'users:read']
 
 // ---------- secrets (same scheme as jira.ts) ----------
