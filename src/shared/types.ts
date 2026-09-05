@@ -327,6 +327,8 @@ export interface Workspace {
   linearStatusAt?: string
   /** Engine override for this workspace (set when the user continued elsewhere after a rate limit). */
   engine?: Engine
+  /** Cost profile for this workspace only; undefined inherits the space, then the app. */
+  costMode?: CostMode
   stage: WorkspaceStage
   labelIds?: string[]
   spaceId?: string
@@ -1113,6 +1115,10 @@ export interface UsageSettings {
   contextWarnTokens?: number
 }
 /** What the user can do when a limit is near or hit. */
+/** How hard a session tries to save tokens. */
+export type CostMode = 'standard' | 'budget' | 'lean'
+export type CostModeScope = { kind: 'workspace'; id: string } | { kind: 'space'; id: string } | { kind: 'app' }
+
 export interface LimitAlternative {
   kind: 'proceed' | 'account' | 'engine' | 'native' | 'lean' | 'cancel'
   id?: string

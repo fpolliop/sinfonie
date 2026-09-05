@@ -47,6 +47,7 @@ import * as files from './services/files'
 import * as slack from './services/slack'
 import * as oncall from './services/oncall/service'
 import * as usage from './services/usage'
+import { costModeFor } from './services/cost-mode'
 import * as limits from './services/limits'
 import type { ChatImageRef, Engine } from '@shared/types'
 import { carrySessionToAccount } from './services/sessions'
@@ -518,11 +519,8 @@ export function registerIpc(): void {
       }
       case 'lean': {
         agent.closeSession(id)
-        getStore().update((d) => {
-          const s = d.spaces.find((x) => x.id === ws.spaceId)
-          if (s) s.leanMode = true
-        })
-        emitAgent({ type: 'notice', workspaceId: id, itemId: nanoid(8), level: 'info', text: 'Lean mode is on for this space: one Sonnet agent, no crew, trimmed context, capped turns. The conversation continues. Turn it off under the space settings.', createdAt: new Date().toISOString() })
+        workspaces.patchWorkspace(id, { costMode: 'lean' })
+        emitAgent({ type: 'notice', workspaceId: id, itemId: nanoid(8), level: 'info', text: 'Lean mode is on for this workspace: one Sonnet agent, no crew, trimmed context, capped turns. The conversation continues. Change it from the session pill next to the composer.', createdAt: new Date().toISOString() })
         if (pending) await go(pending.text, pending.images)
         return
       }
@@ -647,6 +645,40 @@ export function registerIpc(): void {
   handle('agent:reset', (id) => {
     agent.resetSession(id)
     clearTranscript(id)
+  })
+  handle('costMode:set', (scope, mode) => {
+    const all = getStore().get().workspaces
+    const before = new Map(all.map((w) => [w.id, costModeFor(w.spaceId, w.id)]))
+    if (scope.kind === 'workspace') {
+      workspaces.patchWorkspace(scope.id, { costMode: mode ?? undefined })
+      if (mode === null)
+        getStore().update((d) => {
+          const w = d.workspaces.find((x) => x.id === scope.id)
+          if (w) delete w.costMode
+        })
+    }
+    else
+      getStore().update((d) => {
+        // Space and app keep the two booleans; lean wins over budget when both are set.
+        const target = scope.kind === 'space' ? d.spaces.find((s) => s.id === scope.id) : d.settings
+        if (!target) return
+        if (mode === null) {
+          delete target.leanMode
+          delete target.budgetMode
+        } else {
+          target.leanMode = mode === 'lean'
+          target.budgetMode = mode === 'budget'
+        }
+      })
+    // Only sessions whose effective mode changed restart; they resume the same conversation on the next message.
+    for (const w of getStore().get().workspaces) {
+      if (before.get(w.id) === costModeFor(w.spaceId, w.id)) continue
+      if (agent.isBusy(w.id)) agent.restartAfterTurn(w.id)
+      else {
+        agent.closeSession(w.id)
+        emitAgent({ type: 'status', workspaceId: w.id, busy: false })
+      }
+    }
   })
   handle('chat:load', (id) => {
     if (!agent.isBusy(id)) markInterrupted(id)

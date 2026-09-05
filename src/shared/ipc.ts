@@ -33,8 +33,7 @@ import type { AuthLink, BrowserState, ContextUsage, CrewPriority, FsEntry, Limit
   Space,
   StoreData,
   TerminalDataEvent,
-  Workspace
-} from './types'
+  Workspace, CostMode, CostModeScope } from './types'
 
 /** Request/response channels (ipcRenderer.invoke). */
 export interface SinfonieInvoke {
@@ -176,6 +175,8 @@ export interface SinfonieInvoke {
   /** Fetches the provider's model list and caches it on the config. */
   'providers:models': (id: string) => string[]
   'agent:reset': (workspaceId: string) => void
+  /** Set the cost profile at one scope; sessions that are affected restart and resume their conversation. */
+  'costMode:set': (scope: CostModeScope, mode: CostMode | null) => void
   'agent:setMode': (workspaceId: string, mode: PermissionMode) => Workspace
   'chat:load': (workspaceId: string) => { items: ChatItem[]; busy: boolean }
   // ---- session notes ----

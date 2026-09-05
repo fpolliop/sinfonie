@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { ChevronRight, Square, RotateCcw, Send, ShieldCheck, XCircle, AlertTriangle, Info, History, Users, GitFork, ListTree, ArrowLeft, StickyNote, Paperclip, X } from 'lucide-react'
 import { imageFiles } from '@/lib/images'
-import type { ContextUsage, ChatTurnResult, AgentEvent, ChatImageRef, LimitAlternative } from '@shared/types'
+import type { ContextUsage, ChatTurnResult, AgentEvent, ChatImageRef, LimitAlternative, CostMode, CostModeScope } from '@shared/types'
 import { NotesPanel } from './NotesPanel'
 import { useNotes } from '@/stores/notes'
 import { api } from '@/lib/api'
@@ -63,16 +63,22 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
   const canSend = !disabled && (Boolean(draft.trim()) || pendingImages.length > 0)
   const settingsModel = useApp((s) => s.settings.model)
   const settingsMode = useApp((s) => s.settings.permissionMode)
-  const budgetMode = useApp((s) => {
+  // Effective cost profile: workspace, then space, then app; lean beats budget.
+  const costMode = useApp((s): CostMode => {
     const w = s.workspaces.find((x) => x.id === workspaceId)
+    if (w?.costMode) return w.costMode
     const sp = s.spaces.find((x) => x.id === w?.spaceId)
-    return sp?.budgetMode ?? s.settings.budgetMode ?? false
+    if (sp?.leanMode ?? s.settings.leanMode) return 'lean'
+    return (sp?.budgetMode ?? s.settings.budgetMode) ? 'budget' : 'standard'
   })
-  const leanMode = useApp((s) => {
+  const costModeSource = useApp((s): 'workspace' | 'space' | 'app' => {
     const w = s.workspaces.find((x) => x.id === workspaceId)
+    if (w?.costMode) return 'workspace'
     const sp = s.spaces.find((x) => x.id === w?.spaceId)
-    return sp?.leanMode ?? s.settings.leanMode ?? false
+    return sp?.leanMode !== undefined || sp?.budgetMode !== undefined ? 'space' : 'app'
   })
+  const budgetMode = costMode === 'budget'
+  const leanMode = costMode === 'lean'
   const engineLabel = useApp((s) => {
     const sp = s.spaces.find((x) => x.id === ws?.spaceId)
     const e = sp?.engine ?? s.settings.engine ?? 'claude-code'
@@ -241,7 +247,7 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
             />
             <div className="flex items-center gap-2 px-2 pb-2">
               <ModePicker mode={mode} onChange={changeMode} />
-              <SessionPill workspaceId={workspaceId} engineLabel={engineLabel} budgetMode={budgetMode} leanMode={leanMode} model={chat?.model ?? settingsModel} contextTokens={chat?.contextTokens} contextWindow={chat?.contextWindow} cacheRead={chat?.contextCacheRead} history={chat?.contextHistory} result={chat?.lastResult} busy={busy} onNewSession={() => void reset(workspaceId)} />
+              <SessionPill workspaceId={workspaceId} spaceId={ws?.spaceId} engineLabel={engineLabel} budgetMode={budgetMode} leanMode={leanMode} costMode={costMode} costModeSource={costModeSource} model={chat?.model ?? settingsModel} contextTokens={chat?.contextTokens} contextWindow={chat?.contextWindow} cacheRead={chat?.contextCacheRead} history={chat?.contextHistory} result={chat?.lastResult} busy={busy} onNewSession={() => void reset(workspaceId)} />
               <span className="ml-auto" />
               <Button size="sm" variant="ghost" title="Attach images (or paste / drop them into the message)" onClick={() => fileInput.current?.click()} disabled={disabled}>
                 <Paperclip size={13} />
@@ -345,7 +351,56 @@ function Block({ block }: { block: ChatBlock }): React.JSX.Element | null {
 const NO_IMAGES: never[] = []
 
 /** The session's vitals in one small pill; the details, the context window and Compact open on click. */
-function SessionPill({ workspaceId, engineLabel, budgetMode, leanMode, model, contextTokens, contextWindow, cacheRead, history, result, busy, onNewSession }: { workspaceId: string; engineLabel: string; budgetMode: boolean; leanMode: boolean; model: string; contextTokens?: number; contextWindow?: number; cacheRead?: number; history?: number[]; result?: ChatTurnResult; busy: boolean; onNewSession: () => void }): React.JSX.Element {
+const COST_MODES: { id: CostMode; label: string; hint: string }[] = [
+  { id: 'standard', label: 'Standard', hint: 'Your model and crew as configured.' },
+  { id: 'budget', label: 'Budget', hint: 'Sonnet orchestrator, low effort, two subagents, 60 tool calls per message.' },
+  { id: 'lean', label: 'Lean', hint: 'One Sonnet agent, no crew, no browser or web tools, trimmed output, 25 tool calls per message. Fewest tokens.' }
+]
+
+/** Cost profile picker with a scope: this workspace, its space, or the whole app. Applies at once; the session restarts and resumes. */
+function CostModeControl({ workspaceId, spaceId, mode, source, busy }: { workspaceId: string; spaceId?: string; mode: CostMode; source: 'workspace' | 'space' | 'app'; busy: boolean }): React.JSX.Element {
+  const [scope, setScope] = useState<'workspace' | 'space' | 'app'>(source)
+  const [saving, setSaving] = useState(false)
+  const setError = useApp((s) => s.setError)
+  useEffect(() => setScope(source), [source])
+  const apply = (next: CostMode): void => {
+    if (saving || next === mode) return
+    const target: CostModeScope = scope === 'workspace' ? { kind: 'workspace', id: workspaceId } : scope === 'space' && spaceId ? { kind: 'space', id: spaceId } : { kind: 'app' }
+    setSaving(true)
+    api
+      .invoke('costMode:set', target, next)
+      .catch((err) => setError(String(err)))
+      .finally(() => setSaving(false))
+  }
+  const current = COST_MODES.find((m) => m.id === mode) ?? COST_MODES[0]
+  return (
+    <div className="mt-1.5">
+      <div className="flex items-center gap-2">
+        <span className="w-[76px] shrink-0 text-muted">Cost mode</span>
+        <div className="flex flex-1 rounded-md bg-bg p-0.5">
+          {COST_MODES.map((m) => (
+            <button key={m.id} title={m.hint} disabled={saving} onClick={() => apply(m.id)} className={clsx('flex-1 rounded px-2 py-0.5 text-[11px]', mode === m.id ? (m.id === 'standard' ? 'bg-panel-2 text-text' : 'bg-ok/20 text-ok') : 'text-muted hover:text-text')}>
+              {m.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="mt-1 flex items-center gap-2 text-[11px] text-muted">
+        <span className="w-[76px] shrink-0">Apply to</span>
+        <select className="flex-1 rounded border border-border bg-bg px-1 py-px text-[11px] text-text" value={scope} onChange={(e) => setScope(e.target.value as typeof scope)}>
+          <option value="workspace">This workspace</option>
+          {spaceId && <option value="space">This space</option>}
+          <option value="app">Everywhere</option>
+        </select>
+      </div>
+      <div className="mt-1 text-[11px] text-muted">
+        {current.hint} Set {source === 'workspace' ? 'on this workspace' : source === 'space' ? 'on this space' : 'app-wide'}.{busy ? ' Changes apply after the current turn.' : ' Changing it restarts the session; the conversation continues.'}
+      </div>
+    </div>
+  )
+}
+
+function SessionPill({ workspaceId, spaceId, engineLabel, budgetMode, leanMode, costMode, costModeSource, model, contextTokens, contextWindow, cacheRead, history, result, busy, onNewSession }: { workspaceId: string; spaceId?: string; engineLabel: string; budgetMode: boolean; leanMode: boolean; costMode: CostMode; costModeSource: 'workspace' | 'space' | 'app'; model: string; contextTokens?: number; contextWindow?: number; cacheRead?: number; history?: number[]; result?: ChatTurnResult; busy: boolean; onNewSession: () => void }): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const [usage, setUsage] = useState<ContextUsage | null>(null)
   const [detail, setDetail] = useState(false)
@@ -499,7 +554,7 @@ function SessionPill({ workspaceId, engineLabel, budgetMode, leanMode, model, co
           <div className="border-t border-border pt-2">
             <Row k="Engine" v={engineLabel} />
             <Row k="Model" v={model} />
-            {leanMode ? <Row k="Lean mode" v="One Sonnet agent, no crew, trimmed tools, 25 calls per message" /> : budgetMode && <Row k="Budget mode" v="Sonnet orchestrator, low effort, two subagents, 60 calls per message" />}
+            <CostModeControl workspaceId={workspaceId} spaceId={spaceId} mode={costMode} source={costModeSource} busy={busy} />
             {result && (
               <>
                 <Row k="Session cost" v={`$${result.costUsd.toFixed(2)}`} />

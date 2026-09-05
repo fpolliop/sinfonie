@@ -1,7 +1,8 @@
 import { getStore } from '../store'
+import type { CostMode } from '../../shared/types'
+export type { CostMode }
 
-/** How hard a space tries to save tokens. Lean beats budget; a space setting beats the app default. */
-export type CostMode = 'standard' | 'budget' | 'lean'
+/** Lean beats budget; a workspace setting beats the space's, which beats the app default. */
 
 export const LEAN = {
   /** Tool calls allowed per user message before the agent must stop and report. */
@@ -16,8 +17,10 @@ export const LEAN = {
   effort: 'medium' as const
 }
 
-export function costModeFor(spaceId?: string): CostMode {
-  const { settings, spaces } = getStore().get()
+export function costModeFor(spaceId?: string, workspaceId?: string): CostMode {
+  const { settings, spaces, workspaces } = getStore().get()
+  const ws = workspaces.find((w) => w.id === workspaceId)
+  if (ws?.costMode) return ws.costMode
   const space = spaces.find((s) => s.id === spaceId)
   const lean = space?.leanMode ?? settings.leanMode ?? false
   if (lean) return 'lean'

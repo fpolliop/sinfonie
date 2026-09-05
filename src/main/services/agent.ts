@@ -284,7 +284,7 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
   const wsCwd = primary?.worktreePath ?? ws.rootPath
   const others = ws.repos.filter((r) => r !== primary).map((r) => r.worktreePath)
   const flags = { restartAfterTurn: false, leanCalls: 0, leanCapNoted: false }
-  const costMode = costModeFor(ws.spaceId)
+  const costMode = costModeFor(ws.spaceId, ws.id)
   const budget = costMode === 'budget'
   const lean = costMode === 'lean'
   const abort = new AbortController()
@@ -797,6 +797,14 @@ export async function setMode(workspaceId: string, mode: PermissionMode): Promis
     }
   }
   return ws
+}
+
+/** Restart the session when the running turn ends (settings changed mid-turn); the conversation resumes. */
+export function restartAfterTurn(workspaceId: string): boolean {
+  const s = sessions.get(workspaceId)
+  if (!s) return false
+  s.flags.restartAfterTurn = true
+  return true
 }
 
 export function isBusy(workspaceId: string): boolean {

@@ -243,7 +243,7 @@ async function runTurn(ws: Workspace, session: NativeSession, emit: Emit): Promi
   session.abort = abort
   const ctx: ToolContext = { workspace: ws, roots: [...ws.repos.map((r) => r.worktreePath), ws.rootPath], cwd: wsCwd, signal: abort.signal }
   const builtin = buildTools(ctx)
-  const lean = costModeFor(ws.spaceId) === 'lean'
+  const lean = costModeFor(ws.spaceId, ws.id) === 'lean'
   const crew = space?.useCrew === false || lean ? [] : (space?.agents ?? settings.agents).filter((a) => a.enabled && a.name.trim())
   const mcp = await connectMcp(ws, session)
   const tools: ToolSet = { ...builtin, ...mcp.tools, ...(lean ? {} : { ...notes.aiTools(ws.id), ...browserTools.aiTools(ws.id) }), ...workspaceTools.aiTools(ws.id), ...(crew.length ? { Agent: crewTool(ws, crew, ctx, emit, mode) } : {}) }
