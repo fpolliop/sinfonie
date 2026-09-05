@@ -17,6 +17,13 @@ import * as resources from '../resources'
 import { logError } from '../telemetry'
 import type { Incident, IncidentStatus, OnCallSettings, OnCallState, Proposal, Severity, TriageReport } from '@shared/types'
 
+/** One watcher: a space (or '' for the application config), its settings, and which Slack login serves it. */
+interface Config {
+  spaceId: string
+  s: OnCallSettings
+  connId: string
+}
+
 export const DEFAULT_ONCALL: OnCallSettings = { enabled: false, channels: [], pollSeconds: 60, maxTriagesPerHour: 12, context: '' }
 
 interface Persisted {
@@ -59,13 +66,34 @@ function save(): void {
     }
   }, 300)
 }
+/** Application defaults; per-space configs inherit the poll interval and the triage cap from here. */
 export function settings(): OnCallSettings {
   return { ...DEFAULT_ONCALL, ...(getStore().get().settings.oncall ?? {}) }
 }
+function settingsFor(spaceId: string): OnCallSettings {
+  const app = settings()
+  if (!spaceId) return app
+  const sp = getStore().get().spaces.find((x) => x.id === spaceId)
+  return { ...DEFAULT_ONCALL, pollSeconds: app.pollSeconds, maxTriagesPerHour: app.maxTriagesPerHour, ...(sp?.oncall ?? {}) }
+}
+/** Every enabled config with a working Slack login and at least one channel. */
+function configs(): Config[] {
+  const { spaces } = getStore().get()
+  const out: Config[] = []
+  const app = settings()
+  if (app.enabled && app.channels.length && slack.connection('').connected) out.push({ spaceId: '', s: app, connId: '' })
+  for (const sp of spaces) {
+    const s = settingsFor(sp.id)
+    const connId = slack.connectionForSpace(sp.id)
+    if (s.enabled && s.channels.length && slack.connection(connId).connected) out.push({ spaceId: sp.id, s, connId })
+  }
+  return out
+}
+let active: string[] = []
 export function state(): OnCallState {
   load()
   const hourAgo = Date.now() - 3600_000
-  return { running: Boolean(timer), lastPollAt, lastError, incidents: data.incidents, triagesThisHour: triageTimes.filter((t) => t > hourAgo).length, triaging }
+  return { running: Boolean(timer), activeSpaces: active, lastPollAt, lastError, incidents: data.incidents, triagesThisHour: triageTimes.filter((t) => t > hourAgo).length, triaging }
 }
 function publish(): void {
   save()
@@ -81,14 +109,15 @@ export function setEmitters(onState: (s: OnCallState) => void, onOpen: (id: stri
 /** Start or stop according to settings; safe to call after every settings change. */
 export function reconcile(): void {
   load()
-  const s = settings()
-  const want = s.enabled && slack.connection().connected && s.channels.length > 0
+  const cfgs = configs()
+  active = cfgs.map((c) => c.spaceId)
   if (timer) {
     clearInterval(timer)
     timer = null
   }
-  if (want) {
-    timer = setInterval(() => void pollOnce(), Math.max(15, s.pollSeconds) * 1000)
+  if (cfgs.length) {
+    const every = Math.max(15, Math.min(...cfgs.map((c) => c.s.pollSeconds)))
+    timer = setInterval(() => void pollOnce(), every * 1000)
     void pollOnce()
   }
   publish()
@@ -112,53 +141,59 @@ export async function pollOnce(): Promise<void> {
   if (polling) return
   polling = true
   load()
-  const s = settings()
-  const me = slack.connection().userId
   try {
-    for (const ch of s.channels) {
-      const cursor = data.cursors[ch.id]
-      if (!cursor) {
-        // First run: remember where we are; do not backfill history into incidents.
-        const recent = await slack.history(ch.id)
-        data.cursors[ch.id] = recent[recent.length - 1]?.ts ?? String(Date.now() / 1000)
-        continue
-      }
-      const msgs = await slack.history(ch.id, cursor)
-      for (const m of msgs) {
-        data.cursors[ch.id] = m.ts
-        if (m.subtype && NOISE_SUBTYPES.has(m.subtype)) continue
-        if (m.thread_ts && m.thread_ts !== m.ts) continue // replies are picked up per incident below
-        if (ch.kind === 'support' && m.user && m.user === me) continue // the user's own posts are not tickets
-        if (ch.kind === 'alerts' && /(resolved|recovered|closed|\bok\b)/i.test(m.text) && resolveAlert(ch.id, m.text)) continue
-        const inc: Incident = {
-          id: nanoid(10),
-          source: 'slack',
-          channelId: ch.id,
-          channelName: ch.name,
-          kind: ch.kind,
-          threadTs: m.ts,
-          permalink: await slack.permalink(ch.id, m.ts),
-          title: titleOf(m.text),
-          messages: [{ ts: m.ts, user: m.user ?? m.bot_id ?? 'unknown', userName: m.username ?? (await slack.userName(m.user)), text: m.text }],
-          status: 'new',
-          severity: ch.kind === 'alerts' ? (/critical|sev1|p1|down|outage/i.test(m.text) ? 'critical' : /error|fail|high|sev2|p2/i.test(m.text) ? 'high' : 'medium') : undefined,
-          proposals: [],
-          notes: [],
-          costUsd: 0,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
+    for (const cfg of configs()) {
+      const { spaceId, s, connId } = cfg
+      const me = slack.connection(connId).userId
+      for (const ch of s.channels) {
+        const ck = `${spaceId}|${ch.id}`
+        const cursor = data.cursors[ck]
+        if (!cursor) {
+          // First run: remember where we are; do not backfill history into incidents.
+          const recent = await slack.history(connId, ch.id)
+          data.cursors[ck] = recent[recent.length - 1]?.ts ?? String(Date.now() / 1000)
+          continue
         }
-        data.incidents.unshift(inc)
-        notify(`New in #${ch.name}`, inc.title, inc.id)
-        enqueueTriage(inc.id)
+        const msgs = await slack.history(connId, ch.id, cursor)
+        for (const m of msgs) {
+          data.cursors[ck] = m.ts
+          if (m.subtype && NOISE_SUBTYPES.has(m.subtype)) continue
+          if (m.thread_ts && m.thread_ts !== m.ts) continue // replies are picked up per incident below
+          if (ch.kind === 'support' && m.user && m.user === me) continue // the user's own posts are not tickets
+          if (ch.kind === 'alerts' && /(resolved|recovered|closed|\bok\b)/i.test(m.text) && resolveAlert(ch.id, m.text)) continue
+          const inc: Incident = {
+            id: nanoid(10),
+            spaceId,
+            source: 'slack',
+            channelId: ch.id,
+            channelName: ch.name,
+            kind: ch.kind,
+            threadTs: m.ts,
+            permalink: await slack.permalink(connId, ch.id, m.ts),
+            title: titleOf(m.text),
+            messages: [{ ts: m.ts, user: m.user ?? m.bot_id ?? 'unknown', userName: m.username ?? (await slack.userName(connId, m.user)), text: m.text }],
+            status: 'new',
+            severity: ch.kind === 'alerts' ? (/critical|sev1|p1|down|outage/i.test(m.text) ? 'critical' : /error|fail|high|sev2|p2/i.test(m.text) ? 'high' : 'medium') : undefined,
+            proposals: [],
+            notes: [],
+            costUsd: 0,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          }
+          data.incidents.unshift(inc)
+          notify(`New in #${ch.name}`, inc.title, inc.id)
+          enqueueTriage(inc.id)
+        }
       }
     }
     // Follow threads of incidents that are still live.
     for (const inc of data.incidents.filter((i) => i.status !== 'resolved' && i.status !== 'dismissed').slice(0, 40)) {
+      const connId = slack.connectionForSpace(inc.spaceId)
+      const me = slack.connection(connId).userId
       const last = inc.messages[inc.messages.length - 1]?.ts ?? inc.threadTs
-      const news = await slack.replies(inc.channelId, inc.threadTs, last).catch(() => [] as slack.SlackMessage[])
+      const news = await slack.replies(connId, inc.channelId, inc.threadTs, last).catch(() => [] as slack.SlackMessage[])
       if (!news.length) continue
-      for (const m of news) inc.messages.push({ ts: m.ts, user: m.user ?? m.bot_id ?? 'unknown', userName: m.username ?? (await slack.userName(m.user)), text: m.text })
+      for (const m of news) inc.messages.push({ ts: m.ts, user: m.user ?? m.bot_id ?? 'unknown', userName: m.username ?? (await slack.userName(connId, m.user)), text: m.text })
       inc.updatedAt = new Date().toISOString()
       if (news.some((m) => m.user !== me)) {
         if (inc.status === 'waiting') inc.status = 'open'
@@ -240,7 +275,7 @@ async function drain(): Promise<void> {
   while (triageQueue.length) {
     const hourAgo = Date.now() - 3600_000
     if (triageTimes.filter((t) => t > hourAgo).length >= s.maxTriagesPerHour) {
-      lastError = `Triage paused: ${s.maxTriagesPerHour} runs in the last hour (limit in Settings, On call).`
+      lastError = `Triage paused: ${s.maxTriagesPerHour} runs in the last hour (limit under Application, On call).`
       publish()
       setTimeout(() => void drain(), 5 * 60_000)
       return
@@ -266,10 +301,10 @@ async function drain(): Promise<void> {
   }
 }
 
-function contextDirs(): string[] {
+function contextDirs(spaceId: string): string[] {
   const { spaces, repos } = getStore().get()
-  const s = settings()
-  const space = spaces.find((x) => x.id === s.spaceId)
+  const s = settingsFor(spaceId)
+  const space = spaces.find((x) => x.id === (spaceId || s.spaceId))
   return repos.filter((r) => (space ? r.spaceId === space.id : true)).map((r) => r.path)
 }
 function workDir(): string {
@@ -282,12 +317,12 @@ function threadText(inc: Incident): string {
   return inc.messages.map((m) => `[${new Date(Number(m.ts) * 1000).toISOString()}] ${m.userName ?? m.user}: ${m.text}`).join('\n')
 }
 
-async function runAgent(prompt: string, opts: { schema?: Record<string, unknown>; maxTurns: number }): Promise<{ text: string; structured?: unknown; costUsd: number }> {
-  const s = settings()
-  const dirs = contextDirs()
+async function runAgent(spaceId: string, prompt: string, opts: { schema?: Record<string, unknown>; maxTurns: number }): Promise<{ text: string; structured?: unknown; costUsd: number }> {
+  const s = settingsFor(spaceId)
+  const dirs = contextDirs(spaceId)
   let mcpServers: Options['mcpServers'] = {}
   try {
-    mcpServers = { slack: await slack.mcpServerConfig() }
+    mcpServers = { slack: await slack.mcpServerConfig(slack.connectionForSpace(spaceId)) }
   } catch (err) {
     console.warn('[oncall] slack mcp unavailable', err)
   }
@@ -350,7 +385,7 @@ async function triage(inc: Incident): Promise<void> {
     inc.kind === 'support' ? 'If a reply to the requester is appropriate now, draft it in customerReply: short, friendly, factual, no promises about timelines. Leave it empty when a human should answer first.' : 'For alerts, customerReply stays empty.',
     'Return the structured result.'
   ].join('\n')
-  const r = await runAgent(prompt, { schema: TRIAGE_SCHEMA, maxTurns: 30 })
+  const r = await runAgent(inc.spaceId, prompt, { schema: TRIAGE_SCHEMA, maxTurns: 30 })
   const report = (r.structured ?? tryParse(r.text)) as TriageReport | undefined
   inc.costUsd += r.costUsd
   inc.triagedAt = new Date().toISOString()
@@ -406,10 +441,11 @@ export async function approve(id: string, proposalId: string, text?: string): Pr
   const body = (text ?? p.text).trim()
   if (!body) throw new Error('Nothing to send')
   p.text = body
-  await slack.post(p.channelId, body, p.threadTs)
+  const connId = slack.connectionForSpace(inc.spaceId)
+  await slack.post(connId, p.channelId, body, p.threadTs)
   p.status = 'sent'
   p.sentAt = new Date().toISOString()
-  inc.messages.push({ ts: String(Date.now() / 1000), user: slack.connection().userId ?? 'me', userName: slack.connection().userName ?? 'you', text: body })
+  inc.messages.push({ ts: String(Date.now() / 1000), user: slack.connection(connId).userId ?? 'me', userName: slack.connection(connId).userName ?? 'you', text: body })
   if (inc.status === 'open' || inc.status === 'new') inc.status = 'waiting'
   inc.updatedAt = new Date().toISOString()
   publish()
@@ -439,7 +475,7 @@ export async function ask(id: string, question: string): Promise<Incident> {
     'Answer concisely in markdown. If you propose a Slack reply, put it in a fenced block labelled reply.'
   ].join('\n')
   try {
-    const r = await runAgent(prompt, { maxTurns: 25 })
+    const r = await runAgent(inc.spaceId, prompt, { maxTurns: 25 })
     inc.costUsd += r.costUsd
     inc.notes.push({ at: new Date().toISOString(), role: 'agent', text: r.text || '(no answer)' })
     const reply = /```reply\n([\s\S]*?)```/.exec(r.text)?.[1]?.trim()

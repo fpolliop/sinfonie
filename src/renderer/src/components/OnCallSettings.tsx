@@ -12,12 +12,16 @@ import type { OnCallChannel, OnCallSettings as OnCallSettingsT } from '@shared/t
 const DEFAULTS: OnCallSettingsT = { enabled: false, channels: [], pollSeconds: 60, maxTriagesPerHour: 12, context: '' }
 
 /** Application → On call: the Slack connection, which channels to watch, and how the triage agent runs. */
-export function OnCallSettings(): React.JSX.Element {
+export function OnCallSettings({ spaceId = '' }: { spaceId?: string }): React.JSX.Element {
   const settings = useApp((s) => s.settings)
   const spaces = useApp((s) => s.spaces)
   const setError = useApp((s) => s.setError)
-  const oc = { ...DEFAULTS, ...(settings.oncall ?? {}) }
-  const slack = settings.slack ?? { connected: false, hasClient: false, vendorClient: false }
+  const space = spaces.find((x) => x.id === spaceId)
+  const appOc = { ...DEFAULTS, ...(settings.oncall ?? {}) }
+  const oc = spaceId ? { ...DEFAULTS, pollSeconds: appOc.pollSeconds, maxTriagesPerHour: appOc.maxTriagesPerHour, ...(space?.oncall ?? {}) } : appOc
+  // A space uses its own Slack when connected, else the application's.
+  const connId = spaceId && space?.slack?.connected ? spaceId : ''
+  const slack = (connId ? space?.slack : settings.slack) ?? { connected: false, hasClient: false, vendorClient: false }
   const [q, setQ] = useState('')
   const [found, setFound] = useState<{ id: string; name: string; is_private: boolean; is_member: boolean }[] | null>(null)
   const [searching, setSearching] = useState(false)
@@ -28,7 +32,7 @@ export function OnCallSettings(): React.JSX.Element {
       setError(err instanceof Error ? err.message : String(err))
     }
   }
-  const update = (patch: Partial<OnCallSettingsT>): Promise<unknown> => api.invoke('settings:update', { oncall: { ...oc, ...patch } })
+  const update = (patch: Partial<OnCallSettingsT>): Promise<unknown> => (spaceId ? api.invoke('spaces:update', spaceId, { oncall: { ...(space?.oncall ?? { enabled: false, channels: [], pollSeconds: oc.pollSeconds, maxTriagesPerHour: oc.maxTriagesPerHour, context: '' }), ...patch } }) : api.invoke('settings:update', { oncall: { ...oc, ...patch } }))
   const addChannel = (c: { id: string; name: string }, kind: OnCallChannel['kind']): void => {
     if (oc.channels.some((x) => x.id === c.id)) return
     void go(() => update({ channels: [...oc.channels, { id: c.id, name: c.name, kind }] }))
@@ -36,7 +40,7 @@ export function OnCallSettings(): React.JSX.Element {
 
   return (
     <div className="max-w-[760px]">
-      <p className="mb-4 text-[12px] text-muted">The on-call agent watches Slack channels while Sinfonie is open. Every new request or alert becomes an incident, gets triaged by a read-only agent with your code at hand, and shows up in the On call view with a drafted reply you approve. Nothing is posted without you.</p>
+      <p className="mb-4 text-[12px] text-muted">{spaceId ? `This space\u2019s on-call agent watches ${space?.name ?? 'its'} Slack channels while Sinfonie is open and reads this space\u2019s repositories.` : 'The application-level on-call agent, for channels that belong to no particular space. Each space has its own On call page too.'} Every new request or alert becomes an incident, gets triaged by a read-only agent with your code at hand, and shows up in the On call view with a drafted reply you approve. Nothing is posted without you.</p>
 
       <label className="mb-4 flex items-center gap-2 text-[13px]">
         <input type="checkbox" checked={oc.enabled} onChange={(e) => go(() => update({ enabled: e.target.checked }))} />
@@ -45,7 +49,7 @@ export function OnCallSettings(): React.JSX.Element {
         {oc.enabled && slack.connected && oc.channels.length === 0 && <span className="text-[11px] text-warn">Add a channel</span>}
       </label>
 
-      <SlackConnectionCard />
+      <SlackConnectionCard connId={connId} intro={spaceId && !space?.slack?.connected ? 'Using the application\u2019s Slack sign-in. To watch a different Slack workspace for this space, connect one under this space\u2019s Integrations, Slack.' : undefined} />
       <section className="mb-4 rounded-lg border border-border p-3">
         <div className="mb-2 text-[13px] font-semibold">Channels</div>
         {oc.channels.length === 0 && <div className="mb-2 text-[11px] text-muted">No channels yet.</div>}
@@ -62,8 +66,8 @@ export function OnCallSettings(): React.JSX.Element {
           </div>
         ))}
         <div className="mt-2 flex items-center gap-2">
-          <input className={clsx(inputCls, 'max-w-[280px]')} placeholder="Find a channel, e.g. on-call" value={q} disabled={!slack.connected} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && void go(async () => (setSearching(true), setFound(await api.invoke('oncall:slackChannels', q)), setSearching(false)))} />
-          <Button size="sm" disabled={!slack.connected || searching} onClick={() => go(async () => (setSearching(true), setFound(await api.invoke('oncall:slackChannels', q)), setSearching(false)))}>
+          <input className={clsx(inputCls, 'max-w-[280px]')} placeholder="Find a channel, e.g. on-call" value={q} disabled={!slack.connected} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && void go(async () => (setSearching(true), setFound(await api.invoke('oncall:slackChannels', connId, q)), setSearching(false)))} />
+          <Button size="sm" disabled={!slack.connected || searching} onClick={() => go(async () => (setSearching(true), setFound(await api.invoke('oncall:slackChannels', connId, q)), setSearching(false)))}>
             <RefreshCw size={12} className={searching ? 'animate-spin' : ''} /> Search
           </Button>
         </div>
@@ -89,6 +93,7 @@ export function OnCallSettings(): React.JSX.Element {
         )}
       </section>
 
+      {!spaceId && (
       <Field label="Code the agent may read" hint="Repositories of this space are attached read-only, so stack traces and feature names lead somewhere.">
         <select className={inputCls} value={oc.spaceId ?? ''} onChange={(e) => go(() => update({ spaceId: e.target.value || undefined }))}>
           <option value="">All registered repositories</option>
@@ -99,6 +104,7 @@ export function OnCallSettings(): React.JSX.Element {
           ))}
         </select>
       </Field>
+      )}
       <Field label="Team context" hint="What the agent should know: services and owners, where runbooks live, what normal looks like, how to talk to customers.">
         <textarea className={clsx(inputCls, 'min-h-[96px]')} defaultValue={oc.context} onBlur={(e) => e.target.value !== oc.context && go(() => update({ context: e.target.value }))} />
       </Field>

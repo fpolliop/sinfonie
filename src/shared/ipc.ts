@@ -42,7 +42,7 @@ export interface SinfonieInvoke {
   'settings:update': (patch: Partial<Settings>) => Settings
 
   'spaces:create': (name: string) => Space
-  'spaces:update': (id: string, patch: Partial<Pick<Space, 'name' | 'color' | 'claudeAccountId' | 'model' | 'permissionMode' | 'workspacesRoot' | 'browserSensitiveOrigins' | 'githubOwners' | 'exposeLinearMcp' | 'mcpServers' | 'exposeJiraMcp' | 'strictMcp' | 'agents' | 'useCrew' | 'engine'>>) => Space
+  'spaces:update': (id: string, patch: Partial<Pick<Space, 'name' | 'color' | 'claudeAccountId' | 'model' | 'permissionMode' | 'workspacesRoot' | 'browserSensitiveOrigins' | 'githubOwners' | 'exposeLinearMcp' | 'oncall' | 'mcpServers' | 'exposeJiraMcp' | 'strictMcp' | 'agents' | 'useCrew' | 'engine'>>) => Space
   /** MCP servers found in Claude Code's own config (~/.claude.json), for importing. */
   'mcp:importable': () => McpServerSpec[]
   'spaces:delete': (id: string) => void
@@ -171,13 +171,14 @@ export interface SinfonieInvoke {
   'terminal:dispose': (terminalId: string) => void
   // ---- on call ----
   'oncall:state': () => OnCallState
-  'oncall:slackSetClient': (clientId: string, clientSecret: string) => SlackConnection
+  /** connId: '' for the application's Slack, or a space id for that space's own. */
+  'oncall:slackSetClient': (connId: string, clientId: string, clientSecret: string) => SlackConnection
   /** Opens the browser for Slack approval; the code returns via sinfonie://oauth/slack or oncall:slackFinish. */
-  'oncall:slackConnect': () => void
-  'oncall:slackFinish': (code: string) => SlackConnection
-  'oncall:slackDisconnect': () => SlackConnection
-  'oncall:slackClearClient': () => SlackConnection
-  'oncall:slackChannels': (query?: string) => { id: string; name: string; is_private: boolean; is_member: boolean }[]
+  'oncall:slackConnect': (connId: string) => void
+  'oncall:slackFinish': (code: string, connId?: string) => SlackConnection
+  'oncall:slackDisconnect': (connId: string) => SlackConnection
+  'oncall:slackClearClient': (connId: string) => SlackConnection
+  'oncall:slackChannels': (connId: string, query?: string) => { id: string; name: string; is_private: boolean; is_member: boolean }[]
   'oncall:pollNow': () => void
   'oncall:triage': (incidentId: string) => void
   'oncall:setStatus': (incidentId: string, status: IncidentStatus) => Incident

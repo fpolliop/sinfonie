@@ -33,7 +33,12 @@ export function OnCallView(): React.JSX.Element {
   useEffect(() => subscribeOnCall(), [])
   const incidents = useMemo(() => (state?.incidents ?? []).filter((i) => filter === 'all' || OPEN.has(i.status)), [state, filter])
   const selected = state?.incidents.find((i) => i.id === selectedId) ?? null
-  const configured = Boolean(settings.slack?.connected && (settings.oncall?.channels?.length ?? 0) > 0)
+  const spaces = useApp((s) => s.spaces)
+  const configured = (state?.activeSpaces.length ?? 0) > 0 || Boolean(settings.slack?.connected && (settings.oncall?.channels?.length ?? 0) > 0) || spaces.some((sp) => (sp.oncall?.channels?.length ?? 0) > 0)
+  const spaceOf = (id: string): { name: string; color: string } | null => {
+    const sp = spaces.find((x) => x.id === id)
+    return sp ? { name: sp.name, color: sp.color } : null
+  }
   const go = async (fn: () => Promise<unknown>): Promise<void> => {
     try {
       await fn()
@@ -48,7 +53,7 @@ export function OnCallView(): React.JSX.Element {
         <div className="drag flex h-[52px] items-center gap-2 border-b border-border px-4">
           <Siren size={15} className="text-accent" />
           <span className="text-[13px] font-semibold">On call</span>
-          <span className={clsx('ml-1 h-2 w-2 rounded-full', state?.running ? 'bg-ok' : 'bg-muted/50')} title={state?.running ? `Watching ${settings.oncall?.channels?.length ?? 0} channel(s)${state.lastPollAt ? `, last check ${timeAgo(state.lastPollAt)}` : ''}` : 'Not running'} />
+          <span className={clsx('ml-1 h-2 w-2 rounded-full', state?.running ? 'bg-ok' : 'bg-muted/50')} title={state?.running ? `Watching ${state.activeSpaces.map((id) => spaceOf(id)?.name ?? 'application').join(', ')}${state.lastPollAt ? `, last check ${timeAgo(state.lastPollAt)}` : ''}` : 'Not running'} />
           <div className="no-drag ml-auto flex items-center gap-1">
             <button className="rounded-md p-1 text-muted hover:bg-panel-2 hover:text-text" title="Check Slack now" onClick={() => go(() => api.invoke('oncall:pollNow'))} disabled={!configured}>
               <RefreshCw size={13} />
@@ -84,6 +89,7 @@ export function OnCallView(): React.JSX.Element {
             <button key={i.id} onClick={() => select(i.id)} className={clsx('block w-full border-b border-border px-3 py-2 text-left hover:bg-panel-2/60', i.id === selectedId && 'bg-panel-2')}>
               <div className="flex items-center gap-1.5 text-[11px] text-muted">
                 {i.severity ? <Badge tone={SEV[i.severity].tone}>{SEV[i.severity].label}</Badge> : <Badge>{i.status === 'triaging' ? 'triaging' : 'untriaged'}</Badge>}
+                {spaceOf(i.spaceId) && <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: spaceOf(i.spaceId)!.color }} title={spaceOf(i.spaceId)!.name} />}
                 <span>#{i.channelName}</span>
                 <span className="ml-auto">{timeAgo(i.updatedAt)}</span>
               </div>

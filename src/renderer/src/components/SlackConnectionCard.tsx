@@ -5,10 +5,11 @@ import { useApp } from '@/stores/app'
 import { Badge, Button, inputCls } from './ui'
 
 /** The Slack sign-in card, shared by Integrations → Slack and the On call page. */
-export function SlackConnectionCard(): React.JSX.Element {
+export function SlackConnectionCard({ connId = '', intro }: { connId?: string; intro?: string }): React.JSX.Element {
   const settings = useApp((s) => s.settings)
+  const spaces = useApp((s) => s.spaces)
   const setError = useApp((s) => s.setError)
-  const slack = settings.slack ?? { connected: false, hasClient: false, vendorClient: false }
+  const slack = (connId ? spaces.find((x) => x.id === connId)?.slack : settings.slack) ?? { connected: false, hasClient: false, vendorClient: Boolean(settings.slack?.vendorClient) }
   const [clientId, setClientId] = useState(slack.clientId ?? '')
   const [secret, setSecret] = useState('')
   const [code, setCode] = useState('')
@@ -28,16 +29,16 @@ export function SlackConnectionCard(): React.JSX.Element {
         </div>
         {!slack.connected && (
           <>
-            <p className="mb-2 text-[11px] text-muted">Sinfonie talks to Slack through Slack&apos;s own MCP server. Sign in approves access for your Slack user in the browser; there is nothing to create or install. Replies the agent drafts are sent as you, only after you approve them.</p>
+            <p className="mb-2 text-[11px] text-muted">{intro ?? 'Sinfonie talks to Slack through Slack\u2019s own MCP server. Sign in approves access for your Slack user in the browser; there is nothing to create or install.'} Replies the agent drafts are sent as you, only after you approve them.</p>
             <div className="flex flex-wrap items-center gap-2">
-              <Button size="sm" variant="primary" disabled={!slack.vendorClient && !slack.hasClient} onClick={() => go(() => api.invoke('oncall:slackConnect'))}>
+              <Button size="sm" variant="primary" disabled={!slack.vendorClient && !slack.hasClient} onClick={() => go(() => api.invoke('oncall:slackConnect', connId))}>
                 Sign in with Slack
               </Button>
               <span className="text-[11px] text-muted">{slack.vendorClient || slack.hasClient ? 'Approve in the browser; Sinfonie reopens by itself.' : 'This build has no Slack client registered yet; see Advanced.'}</span>
             </div>
             <div className="mt-2 flex items-center gap-2">
               <input className={clsx(inputCls, 'max-w-[360px]')} placeholder="If it did not come back: paste the code shown in the browser" value={code} onChange={(e) => setCode(e.target.value)} />
-              <Button size="sm" disabled={!code.trim()} onClick={() => go(async () => (await api.invoke('oncall:slackFinish', code.trim()), setCode('')))}>
+              <Button size="sm" disabled={!code.trim()} onClick={() => go(async () => (await api.invoke('oncall:slackFinish', code.trim(), connId), setCode('')))}>
                 Finish
               </Button>
             </div>
@@ -49,11 +50,11 @@ export function SlackConnectionCard(): React.JSX.Element {
                 <input className={inputCls} placeholder={slack.hasClient ? 'Client secret (stored)' : 'Client secret'} type="password" value={secret} onChange={(e) => setSecret(e.target.value)} />
               </div>
               <div className="flex gap-2">
-                <Button size="sm" disabled={!clientId.trim() || !secret.trim()} onClick={() => go(async () => (await api.invoke('oncall:slackSetClient', clientId, secret), setSecret('')))}>
+                <Button size="sm" disabled={!clientId.trim() || !secret.trim()} onClick={() => go(async () => (await api.invoke('oncall:slackSetClient', connId, clientId, secret), setSecret('')))}>
                   Save client
                 </Button>
                 {slack.hasClient && (
-                  <Button size="sm" variant="ghost" onClick={() => go(() => api.invoke('oncall:slackClearClient'))}>
+                  <Button size="sm" variant="ghost" onClick={() => go(() => api.invoke('oncall:slackClearClient', connId))}>
                     Use Sinfonie&apos;s client instead
                   </Button>
                 )}
@@ -64,7 +65,7 @@ export function SlackConnectionCard(): React.JSX.Element {
         {slack.connected && (
           <div className="flex items-center gap-2">
             <span className="text-[11px] text-muted">Replies the agent drafts are sent as you, only after you approve them.</span>
-            <Button size="sm" variant="ghost" className="ml-auto" onClick={() => go(() => api.invoke('oncall:slackDisconnect'))}>
+            <Button size="sm" variant="ghost" className="ml-auto" onClick={() => go(() => api.invoke('oncall:slackDisconnect', connId))}>
               Disconnect
             </Button>
           </div>

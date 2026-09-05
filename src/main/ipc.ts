@@ -103,6 +103,7 @@ export function registerIpc(): void {
       }
     })
     if (!out) throw new Error('Unknown space')
+    if ('oncall' in patch) oncall.reconcile()
     return out
   })
   handle('spaces:delete', (id) => {
@@ -460,20 +461,20 @@ export function registerIpc(): void {
     (incidentId) => send('ui:openOnCall', { incidentId })
   )
   handle('oncall:state', () => oncall.state())
-  handle('oncall:slackSetClient', (id, secret) => slack.setClient(id, secret))
-  handle('oncall:slackConnect', () => slack.startAuth())
-  handle('oncall:slackFinish', async (code) => {
-    const c = await slack.finishAuth(code)
+  handle('oncall:slackSetClient', (conn, id, secret) => slack.setClient(conn, id, secret))
+  handle('oncall:slackConnect', (conn) => slack.startAuth(conn))
+  handle('oncall:slackFinish', async (code, conn) => {
+    const c = await slack.finishAuth(code, conn)
     oncall.reconcile()
     return c
   })
-  handle('oncall:slackDisconnect', () => {
-    const c = slack.disconnect()
+  handle('oncall:slackDisconnect', (conn) => {
+    const c = slack.disconnect(conn)
     oncall.reconcile()
     return c
   })
-  handle('oncall:slackClearClient', () => slack.clearClient())
-  handle('oncall:slackChannels', (q) => slack.listChannels(q))
+  handle('oncall:slackClearClient', (conn) => slack.clearClient(conn))
+  handle('oncall:slackChannels', (conn, q) => slack.listChannels(conn, q))
   handle('oncall:pollNow', () => oncall.pollOnce())
   handle('oncall:triage', (id) => oncall.enqueueTriage(id))
   handle('oncall:setStatus', (id, status) => oncall.setStatus(id, status))

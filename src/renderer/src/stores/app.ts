@@ -4,7 +4,7 @@ import { api } from '@/lib/api'
 
 export type Tab = 'chat' | 'changes' | 'prs' | 'terminal' | 'run' | 'browser'
 export type AppPage = 'general' | 'spaces' | 'repos' | 'providers' | 'accounts' | 'logins' | 'crew' | 'resources' | 'oncall' | 'mcp' | 'jira' | 'linear' | 'slack' | 'feedback' | 'about'
-export type SpacePage = 'general' | 'repos' | 'crew' | 'mcp' | 'jira' | 'linear' | 'github'
+export type SpacePage = 'general' | 'repos' | 'crew' | 'oncall' | 'mcp' | 'jira' | 'linear' | 'slack' | 'github'
 export type SettingsTarget = { scope: 'app'; page: AppPage } | { scope: 'space'; spaceId: string; page: SpacePage }
 
 interface AppState {

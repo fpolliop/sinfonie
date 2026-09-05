@@ -231,6 +231,10 @@ export interface Space {
   /** The space's own Jira connection. Absent means "use the default one from Settings". */
   jira?: JiraSettings
   linear?: LinearSettings
+  /** This space's own Slack sign-in; falls back to the application's. */
+  slack?: SlackConnection
+  /** This space's on-call agent: its channels, context and limits. */
+  oncall?: OnCallSettings
   /** GitHub users/orgs whose PRs the review cockpit lists for this space. Empty means "detect from the space's repos". */
   githubOwners?: string[]
   mcpServers?: McpServerSpec[]
@@ -864,7 +868,7 @@ export interface OnCallChannel {
 }
 export interface OnCallSettings {
   enabled: boolean
-  /** Space whose repositories the triage agent may read. */
+  /** Legacy (app-level config only): space whose repositories the triage agent may read. */
   spaceId?: string
   channels: OnCallChannel[]
   pollSeconds: number
@@ -905,6 +909,8 @@ export interface Proposal {
 }
 export interface Incident {
   id: string
+  /** Space whose on-call config produced it; '' for the application-level config. */
+  spaceId: string
   source: 'slack'
   channelId: string
   channelName: string
@@ -926,6 +932,8 @@ export interface Incident {
 }
 export interface OnCallState {
   running: boolean
+  /** Space ids with an active watcher ('' for the application-level config). */
+  activeSpaces: string[]
   lastPollAt?: string
   lastError?: string
   incidents: Incident[]

@@ -44,8 +44,10 @@ const SPACE_PAGES: { id: SpacePage; label: string; icon: React.ReactNode; desc: 
   { id: 'general', label: 'General', icon: <SettingsIcon size={14} />, desc: 'Name, colour, and this space’s engine, model, permission mode, folder and account.', overrides: 'general' },
   { id: 'repos', label: 'Repositories', icon: <FolderGit2 size={14} />, desc: 'Repositories this space owns. New workspaces here offer these.', overrides: 'repos' },
   { id: 'crew', label: 'Crew', icon: <Users size={14} />, desc: 'Subagents the orchestrator can delegate to in this space.', overrides: 'crew' },
+  { id: 'oncall', label: 'On call', icon: <Siren size={14} />, desc: 'Slack channels this space\u2019s on-call agent watches, and how it triages.' },
   { id: 'jira', label: 'Jira', icon: <Ticket size={14} />, desc: 'This space’s Jira site and login.', overrides: 'jira', group: 'Integrations' },
   { id: 'linear', label: 'Linear', icon: <CircleDot size={14} />, desc: 'This space’s Linear login.', overrides: 'linear', group: 'Integrations' },
+  { id: 'slack', label: 'Slack', icon: <Hash size={14} />, desc: 'This space\u2019s Slack sign-in, when it lives in a different Slack workspace than the application default.', overrides: 'slack', group: 'Integrations' },
   { id: 'github', label: 'GitHub', icon: <GitPullRequest size={14} />, desc: 'Which GitHub owners the review cockpit lists for this space.', group: 'Integrations' },
   { id: 'mcp', label: 'MCP servers', icon: <Plug size={14} />, desc: 'Servers for this space, on top of the application-wide ones.', overrides: 'mcp', group: 'Integrations' }
 ]
@@ -533,6 +535,14 @@ function SpacePageView({ space, page }: { space: Space; page: SpacePage }): Reac
       return <JiraSection connId={space.id} title="Jira for this space" intro="Connect the Jira site this space’s tickets live in. Leave it disconnected to use the application’s default connection." />
     case 'linear':
       return <LinearSection connId={space.id} title="Linear for this space" intro="Connect the Linear workspace this space’s issues live in. Leave it disconnected to use the application’s default connection." />
+    case 'oncall':
+      return <OnCallSettings spaceId={space.id} />
+    case 'slack':
+      return (
+        <div className="max-w-[760px]">
+          <SlackConnectionCard connId={space.id} intro="Sign in to the Slack workspace this space’s channels live in. Leave it disconnected to use the application’s Slack." />
+        </div>
+      )
     case 'github':
       return <GithubOwnersSection spaceId={space.id} configured={space.githubOwners ?? []} onChange={(owners) => go(() => upd({ githubOwners: owners }))} />
   }
