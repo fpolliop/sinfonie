@@ -15,6 +15,14 @@ export const SLACK_MCP_URL = 'https://mcp.slack.com/mcp'
 export const REDIRECT_URL = 'https://sinfonie.dev/oauth/slack/callback'
 const TOKEN_URL = 'https://slack.com/api/oauth.v2.user.access'
 const TOKEN_PROXY = 'https://sinfonie.dev/oauth/slack/token'
+const POLL_URL = 'https://sinfonie.dev/oauth/slack/poll'
+
+/** Called after any sign-in completes (deep link, pasted code, or polling). Set by ipc. */
+let onConnected: ((connId: string) => void) | null = null
+export function setOnConnected(fn: (connId: string) => void): void {
+  onConnected = fn
+}
+let pollTimer: NodeJS.Timeout | null = null
 /** Sinfonie's registered Slack OAuth client. Empty until the vendor registers one; the secret never ships. */
 export const SINFONIE_SLACK_CLIENT_ID = process.env.SINFONIE_SLACK_CLIENT_ID ?? '11997181824868.11991600098838'
 const SCOPES = ['channels:history', 'channels:read', 'groups:history', 'groups:read', 'chat:write', 'search:read.public', 'users:read']
@@ -101,8 +109,11 @@ export async function startAuth(connId = ''): Promise<void> {
   writeSecret(k('tokens', connId), undefined)
   const verifier = randomBytes(48).toString('base64url')
   writeSecret(k('verifier', connId), verifier)
-  // The browser round trip does not carry the connection; remember which one is signing in.
-  writeSecret(k('pending'), connId)
+  // The browser round trip does not carry the connection; remember which one is signing in, and the
+  // state we expect back, so the app can also poll sinfonie.dev for the code (no dependence on the sinfonie:// link).
+  const state = randomBytes(24).toString('base64url')
+  writeSecret(k('pending'), { connId, state })
+  startPolling(state, connId)
   const challenge = createHash('sha256').update(verifier).digest('base64url')
   const url = new URL('https://slack.com/oauth/v2_user/authorize')
   url.searchParams.set('response_type', 'code')
@@ -112,8 +123,31 @@ export async function startAuth(connId = ''): Promise<void> {
   url.searchParams.set('redirect_uri', REDIRECT_URL)
   url.searchParams.set('scope', SCOPES.join(' '))
   url.searchParams.set('resource', 'https://mcp.slack.com/')
-  url.searchParams.set('state', randomBytes(12).toString('base64url'))
+  url.searchParams.set('state', state)
   presentAuthLink('slack', connId, url.toString())
+}
+
+function stopPolling(): void {
+  if (pollTimer) clearInterval(pollTimer)
+  pollTimer = null
+}
+/** Every 2 s for 5 minutes: has the callback page parked our code? Then finish exactly once. */
+function startPolling(state: string, connId: string): void {
+  stopPolling()
+  const until = Date.now() + 5 * 60_000
+  pollTimer = setInterval(() => {
+    if (Date.now() > until) return stopPolling()
+    void fetch(`${POLL_URL}?state=${encodeURIComponent(state)}`)
+      .then((r) => r.json() as Promise<{ code?: string }>)
+      .then(async (j) => {
+        if (!j.code) return
+        stopPolling()
+        const pending = readSecret<{ connId: string; state: string } | string>(k('pending'))
+        if (!pending || typeof pending === 'string' || pending.state !== state) return // already finished another way
+        await finishAuth(j.code, connId)
+      })
+      .catch(() => undefined)
+  }, 2000)
 }
 
 /** Exchange a code or refresh token: directly when the user brought their own client, else through sinfonie.dev. */
@@ -139,14 +173,22 @@ function parseTokens(j: Record<string, unknown>): Tokens {
 
 /** Completes whichever connection started the sign-in (the code arrives without that context). */
 export async function finishAuth(code: string, connId?: string): Promise<SlackConnection> {
-  const id = connId ?? readSecret<string>(k('pending')) ?? ''
+  const pending = readSecret<{ connId: string; state: string } | string>(k('pending'))
+  const id = connId ?? (typeof pending === 'string' ? pending : pending?.connId) ?? ''
   const verifier = readSecret<string>(k('verifier', id))
-  if (!verifier) throw new Error('Start the Slack sign-in again; the browser round trip did not begin from this app.')
+  if (!verifier) {
+    // A second delivery of the same code (link plus polling): the first one already finished.
+    if (connection(id).connected) return connection(id)
+    throw new Error('Start the Slack sign-in again; the browser round trip did not begin from this app.')
+  }
+  stopPolling()
   const t = await exchange(id, { grant_type: 'authorization_code', code: code.trim(), code_verifier: verifier, redirect_uri: REDIRECT_URL })
   writeSecret(k('tokens', id), t)
   writeSecret(k('verifier', id), undefined)
   writeSecret(k('pending'), undefined)
-  return afterAuth(id)
+  const c = await afterAuth(id)
+  onConnected?.(id)
+  return c
 }
 async function afterAuth(connId: string): Promise<SlackConnection> {
   const me = await api<{ team: string; user: string; user_id: string }>(connId, 'auth.test', {})

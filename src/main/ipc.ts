@@ -71,6 +71,10 @@ const emitAgent = (e: Parameters<typeof send<'agent:event'>>[1]): void => {
 const emitPermission = (e: Parameters<typeof send<'agent:permission'>>[1]): void => send('agent:permission', e)
 
 export function registerIpc(): void {
+  slack.setOnConnected((connId) => {
+    oncall.reconcile()
+    authDone('slack', connId)
+  })
   setAuthLinkEmitters(
     (l) => send('ui:authLink', l),
     (l) => send('ui:authDone', l)
@@ -540,12 +544,7 @@ export function registerIpc(): void {
   handle('slack:connection', (conn) => slack.connection(conn))
   handle('oncall:slackSetClient', (conn, id, secret) => slack.setClient(conn, id, secret))
   handle('oncall:slackConnect', (conn) => slack.startAuth(conn))
-  handle('oncall:slackFinish', async (code, conn) => {
-    const c = await slack.finishAuth(code, conn)
-    oncall.reconcile()
-    authDone('slack', conn ?? '')
-    return c
-  })
+  handle('oncall:slackFinish', (code, conn) => slack.finishAuth(code, conn))
   handle('oncall:slackDisconnect', (conn) => {
     const c = slack.disconnect(conn)
     oncall.reconcile()

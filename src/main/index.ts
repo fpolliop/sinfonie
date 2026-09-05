@@ -8,7 +8,6 @@ import * as images from './services/images'
 import * as slack from './services/slack'
 import { adoptShellPath } from './services/shell-path'
 import * as oncall from './services/oncall/service'
-import { authDone } from './services/auth-link'
 import { installCrashHandlers, rendererConsoleError, logError, startUsagePings } from './services/telemetry'
 import { Menu, nativeImage } from 'electron'
 import { checkForUpdate } from './services/updates'
@@ -103,7 +102,8 @@ installCrashHandlers()
 if (process.env.SINFONIE_USER_DATA) app.setPath('userData', process.env.SINFONIE_USER_DATA)
 images.registerScheme()
 // sinfonie:// links: the Slack OAuth callback on sinfonie.dev bounces the code back through one.
-if (!app.isDefaultProtocolClient('sinfonie')) app.setAsDefaultProtocolClient('sinfonie')
+// Only the installed app claims the scheme: a dev instance registering it sends links to a bare Electron.
+if (app.isPackaged && !app.isDefaultProtocolClient('sinfonie')) app.setAsDefaultProtocolClient('sinfonie')
 function handleDeepLink(raw: string): void {
   try {
     const u = new URL(raw)
@@ -111,14 +111,7 @@ function handleDeepLink(raw: string): void {
       const code = u.searchParams.get('code')
       const err = u.searchParams.get('error')
       if (err) logError('slack:oauth', new Error(err))
-      if (code)
-        void slack
-          .finishAuth(code)
-          .then((c) => {
-            oncall.reconcile()
-            authDone('slack', '')
-          })
-          .catch((e) => logError('slack:oauth', e))
+      if (code) void slack.finishAuth(code).catch((e) => logError('slack:oauth', e))
       const win = BrowserWindow.getAllWindows()[0]
       if (win) {
         win.show()

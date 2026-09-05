@@ -29,3 +29,10 @@ CREATE TABLE IF NOT EXISTS usage (
   PRIMARY KEY (day, install_id)
 );
 CREATE INDEX IF NOT EXISTS usage_install ON usage (install_id, day);
+
+-- Short-lived OAuth codes handed back to the desktop app by polling (state is unguessable, 5-minute life).
+CREATE TABLE IF NOT EXISTS oauth_codes (
+  state TEXT PRIMARY KEY,
+  code TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
