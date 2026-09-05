@@ -1,0 +1,23 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sinfonie — Security and vulnerability disclosure</title><meta name="description" content="How to report a security issue in Sinfonie, what to expect, and how the app protects your data.">
+<link rel="icon" type="image/svg+xml" href="/assets/logo.svg"><link rel="stylesheet" href="/_page.css"></head><body><main>
+<div class="top"><img src="/assets/icon-512.png" alt=""><a href="/" style="color:inherit;text-decoration:none">Sinfonie</a></div>
+<h1>Security</h1>
+<p class="meta">Effective 5 September 2026.</p>
+
+<h2>Reporting a vulnerability</h2>
+<p>If you believe you have found a security issue in Sinfonie, the website, or the sign-in relay, email <a href="mailto:hello@sinfonie.dev">hello@sinfonie.dev</a> with “Security” in the subject. Include what you found, how to reproduce it, and the app version. We acknowledge reports within 3 business days, keep you informed while we fix the issue, and credit you if you wish. We ask that you give us reasonable time to fix before disclosing publicly, and that you do not access data that is not yours. Good-faith research within these terms will not lead to legal action. There is no paid bounty programme at this time.</p>
+
+<h2>How the app protects data</h2>
+<ul>
+<li>Everything Sinfonie stores lives on the user’s computer. Access tokens for connected services are encrypted with the operating system keychain (Electron safeStorage on macOS).</li>
+<li>All network traffic uses TLS. The app talks to Slack, Jira, Linear, GitHub and AI providers directly with the user’s own credentials.</li>
+<li>The Slack OAuth client secret is kept only on our sign-in relay and never ships inside the application. The relay is stateless apart from the one-time authorization code, held for at most 10 minutes.</li>
+<li>Nothing is posted to Slack without the user pressing Send on that specific message in the app.</li>
+<li>The macOS build is signed with a Developer ID certificate and notarized by Apple; updates are delivered through signed releases and verified before installation.</li>
+<li>AI agents inside the app run with the permission mode the user chose; the on-call assistant runs read-only and cannot change files or run commands.</li>
+</ul>
+
+<h2>Scope</h2>
+<p>In scope: the Sinfonie desktop app, sinfonie.dev and its functions. Out of scope: the third-party services Sinfonie connects to (Slack, Jira, Linear, GitHub, AI providers), which have their own programmes.</p>
+</main></body></html>
