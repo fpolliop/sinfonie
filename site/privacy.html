@@ -1,0 +1,43 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sinfonie — Privacy policy</title><meta name="description" content="What Sinfonie stores, what it reads from connected services, and what never leaves your Mac.">
+<link rel="icon" type="image/svg+xml" href="/assets/logo.svg"><link rel="stylesheet" href="/_page.css"></head><body><main>
+<div class="top"><img src="/assets/icon-512.png" alt=""><a href="/" style="color:inherit;text-decoration:none">Sinfonie</a></div>
+<h1>Privacy policy</h1>
+<p class="meta">Effective 5 September 2026. Sinfonie is made by Francisco Pollio (“we”). Questions: <a href="mailto:hello@sinfonie.dev">hello@sinfonie.dev</a>.</p>
+
+<p>Sinfonie is a desktop application for macOS. It runs on your computer, and almost everything it handles stays there. This page explains the exceptions.</p>
+
+<h2>What stays on your Mac</h2>
+<ul>
+<li>Your repositories, workspaces, conversations with AI models, notes and settings live in the app’s data folder on your Mac.</li>
+<li>Access tokens for services you connect (Slack, Jira, Linear, GitHub, model providers) are stored on your Mac, encrypted with the macOS keychain (Electron safeStorage). They are used only to talk to that service on your behalf.</li>
+<li>Messages the app reads from Slack, Jira or Linear are kept in the app’s data folder so you can see them again. We never receive them.</li>
+</ul>
+
+<h2>What the app sends elsewhere</h2>
+<table>
+<tr><th>Where</th><th>What</th><th>Why</th></tr>
+<tr><td>AI providers you choose (Anthropic, OpenAI, Google, xAI, or a local model)</td><td>The prompts you write, the code and messages you ask about, and, for the on-call assistant, the Slack thread being triaged</td><td>To produce answers. Governed by that provider’s terms and your account with them.</td></tr>
+<tr><td>Slack, Jira, Linear, GitHub</td><td>API requests with your token</td><td>To read what you asked the app to watch and to post what you approved.</td></tr>
+<tr><td>sinfonie.dev (our server, hosted on Cloudflare)</td><td>The one-time OAuth authorization code during Slack sign-in, kept for at most 10 minutes; anonymous crash reports and a daily usage ping (app version, macOS version, counts) when enabled; feedback you submit</td><td>To complete sign-in, and to keep the app working. No message content, tokens, code or repository names are included.</td></tr>
+<tr><td>GitHub (releases)</td><td>A version check</td><td>To offer updates.</td></tr>
+</table>
+
+<h2>Slack specifically</h2>
+<ul>
+<li>Sinfonie connects to Slack as <em>you</em>, through Slack’s OAuth, with these user scopes: <code>channels:read</code>, <code>groups:read</code> (list channels), <code>channels:history</code>, <code>groups:history</code> (read the channels you chose to watch), <code>users:read</code> (show names), <code>search:read.public</code> (find related threads), <code>chat:write</code> (post replies).</li>
+<li>The app reads only the channels you add to its watch list. It never reads direct messages.</li>
+<li>Nothing is posted to Slack without you pressing Send on that exact message. Drafts written by an AI model are labelled as such and can be edited before sending.</li>
+<li>Your Slack token is stored encrypted on your Mac and never sent to us. Our server holds only the app’s client secret, used to exchange the sign-in code for your token, and forwards Slack’s answer to your Mac without storing it.</li>
+<li>Disconnecting Slack in the app deletes the token from your Mac. You can also revoke Sinfonie from your Slack workspace settings at any time.</li>
+</ul>
+
+<h2>Crash reports and usage</h2>
+<p>Crash reports and the daily usage ping can be turned off in Settings → Feedback &amp; diagnostics. They contain no conversation content, code, tokens or personal data beyond a random install id.</p>
+
+<h2>Data retention and deletion</h2>
+<p>Deleting the app’s data folder on your Mac removes everything it stored. Crash reports, usage pings and feedback on our server are kept for up to 12 months. Write to <a href="mailto:hello@sinfonie.dev">hello@sinfonie.dev</a> to have them removed.</p>
+
+<h2>Changes</h2>
+<p>We will update this page when the app’s behaviour changes, and note the effective date at the top.</p>
+</main></body></html>
