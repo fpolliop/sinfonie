@@ -20,18 +20,33 @@ export function SuggestCrewDialog({ spaceId, agents, orchestrator, onApply, onCl
   const [error, setError] = useState<string | null>(null)
   const [picked, setPicked] = useState<Set<string>>(new Set())
   const [priority, setPriority] = useState<CrewPriority>('balanced')
+  const [refining, setRefining] = useState(false)
+  const [refined, setRefined] = useState(false)
   useEffect(() => {
     let alive = true
     setResult(null)
     setError(null)
+    setRefined(false)
+    // The rule-based preset shows at once; the model-based pass refines it with the exact inventory.
+    api
+      .invoke('crew:preset', spaceId, priority)
+      .then((r) => {
+        if (!alive || !r) return
+        setResult((cur) => cur ?? r)
+        setPicked(new Set(['orchestrator', ...r.agents.map((a) => a.id)]))
+      })
+      .catch(() => undefined)
+    setRefining(true)
     api
       .invoke('crew:suggest', spaceId, priority)
       .then((r) => {
         if (!alive) return
         setResult(r)
+        setRefined(true)
         setPicked(new Set(['orchestrator', ...r.agents.map((a) => a.id)]))
       })
       .catch((e) => alive && setError(e instanceof Error ? e.message : String(e)))
+      .finally(() => alive && setRefining(false))
     return () => {
       alive = false
     }
@@ -85,10 +100,19 @@ export function SuggestCrewDialog({ spaceId, agents, orchestrator, onApply, onCl
           </div>
         </div>
       )}
-      {error && <div className="rounded-lg border border-danger/40 bg-danger/10 px-4 py-3 text-[12px] text-danger">{error}</div>}
+      {error && <div className="mb-3 rounded-lg border border-danger/40 bg-danger/10 px-4 py-3 text-[12px] text-danger">{result ? `Claude could not refine the suggestion (${error}); the preset below still applies.` : error}</div>}
       {result && (
         <>
-          <p className="mb-3 text-[12px] text-muted">Tick the rows to apply. Each choice explains itself; nothing changes until you click Apply.</p>
+          <p className="mb-3 flex items-center gap-2 text-[12px] text-muted">
+            Tick the rows to apply. Each choice explains itself; nothing changes until you click Apply.
+            {refining && (
+              <span className="ml-auto inline-flex items-center gap-1.5">
+                <Loader2 size={12} className="animate-spin text-accent" /> Claude is refining with your exact inventory…
+              </span>
+            )}
+            {!refining && refined && <span className="ml-auto text-ok">Refined by Claude</span>}
+            {!refining && !refined && <span className="ml-auto">Preset</span>}
+          </p>
           <div className="flex flex-col gap-1.5">
             {rows.map((r) => {
               const same = r.current === r.model

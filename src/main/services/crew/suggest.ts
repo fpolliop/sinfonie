@@ -6,7 +6,7 @@ import type { CrewPriority, AgentSpec, CrewSuggestion, Engine, ModelInventoryIte
 import { ACP_ENGINES, CLAUDE_MODELS, PROVIDER_KINDS, classifyModel } from '@shared/types'
 import { getStore } from '../../store'
 import { accountEnv } from '../accounts'
-import { probeCache, probe } from '../acp/engine'
+import { probeCache, probeCacheAt, probe } from '../acp/engine'
 import { estimateCost } from '../providers'
 
 const AGENT_SOURCE: Record<string, string> = { codex: 'Codex (ChatGPT login)', gemini: 'Gemini CLI (Google API key)', grok: 'Grok Build (grok.com login)' }
@@ -28,10 +28,16 @@ export async function inventory(refresh = false): Promise<ModelInventoryItem[]> 
     const local = p.kind === 'ollama' || p.kind === 'lmstudio'
     for (const id of p.models ?? []) out.push({ ref: `${p.id}/${id}`, kind: 'provider', source: `${p.name} (${kind?.label ?? p.kind}, API key)`, label: id, price: local ? 'free, runs locally' : priceOf(id), available: p.hasKey || local })
   }
-  for (const e of ACP_ENGINES) {
+  // Vendor agents: use a probe from the last 10 minutes; otherwise probe them all at once, 20 s each at most,
+  // so an npx download of one CLI cannot hold the whole dialog hostage.
+  const wanted = ACP_ENGINES.filter((e) => {
     const acc = settings.claudeAccounts.find((a) => a.vendor === (e.id === 'codex' ? 'openai' : e.id === 'gemini' ? 'google' : 'xai') && a.loggedIn)
-    let pr = probeCache[e.id]
-    if (!pr && refresh && (acc || e.id === 'gemini')) pr = await probe(e.id).catch(() => undefined)
+    const fresh = probeCache[e.id] && Date.now() - (probeCacheAt[e.id] ?? 0) < 10 * 60_000
+    return refresh && !fresh && (acc || e.id === 'gemini')
+  })
+  await Promise.all(wanted.map((e) => Promise.race([probe(e.id).catch(() => undefined), new Promise<undefined>((r) => setTimeout(() => r(undefined), 20_000))])))
+  for (const e of ACP_ENGINES) {
+    const pr = probeCache[e.id]
     for (const m of pr?.models ?? []) out.push({ ref: `${e.id}/${m}`, kind: 'agent', source: AGENT_SOURCE[e.id], label: m, price: 'subscription', available: pr?.signedIn ?? false })
   }
   return out
@@ -126,5 +132,56 @@ export async function suggest(spaceId?: string, priority: CrewPriority = 'balanc
     orchestrator: { model: fix(s.orchestrator?.model ?? orchestratorNow), why: s.orchestrator?.why ?? '' },
     agents: (s.agents ?? []).filter((a) => crew.some((c) => c.id === a.id)).map((a) => ({ id: a.id, name: crew.find((c) => c.id === a.id)!.name, model: fix(a.model), effort: a.effort, why: a.why })),
     notes: s.notes
+  }
+}
+
+
+// ---------- instant preset ----------
+
+type Role = 'explorer' | 'tester' | 'implementer' | 'reviewer' | 'other'
+function roleOf(a: AgentSpec): Role {
+  const t = `${a.name} ${a.description}`.toLowerCase()
+  if (/explor|search|research|read|investigat|scout/.test(t)) return 'explorer'
+  if (/test|qa|verify|check|lint|typecheck/.test(t)) return 'tester'
+  if (/review|audit|critic/.test(t)) return 'reviewer'
+  if (/implement|build|code|write|fix|develop|engineer/.test(t)) return 'implementer'
+  return 'other'
+}
+const PRESET: Record<CrewPriority, { orchestrator: string; roles: Record<Role, { model: string; effort: AgentSpec['effort'] }>; why: Record<'orchestrator' | Role, string> }> = {
+  cost: {
+    orchestrator: 'sonnet',
+    roles: { explorer: { model: 'haiku', effort: 'low' }, tester: { model: 'haiku', effort: 'low' }, implementer: { model: 'sonnet', effort: 'medium' }, reviewer: { model: 'sonnet', effort: 'medium' }, other: { model: 'haiku', effort: 'low' } },
+    why: { orchestrator: 'Sonnet plans and integrates well enough for most tasks at a fraction of Opus.', explorer: 'Reading many files is volume work; Haiku at low effort is the cheapest that does it reliably.', tester: 'Running and reading tests needs speed, not judgment.', implementer: 'Sonnet is a strong coder; medium effort keeps it from over-thinking small changes.', reviewer: 'Sonnet catches the common mistakes; escalate to Opus by hand for risky diffs.', other: 'Cheapest capable model for an auxiliary role.' }
+  },
+  balanced: {
+    orchestrator: 'opus',
+    roles: { explorer: { model: 'haiku', effort: 'medium' }, tester: { model: 'haiku', effort: 'medium' }, implementer: { model: 'sonnet', effort: 'high' }, reviewer: { model: 'opus', effort: 'high' }, other: { model: 'sonnet', effort: 'medium' } },
+    why: { orchestrator: 'Opus for planning, integration and talking to you: the judgment role.', explorer: 'Exploration is high volume; Haiku is fast and cheap and good at finding things.', tester: 'Test runs need speed and accurate reading of output, not deep reasoning.', implementer: 'Sonnet at high effort writes solid code without Opus prices.', reviewer: 'Review is where care pays off; Opus with high effort.', other: 'Sonnet as the sensible middle.' }
+  },
+  quality: {
+    orchestrator: 'fable',
+    roles: { explorer: { model: 'sonnet', effort: 'medium' }, tester: { model: 'sonnet', effort: 'medium' }, implementer: { model: 'opus', effort: 'high' }, reviewer: { model: 'fable', effort: 'max' }, other: { model: 'opus', effort: 'high' } },
+    why: { orchestrator: 'The strongest model available drives the plan and the integration.', explorer: 'Sonnet reads code more carefully than Haiku when accuracy matters more than cost.', tester: 'Sonnet interprets failing tests and flaky output more reliably.', implementer: 'Opus at high effort for the changes themselves.', reviewer: 'The most careful reviewer at maximum effort; the last line of defence.', other: 'Opus for anything unusual.' }
+  }
+}
+
+/** A suggestion computed locally in a millisecond, for Claude Code crews; the model-based one refines it afterwards. */
+export async function preset(spaceId: string | undefined, priority: CrewPriority = 'balanced'): Promise<CrewSuggestion | null> {
+  const { settings, spaces } = getStore().get()
+  const space = spaces.find((s) => s.id === spaceId)
+  const engine: Engine = space?.engine ?? settings.engine ?? 'claude-code'
+  if (engine !== 'claude-code') return null
+  const crew: AgentSpec[] = space?.agents ?? settings.agents
+  const inv = await inventory(false)
+  const available = new Set(inv.filter((i) => i.available).map((i) => i.ref))
+  const pick = (m: string): string => (available.has(m) ? m : available.has('opus') && m === 'fable' ? 'opus' : m)
+  const p = PRESET[priority]
+  return {
+    orchestrator: { model: pick(p.orchestrator), why: p.why.orchestrator },
+    agents: crew.map((a) => {
+      const r = roleOf(a)
+      return { id: a.id, name: a.name, model: pick(p.roles[r].model), effort: p.roles[r].effort, why: p.why[r] }
+    }),
+    notes: priority === 'cost' ? 'Cost preset: no Opus anywhere. Pair it with Budget mode on the space for the full effect.' : priority === 'quality' ? 'Quality preset: expect several times the spend of Balanced.' : undefined
   }
 }

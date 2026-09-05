@@ -123,10 +123,15 @@ function accountEnvById(engine: AcpEngine, accountId: string | undefined): NodeJ
 
 /** Last probe per engine this app run, for pickers and the crew inventory. */
 export const probeCache: Partial<Record<Engine, AcpProbe>> = {}
+/** When each cached probe was taken (epoch ms). */
+export const probeCacheAt: Partial<Record<Engine, number>> = {}
 
 export async function probe(engine: Engine, accountId?: string): Promise<AcpProbe> {
   const r = await probeUncached(engine, accountId)
-  if (r.installed) probeCache[engine] = r
+  if (r.installed) {
+    probeCache[engine] = r
+    probeCacheAt[engine] = Date.now()
+  }
   return r
 }
 

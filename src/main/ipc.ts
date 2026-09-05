@@ -607,6 +607,7 @@ export function registerIpc(): void {
   handle('notes:remove', (wsId, id) => notes.remove(wsId, id))
   handle('crew:inventory', () => crewSuggest.inventory())
   handle('crew:suggest', (spaceId, priority) => crewSuggest.suggest(spaceId, priority))
+  handle('crew:preset', (spaceId, priority) => crewSuggest.preset(spaceId, priority))
   handle('acp:authenticate', (engine, methodId) => acp.authenticate(engine, methodId))
   // ---- model providers (native engine) ----
   handle('providers:add', (cfg) => providers.addProvider(cfg))

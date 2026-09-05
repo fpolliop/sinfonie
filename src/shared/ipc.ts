@@ -150,6 +150,8 @@ export interface SinfonieInvoke {
   'crew:inventory': () => ModelInventoryItem[]
   /** Ask Claude to assign a model to the orchestrator and each crew member, given the inventory. */
   'crew:suggest': (spaceId?: string, priority?: CrewPriority) => CrewSuggestion
+  /** Instant, rule-based suggestion for Claude Code crews; null for other engines. */
+  'crew:preset': (spaceId?: string, priority?: CrewPriority) => CrewSuggestion | null
   /** Run the agent's own authentication method (browser or terminal flow). Returns the terminal command when one must be run instead. */
   'acp:authenticate': (engine: Engine, methodId: string) => { ok: boolean; terminalCommand?: string; error?: string }
   /** A shell already running `command`, for interactive logins. */
