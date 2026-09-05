@@ -15,8 +15,11 @@ interface WorkspaceChat {
   lastResult?: ChatTurnResult
   error?: string
   draft: string
-  /** Context size of the live session, in tokens. */
+  /** Context size of the live session, in tokens, plus the window it is measured against and its recent growth. */
   contextTokens?: number
+  contextWindow?: number
+  contextCacheRead?: number
+  contextHistory?: number[]
   /** A limit card waiting for the user's choice. */
   limit?: Extract<AgentEvent, { type: 'limit' }> | null
   /** Images attached to the draft, not sent yet. */
@@ -173,7 +176,7 @@ export const useChat = create<ChatState>((set, get) => ({
           next = { ...next, busy: false }
           break
         case 'context':
-          next = { ...next, contextTokens: e.tokens }
+          next = { ...next, contextTokens: e.tokens, contextWindow: e.window ?? c.contextWindow, contextCacheRead: e.cacheRead, contextHistory: [...(c.contextHistory ?? []), e.tokens].slice(-40) }
           break
         case 'limit':
           next = { ...next, limit: e, busy: e.mode === 'preflight' ? false : next.busy }

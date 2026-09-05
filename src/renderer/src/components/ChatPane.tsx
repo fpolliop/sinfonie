@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { ChevronRight, Square, RotateCcw, Send, ShieldCheck, XCircle, AlertTriangle, Info, History, Users, GitFork, ListTree, ArrowLeft, StickyNote, Paperclip, X } from 'lucide-react'
 import { imageFiles } from '@/lib/images'
-import type { ChatTurnResult, AgentEvent, ChatImageRef, LimitAlternative } from '@shared/types'
+import type { ContextUsage, ChatTurnResult, AgentEvent, ChatImageRef, LimitAlternative } from '@shared/types'
 import { NotesPanel } from './NotesPanel'
 import { useNotes } from '@/stores/notes'
 import { api } from '@/lib/api'
@@ -236,7 +236,7 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
             />
             <div className="flex items-center gap-2 px-2 pb-2">
               <ModePicker mode={mode} onChange={changeMode} />
-              <SessionPill engineLabel={engineLabel} budgetMode={budgetMode} model={chat?.model ?? settingsModel} contextTokens={chat?.contextTokens} result={chat?.lastResult} />
+              <SessionPill workspaceId={workspaceId} engineLabel={engineLabel} budgetMode={budgetMode} model={chat?.model ?? settingsModel} contextTokens={chat?.contextTokens} contextWindow={chat?.contextWindow} cacheRead={chat?.contextCacheRead} history={chat?.contextHistory} result={chat?.lastResult} busy={busy} onNewSession={() => void reset(workspaceId)} />
               <span className="ml-auto" />
               <Button size="sm" variant="ghost" title="Attach images (or paste / drop them into the message)" onClick={() => fileInput.current?.click()} disabled={disabled}>
                 <Paperclip size={13} />
@@ -339,9 +339,13 @@ function Block({ block }: { block: ChatBlock }): React.JSX.Element | null {
 
 const NO_IMAGES: never[] = []
 
-/** The session's vitals in one small pill; the details open on click. */
-function SessionPill({ engineLabel, budgetMode, model, contextTokens, result }: { engineLabel: string; budgetMode: boolean; model: string; contextTokens?: number; result?: ChatTurnResult }): React.JSX.Element {
+/** The session's vitals in one small pill; the details, the context window and Compact open on click. */
+function SessionPill({ workspaceId, engineLabel, budgetMode, model, contextTokens, contextWindow, cacheRead, history, result, busy, onNewSession }: { workspaceId: string; engineLabel: string; budgetMode: boolean; model: string; contextTokens?: number; contextWindow?: number; cacheRead?: number; history?: number[]; result?: ChatTurnResult; busy: boolean; onNewSession: () => void }): React.JSX.Element {
   const [open, setOpen] = useState(false)
+  const [usage, setUsage] = useState<ContextUsage | null>(null)
+  const [detail, setDetail] = useState(false)
+  const [compacting, setCompacting] = useState(false)
+  const setError = useApp((s) => s.setError)
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!open) return
@@ -351,44 +355,167 @@ function SessionPill({ engineLabel, budgetMode, model, contextTokens, result }: 
     document.addEventListener('mousedown', onDown)
     return () => document.removeEventListener('mousedown', onDown)
   }, [open])
-  const ctx = contextTokens ? (contextTokens >= 1000 ? `${Math.round(contextTokens / 1000)}k` : String(contextTokens)) : null
-  const hot = (contextTokens ?? 0) >= 120000
+  useEffect(() => {
+    if (!open) return
+    api.invoke('agent:contextUsage', workspaceId).then(setUsage).catch(() => setUsage(null))
+  }, [open, workspaceId, contextTokens])
+  useEffect(() => {
+    if (compacting && contextTokens !== undefined) setCompacting(false)
+  }, [contextTokens, compacting])
+  const window = usage?.maxTokens || contextWindow || 200_000
+  const used = usage?.totalTokens ?? contextTokens ?? 0
+  const pct = Math.min(100, (used / window) * 100)
+  const tone = pct >= 85 ? 'danger' : pct >= 60 ? 'warn' : 'ok'
+  const k = (n: number): string => (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n))
+  const cacheShare = contextTokens && cacheRead ? Math.round((cacheRead / contextTokens) * 100) : null
+  const compact = (): void => {
+    setCompacting(true)
+    api.invoke('agent:compact', workspaceId).catch((err) => {
+      setCompacting(false)
+      setError(err instanceof Error ? err.message : String(err))
+    })
+  }
+  const usedCats = (usage?.categories ?? []).filter((c) => c.kind === 'used' && c.tokens > 0).sort((a, b) => b.tokens - a.tokens)
+  const buffer = (usage?.categories ?? []).find((c) => c.kind === 'buffer')
+  const byServer = Object.entries((usage?.mcpTools ?? []).reduce<Record<string, number>>((m, t) => ((m[t.serverName] = (m[t.serverName] ?? 0) + t.tokens), m), {})).sort((a, b) => b[1] - a[1])
   return (
     <div ref={ref} className="relative">
-      <button onClick={() => setOpen(!open)} className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[11px] text-muted hover:bg-panel-2 hover:text-text" title="Session details">
+      <button onClick={() => setOpen(!open)} className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[11px] text-muted hover:bg-panel-2 hover:text-text" title="Session and context details">
         <span className="rounded bg-panel-2 px-1 py-px text-[10px] uppercase tracking-wide">{engineLabel}</span>
         {budgetMode && <span className="rounded bg-ok/15 px-1 py-px text-[10px] uppercase tracking-wide text-ok">budget</span>}
         <span className="font-mono">{shortModel(model)}</span>
-        {ctx && <span className={clsx('font-mono', hot && 'text-warn')}>· {ctx}</span>}
+        {contextTokens ? (
+          <span className={clsx('inline-flex items-center gap-1 font-mono', tone === 'danger' ? 'text-danger' : tone === 'warn' ? 'text-warn' : '')} title={`Context: ${contextTokens.toLocaleString()} of ${window.toLocaleString()} tokens`}>
+            · <span className="inline-block h-1.5 w-8 overflow-hidden rounded-full bg-panel-2 align-middle"><span className={clsx('block h-full', tone === 'danger' ? 'bg-danger' : tone === 'warn' ? 'bg-warn' : 'bg-accent/70')} style={{ width: `${pct}%` }} /></span> {k(contextTokens)}
+          </span>
+        ) : null}
         {result && <span className="font-mono">· ${result.costUsd.toFixed(2)}</span>}
         <ChevronRight size={11} className={clsx('transition-transform', open ? '-rotate-90' : 'rotate-90')} />
       </button>
       {open && (
-        <div className="absolute bottom-full left-0 z-20 mb-1 w-[300px] rounded-lg border border-border bg-panel p-3 text-[12px] shadow-2xl">
-          <Row k="Engine" v={engineLabel} />
-          <Row k="Model" v={model} />
-          {budgetMode && <Row k="Budget mode" v="Sonnet orchestrator, low effort, two subagents, per-turn cap" />}
-          <Row k="Context" v={contextTokens ? `${contextTokens.toLocaleString()} tokens${hot ? ' · large, consider a new session' : ''}` : 'no turn yet'} warn={hot} />
-          {result && (
-            <>
-              <Row k="Session cost" v={`$${result.costUsd.toFixed(2)}`} />
-              <Row k="Last turn" v={`${(result.durationMs / 1000).toFixed(1)}s · ${result.numTurns} step${result.numTurns === 1 ? '' : 's'}`} />
-              {result.byModel && result.byModel.length > 0 && (
-                <div className="mt-2 border-t border-border pt-2">
-                  <div className="mb-1 text-[10px] uppercase tracking-wide text-muted">By model</div>
-                  {result.byModel.map((m) => (
-                    <div key={m.model} className="flex justify-between font-mono text-[11px]">
-                      <span>{shortModel(m.model)}</span>
-                      <span>
-                        ${m.costUsd.toFixed(2)} · {m.outputTokens >= 1000 ? `${Math.round(m.outputTokens / 1000)}k` : m.outputTokens} out
-                      </span>
+        <div className="absolute bottom-full left-0 z-20 mb-1 w-[360px] rounded-lg border border-border bg-panel p-3 text-[12px] shadow-2xl">
+          {/* context window */}
+          <div className="mb-1 flex items-center justify-between">
+            <span className="text-[10px] uppercase tracking-wide text-muted">Context window</span>
+            <span className="font-mono text-[11px]">
+              {k(used)} / {k(window)} · {Math.round(pct)}%
+            </span>
+          </div>
+          <div className="mb-1.5 flex h-2 w-full overflow-hidden rounded-full bg-panel-2" title={usedCats.map((c) => `${c.name}: ${k(c.tokens)}`).join('\n')}>
+            {usedCats.length > 0
+              ? usedCats.map((c, i) => <span key={c.name} className={clsx('h-full', ['bg-accent', 'bg-accent/75', 'bg-accent/55', 'bg-accent/40', 'bg-accent/30', 'bg-accent/25'][i % 6])} style={{ width: `${(c.tokens / window) * 100}%` }} title={`${c.name}: ${k(c.tokens)}`} />)
+              : <span className={clsx('h-full', tone === 'danger' ? 'bg-danger' : tone === 'warn' ? 'bg-warn' : 'bg-accent/70')} style={{ width: `${pct}%` }} />}
+            {buffer && <span className="ml-auto h-full bg-border/60" style={{ width: `${(buffer.tokens / window) * 100}%` }} title={`${buffer.name}: ${k(buffer.tokens)} reserved for compaction`} />}
+          </div>
+          {usedCats.length > 0 && (
+            <div className="mb-1.5 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[11px]">
+              {usedCats.slice(0, 6).map((c) => (
+                <div key={c.name} className="flex justify-between gap-2">
+                  <span className="truncate text-muted">{c.name}</span>
+                  <span className="font-mono">{k(c.tokens)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-muted">
+            {history && history.length > 1 && (
+              <span className="inline-flex items-end gap-px" title="Context size over the last turns">
+                {history.slice(-24).map((h, i) => (
+                  <span key={i} className="w-[3px] rounded-sm bg-accent/60" style={{ height: `${Math.max(2, (h / Math.max(...history)) * 14)}px` }} />
+                ))}
+              </span>
+            )}
+            {cacheShare != null && <span title="Share of the context served from the prompt cache on the last call (cheaper than fresh input)">cache {cacheShare}%</span>}
+            {history && history.length > 1 && <span>+{k(Math.max(0, history[history.length - 1] - history[history.length - 2]))} last turn</span>}
+            {usage?.overLimit && <span className="text-danger">{k(usage.overLimit.tokensOver)} over the {usage.overLimit.kind === 'hard_limit' ? 'hard limit' : 'compaction window'}</span>}
+          </div>
+          <div className="mb-2 flex flex-wrap items-center gap-1.5">
+            <Button size="sm" variant={pct >= 60 ? 'primary' : 'subtle'} disabled={busy || compacting || !contextTokens} onClick={compact} title="Ask Claude Code to summarise the conversation so far in place. Detail becomes a summary; the work continues with a much smaller context.">
+              {compacting ? <Spinner /> : <History size={12} />} {compacting ? 'Compacting…' : 'Compact conversation'}
+            </Button>
+            <Button size="sm" variant="ghost" disabled={busy} onClick={onNewSession} title="Start from an empty context">
+              <RotateCcw size={12} /> New session
+            </Button>
+            {(byServer.length > 0 || (usage?.agents.length ?? 0) > 0 || (usage?.memoryFiles.length ?? 0) > 0) && (
+              <button className="ml-auto text-[11px] text-accent hover:underline" onClick={() => setDetail(!detail)}>
+                {detail ? 'Hide' : 'What fills it'}
+              </button>
+            )}
+          </div>
+          {detail && usage && (
+            <div className="mb-2 max-h-[220px] overflow-auto rounded-md border border-border bg-bg p-2 text-[11px]">
+              {byServer.length > 0 && (
+                <>
+                  <div className="mb-0.5 text-[10px] uppercase tracking-wide text-muted">MCP tool definitions</div>
+                  {byServer.map(([srv, t]) => (
+                    <div key={srv} className="flex justify-between">
+                      <span>{srv}</span>
+                      <span className="font-mono">{k(t)}</span>
                     </div>
                   ))}
-                </div>
+                </>
               )}
-            </>
+              {usage.agents.length > 0 && (
+                <>
+                  <div className="mb-0.5 mt-1.5 text-[10px] uppercase tracking-wide text-muted">Crew and agents</div>
+                  {usage.agents.map((a) => (
+                    <div key={a.agentType} className="flex justify-between">
+                      <span>{a.agentType}</span>
+                      <span className="font-mono">{k(a.tokens)}</span>
+                    </div>
+                  ))}
+                </>
+              )}
+              {usage.memoryFiles.length > 0 && (
+                <>
+                  <div className="mb-0.5 mt-1.5 text-[10px] uppercase tracking-wide text-muted">Memory and instructions</div>
+                  {usage.memoryFiles.map((m) => (
+                    <div key={m.path} className="flex justify-between gap-2">
+                      <span className="truncate" title={m.path}>{m.path.split('/').slice(-2).join('/')}</span>
+                      <span className="font-mono">{k(m.tokens)}</span>
+                    </div>
+                  ))}
+                </>
+              )}
+              {usage.skills.length > 0 && (
+                <>
+                  <div className="mb-0.5 mt-1.5 text-[10px] uppercase tracking-wide text-muted">Skills</div>
+                  {usage.skills.map((sk) => (
+                    <div key={sk.name} className="flex justify-between">
+                      <span>{sk.name}</span>
+                      <span className="font-mono">{k(sk.tokens)}</span>
+                    </div>
+                  ))}
+                </>
+              )}
+            </div>
           )}
-          <div className="mt-2 border-t border-border pt-2 text-[11px] text-muted">Estimates at list price. Every message re-reads the context; a new session for a new task keeps it small.</div>
+          {/* session */}
+          <div className="border-t border-border pt-2">
+            <Row k="Engine" v={engineLabel} />
+            <Row k="Model" v={model} />
+            {budgetMode && <Row k="Budget mode" v="Sonnet orchestrator, low effort, two subagents, per-turn cap" />}
+            {result && (
+              <>
+                <Row k="Session cost" v={`$${result.costUsd.toFixed(2)}`} />
+                <Row k="Last turn" v={`${(result.durationMs / 1000).toFixed(1)}s · ${result.numTurns} step${result.numTurns === 1 ? '' : 's'}`} />
+                {result.byModel && result.byModel.length > 0 && (
+                  <div className="mt-1.5">
+                    <div className="mb-0.5 text-[10px] uppercase tracking-wide text-muted">By model</div>
+                    {result.byModel.map((m) => (
+                      <div key={m.model} className="flex justify-between font-mono text-[11px]">
+                        <span>{shortModel(m.model)}</span>
+                        <span>
+                          ${m.costUsd.toFixed(2)} · {k(m.outputTokens)} out
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+          <div className="mt-2 border-t border-border pt-2 text-[11px] text-muted">Every message re-reads the whole context. Compact when a task is done, or start a new session for the next one. Costs are estimates at list price.</div>
         </div>
       )}
     </div>

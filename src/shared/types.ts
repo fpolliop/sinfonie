@@ -811,6 +811,22 @@ export interface ChatItem {
   level?: 'info' | 'warn' | 'error'
 }
 
+/** What fills the model's context window right now, from Claude Code's own accounting. */
+export interface ContextUsage {
+  model: string
+  totalTokens: number
+  maxTokens: number
+  /** 0..100 */
+  percentage: number
+  overLimit?: { tokensOver: number; kind: 'hard_limit' | 'compaction_window' }
+  categories: { name: string; tokens: number; kind: 'used' | 'free' | 'buffer' | 'deferred' }[]
+  mcpTools: { name: string; serverName: string; tokens: number }[]
+  memoryFiles: { path: string; type: string; tokens: number }[]
+  agents: { agentType: string; source: string; tokens: number }[]
+  skills: { name: string; source: string; tokens: number }[]
+  at: string
+}
+
 export interface ChatTurnResult {
   workspaceId: string
   costUsd: number
@@ -838,8 +854,8 @@ export type AgentEvent =
   | { type: 'assistant_end'; workspaceId: string; itemId: string }
   | { type: 'result'; result: ChatTurnResult }
   | { type: 'status'; workspaceId: string; busy: boolean }
-  /** Current context size of the session, from the last model call. */
-  | { type: 'context'; workspaceId: string; tokens: number; window?: number }
+  /** Current context size of the session, from the last model call. cacheRead: how much of it came from the prompt cache. */
+  | { type: 'context'; workspaceId: string; tokens: number; window?: number; cacheRead?: number; compacted?: { pre: number; post?: number; trigger: 'manual' | 'auto' } }
   /** A usage limit is near (preflight, message parked) or was hit mid-task; the chat shows a card with the alternatives. */
   | { type: 'limit'; workspaceId: string; itemId: string; mode: 'preflight' | 'hit'; accountId: string; accountName: string; limitType?: LimitType; utilization?: number; resetsAt?: string; text: string; alternatives: LimitAlternative[]; createdAt: string }
   | { type: 'limit_resolved'; workspaceId: string; itemId: string }

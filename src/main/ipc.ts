@@ -603,6 +603,8 @@ export function registerIpc(): void {
   handle('resources:stopTask', (workspaceId, taskId) => agent.stopTask(workspaceId, taskId))
   handle('resources:cancelWaiting', (workspaceId) => resources.cancelWaiting(workspaceId))
   handle('agent:interrupt', (id) => agent.interrupt(id))
+  handle('agent:contextUsage', (id) => agent.contextUsage(id))
+  handle('agent:compact', (id) => agent.compact(id, emitAgent))
   handle('agent:permission', (r) => interaction.answerPermission(r))
   handle('agent:answerQuestion', (r) => interaction.answerQuestion(r))
 

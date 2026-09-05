@@ -55,6 +55,9 @@ interface Session {
   /** Cumulative per-model usage already written to the ledger (SDK totals are cumulative per session). */
   usageSeen: Record<string, { costUsd: number; inputTokens: number; outputTokens: number; cacheReadTokens: number }>
   contextWarned: boolean
+  /** Last known context size and window, for the pill and for the awareness note the model gets. */
+  context: { tokens: number; window?: number; notedBand: number }
+  contextUsageCache?: { at: number; value: import('@shared/types').ContextUsage }
 }
 
 /** Everything the SDK sends (minus streaming deltas) goes to a per-workspace log for diagnosis. */
@@ -150,6 +153,7 @@ function systemPromptFor(ws: Workspace): string {
       ]
     : [`You are working inside an Sinfonie workspace named "${ws.name}". Your working directory is its folder, ${ws.rootPath}.`]
   lines.push(workspaceTools.promptFor(ws.id))
+  lines.push('Context hygiene: the user pays for every token you re-read. Prefer targeted reads over whole files, avoid echoing large outputs, and when a note tells you the window is filling, suggest compacting or a new session before a fresh task.')
   lines.push(`Sinfonie runs on the user's Mac next to other sessions and limits you to ${resources.resourceSettings().maxSubagentsPerSession} subagents at once; under memory pressure it refuses new ones. When a delegation is refused, the tool result says why: do that work yourself or wait for running subagents instead of retrying.`)
   return lines.join('\n')
 }
@@ -380,7 +384,7 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
     if (stderrLines.length > 40) stderrLines.splice(0, stderrLines.length - 40)
   }
   const q = query({ prompt: input.iterable, options })
-  const session: Session = { workspaceId, q, push: input.push, end: input.end, abort, busy: false, stderr: stderrLines, queue: [], interrupted: false, mcpNames: Object.keys(mcpServers).filter((n) => n !== 'crew' && n !== 'notes' && n !== 'browser' && n !== 'workspace'), crewCalls, flags, emitPermission, usageSeen: {}, contextWarned: false }
+  const session: Session = { workspaceId, q, push: input.push, end: input.end, abort, busy: false, stderr: stderrLines, queue: [], interrupted: false, mcpNames: Object.keys(mcpServers).filter((n) => n !== 'crew' && n !== 'notes' && n !== 'browser' && n !== 'workspace'), crewCalls, flags, emitPermission, usageSeen: {}, contextWarned: false, context: { tokens: 0, notedBand: 0 } }
   sessions.set(workspaceId, session)
   void pump(session, emit)
   return session
@@ -410,7 +414,9 @@ async function pump(session: Session, emit: EmitEvent): Promise<void> {
             const tokens = (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0)
             if (tokens > 0) {
               usage.recordContext(workspaceId, tokens)
-              emit({ type: 'context', workspaceId, tokens })
+              session.context.tokens = tokens
+              session.contextUsageCache = undefined
+              emit({ type: 'context', workspaceId, tokens, window: session.context.window, cacheRead: u.cache_read_input_tokens ?? 0 })
               if (!session.contextWarned && tokens >= usage.settings().contextWarnTokens) {
                 session.contextWarned = true
                 notice('warn', `This session now carries about ${Math.round(tokens / 1000)}k tokens of context, and every message re-reads them. For the next task, start a new session (the button next to Send); it is the single biggest saving on a subscription.`)
@@ -480,6 +486,15 @@ async function pump(session: Session, emit: EmitEvent): Promise<void> {
             resources.taskEnded(workspaceId, msg.task_id)
           } else if (msg.subtype === 'task_updated') {
             if (msg.patch.status && ['completed', 'failed', 'killed'].includes(msg.patch.status)) resources.taskEnded(workspaceId, msg.task_id)
+          } else if (msg.subtype === 'compact_boundary') {
+            const m = msg.compact_metadata
+            const post = m.post_tokens
+            session.context.tokens = post ?? 0
+            session.context.notedBand = 0
+            session.contextWarned = false
+            session.contextUsageCache = undefined
+            notice('info', `${m.trigger === 'manual' ? 'Compacted' : 'Auto-compacted'} the conversation: ${Math.round(m.pre_tokens / 1000)}k tokens summarised${post ? ` into ${Math.round(post / 1000)}k` : ''}. Earlier detail is now a summary; the work continues from here.`)
+            emit({ type: 'context', workspaceId, tokens: post ?? 0, window: session.context.window, compacted: { pre: m.pre_tokens, post, trigger: m.trigger } })
           } else if (msg.subtype === 'notification') {
             if (msg.priority === 'high' || msg.priority === 'immediate') notice('warn', msg.text)
           } else if (msg.subtype === 'status') {
@@ -595,6 +610,8 @@ async function pump(session: Session, emit: EmitEvent): Promise<void> {
           try {
             const wsNow = getWorkspace(workspaceId)
             usage.recordTurn(usage.fromResult(msg, { workspaceId, spaceId: wsNow.spaceId ?? '', accountId: limits.accountIdOf(wsNow), kind: 'chat' }, session.usageSeen))
+            const windows = Object.values(msg.modelUsage ?? {}).map((u) => u.contextWindow).filter((n) => n > 0)
+            if (windows.length) session.context.window = Math.max(...windows)
           } catch {
             /* ledger must never break the turn */
           }
@@ -637,9 +654,21 @@ async function pump(session: Session, emit: EmitEvent): Promise<void> {
   }
 }
 
+/** A short note the model sees (the user does not) when the window is filling, so it can suggest compacting. */
+function contextNote(session: Session): string {
+  const { tokens, window } = session.context
+  if (!tokens) return ''
+  const pct = window ? tokens / window : tokens / 200_000
+  const band = pct >= 0.8 ? 2 : pct >= 0.6 ? 1 : 0
+  if (band === 0 || band <= session.context.notedBand) return ''
+  session.context.notedBand = band
+  return `[Sinfonie: this conversation now uses about ${Math.round(pct * 100)}% of the context window (${Math.round(tokens / 1000)}k tokens). Every message re-reads it. If the remaining work is separable from what came before, tell the user in one sentence that compacting the conversation (the Compact button next to the model) or starting a new session would save tokens, then continue.]\n\n`
+}
+
 function deliver(session: Session, text: string, emit: EmitEvent, announce = true, images?: ChatImageRef[]): void {
   const { workspaceId } = session
   session.busy = true
+  const note = text.startsWith('/') ? '' : contextNote(session)
   if (announce) emit({ type: 'user_message', workspaceId, itemId: nanoid(8), text, createdAt: new Date().toISOString(), ...(images?.length ? { images } : {}) })
   emit({ type: 'status', workspaceId, busy: true })
   session.push({
@@ -648,7 +677,7 @@ function deliver(session: Session, text: string, emit: EmitEvent, announce = tru
       role: 'user',
       content: [
         ...(images ?? []).map((img) => ({ type: 'image' as const, source: { type: 'base64' as const, media_type: img.mimeType as 'image/png', data: toBase64(img) } })),
-        { type: 'text' as const, text: text || (images?.length ? 'See the attached image.' : '') }
+        { type: 'text' as const, text: note + (text || (images?.length ? 'See the attached image.' : '')) }
       ]
     },
     parent_tool_use_id: null
@@ -755,6 +784,50 @@ export function resetSession(workspaceId: string): void {
     const w = d.workspaces.find((x) => x.id === workspaceId)
     if (w) delete w.sessionId
   })
+}
+
+/** Ask the live session to summarise itself. Delivered as the /compact command; the boundary message reports the result. */
+export function compact(workspaceId: string, emit: EmitEvent): void {
+  const s = sessions.get(workspaceId)
+  if (!s) throw new Error('No live session to compact. The next message resumes the conversation; compact after that.')
+  if (s.busy) throw new Error('Wait for the current turn to finish, then compact.')
+  emit({ type: 'notice', workspaceId, itemId: nanoid(8), level: 'info', text: 'Compacting the conversation…', createdAt: new Date().toISOString() })
+  deliver(s, '/compact', emit, false)
+}
+
+/** Claude Code's own breakdown of what fills the window right now; cached briefly since it calls the token counter. */
+export async function contextUsage(workspaceId: string): Promise<import('@shared/types').ContextUsage | null> {
+  const s = sessions.get(workspaceId)
+  if (!s) return null
+  if (s.contextUsageCache && Date.now() - s.contextUsageCache.at < 15_000) return s.contextUsageCache.value
+  const r = (await s.q.getContextUsage({ detail: s.busy ? 'summary' : 'full' })) as unknown as {
+    model: string
+    total_tokens: number
+    raw_max_tokens: number
+    percentage: number
+    over_limit?: { tokens_over: number; kind: 'hard_limit' | 'compaction_window' }
+    categories: { name: string; tokens: number; kind: 'used' | 'free' | 'buffer' | 'deferred' }[]
+    mcp_tools: { name: string; server_name: string; tokens: number }[]
+    memory_files: { path: string; type: string; tokens: number }[]
+    agents: { agent_type: string; source: string; tokens: number }[]
+    skills?: { name: string; source: string; tokens: number }[]
+  }
+  const value = {
+    model: r.model,
+    totalTokens: r.total_tokens,
+    maxTokens: r.raw_max_tokens,
+    percentage: r.percentage,
+    overLimit: r.over_limit ? { tokensOver: r.over_limit.tokens_over, kind: r.over_limit.kind } : undefined,
+    categories: r.categories ?? [],
+    mcpTools: (r.mcp_tools ?? []).map((t) => ({ name: t.name, serverName: t.server_name, tokens: t.tokens })),
+    memoryFiles: r.memory_files ?? [],
+    agents: (r.agents ?? []).map((a) => ({ agentType: a.agent_type, source: a.source, tokens: a.tokens })),
+    skills: r.skills ?? [],
+    at: new Date().toISOString()
+  }
+  s.context.window = value.maxTokens || s.context.window
+  s.contextUsageCache = { at: Date.now(), value }
+  return value
 }
 
 /** Stop one running subagent (Claude Code tasks; crew workers on other engines end with their session). */

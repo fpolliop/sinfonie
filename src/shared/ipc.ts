@@ -1,4 +1,4 @@
-import type { AuthLink, BrowserState, CrewPriority, FsEntry, LimitAlternative, UsageSnapshot, ChatImageInput, Incident, IncidentStatus, LinearIssue, LinearSettings, OnCallState, ResourceSnapshot, Severity, SlackConnection, LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion,
+import type { AuthLink, BrowserState, ContextUsage, CrewPriority, FsEntry, LimitAlternative, UsageSnapshot, ChatImageInput, Incident, IncidentStatus, LinearIssue, LinearSettings, OnCallState, ResourceSnapshot, Severity, SlackConnection, LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion,
   AgentEvent,
   ChatItem,
   JiraIssue,
@@ -143,6 +143,10 @@ export interface SinfonieInvoke {
 
   'agent:send': (workspaceId: string, text: string, images?: ChatImageInput[]) => void
   'agent:interrupt': (workspaceId: string) => void
+  /** Claude Code's breakdown of the live session's context window; null when no session is live. */
+  'agent:contextUsage': (workspaceId: string) => ContextUsage | null
+  /** Ask Claude Code to compact the conversation (summarise it) in place. */
+  'agent:compact': (workspaceId: string) => void
   'agent:permission': (response: PermissionResponse) => void
   'agent:answerQuestion': (response: QuestionResponse) => void
   'agent:unqueue': (workspaceId: string, id: string) => void
