@@ -3,13 +3,20 @@ import clsx from 'clsx'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { Badge, Button, inputCls } from './ui'
+import type { SlackConnection } from '@shared/types'
 
 /** The Slack sign-in card, shared by Integrations → Slack and the On call page. */
 export function SlackConnectionCard({ connId = '', intro }: { connId?: string; intro?: string }): React.JSX.Element {
   const settings = useApp((s) => s.settings)
   const spaces = useApp((s) => s.spaces)
   const setError = useApp((s) => s.setError)
-  const slack = (connId ? spaces.find((x) => x.id === connId)?.slack : settings.slack) ?? { connected: false, hasClient: false, vendorClient: Boolean(settings.slack?.vendorClient) }
+  const persisted = (connId ? spaces.find((x) => x.id === connId)?.slack : settings.slack) ?? { connected: false, hasClient: false, vendorClient: false }
+  // vendorClient/hasClient are computed in main from the build and the secrets; the stored copy can be stale.
+  const [live, setLive] = useState<SlackConnection | null>(null)
+  useEffect(() => {
+    api.invoke('slack:connection', connId).then(setLive).catch(() => undefined)
+  }, [connId, persisted.connected, persisted.connectedAt])
+  const slack = { ...persisted, ...(live ?? {}) }
   const [clientId, setClientId] = useState(slack.clientId ?? '')
   const [secret, setSecret] = useState('')
   const [code, setCode] = useState('')
@@ -50,11 +57,11 @@ export function SlackConnectionCard({ connId = '', intro }: { connId?: string; i
                 <input className={inputCls} placeholder={slack.hasClient ? 'Client secret (stored)' : 'Client secret'} type="password" value={secret} onChange={(e) => setSecret(e.target.value)} />
               </div>
               <div className="flex gap-2">
-                <Button size="sm" disabled={!clientId.trim() || !secret.trim()} onClick={() => go(async () => (await api.invoke('oncall:slackSetClient', connId, clientId, secret), setSecret('')))}>
+                <Button size="sm" disabled={!clientId.trim() || !secret.trim()} onClick={() => go(async () => (await api.invoke('oncall:slackSetClient', connId, clientId, secret).then(setLive), setSecret('')))}>
                   Save client
                 </Button>
                 {slack.hasClient && (
-                  <Button size="sm" variant="ghost" onClick={() => go(() => api.invoke('oncall:slackClearClient', connId))}>
+                  <Button size="sm" variant="ghost" onClick={() => go(() => api.invoke('oncall:slackClearClient', connId).then(setLive))}>
                     Use Sinfonie&apos;s client instead
                   </Button>
                 )}

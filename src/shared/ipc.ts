@@ -174,6 +174,8 @@ export interface SinfonieInvoke {
   'usage:resolveLimit': (workspaceId: string, itemId: string, choice: LimitAlternative) => void
   // ---- on call ----
   'oncall:state': () => OnCallState
+  /** Live view of a Slack connection: derived flags (vendor client, own client) are never trusted from the persisted copy. */
+  'slack:connection': (connId: string) => SlackConnection
   /** connId: '' for the application's Slack, or a space id for that space's own. */
   'oncall:slackSetClient': (connId: string, clientId: string, clientSecret: string) => SlackConnection
   /** Opens the browser for Slack approval; the code returns via sinfonie://oauth/slack or oncall:slackFinish. */

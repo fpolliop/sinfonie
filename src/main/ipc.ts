@@ -535,6 +535,7 @@ export function registerIpc(): void {
     (incidentId) => send('ui:openOnCall', { incidentId })
   )
   handle('oncall:state', () => oncall.state())
+  handle('slack:connection', (conn) => slack.connection(conn))
   handle('oncall:slackSetClient', (conn, id, secret) => slack.setClient(conn, id, secret))
   handle('oncall:slackConnect', (conn) => slack.startAuth(conn))
   handle('oncall:slackFinish', async (code, conn) => {

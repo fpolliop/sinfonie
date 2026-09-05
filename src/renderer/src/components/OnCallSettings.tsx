@@ -21,7 +21,7 @@ export function OnCallSettings({ spaceId = '' }: { spaceId?: string }): React.JS
   const oc = spaceId ? { ...DEFAULTS, pollSeconds: appOc.pollSeconds, maxTriagesPerHour: appOc.maxTriagesPerHour, ...(space?.oncall ?? {}) } : appOc
   // A space uses its own Slack when connected, else the application's.
   const connId = spaceId && space?.slack?.connected ? spaceId : ''
-  const slack = (connId ? space?.slack : settings.slack) ?? { connected: false, hasClient: false, vendorClient: false }
+  const slack = (connId ? space?.slack : settings.slack) ?? { connected: false, hasClient: false, vendorClient: true }
   const [q, setQ] = useState('')
   const [found, setFound] = useState<{ id: string; name: string; is_private: boolean; is_member: boolean }[] | null>(null)
   const [searching, setSearching] = useState(false)
