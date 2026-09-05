@@ -54,7 +54,15 @@ export const useReviews = create<ReviewsState>((set, get) => ({
   owners: [],
   repos: [],
   spaceId: null,
-  mode: (localStorage.getItem('orchestra.reviews.mode') as 'requested' | 'all') ?? 'requested',
+  // "All open" by default: "waiting on me" hides every PR you were not explicitly requested on, which reads as
+  // empty repositories. The v2 flag migrates installs that still carry the old default.
+  mode: (() => {
+    if (!localStorage.getItem('orchestra.reviews.modeV2')) {
+      localStorage.setItem('orchestra.reviews.modeV2', '1')
+      localStorage.setItem('orchestra.reviews.mode', 'all')
+    }
+    return (localStorage.getItem('orchestra.reviews.mode') as 'requested' | 'all') ?? 'all'
+  })(),
   repoFilter: localStorage.getItem('orchestra.reviews.repo') ?? '',
   statusFilter: (localStorage.getItem('orchestra.reviews.status') as StatusFilter) ?? 'all',
   sortDir: (localStorage.getItem('orchestra.reviews.sort') as SortDir) ?? 'desc',

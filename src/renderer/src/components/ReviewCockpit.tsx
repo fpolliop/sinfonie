@@ -102,8 +102,8 @@ export function ReviewCockpit(): React.JSX.Element {
           <span className="text-muted">· {spaceRepos.length ? `${spaceRepos.length} repositor${spaceRepos.length === 1 ? 'y' : 'ies'}` : ''}{spaceRepos.length && owners.length ? ' + ' : ''}{owners.length ? `all of ${owners.join(', ')}` : ''}{!spaceRepos.length && !owners.length ? (loadingOrgs ? '…' : 'no repositories') : ''}</span>
         </button>
         <div className="no-drag flex rounded-md bg-panel p-0.5">
-          {(['requested', 'all'] as const).map((m) => (
-            <button key={m} onClick={() => setMode(m)} className={clsx('rounded px-2.5 py-0.5 text-[12px]', mode === m ? 'bg-panel-2' : 'text-muted')}>
+          {(['all', 'requested'] as const).map((m) => (
+            <button key={m} onClick={() => setMode(m)} title={m === 'requested' ? 'Only PRs where your review was explicitly requested' : 'Every open PR in these repositories'} className={clsx('rounded px-2.5 py-0.5 text-[12px]', mode === m ? 'bg-panel-2' : 'text-muted')}>
               {m === 'requested' ? 'Waiting on me' : 'All open'}
             </button>
           ))}
