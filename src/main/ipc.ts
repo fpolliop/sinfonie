@@ -45,6 +45,10 @@ import * as workspaceTools from './services/workspace-tools'
 import { saveImages } from './services/images'
 import * as slack from './services/slack'
 import * as oncall from './services/oncall/service'
+import * as usage from './services/usage'
+import * as limits from './services/limits'
+import type { ChatImageRef, Engine } from '@shared/types'
+import { carrySessionToAccount } from './services/sessions'
 
 function send<C extends keyof SinfonieEvents>(channel: C, payload: SinfonieEvents[C]): void {
   for (const win of BrowserWindow.getAllWindows()) win.webContents.send(channel, payload)
@@ -453,9 +457,68 @@ export function registerIpc(): void {
   handle('reviews:submit', (key) => reviews.submitReview(key, emitReview))
 
   // ---- agent ----
+  // Messages held back by a limit warning, until the user picks a way forward.
+  const parked = new Map<string, { itemId: string; text: string; images?: ChatImageRef[] }>()
   handle('agent:send', (id, text, images) => {
     noteMessage(agent.engineFor(id))
-    return resources.submit(id, text, images?.length ? saveImages(id, images) : undefined)
+    const refs = images?.length ? saveImages(id, images) : undefined
+    if (agent.engineFor(id) === 'claude-code' && !agent.isBusy(id)) {
+      const ev = limits.preflightEvent(workspaces.getWorkspace(id))
+      if (ev) {
+        parked.set(id, { itemId: ev.itemId, text, images: refs })
+        emitAgent(ev)
+        return
+      }
+    }
+    return resources.submit(id, text, refs)
+  })
+  usage.setEmitter((s) => send('usage:changed', s))
+  handle('usage:get', () => usage.snapshot())
+  handle('usage:resolveLimit', async (id, itemId, choice) => {
+    emitAgent({ type: 'limit_resolved', workspaceId: id, itemId })
+    const held = parked.get(id)
+    parked.delete(id)
+    const ws = workspaces.getWorkspace(id)
+    const accountId = limits.accountIdOf(ws)
+    // Something to send afterwards: the held message, or the last user message when a running turn was cut off.
+    const pending = held ?? (() => {
+      const items = getTranscript(id)
+      const last = [...items].reverse().find((i) => i.role === 'user')
+      const text = last?.blocks.map((b) => (b.type === 'text' ? b.text : '')).join('').trim()
+      return text ? ({ itemId, text } as { itemId: string; text: string; images?: ChatImageRef[] }) : null
+    })()
+    const go = async (text: string, images?: ChatImageRef[]): Promise<void> => resources.submit(id, text, images)
+    switch (choice.kind) {
+      case 'cancel':
+        emitAgent({ type: 'status', workspaceId: id, busy: false })
+        return
+      case 'proceed': {
+        const risk = usage.riskyLimit(accountId)
+        if (risk) usage.ack(accountId, risk.type, risk.resetsAt)
+        if (held) await go(held.text, held.images)
+        return
+      }
+      case 'account': {
+        agent.closeSession(id)
+        workspaces.patchWorkspace(id, { claudeAccountId: choice.id })
+        carrySessionToAccount(id, ws.claudeAccountId)
+        emitAgent({ type: 'notice', workspaceId: id, itemId: nanoid(8), level: 'info', text: `Continuing on ${choice.label.replace(/^Continue on /, '')}. The conversation carries over.`, createdAt: new Date().toISOString() })
+        if (pending) await go(pending.text, pending.images)
+        return
+      }
+      case 'engine':
+      case 'native': {
+        agent.closeSession(id)
+        const engine = (choice.kind === 'native' ? 'native' : choice.id) as Engine
+        workspaces.patchWorkspace(id, { engine })
+        const items = getTranscript(id)
+        const summary = limits.recap(items)
+        emitAgent({ type: 'notice', workspaceId: id, itemId: nanoid(8), level: 'info', text: `Continuing on ${choice.label.replace(/^Continue (on|with) /, '')} with a recap of this conversation. Switch back any time from the workspace menu.`, createdAt: new Date().toISOString() })
+        const text = pending ? `${summary ? `Context: here is the conversation so far with another agent.\n\n${summary}\n\n---\n\n` : ''}${pending.text}` : summary
+        if (text) await go(text, pending?.images)
+        return
+      }
+    }
   })
   // ---- resources ----
   resources.start({

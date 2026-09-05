@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import clsx from 'clsx'
-import { Plus, RefreshCw, Trash2, FolderGit2, Settings as SettingsIcon, Layers, Server, UserCircle2, Users, Plug, Ticket, GitPullRequest, MessageSquarePlus, Info, FolderTree, ChevronRight, Gauge, Siren, CircleDot, Hash } from 'lucide-react'
+import { Plus, RefreshCw, Trash2, FolderGit2, Settings as SettingsIcon, Layers, Server, UserCircle2, Users, Plug, Ticket, GitPullRequest, MessageSquarePlus, Info, FolderTree, ChevronRight, Gauge, Siren, CircleDot, Hash, Activity } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp, type SettingsTarget, type AppPage, type SpacePage } from '@/stores/app'
 import { Badge, Button, Field, inputCls } from './ui'
@@ -16,6 +16,7 @@ import { ProvidersSection } from './ProvidersSection'
 import { EngineSelect, NativeModelSelect } from './EngineSelect'
 import { AccountsPage, acpProbeCache } from './AccountsPage'
 import { ResourcesPage } from './ResourcesPage'
+import { UsagePage } from './UsagePage'
 import { OnCallSettings } from './OnCallSettings'
 import { ACP_ENGINES, VENDORS } from '@shared/types'
 
@@ -32,6 +33,7 @@ const APP_PAGES: { id: AppPage; label: string; icon: React.ReactNode; desc: stri
   { id: 'accounts', label: 'Accounts', icon: <UserCircle2 size={14} />, desc: 'Logins for Anthropic, OpenAI, Google and xAI agents. Several per vendor; spaces and workspaces pick one.' },
   { id: 'crew', label: 'Default crew', icon: <Users size={14} />, desc: 'The subagents a space gets unless it defines its own crew.' },
   { id: 'resources', label: 'Resources', icon: <Gauge size={14} />, desc: 'Memory per session, subagent and session limits, and what happens under pressure.' },
+  { id: 'usage', label: 'Usage', icon: <Activity size={14} />, desc: 'Subscription windows per account, spend per day, and where it went.' },
   { id: 'oncall', label: 'On call', icon: <Siren size={14} />, desc: 'Slack channels to watch, the triage agent, and how it drafts replies.' },
   { id: 'jira', label: 'Jira', icon: <Ticket size={14} />, desc: 'The fallback Jira connection for spaces without their own.', group: 'Integrations' },
   { id: 'linear', label: 'Linear', icon: <CircleDot size={14} />, desc: 'The fallback Linear connection for spaces without their own.', group: 'Integrations' },
@@ -231,6 +233,8 @@ function AppPageView({ page }: { page: AppPage }): React.JSX.Element {
       return <AccountsPage />
     case 'resources':
       return <ResourcesPage />
+    case 'usage':
+      return <UsagePage />
     case 'oncall':
       return <OnCallSettings />
     case 'crew':

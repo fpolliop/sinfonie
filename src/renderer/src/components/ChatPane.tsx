@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { ChevronRight, Square, RotateCcw, Send, ShieldCheck, XCircle, AlertTriangle, Info, History, Users, GitFork, ListTree, ArrowLeft, StickyNote, Paperclip, X } from 'lucide-react'
 import { imageFiles } from '@/lib/images'
-import type { ChatImageRef } from '@shared/types'
+import type { AgentEvent, ChatImageRef, LimitAlternative } from '@shared/types'
 import { NotesPanel } from './NotesPanel'
 import { useNotes } from '@/stores/notes'
 import { api } from '@/lib/api'
@@ -166,6 +166,7 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
               ))}
             </div>
           )}
+          {chat?.limit && <LimitCard workspaceId={workspaceId} ev={chat.limit} />}
           <CrewBar items={items} busy={busy} model={chat?.model ?? settingsModel} crewNames={crewNames} />
           <div
             className="rounded-xl border border-border bg-panel focus-within:border-accent"
@@ -222,6 +223,11 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
               <span className="text-[11px] text-muted">
                 <span className="rounded bg-panel-2 px-1 py-px text-[10px] uppercase tracking-wide">{engineLabel}</span>{' '}
                 {chat?.model ?? `model: ${settingsModel}`}
+                {chat?.contextTokens ? (
+                  <span className={clsx('ml-1', chat.contextTokens >= 120000 ? 'text-warn' : '')} title="Tokens the model re-reads on every message in this session. Start a new session for a new task to keep this small.">
+                    · context {chat.contextTokens >= 1000 ? `${Math.round(chat.contextTokens / 1000)}k` : chat.contextTokens}
+                  </span>
+                ) : null}
                 {chat?.lastResult && (
                   <>
                     {' '}
@@ -333,6 +339,38 @@ function Block({ block }: { block: ChatBlock }): React.JSX.Element | null {
 }
 
 const NO_IMAGES: never[] = []
+
+/** Near or past a subscription limit: what happened and the ways forward, each one click. */
+function LimitCard({ workspaceId, ev }: { workspaceId: string; ev: Extract<AgentEvent, { type: 'limit' }> }): React.JSX.Element {
+  const [busyChoice, setBusyChoice] = useState<string | null>(null)
+  const pick = (a: LimitAlternative): void => {
+    setBusyChoice(a.kind + (a.id ?? ''))
+    void api.invoke('usage:resolveLimit', workspaceId, ev.itemId, a).catch(() => setBusyChoice(null))
+  }
+  return (
+    <div className={clsx('mb-2 rounded-xl border p-3 text-[12px]', ev.mode === 'hit' ? 'border-danger/40 bg-danger/10' : 'border-warn/40 bg-warn/10')}>
+      <div className="mb-1 flex items-center gap-2 font-medium">
+        <AlertTriangle size={14} className={ev.mode === 'hit' ? 'text-danger' : 'text-warn'} />
+        {ev.mode === 'hit' ? 'Usage limit reached' : 'Low on usage'}
+        {ev.utilization != null && ev.mode === 'preflight' && <span className="font-mono text-[11px] text-muted">{Math.round(ev.utilization * 100)}% used</span>}
+      </div>
+      <p className="mb-2 text-muted">{ev.text}</p>
+      <div className="flex flex-wrap gap-1.5">
+        {ev.alternatives.map((a) => (
+          <button
+            key={a.kind + (a.id ?? '')}
+            disabled={busyChoice !== null}
+            title={a.hint}
+            onClick={() => pick(a)}
+            className={clsx('rounded-md px-2 py-1 text-[11px]', a.kind === 'proceed' || (ev.mode === 'hit' && a.kind === 'account') ? 'bg-accent-2 text-white hover:bg-accent' : a.kind === 'cancel' ? 'text-muted hover:text-text' : 'border border-border hover:bg-panel-2', busyChoice === a.kind + (a.id ?? '') && 'opacity-60')}
+          >
+            {a.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 /** A stored image in the transcript; click to open it full size in the default viewer. */
 function ChatImage({ image }: { image: ChatImageRef }): React.JSX.Element {

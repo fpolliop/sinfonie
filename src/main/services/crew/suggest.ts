@@ -1,4 +1,6 @@
 import { claudeExecutableOption } from '../claude-cli'
+import * as usage from '../usage'
+import { defaultAccountId } from '../accounts'
 import { query, type Options, type SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 import type { AgentSpec, CrewSuggestion, Engine, ModelInventoryItem } from '@shared/types'
 import { ACP_ENGINES, CLAUDE_MODELS, PROVIDER_KINDS, classifyModel } from '@shared/types'
@@ -101,6 +103,11 @@ export async function suggest(spaceId?: string): Promise<CrewSuggestion> {
   try {
     for await (const msg of query({ prompt, options }) as AsyncIterable<SDKMessage>) {
       if (msg.type === 'result') {
+        try {
+          usage.recordTurn(usage.fromResult(msg, { workspaceId: '', spaceId: spaceId ?? '', accountId: defaultAccountId('anthropic') ?? 'default', kind: 'suggest' }))
+        } catch {
+          /* ledger must never break the suggestion */
+        }
         if (msg.subtype === 'success') structured = msg.structured_output
         else throw new Error(`Suggestion ended with ${msg.subtype}${'errors' in msg && Array.isArray(msg.errors) ? `: ${(msg.errors as string[]).join('; ')}` : ''}`)
       }

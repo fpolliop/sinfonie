@@ -134,6 +134,23 @@ function makeResumableFrom(ws: ReturnType<typeof getWorkspace>, sessionId: strin
   copyFileSync(src, dest)
 }
 
+/**
+ * After a workspace switches Claude account, its session file lives under the old account's config
+ * dir; copy it so the new account can resume the same conversation.
+ */
+export function carrySessionToAccount(workspaceId: string, fromAccountId: string | undefined): void {
+  const ws = getWorkspace(workspaceId)
+  if (!ws.sessionId) return
+  const primary = ws.repos.find((r) => r.repoId === ws.primaryRepoId) ?? ws.repos[0]
+  const cwd = primary?.worktreePath ?? ws.rootPath
+  const from = join(accountEnv(fromAccountId).CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude'), 'projects', encodeProjectDir(cwd), `${ws.sessionId}.jsonl`)
+  const toDir = join(accountEnv(ws.claudeAccountId).CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude'), 'projects', encodeProjectDir(cwd))
+  const to = join(toDir, `${ws.sessionId}.jsonl`)
+  if (!existsSync(from) || existsSync(to)) return
+  mkdirSync(toDir, { recursive: true })
+  copyFileSync(from, to)
+}
+
 export async function resumeInto(workspaceId: string, sessionId: string): Promise<{ messages: number }> {
   const ws = getWorkspace(workspaceId)
   const messages = await withAccountEnv(ws.claudeAccountId, () => getSessionMessages(sessionId))

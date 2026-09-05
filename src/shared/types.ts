@@ -321,6 +321,8 @@ export interface Workspace {
   linear?: WorkspaceLinear
   linearStatus?: string
   linearStatusAt?: string
+  /** Engine override for this workspace (set when the user continued elsewhere after a rate limit). */
+  engine?: Engine
   stage: WorkspaceStage
   labelIds?: string[]
   spaceId?: string
@@ -470,6 +472,7 @@ export interface Settings {
   browserEvaluate?: boolean
   slack?: SlackConnection
   oncall?: OnCallSettings
+  usage?: UsageSettings
 }
 
 /** A session note or todo on a workspace. The orchestrator can read and edit them too. */
@@ -786,6 +789,11 @@ export type AgentEvent =
   | { type: 'assistant_end'; workspaceId: string; itemId: string }
   | { type: 'result'; result: ChatTurnResult }
   | { type: 'status'; workspaceId: string; busy: boolean }
+  /** Current context size of the session, from the last model call. */
+  | { type: 'context'; workspaceId: string; tokens: number; window?: number }
+  /** A usage limit is near (preflight, message parked) or was hit mid-task; the chat shows a card with the alternatives. */
+  | { type: 'limit'; workspaceId: string; itemId: string; mode: 'preflight' | 'hit'; accountId: string; accountName: string; limitType?: LimitType; utilization?: number; resetsAt?: string; text: string; alternatives: LimitAlternative[]; createdAt: string }
+  | { type: 'limit_resolved'; workspaceId: string; itemId: string }
   | { type: 'error'; workspaceId: string; message: string }
 
 export interface PermissionRequest {
@@ -972,6 +980,74 @@ export interface BrowserState {
   /** The user paused agent control; tool calls wait until resumed. */
   paused: boolean
   downloads: BrowserDownload[]
+}
+
+// ---- Usage ----
+
+export type LimitType = 'five_hour' | 'seven_day' | 'seven_day_opus' | 'seven_day_sonnet' | 'seven_day_overage_included' | 'overage'
+export interface UsageLimit {
+  type: LimitType
+  /** 0..1 */
+  utilization: number
+  status: 'allowed' | 'allowed_warning' | 'rejected'
+  resetsAt?: string
+  /** When this reading was taken. */
+  at: string
+  /** Linear projection of when the window fills at the recent pace, if it will before the reset. */
+  projectedExhaustAt?: string
+}
+export interface UsageAccount {
+  accountId: string
+  name: string
+  limits: UsageLimit[]
+}
+export interface UsageTurn {
+  at: string
+  workspaceId: string
+  spaceId: string
+  accountId: string
+  engine: string
+  kind: 'chat' | 'review' | 'oncall' | 'crew' | 'suggest'
+  costUsd: number
+  inputTokens: number
+  outputTokens: number
+  cacheReadTokens: number
+  durationMs: number
+  byModel: { model: string; costUsd: number; inputTokens: number; outputTokens: number; cacheReadTokens: number }[]
+}
+export interface UsageDay {
+  day: string
+  costUsd: number
+  inputTokens: number
+  outputTokens: number
+  turns: number
+  byModel: Record<string, number>
+  bySpace: Record<string, number>
+  byWorkspace: Record<string, number>
+  byKind: Record<string, number>
+}
+export interface UsageSnapshot {
+  accounts: UsageAccount[]
+  days: UsageDay[]
+  today: UsageDay
+  topWorkspaces: { workspaceId: string; costUsd: number; turns: number }[]
+  /** Current context size per workspace session, in tokens. */
+  contextTokens: Record<string, number>
+  warnAtPct: number
+  contextWarnTokens: number
+}
+export interface UsageSettings {
+  /** Warn before a task when the fullest window is at or above this percentage. */
+  warnAtPct?: number
+  /** Nudge to start a new session when the context passes this many tokens. */
+  contextWarnTokens?: number
+}
+/** What the user can do when a limit is near or hit. */
+export interface LimitAlternative {
+  kind: 'proceed' | 'account' | 'engine' | 'native' | 'cancel'
+  id?: string
+  label: string
+  hint?: string
 }
 
 export interface UpdateInfo {

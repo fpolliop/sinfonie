@@ -14,6 +14,10 @@ interface WorkspaceChat {
   lastResult?: ChatTurnResult
   error?: string
   draft: string
+  /** Context size of the live session, in tokens. */
+  contextTokens?: number
+  /** A limit card waiting for the user's choice. */
+  limit?: Extract<AgentEvent, { type: 'limit' }> | null
   /** Images attached to the draft, not sent yet. */
   images: PendingImage[]
   queue: { id: string; text: string }[]
@@ -136,6 +140,15 @@ export const useChat = create<ChatState>((set, get) => ({
           break
         case 'error':
           next = { ...next, busy: false }
+          break
+        case 'context':
+          next = { ...next, contextTokens: e.tokens }
+          break
+        case 'limit':
+          next = { ...next, limit: e, busy: e.mode === 'preflight' ? false : next.busy }
+          break
+        case 'limit_resolved':
+          next = { ...next, limit: null }
           break
       }
       return { chats: { ...s.chats, [id]: next } }

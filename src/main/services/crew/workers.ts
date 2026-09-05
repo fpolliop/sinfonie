@@ -1,4 +1,6 @@
 import { claudeExecutableOption } from '../claude-cli'
+import * as usage from '../usage'
+import { defaultAccountId } from '../accounts'
 import { query, type Options, type SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 import { ToolLoopAgent, stepCountIs, type ToolSet } from 'ai'
 import type { AgentSpec, PermissionMode, SubagentStep, Workspace } from '@shared/types'
@@ -86,6 +88,11 @@ async function runClaude(run: WorkerRun): Promise<string> {
         } else if (b.type === 'text' && b.text.trim()) run.onStep({ kind: 'text', detail: b.text.slice(0, 600) }, msg.message.model)
       }
     } else if (msg.type === 'result') {
+      try {
+        usage.recordTurn(usage.fromResult(msg, { workspaceId: ws.id, spaceId: ws.spaceId ?? '', accountId: ws.claudeAccountId ?? defaultAccountId('anthropic') ?? 'default', kind: 'crew' }))
+      } catch {
+        /* ledger must never break the run */
+      }
       if (msg.subtype === 'success') report = msg.result
       else throw new Error(`${spec.name} ended with ${msg.subtype}${'errors' in msg && Array.isArray(msg.errors) ? `: ${(msg.errors as string[]).join('; ')}` : ''}`)
     }

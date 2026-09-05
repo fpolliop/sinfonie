@@ -1,4 +1,4 @@
-import type { AuthLink, BrowserState, ChatImageInput, Incident, IncidentStatus, LinearIssue, LinearSettings, OnCallState, ResourceSnapshot, Severity, SlackConnection, LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion,
+import type { AuthLink, BrowserState, LimitAlternative, UsageSnapshot, ChatImageInput, Incident, IncidentStatus, LinearIssue, LinearSettings, OnCallState, ResourceSnapshot, Severity, SlackConnection, LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion,
   AgentEvent,
   ChatItem,
   JiraIssue,
@@ -169,6 +169,9 @@ export interface SinfonieInvoke {
   'terminal:write': (terminalId: string, data: string) => void
   'terminal:resize': (terminalId: string, cols: number, rows: number) => void
   'terminal:dispose': (terminalId: string) => void
+  // ---- usage ----
+  'usage:get': () => UsageSnapshot
+  'usage:resolveLimit': (workspaceId: string, itemId: string, choice: LimitAlternative) => void
   // ---- on call ----
   'oncall:state': () => OnCallState
   /** connId: '' for the application's Slack, or a space id for that space's own. */
@@ -226,6 +229,7 @@ export interface SinfonieEvents {
   'resources:snapshot': ResourceSnapshot
   'browser:state': BrowserState
   'oncall:changed': OnCallState
+  'usage:changed': UsageSnapshot
   /** A sign-in link to show the user (Open in browser / Copy link). */
   'ui:authLink': AuthLink
   /** That sign-in finished; close the dialog. */

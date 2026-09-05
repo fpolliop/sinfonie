@@ -1,4 +1,5 @@
 import { claudeExecutableOption } from './claude-cli'
+import * as usage from './usage'
 import { app } from 'electron'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
@@ -272,6 +273,11 @@ async function execute(run: ReviewRun, emit: Emit): Promise<void> {
         }
       } else if (msg.type === 'result') {
         cost = msg.total_cost_usd
+        try {
+          usage.recordTurn(usage.fromResult(msg, { workspaceId: '', spaceId: '', accountId: run.accountId, kind: 'review' }))
+        } catch {
+          /* ledger must never break the review */
+        }
         if (msg.subtype === 'success') structured = msg.structured_output
         else throw new Error(`Review ended with ${msg.subtype}${'errors' in msg && Array.isArray(msg.errors) ? `: ${(msg.errors as string[]).join('; ')}` : ''}`)
       }

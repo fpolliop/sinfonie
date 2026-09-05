@@ -1,9 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { Plus, Settings, Archive, Pencil, Folder, Code2, TerminalSquare, Trash2, GitPullRequest, Layers, ArrowDownWideNarrow, ArrowUpNarrowWide, Filter, ChevronRight, MessageSquarePlus, Siren } from 'lucide-react'
+import { Plus, Settings, Archive, Pencil, Folder, Code2, TerminalSquare, Trash2, GitPullRequest, Layers, ArrowDownWideNarrow, ArrowUpNarrowWide, Filter, ChevronRight, MessageSquarePlus, Siren, Activity } from 'lucide-react'
 import { ERRORS_SEEN_KEY } from './FeedbackDialog'
 import { useResources, subscribeResources, gb } from '@/stores/resources'
 import { useOnCall, subscribeOnCall } from '@/stores/oncall'
+import { useUsage, subscribeUsage, windowLabel, clock } from '@/stores/usage'
 import { WORKSPACE_STAGES } from '@shared/types'
 import { LabelChip, labelsFor } from './LabelPicker'
 import { useApp, spaceOrder } from '@/stores/app'
@@ -212,6 +213,7 @@ export function Sidebar(): React.JSX.Element {
         )}
       </div>
       <UpdateBanner />
+      <UsageBadge onOpen={() => openSettings({ scope: 'app', page: 'usage' })} />
       <MemoryGauge onOpen={() => openSettings({ scope: 'app', page: 'resources' })} />
       <SpaceDots ids={ids} currentId={currentId} onPick={setActiveSpace} onAdd={() => openSettings({ scope: 'app', page: 'spaces' })} />
       {spaceMenu && (
@@ -331,6 +333,28 @@ function UpdateBanner(): React.JSX.Element | null {
         </>
       )}
     </div>
+  )
+}
+
+/** Shown only when a Claude window is filling up: which account, how full, when it resets. */
+function UsageBadge({ onOpen }: { onOpen: () => void }): React.JSX.Element | null {
+  const snap = useUsage((s) => s.snapshot)
+  useEffect(() => subscribeUsage(), [])
+  if (!snap) return null
+  const worst = snap.accounts
+    .flatMap((a) => a.limits.filter((l) => !l.resetsAt || new Date(l.resetsAt).getTime() > Date.now()).map((l) => ({ ...l, account: a.name })))
+    .sort((a, b) => b.utilization - a.utilization)[0]
+  if (!worst || worst.utilization < 0.8) return null
+  const pct = Math.round(worst.utilization * 100)
+  const danger = worst.utilization >= 0.95
+  return (
+    <button onClick={onOpen} className={clsx('mx-2 mb-1 flex items-center gap-2 rounded-md border px-2 py-1 text-left text-[11px]', danger ? 'border-danger/40 bg-danger/10 text-danger' : 'border-warn/40 bg-warn/10 text-warn')} title={`${worst.account}: ${pct}% of the ${windowLabel(worst.type)} window used${worst.resetsAt ? `, resets ${clock(worst.resetsAt)}` : ''}. Click for details.`}>
+      <Activity size={12} />
+      <span className="truncate">
+        {worst.account} · {windowLabel(worst.type)} {pct}%
+      </span>
+      {worst.resetsAt && <span className="ml-auto shrink-0 opacity-80">resets {clock(worst.resetsAt)}</span>}
+    </button>
   )
 }
 

@@ -5,6 +5,8 @@ import * as resources from './resources'
 import * as browserTools from './browser/tools'
 import * as workspaceTools from './workspace-tools'
 import { toBase64 } from './images'
+import * as usage from './usage'
+import * as limits from './limits'
 import type { ChatImageRef } from '@shared/types'
 import { z } from 'zod'
 import { classifyModel } from '@shared/types'
@@ -50,6 +52,9 @@ interface Session {
   /** Set when the workspace gained a repository mid-turn: restart the session at turn end so the new worktree is a working directory. */
   flags: { restartAfterTurn: boolean }
   emitPermission: EmitPermission
+  /** Cumulative per-model usage already written to the ledger (SDK totals are cumulative per session). */
+  usageSeen: Record<string, { costUsd: number; inputTokens: number; outputTokens: number; cacheReadTokens: number }>
+  contextWarned: boolean
 }
 
 /** Everything the SDK sends (minus streaming deltas) goes to a per-workspace log for diagnosis. */
@@ -373,7 +378,7 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
     if (stderrLines.length > 40) stderrLines.splice(0, stderrLines.length - 40)
   }
   const q = query({ prompt: input.iterable, options })
-  const session: Session = { workspaceId, q, push: input.push, end: input.end, abort, busy: false, stderr: stderrLines, queue: [], interrupted: false, mcpNames: Object.keys(mcpServers).filter((n) => n !== 'crew' && n !== 'notes' && n !== 'browser' && n !== 'workspace'), crewCalls, flags, emitPermission }
+  const session: Session = { workspaceId, q, push: input.push, end: input.end, abort, busy: false, stderr: stderrLines, queue: [], interrupted: false, mcpNames: Object.keys(mcpServers).filter((n) => n !== 'crew' && n !== 'notes' && n !== 'browser' && n !== 'workspace'), crewCalls, flags, emitPermission, usageSeen: {}, contextWarned: false }
   sessions.set(workspaceId, session)
   void pump(session, emit)
   return session
@@ -398,6 +403,18 @@ async function pump(session: Session, emit: EmitEvent): Promise<void> {
       switch (msg.type) {
         case 'assistant':
           if (msg.error && !msg.parent_tool_use_id) notice('error', describeError(msg.error))
+          if (!msg.parent_tool_use_id && msg.message.usage) {
+            const u = msg.message.usage as { input_tokens?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number }
+            const tokens = (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0)
+            if (tokens > 0) {
+              usage.recordContext(workspaceId, tokens)
+              emit({ type: 'context', workspaceId, tokens })
+              if (!session.contextWarned && tokens >= usage.settings().contextWarnTokens) {
+                session.contextWarned = true
+                notice('warn', `This session now carries about ${Math.round(tokens / 1000)}k tokens of context, and every message re-reads them. For the next task, start a new session (the button next to Send); it is the single biggest saving on a subscription.`)
+              }
+            }
+          }
           if (msg.parent_tool_use_id) {
             const tools = msg.message.content.filter((b) => b.type === 'tool_use').map((b) => (b as { name: string }).name)
             const text = msg.message.content
@@ -423,8 +440,12 @@ async function pump(session: Session, emit: EmitEvent): Promise<void> {
           break
         case 'rate_limit_event': {
           const r = msg.rate_limit_info
-          if (r.status === 'rejected') notice('error', `Rate limit hit (${r.rateLimitType ?? 'usage'})${r.resetsAt ? `, resets ${new Date(r.resetsAt * 1000).toLocaleTimeString()}` : ''}.`)
-          else if (r.status === 'allowed_warning' && r.utilization != null) notice('warn', `Approaching the ${r.rateLimitType ?? 'usage'} limit: ${Math.round(r.utilization * 100)}% used.`)
+          const ws = getWorkspace(workspaceId)
+          usage.recordLimit(limits.accountIdOf(ws), r)
+          if (r.status === 'rejected') {
+            notice('error', `Rate limit hit (${r.rateLimitType ?? 'usage'})${r.resetsAt ? `, resets ${new Date(r.resetsAt * 1000).toLocaleTimeString()}` : ''}.`)
+            emit(limits.hitEvent(ws, r))
+          } else if (r.status === 'allowed_warning' && r.utilization != null) notice('warn', `Approaching the ${r.rateLimitType ?? 'usage'} limit: ${Math.round(r.utilization * 100)}% used.`)
           break
         }
         case 'system':
@@ -569,6 +590,12 @@ async function pump(session: Session, emit: EmitEvent): Promise<void> {
             emit({ type: 'queue', workspaceId, items: [...session.queue] })
             deliver(session, next.text, emit, true, next.images)
           }
+          try {
+            const wsNow = getWorkspace(workspaceId)
+            usage.recordTurn(usage.fromResult(msg, { workspaceId, spaceId: wsNow.spaceId ?? '', accountId: limits.accountIdOf(wsNow), kind: 'chat' }, session.usageSeen))
+          } catch {
+            /* ledger must never break the turn */
+          }
           emit({
             type: 'result',
             result: {
@@ -632,7 +659,7 @@ const starting = new Set<string>()
 export function engineFor(workspaceId: string): Engine {
   const ws = getWorkspace(workspaceId)
   const { settings, spaces } = getStore().get()
-  return spaces.find((s) => s.id === ws.spaceId)?.engine ?? settings.engine ?? 'claude-code'
+  return ws.engine ?? spaces.find((s) => s.id === ws.spaceId)?.engine ?? settings.engine ?? 'claude-code'
 }
 
 export async function sendMessage(workspaceId: string, text: string, emit: EmitEvent, emitPermission: EmitPermission, images?: ChatImageRef[]): Promise<void> {

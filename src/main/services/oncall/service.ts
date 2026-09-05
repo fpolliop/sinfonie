@@ -4,6 +4,8 @@
  * posted to Slack without the user approving a proposal.
  */
 import { claudeExecutableOption } from '../claude-cli'
+import * as usage from '../usage'
+import { defaultAccountId } from '../accounts'
 import { app, BrowserWindow, Notification } from 'electron'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
@@ -367,6 +369,11 @@ async function runAgent(spaceId: string, prompt: string, opts: { schema?: Record
     if (msg.type === 'assistant') for (const b of msg.message.content) if (b.type === 'text') text = b.text
     if (msg.type === 'result') {
       costUsd = msg.total_cost_usd
+      try {
+        usage.recordTurn(usage.fromResult(msg, { workspaceId: '', spaceId, accountId: s.claudeAccountId ?? defaultAccountId('anthropic') ?? 'default', kind: 'oncall' }))
+      } catch {
+        /* ledger must never break triage */
+      }
       structured = (msg as { structured_output?: unknown }).structured_output
       if (msg.subtype !== 'success') throw new Error(`Triage run ended with ${msg.subtype.replace(/_/g, ' ')}${'errors' in msg && Array.isArray(msg.errors) ? `: ${(msg.errors as string[]).join('; ')}` : ''}`)
     }
