@@ -1,6 +1,6 @@
 {
   "name": "sinfonie",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "description": "Multi-repo agent workspaces: one workspace spans many repositories, with a crew of models.",
   "main": "./out/main/index.js",
   "author": "Francisco Pollio",
