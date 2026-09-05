@@ -993,6 +993,7 @@ export interface OnCallState {
   /** Space ids with an active watcher ('' for the application-level config). */
   activeSpaces: string[]
   lastPollAt?: string
+  nextPollAt?: string
   lastError?: string
   incidents: Incident[]
   triagesThisHour: number

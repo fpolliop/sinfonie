@@ -230,13 +230,41 @@ export async function mcpServerConfig(connId = ''): Promise<{ type: 'http'; url:
 
 // ---------- Web API ----------
 
+/** Slack caps non-Marketplace apps at one conversations.history / conversations.replies call per minute (15 messages each). */
+export const HISTORY_PAGE = 15
+const rateLimitedUntil = new Map<string, number>()
+/** Seconds until Slack accepts this method again, 0 when clear. */
+export function rateLimitWait(method: string): number {
+  return Math.max(0, Math.ceil(((rateLimitedUntil.get(method) ?? 0) - Date.now()) / 1000))
+}
+export class SlackRateLimited extends Error {
+  constructor(
+    public readonly method: string,
+    public readonly retryAfter: number
+  ) {
+    super(`Slack rate limit on ${method}; Slack allows one call per minute for this method. Next try in ${retryAfter}s.`)
+  }
+}
+
 export async function api<T>(connId: string, method: string, params: Record<string, string | number | boolean | undefined>, retried = false): Promise<T> {
+  const wait = rateLimitWait(method)
+  if (wait > 0) throw new SlackRateLimited(method, wait)
   const token = await accessToken(connId)
   const body = new URLSearchParams()
   for (const [key, v] of Object.entries(params)) if (v !== undefined) body.set(key, String(v))
   const res = await fetch(`https://slack.com/api/${method}`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/x-www-form-urlencoded' }, body })
+  if (res.status === 429) {
+    const after = Math.max(5, Number(res.headers.get('retry-after') ?? '60') || 60)
+    rateLimitedUntil.set(method, Date.now() + after * 1000)
+    throw new SlackRateLimited(method, after)
+  }
   const json = (await res.json()) as { ok: boolean; error?: string } & T
   if (!json.ok) {
+    if (json.error === 'ratelimited') {
+      const after = Math.max(5, Number(res.headers.get('retry-after') ?? '60') || 60)
+      rateLimitedUntil.set(method, Date.now() + after * 1000)
+      throw new SlackRateLimited(method, after)
+    }
     if (json.error === 'token_expired' && !retried) {
       await accessToken(connId, true)
       return api<T>(connId, method, params, true)
@@ -277,11 +305,11 @@ export async function listChannels(connId: string, query = ''): Promise<SlackCha
   return out.filter((c) => !q || c.name.toLowerCase().includes(q)).sort((a, b) => Number(b.is_member) - Number(a.is_member) || a.name.localeCompare(b.name))
 }
 export async function history(connId: string, channel: string, oldest?: string): Promise<SlackMessage[]> {
-  const r = await api<{ messages: SlackMessage[] }>(connId, 'conversations.history', { channel, oldest, limit: 200, inclusive: false })
+  const r = await api<{ messages: SlackMessage[] }>(connId, 'conversations.history', { channel, oldest, limit: HISTORY_PAGE, inclusive: false })
   return r.messages.slice().reverse()
 }
 export async function replies(connId: string, channel: string, ts: string, oldest?: string): Promise<SlackMessage[]> {
-  const r = await api<{ messages: SlackMessage[] }>(connId, 'conversations.replies', { channel, ts, oldest, limit: 200, inclusive: false })
+  const r = await api<{ messages: SlackMessage[] }>(connId, 'conversations.replies', { channel, ts, oldest, limit: HISTORY_PAGE, inclusive: false })
   return r.messages.filter((m) => m.ts !== ts)
 }
 export async function permalink(connId: string, channel: string, ts: string): Promise<string | undefined> {

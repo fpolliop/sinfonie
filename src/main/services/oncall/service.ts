@@ -95,7 +95,7 @@ let active: string[] = []
 export function state(): OnCallState {
   load()
   const hourAgo = Date.now() - 3600_000
-  return { running: Boolean(timer), activeSpaces: active, lastPollAt, lastError, incidents: data.incidents, triagesThisHour: triageTimes.filter((t) => t > hourAgo).length, triaging }
+  return { running: Boolean(timer), activeSpaces: active, lastPollAt, nextPollAt: nextPollAt ? new Date(nextPollAt).toISOString() : undefined, lastError, incidents: data.incidents, triagesThisHour: triageTimes.filter((t) => t > hourAgo).length, triaging }
 }
 function publish(): void {
   save()
@@ -118,10 +118,15 @@ export function reconcile(): void {
     timer = null
   }
   if (cfgs.length) {
-    const every = Math.max(15, Math.min(...cfgs.map((c) => c.s.pollSeconds)))
-    timer = setInterval(() => void pollOnce(), every * 1000)
+    // One Slack read per tick, and Slack allows one per minute: 62 s is the floor whatever the setting says.
+    const every = Math.max(62, Math.min(...cfgs.map((c) => c.s.pollSeconds)))
+    timer = setInterval(() => {
+      nextPollAt = Date.now() + every * 1000
+      void pollOnce()
+    }, every * 1000)
+    nextPollAt = Date.now() + every * 1000
     void pollOnce()
-  }
+  } else nextPollAt = undefined
   publish()
 }
 export function stop(): void {
@@ -139,79 +144,109 @@ const titleOf = (text: string): string =>
     .trim()
     .slice(0, 100) || '(no text)'
 
+/** Work items, one Slack read each: a channel's new messages, or an open incident's new replies. */
+type Work = { kind: 'channel'; spaceId: string; connId: string; ch: OnCallSettings['channels'][number]; me?: string } | { kind: 'thread'; inc: Incident }
+let rr = 0
+let nextPollAt: number | undefined
+export function nextPoll(): number | undefined {
+  return nextPollAt
+}
+
+/**
+ * One Slack read per tick: Slack allows non-Marketplace apps a single conversations.history or
+ * conversations.replies call per minute. Channels come first (new incidents), then open threads.
+ */
 export async function pollOnce(): Promise<void> {
   if (polling) return
   polling = true
   load()
   try {
-    for (const cfg of configs()) {
-      const { spaceId, s, connId } = cfg
-      const me = slack.connection(connId).userId
-      for (const ch of s.channels) {
-        const ck = `${spaceId}|${ch.id}`
-        const cursor = data.cursors[ck]
-        if (!cursor) {
-          // First run: remember where we are; do not backfill history into incidents.
-          const recent = await slack.history(connId, ch.id)
-          data.cursors[ck] = recent[recent.length - 1]?.ts ?? String(Date.now() / 1000)
-          continue
-        }
-        const msgs = await slack.history(connId, ch.id, cursor)
-        for (const m of msgs) {
-          data.cursors[ck] = m.ts
-          if (m.subtype && NOISE_SUBTYPES.has(m.subtype)) continue
-          if (m.thread_ts && m.thread_ts !== m.ts) continue // replies are picked up per incident below
-          if (ch.kind === 'support' && m.user && m.user === me) continue // the user's own posts are not tickets
-          if (ch.kind === 'alerts' && /(resolved|recovered|closed|\bok\b)/i.test(m.text) && resolveAlert(ch.id, m.text)) continue
-          const inc: Incident = {
-            id: nanoid(10),
-            spaceId,
-            source: 'slack',
-            channelId: ch.id,
-            channelName: ch.name,
-            kind: ch.kind,
-            threadTs: m.ts,
-            permalink: await slack.permalink(connId, ch.id, m.ts),
-            title: titleOf(m.text),
-            messages: [{ ts: m.ts, user: m.user ?? m.bot_id ?? 'unknown', userName: m.username ?? (await slack.userName(connId, m.user)), text: m.text }],
-            status: 'new',
-            severity: ch.kind === 'alerts' ? (/critical|sev1|p1|down|outage/i.test(m.text) ? 'critical' : /error|fail|high|sev2|p2/i.test(m.text) ? 'high' : 'medium') : undefined,
-            proposals: [],
-            notes: [],
-            costUsd: 0,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
-          }
-          data.incidents.unshift(inc)
-          notify(`New in #${ch.name}`, inc.title, inc.id)
-          enqueueTriage(inc.id)
-        }
-      }
+    const work: Work[] = []
+    for (const cfg of configs()) for (const ch of cfg.s.channels) work.push({ kind: 'channel', spaceId: cfg.spaceId, connId: cfg.connId, ch, me: slack.connection(cfg.connId).userId })
+    const live = data.incidents.filter((i) => i.status !== 'resolved' && i.status !== 'dismissed').slice(0, 20)
+    for (const inc of live) work.push({ kind: 'thread', inc })
+    if (!work.length) return
+    // Prefer an unread channel (a channel without a cursor is being set up); otherwise round-robin.
+    const setup = work.find((w) => w.kind === 'channel' && !data.cursors[`${w.spaceId}|${w.ch.id}`])
+    const item = setup ?? work[rr++ % work.length]
+    const waitHistory = slack.rateLimitWait('conversations.history')
+    const waitReplies = slack.rateLimitWait('conversations.replies')
+    if (item.kind === 'channel' && waitHistory > 0) {
+      lastError = `Slack allows one channel read per minute; next check in ${waitHistory}s.`
+      return
     }
-    // Follow threads of incidents that are still live.
-    for (const inc of data.incidents.filter((i) => i.status !== 'resolved' && i.status !== 'dismissed').slice(0, 40)) {
-      const connId = slack.connectionForSpace(inc.spaceId)
-      const me = slack.connection(connId).userId
-      const last = inc.messages[inc.messages.length - 1]?.ts ?? inc.threadTs
-      const news = await slack.replies(connId, inc.channelId, inc.threadTs, last).catch(() => [] as slack.SlackMessage[])
-      if (!news.length) continue
-      for (const m of news) inc.messages.push({ ts: m.ts, user: m.user ?? m.bot_id ?? 'unknown', userName: m.username ?? (await slack.userName(connId, m.user)), text: m.text })
-      inc.updatedAt = new Date().toISOString()
-      if (news.some((m) => m.user !== me)) {
-        if (inc.status === 'waiting') inc.status = 'open'
-        inc.notes.push({ at: new Date().toISOString(), role: 'system', text: `${news.length} new repl${news.length === 1 ? 'y' : 'ies'} in the thread.` })
-        if (inc.kind === 'support') notify(`Reply in #${inc.channelName}`, news[news.length - 1].text.slice(0, 120), inc.id)
-      }
+    if (item.kind === 'thread' && waitReplies > 0) {
+      lastError = `Slack allows one thread read per minute; next check in ${waitReplies}s.`
+      return
     }
+    if (item.kind === 'channel') await readChannel(item)
+    else await readThread(item.inc)
     if (data.incidents.length > 500) data.incidents.length = 500
     lastPollAt = new Date().toISOString()
     lastError = undefined
   } catch (err) {
     lastError = err instanceof Error ? err.message : String(err)
-    logError('oncall:poll', err)
+    if (!(err instanceof slack.SlackRateLimited)) logError('oncall:poll', err)
   } finally {
     polling = false
     publish()
+  }
+}
+
+async function readChannel(w: Extract<Work, { kind: 'channel' }>): Promise<void> {
+  const { spaceId, connId, ch, me } = w
+  const ck = `${spaceId}|${ch.id}`
+  const cursor = data.cursors[ck]
+  if (!cursor) {
+    // First run: remember where we are; do not backfill history into incidents.
+    const recent = await slack.history(connId, ch.id)
+    data.cursors[ck] = recent[recent.length - 1]?.ts ?? String(Date.now() / 1000)
+    return
+  }
+  const msgs = await slack.history(connId, ch.id, cursor)
+  for (const m of msgs) {
+    data.cursors[ck] = m.ts
+    if (m.subtype && NOISE_SUBTYPES.has(m.subtype)) continue
+    if (m.thread_ts && m.thread_ts !== m.ts) continue // replies are picked up per incident
+    if (ch.kind === 'support' && m.user && m.user === me) continue // the user's own posts are not tickets
+    if (ch.kind === 'alerts' && /(resolved|recovered|closed|\bok\b)/i.test(m.text) && resolveAlert(ch.id, m.text)) continue
+    const inc: Incident = {
+      id: nanoid(10),
+      spaceId,
+      source: 'slack',
+      channelId: ch.id,
+      channelName: ch.name,
+      kind: ch.kind,
+      threadTs: m.ts,
+      permalink: await slack.permalink(connId, ch.id, m.ts),
+      title: titleOf(m.text),
+      messages: [{ ts: m.ts, user: m.user ?? m.bot_id ?? 'unknown', userName: m.username ?? (await slack.userName(connId, m.user)), text: m.text }],
+      status: 'new',
+      severity: ch.kind === 'alerts' ? (/critical|sev1|p1|down|outage/i.test(m.text) ? 'critical' : /error|fail|high|sev2|p2/i.test(m.text) ? 'high' : 'medium') : undefined,
+      proposals: [],
+      notes: [],
+      costUsd: 0,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    }
+    data.incidents.unshift(inc)
+    notify(`New in #${ch.name}`, inc.title, inc.id)
+    enqueueTriage(inc.id)
+  }
+}
+
+async function readThread(inc: Incident): Promise<void> {
+  const connId = slack.connectionForSpace(inc.spaceId)
+  const me = slack.connection(connId).userId
+  const last = inc.messages[inc.messages.length - 1]?.ts ?? inc.threadTs
+  const news = await slack.replies(connId, inc.channelId, inc.threadTs, last)
+  if (!news.length) return
+  for (const m of news) inc.messages.push({ ts: m.ts, user: m.user ?? m.bot_id ?? 'unknown', userName: m.username ?? (await slack.userName(connId, m.user)), text: m.text })
+  inc.updatedAt = new Date().toISOString()
+  if (news.some((m) => m.user !== me)) {
+    if (inc.status === 'waiting') inc.status = 'open'
+    inc.notes.push({ at: new Date().toISOString(), role: 'system', text: `${news.length} new repl${news.length === 1 ? 'y' : 'ies'} in the thread.` })
+    if (inc.kind === 'support') notify(`Reply in #${inc.channelName}`, news[news.length - 1].text.slice(0, 120), inc.id)
   }
 }
 

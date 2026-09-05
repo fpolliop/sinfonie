@@ -31,6 +31,11 @@ export function OnCallView(): React.JSX.Element {
   const openSettings = useApp((s) => s.openSettings)
   const setError = useApp((s) => s.setError)
   useEffect(() => subscribeOnCall(), [])
+  const [checking, setChecking] = useState(false)
+  const checkNow = (): void => {
+    setChecking(true)
+    void go(() => api.invoke('oncall:pollNow')).finally(() => setChecking(false))
+  }
   const incidents = useMemo(() => (state?.incidents ?? []).filter((i) => filter === 'all' || OPEN.has(i.status)), [state, filter])
   const selected = state?.incidents.find((i) => i.id === selectedId) ?? null
   const spaces = useApp((s) => s.spaces)
@@ -55,8 +60,8 @@ export function OnCallView(): React.JSX.Element {
           <span className="text-[13px] font-semibold">On call</span>
           <span className={clsx('ml-1 h-2 w-2 rounded-full', state?.running ? 'bg-ok' : 'bg-muted/50')} title={state?.running ? `Watching ${state.activeSpaces.map((id) => spaceOf(id)?.name ?? 'application').join(', ')}${state.lastPollAt ? `, last check ${timeAgo(state.lastPollAt)}` : ''}` : 'Not running'} />
           <div className="no-drag ml-auto flex items-center gap-1">
-            <button className="rounded-md p-1 text-muted hover:bg-panel-2 hover:text-text" title="Check Slack now" onClick={() => go(() => api.invoke('oncall:pollNow'))} disabled={!configured}>
-              <RefreshCw size={13} />
+            <button className="rounded-md p-1 text-muted hover:bg-panel-2 hover:text-text disabled:opacity-40" title="Check Slack now" onClick={checkNow} disabled={!configured || checking}>
+              <RefreshCw size={13} className={clsx(checking && 'animate-spin')} />
             </button>
             <button className="rounded-md p-1 text-muted hover:bg-panel-2 hover:text-text" title="On call settings" onClick={() => openSettings({ scope: 'app', page: 'oncall' })}>
               <SettingsIcon size={13} />
@@ -69,12 +74,11 @@ export function OnCallView(): React.JSX.Element {
               {f}
             </button>
           ))}
-          {state?.lastError && (
-            <span className="ml-auto truncate text-warn" title={state.lastError}>
-              {state.lastError}
-            </span>
-          )}
+          <span className={clsx('ml-auto truncate', state?.lastError && !checking ? 'text-warn' : 'text-muted')} title={state?.lastError ?? ''}>
+            {checking ? 'Checking Slack…' : state?.lastError ? state.lastError : state?.lastPollAt ? `Checked ${timeAgo(state.lastPollAt)}${state.nextPollAt ? `, next in ${Math.max(0, Math.round((new Date(state.nextPollAt).getTime() - Date.now()) / 1000))}s` : ''}` : state?.running ? 'Waiting for the first check…' : ''}
+          </span>
         </div>
+        {state?.running && <div className="border-b border-border bg-panel px-3 py-1 text-[10px] text-muted">Slack allows one channel or thread read per minute per app, so watched channels and open threads are checked in turn.</div>}
         <div className="flex-1 overflow-auto">
           {!configured && (
             <div className="p-4 text-[12px] text-muted">
