@@ -1,6 +1,9 @@
 import { create } from 'zustand'
 import type { ReviewPr, ReviewRun } from '@shared/types'
 import { api } from '@/lib/api'
+import { useApp } from './app'
+
+const useAppView = (): string => useApp.getState().view
 
 let subscribed = false
 
@@ -32,6 +35,8 @@ interface ReviewsState {
   prs: ReviewPr[]
   runs: Record<string, ReviewRun>
   selectedKey: string | null
+  /** Runs that finished (review, fix round or iteration) while not on screen; cleared when opened. */
+  unseen: Record<string, true>
   loadingOrgs: boolean
   loadingPrs: boolean
   error?: string
@@ -44,6 +49,7 @@ interface ReviewsState {
   setSortDir: (d: SortDir) => void
   refreshPrs: () => Promise<void>
   select: (key: string | null) => void
+  markSeen: (key: string) => void
   subscribe: () => void
 }
 
@@ -69,6 +75,7 @@ export const useReviews = create<ReviewsState>((set, get) => ({
   prs: [],
   runs: {},
   selectedKey: null,
+  unseen: {},
   loadingOrgs: false,
   loadingPrs: false,
 
@@ -132,10 +139,35 @@ export const useReviews = create<ReviewsState>((set, get) => ({
       set({ loadingPrs: false, error: err instanceof Error ? err.message : String(err) })
     }
   },
-  select: (selectedKey) => set({ selectedKey }),
+  select: (selectedKey) =>
+    set((s) => {
+      if (!selectedKey || !s.unseen[selectedKey]) return { selectedKey }
+      const unseen = { ...s.unseen }
+      delete unseen[selectedKey]
+      return { selectedKey, unseen }
+    }),
+  markSeen: (key) =>
+    set((s) => {
+      if (!s.unseen[key]) return {}
+      const unseen = { ...s.unseen }
+      delete unseen[key]
+      return { unseen }
+    }),
   subscribe: () => {
     if (subscribed) return
     subscribed = true
-    api.on('review:changed', (run) => set((s) => ({ runs: { ...s.runs, [run.key]: run } })))
+    api.on('review:changed', (run) =>
+      set((s) => {
+        const prev = s.runs[run.key]
+        const wasBusy = (r?: ReviewRun): boolean => Boolean(r && (r.status === 'preparing' || r.status === 'running' || r.status === 'fixing' || r.iteration?.status === 'running'))
+        const finished = wasBusy(prev) && !wasBusy(run)
+        // Finished while the user was elsewhere: flag it until they open it.
+        const onScreen = useAppView() === 'reviews' && s.selectedKey === run.key && document.hasFocus()
+        return { runs: { ...s.runs, [run.key]: run }, ...(finished && !onScreen ? { unseen: { ...s.unseen, [run.key]: true as const } } : {}) }
+      })
+    )
   }
 }))
+
+/** Busy means a review pass, a fix round or an iteration is in flight. */
+export const isRunBusy = (r?: ReviewRun): boolean => Boolean(r && (r.status === 'preparing' || r.status === 'running' || r.status === 'fixing' || r.iteration?.status === 'running'))

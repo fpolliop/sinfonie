@@ -3,6 +3,7 @@ import type { AgentEvent, ChatTurnResult, PermissionRequest, QuestionRequest, Qu
 import type { ChatItem } from '@shared/types'
 import { applyEvent } from '@shared/transcript'
 import { api } from '@/lib/api'
+import { useApp } from './app'
 import { prepareImage, type PendingImage } from '@/lib/images'
 
 interface WorkspaceChat {
@@ -27,6 +28,9 @@ interface ChatState {
   chats: Record<string, WorkspaceChat>
   permissions: PermissionRequest[]
   questions: QuestionRequest[]
+  /** Workspaces whose turn ended while not on screen; cleared when opened. */
+  unseenDone: Record<string, true>
+  markSeen: (workspaceId: string) => void
   answerQuestion: (response: QuestionResponse) => Promise<void>
   ensure: (workspaceId: string) => WorkspaceChat
   load: (workspaceId: string) => Promise<void>
@@ -57,6 +61,14 @@ export const useChat = create<ChatState>((set, get) => ({
   chats: {},
   permissions: [],
   questions: [],
+  unseenDone: {},
+  markSeen: (id) =>
+    set((s) => {
+      if (!s.unseenDone[id]) return {}
+      const unseenDone = { ...s.unseenDone }
+      delete unseenDone[id]
+      return { unseenDone }
+    }),
   answerQuestion: async (response) => {
     set((s) => ({ questions: s.questions.filter((q) => q.requestId !== response.requestId) }))
     await api.invoke('agent:answerQuestion', response)
@@ -134,10 +146,29 @@ export const useChat = create<ChatState>((set, get) => ({
         case 'assistant_start':
           next = { ...next, busy: true }
           break
-        case 'result':
+        case 'result': {
           // Failures are rendered as system items in the transcript now.
           next = { ...next, busy: false, lastResult: e.result, error: undefined }
+          // Finished out of sight: badge the workspace and, when the app is not in front, notify.
+          const app = useApp.getState()
+          const onScreen = app.view === 'workspace' && app.selectedId === id && document.hasFocus()
+          if (!onScreen && c.busy) {
+            queueMicrotask(() => set((st) => ({ unseenDone: { ...st.unseenDone, [id]: true as const } })))
+            const ws = app.workspaces.find((w) => w.id === id)
+            if (ws && (!document.hasFocus() || app.selectedId !== id)) {
+              try {
+                const n = new Notification(e.result.isError ? `${ws.name}: the turn failed` : `${ws.name} is done`, { body: e.result.isError ? (e.result.errorText ?? 'See the chat for details.') : `Finished in ${(e.result.durationMs / 1000).toFixed(0)}s${e.result.costUsd ? ` · $${e.result.costUsd.toFixed(2)}` : ''}. Click to open.`, silent: false })
+                n.onclick = () => {
+                  app.setView('workspace')
+                  app.select(id)
+                }
+              } catch {
+                /* notifications unavailable */
+              }
+            }
+          }
           break
+        }
         case 'error':
           next = { ...next, busy: false }
           break

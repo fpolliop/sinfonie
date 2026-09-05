@@ -1,6 +1,6 @@
 import { claudeExecutableOption } from './claude-cli'
 import * as usage from './usage'
-import { app } from 'electron'
+import { app, BrowserWindow, Notification } from 'electron'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
@@ -8,7 +8,8 @@ import { join } from 'path'
 import { homedir } from 'os'
 import { nanoid } from 'nanoid'
 import { query, type Options, type SDKMessage } from '@anthropic-ai/claude-agent-sdk'
-import type { ReviewFinding, ReviewPr, ReviewRun, ReviewVerdict } from '@shared/types'
+import type { FixRound, ReviewFinding, ReviewPr, ReviewRun, ReviewVerdict } from '@shared/types'
+import { readFileSync as readText } from 'fs'
 import { getStore } from '../store'
 import { accountEnv } from './accounts'
 import { git } from './git'
@@ -33,7 +34,8 @@ function load(): void {
   try {
     for (const r of JSON.parse(readFileSync(file(), 'utf8')) as ReviewRun[]) {
       // Anything that was mid-flight when the app died is over.
-      if (r.status === 'running' || r.status === 'preparing') r.status = 'error', (r.error = 'Interrupted by app restart')
+      if (r.status === 'running' || r.status === 'preparing' || r.status === 'fixing') r.status = 'error', (r.error = 'Interrupted by app restart')
+      if (r.iteration?.status === 'running') r.iteration = { ...r.iteration, status: 'error', error: 'Interrupted by app restart', finishedAt: new Date().toISOString() }
       runs.set(r.key, r)
     }
   } catch (err) {
@@ -160,8 +162,9 @@ async function findLocalRepo(nameWithOwner: string): Promise<string | null> {
 async function checkout(pr: ReviewPr, key: string, emit: Emit): Promise<{ dir: string; base: string; head: string }> {
   const [owner, repo] = pr.nameWithOwner.split('/')
   const dir = join(reviewsRoot(), `${owner}-${repo}-${pr.number}`)
-  const meta = JSON.parse(await gh(['pr', 'view', String(pr.number), '--repo', pr.nameWithOwner, '--json', 'baseRefName,headRefName'])) as { baseRefName: string; headRefName: string }
-  update(key, { phase: 'Fetching PR', baseRefName: meta.baseRefName, headRefName: meta.headRefName }, emit)
+  const meta = JSON.parse(await gh(['pr', 'view', String(pr.number), '--repo', pr.nameWithOwner, '--json', 'baseRefName,headRefName,isCrossRepository,headRepositoryOwner,headRepository'])) as { baseRefName: string; headRefName: string; isCrossRepository?: boolean; headRepositoryOwner?: { login: string }; headRepository?: { name: string } }
+  const headRepo = meta.headRepositoryOwner && meta.headRepository ? `${meta.headRepositoryOwner.login}/${meta.headRepository.name}` : pr.nameWithOwner
+  update(key, { phase: 'Fetching PR', baseRefName: meta.baseRefName, headRefName: meta.headRefName, headRepo, isFork: Boolean(meta.isCrossRepository) }, emit)
   if (existsSync(dir)) rmSync(dir, { recursive: true, force: true })
   mkdirSync(reviewsRoot(), { recursive: true })
   const local = await findLocalRepo(pr.nameWithOwner)
@@ -265,6 +268,34 @@ export async function startReview(pr: ReviewPr, accountId: string, emit: Emit): 
   return run
 }
 
+function notify(title: string, body: string, key: string): void {
+  if (!Notification.isSupported()) return
+  const win = BrowserWindow.getAllWindows()[0]
+  const n = new Notification({ title, body: body.slice(0, 180) })
+  n.on('click', () => {
+    if (win) {
+      if (win.isMinimized()) win.restore()
+      win.show()
+      win.focus()
+      win.webContents.send('ui:openReview', { key })
+    }
+  })
+  n.show()
+}
+
+/** The lines a finding points at, so the cockpit can show the code without opening GitHub. */
+function snippetFor(dir: string, f: { path: string; line: number | null }): ReviewFinding['snippet'] {
+  if (f.line == null) return undefined
+  try {
+    const lines = readText(join(dir, f.path), 'utf8').split('\n')
+    const start = Math.max(1, f.line - 6)
+    const end = Math.min(lines.length, f.line + 6)
+    return { start, lines: lines.slice(start - 1, end) }
+  } catch {
+    return undefined
+  }
+}
+
 async function execute(run: ReviewRun, emit: Emit): Promise<void> {
   const abort = new AbortController()
   aborts.set(run.key, abort)
@@ -318,14 +349,222 @@ async function execute(run: ReviewRun, emit: Emit): Promise<void> {
       }
     }
     const parsed = (structured ?? {}) as { findings?: Omit<ReviewFinding, 'id' | 'approved'>[]; verdict?: ReviewVerdict }
-    const findings: ReviewFinding[] = (parsed.findings ?? []).map((f) => ({ ...f, id: nanoid(6), approved: false }))
-    update(run.key, { status: 'done', phase: `${tools} tool calls`, findings, verdict: parsed.verdict, costUsd: cost, finishedAt: new Date().toISOString() }, emit)
+    const findings: ReviewFinding[] = (parsed.findings ?? []).map((f) => ({ ...f, id: nanoid(6), approved: false, snippet: snippetFor(dir, f) }))
+    const before = runs.get(run.key)
+    update(run.key, { status: 'done', phase: `${tools} tool calls`, findings, verdict: parsed.verdict, costUsd: (before?.costUsd ?? 0) + cost, passes: (before?.passes ?? 0) + 1, finishedAt: new Date().toISOString() }, emit)
+    if (!run.iteration || run.iteration.status !== 'running') {
+      const crit = findings.filter((f) => f.severity === 'critical' || f.severity === 'major').length
+      notify(`Review ready: ${run.pr.title}`, `${findings.length} finding${findings.length === 1 ? '' : 's'}${crit ? `, ${crit} to fix before merge` : ''}. Verdict: ${parsed.verdict?.decision?.replace('_', ' ') ?? 'none'}.`, run.key)
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     update(run.key, { status: abort.signal.aborted ? 'cancelled' : 'error', error: abort.signal.aborted ? undefined : message, finishedAt: new Date().toISOString() }, emit)
+    if (!abort.signal.aborted && run.iteration?.status !== 'running') notify(`Review failed: ${run.pr.title}`, message, run.key)
   } finally {
     aborts.delete(run.key)
   }
+}
+
+// ---------- fixing and iterating ----------
+
+const fixAborts = new Map<string, AbortController>()
+const iterationStops = new Set<string>()
+
+const FIX_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['summary', 'addressed', 'commitMessage'],
+  properties: {
+    summary: { type: 'string', description: 'What was changed, 2-5 sentences, for the PR author and the reviewer.' },
+    addressed: { type: 'array', items: { type: 'string' }, description: 'Ids of the findings that were actually fixed.' },
+    skipped: { type: 'array', items: { type: 'object', required: ['id', 'why'], properties: { id: { type: 'string' }, why: { type: 'string' } } } },
+    commitMessage: { type: 'string', description: 'Conventional commit subject plus an optional body.' }
+  }
+}
+const DESTRUCTIVE = /\bgit\s+(push|reset\s+--hard|checkout\s+--\s|clean\s+-f|rebase|branch\s+-D)|\brm\s+-rf\b|\bgit\s+commit\b/
+
+/** Make the fixes for a set of findings in the PR checkout, commit them, and push to the PR branch. */
+export async function fixFindings(key: string, ids: string[] | 'all', emit: Emit, roundNo?: number): Promise<ReviewRun> {
+  load()
+  let run = runs.get(key)
+  if (!run) throw new Error(`No review ${key}`)
+  if (run.status === 'running' || run.status === 'preparing' || run.status === 'fixing') throw new Error('The review is still busy')
+  if (run.isFork) throw new Error(`This PR comes from a fork (${run.headRepo}); Sinfonie can only push to branches of ${run.pr.nameWithOwner}.`)
+  const targets = run.findings.filter((f) => (ids === 'all' ? f.severity !== 'nit' && !f.addressedRound : ids.includes(f.id)))
+  if (targets.length === 0) throw new Error('Nothing to fix: pick findings, or every remaining one is a nit or already addressed.')
+  if (!run.checkoutPath || !existsSync(run.checkoutPath)) {
+    const { dir } = await checkout(run.pr, key, emit)
+    update(key, { checkoutPath: dir }, emit)
+    run = runs.get(key)!
+  }
+  const dir = run.checkoutPath!
+  const round: FixRound = { n: roundNo ?? (run.fixes?.length ?? 0) + 1, status: 'fixing', findingIds: targets.map((f) => f.id), startedAt: new Date().toISOString(), costUsd: 0 }
+  update(key, { status: 'fixing', phase: `Fixing ${targets.length} finding${targets.length === 1 ? '' : 's'}`, fixes: [...(run.fixes ?? []), round] }, emit)
+  const setRound = (patch: Partial<FixRound>): void => {
+    Object.assign(round, patch)
+    update(key, { fixes: [...(runs.get(key)!.fixes ?? [])] }, emit)
+  }
+  const abort = new AbortController()
+  fixAborts.set(key, abort)
+  try {
+    const { settings } = getStore().get()
+    const list = targets.map((f) => `- id=${f.id} [${f.severity}] ${f.path}${f.line != null ? `:${f.line}` : ''}: ${f.title}\n  ${f.body.replace(/\n+/g, ' ')}${f.suggestion ? `\n  Suggested replacement:\n${f.suggestion.split('\n').map((l) => '    ' + l).join('\n')}` : ''}`).join('\n')
+    const prompt = [
+      `You are addressing code review findings on pull request #${run.pr.number} "${run.pr.title}" in ${run.pr.nameWithOwner}. You are in a checkout of the PR head (branch ${run.headRefName}); the base is origin/${run.baseRefName}.`,
+      '',
+      'Findings to address:',
+      list,
+      '',
+      'For each finding: make the smallest correct change that resolves it, in the spirit of the reviewer\u2019s comment. Read the surrounding code first. Keep the PR\u2019s style. Run the relevant tests or type-check when they exist and are cheap, and fix what you broke. Do not commit or push; Sinfonie commits and pushes after you finish. Do not touch findings that are not listed. If a finding is wrong or cannot be fixed safely, leave it and say why in skipped.',
+      'Return the structured result when done.'
+    ].join('\n')
+    const options: Options = {
+      ...claudeExecutableOption(),
+      cwd: dir,
+      permissionMode: 'acceptEdits',
+      canUseTool: async (tool, input) => {
+        if (tool === 'Bash') {
+          const cmd = String((input as { command?: unknown }).command ?? '')
+          if (DESTRUCTIVE.test(cmd)) return { behavior: 'deny', message: 'Not during a fix round: Sinfonie commits and pushes; never rewrite history or delete trees.' }
+          return { behavior: 'allow', updatedInput: input }
+        }
+        return { behavior: 'allow', updatedInput: input }
+      },
+      model: settings.budgetMode && !/haiku|sonnet/.test(settings.model) ? 'sonnet' : settings.model,
+      maxTurns: 120,
+      abortController: abort,
+      settingSources: ['user'],
+      outputFormat: { type: 'json_schema', schema: FIX_SCHEMA as unknown as Record<string, unknown> },
+      env: { ...process.env, ...accountEnv(run.accountId) },
+      stderr: (d) => console.error(`[fix ${key}]`, d.trimEnd())
+    }
+    let structured: unknown
+    for await (const msg of query({ prompt, options }) as AsyncIterable<SDKMessage>) {
+      if (msg.type === 'assistant') {
+        for (const block of msg.message.content) {
+          if (block.type === 'tool_use') {
+            const input = block.input as Record<string, unknown>
+            const what = typeof input.command === 'string' ? input.command : typeof input.file_path === 'string' ? input.file_path : ''
+            update(key, { phase: `Round ${round.n}: ${block.name} ${what}`.slice(0, 120) }, emit)
+          }
+        }
+      } else if (msg.type === 'result') {
+        round.costUsd = msg.total_cost_usd
+        try {
+          usage.recordTurn(usage.fromResult(msg, { workspaceId: '', spaceId: '', accountId: run.accountId, kind: 'review' }))
+        } catch {
+          /* ledger must never break the fix */
+        }
+        if (msg.subtype === 'success') structured = msg.structured_output
+        else throw new Error(`Fix round ended with ${msg.subtype}${'errors' in msg && Array.isArray(msg.errors) ? `: ${(msg.errors as string[]).join('; ')}` : ''}`)
+      }
+    }
+    const out = (structured ?? {}) as { summary?: string; addressed?: string[]; skipped?: { id: string; why: string }[]; commitMessage?: string }
+    const g = git(dir)
+    const status = await g.status()
+    if (status.files.length === 0) {
+      setRound({ status: 'done', finishedAt: new Date().toISOString(), summary: `${out.summary ?? 'No changes were needed.'}${out.skipped?.length ? ` Skipped: ${out.skipped.map((x) => `${x.id} (${x.why})`).join('; ')}` : ''}` })
+      update(key, { status: 'done', phase: 'No changes to push' }, emit)
+      return runs.get(key)!
+    }
+    setRound({ status: 'pushing' })
+    update(key, { phase: `Round ${round.n}: committing and pushing` }, emit)
+    await g.add(['-A'])
+    const message = (out.commitMessage?.trim() || `fix: address review findings (round ${round.n})`) + `\n\nAddressed with Sinfonie from review findings ${round.findingIds.join(', ')}.`
+    const commit = await g.commit(message)
+    await g.push(['origin', `HEAD:refs/heads/${run.headRefName}`])
+    const sha = commit.commit || (await g.revparse(['HEAD'])).trim()
+    const addressed = new Set(out.addressed?.length ? out.addressed : round.findingIds)
+    update(key, { findings: runs.get(key)!.findings.map((f) => (addressed.has(f.id) ? { ...f, addressedRound: round.n } : f)) })
+    setRound({ status: 'done', finishedAt: new Date().toISOString(), commit: sha, summary: `${out.summary ?? ''}${out.skipped?.length ? ` Skipped: ${out.skipped.map((x) => `${x.id} (${x.why})`).join('; ')}` : ''}`.trim() })
+    update(key, { status: 'done', phase: `Round ${round.n} pushed (${sha.slice(0, 7)})` }, emit)
+    if (runs.get(key)!.iteration?.status !== 'running') notify(`Fixes pushed: ${run.pr.title}`, `${addressed.size} finding${addressed.size === 1 ? '' : 's'} addressed in ${sha.slice(0, 7)}.`, key)
+    return runs.get(key)!
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    setRound({ status: 'error', finishedAt: new Date().toISOString(), error: abort.signal.aborted ? 'Stopped' : message })
+    update(key, { status: 'done', phase: abort.signal.aborted ? 'Fix round stopped' : `Fix round failed: ${message}` }, emit)
+    if (!abort.signal.aborted) throw err
+    return runs.get(key)!
+  } finally {
+    fixAborts.delete(key)
+  }
+}
+
+/** Run another review pass on the same PR, keeping fix history. Resolves when the pass is over. */
+async function reviewAgain(key: string, emit: Emit): Promise<ReviewRun> {
+  const run = runs.get(key)!
+  await cleanupCheckout(run)
+  update(key, { status: 'preparing', phase: 'Preparing checkout', findings: [], verdict: undefined, error: undefined, submittedUrl: undefined, checkoutPath: undefined, startedAt: new Date().toISOString(), finishedAt: undefined }, emit)
+  await execute(runs.get(key)!, emit)
+  return runs.get(key)!
+}
+
+function mergeReady(run: ReviewRun): boolean {
+  return run.status === 'done' && !run.findings.some((f) => (f.severity === 'critical' || f.severity === 'major') && !f.addressedRound) && (run.verdict?.decision === 'approve' || run.findings.length === 0)
+}
+
+/** Fix everything worth fixing, push, review again, and repeat until the reviewer approves or the round cap is hit. */
+export async function iterate(key: string, maxRounds: number, emit: Emit): Promise<ReviewRun> {
+  load()
+  const run = runs.get(key)
+  if (!run) throw new Error(`No review ${key}`)
+  if (run.iteration?.status === 'running') return run
+  if (run.isFork) throw new Error(`This PR comes from a fork (${run.headRepo}); Sinfonie can only push to branches of ${run.pr.nameWithOwner}.`)
+  iterationStops.delete(key)
+  update(key, { iteration: { status: 'running', maxRounds, round: 0, startedAt: new Date().toISOString(), phase: 'Starting' } }, emit)
+  void (async () => {
+    const it = (): NonNullable<ReviewRun['iteration']> => runs.get(key)!.iteration!
+    const setIt = (patch: Partial<NonNullable<ReviewRun['iteration']>>): void => {
+      update(key, { iteration: { ...it(), ...patch } }, emit)
+    }
+    try {
+      // Start from a fresh review unless the last pass is recent and complete.
+      let cur = runs.get(key)!
+      if (cur.status !== 'done') {
+        setIt({ phase: 'Reviewing' })
+        cur = await reviewAgain(key, emit)
+        if (cur.status !== 'done') throw new Error(cur.error || 'The review did not complete')
+      }
+      let round = 0
+      while (!mergeReady(cur) && round < maxRounds && !iterationStops.has(key)) {
+        round++
+        setIt({ round, phase: `Round ${round}: fixing` })
+        const toFix = cur.findings.filter((f) => f.severity !== 'nit' && !f.addressedRound)
+        if (toFix.length === 0) break
+        await fixFindings(key, 'all', emit, round)
+        if (iterationStops.has(key)) break
+        setIt({ phase: `Round ${round}: reviewing again` })
+        cur = await reviewAgain(key, emit)
+        if (cur.status !== 'done') throw new Error(cur.error || 'The review did not complete')
+      }
+      const final = runs.get(key)!
+      const rounds = (final.fixes ?? []).filter((r) => r.status === 'done' && r.commit)
+      const left = final.findings.filter((f) => !f.addressedRound)
+      const summary = [
+        mergeReady(final) ? `Ready to merge after ${round} fix round${round === 1 ? '' : 's'} and ${final.passes ?? 0} review passes.` : iterationStops.has(key) ? `Stopped by you after ${round} round${round === 1 ? '' : 's'}.` : `Stopped after ${round} round${round === 1 ? '' : 's'} (the cap); ${left.length} finding${left.length === 1 ? '' : 's'} remain${left.length === 1 ? 's' : ''}.`,
+        ...rounds.map((r) => `Round ${r.n} (${r.commit!.slice(0, 7)}): ${r.summary || `${r.findingIds.length} findings addressed`}`),
+        final.verdict ? `Final verdict: ${final.verdict.decision.replace('_', ' ')}. ${final.verdict.summary}` : ''
+      ]
+        .filter(Boolean)
+        .join('\n\n')
+      setIt({ status: iterationStops.has(key) ? 'stopped' : 'done', finishedAt: new Date().toISOString(), phase: undefined, summary })
+      notify(mergeReady(final) ? `Ready to merge: ${final.pr.title}` : `Iteration finished: ${final.pr.title}`, summary.split('\n')[0], key)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      setIt({ status: 'error', error: message, finishedAt: new Date().toISOString(), phase: undefined })
+      notify(`Iteration failed: ${runs.get(key)!.pr.title}`, message, key)
+    } finally {
+      iterationStops.delete(key)
+    }
+  })()
+  return runs.get(key)!
+}
+
+export function stopIteration(key: string): void {
+  iterationStops.add(key)
+  fixAborts.get(key)?.abort()
+  aborts.get(key)?.abort()
 }
 
 export function cancelReview(key: string): void {

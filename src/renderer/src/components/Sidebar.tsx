@@ -5,6 +5,7 @@ import { ERRORS_SEEN_KEY } from './FeedbackDialog'
 import { useResources, subscribeResources, gb } from '@/stores/resources'
 import { useOnCall, subscribeOnCall } from '@/stores/oncall'
 import { useUsage, subscribeUsage, windowLabel, clock } from '@/stores/usage'
+import { useReviews, isRunBusy } from '@/stores/reviews'
 import { WORKSPACE_STAGES } from '@shared/types'
 import { LabelChip, labelsFor } from './LabelPicker'
 import { useApp, spaceOrder } from '@/stores/app'
@@ -75,7 +76,8 @@ export function Sidebar(): React.JSX.Element {
   const run = (fn: () => Promise<unknown>): void => {
     fn().catch((err) => setError(err instanceof Error ? err.message : String(err)))
   }
-  const row = (w: Workspace, grouped: boolean): React.JSX.Element => <WorkspaceRow key={w.id} ws={w} grouped={grouped} selected={view === 'workspace' && w.id === selectedId} busy={Boolean(chats[w.id]?.busy)} onClick={() => select(w.id)} />
+  const unseenDone = useChat((s) => s.unseenDone)
+  const row = (w: Workspace, grouped: boolean): React.JSX.Element => <WorkspaceRow key={w.id} ws={w} grouped={grouped} selected={view === 'workspace' && w.id === selectedId} busy={Boolean(chats[w.id]?.busy)} done={Boolean(unseenDone[w.id])} onClick={() => select(w.id)} />
 
   // Two-finger horizontal swipe switches spaces, with a short lock so one gesture moves one step.
   const onWheel = (e: React.WheelEvent): void => {
@@ -105,6 +107,7 @@ export function Sidebar(): React.JSX.Element {
       <div className="px-2">
         <button data-tour="reviews" onClick={() => setView('reviews')} className={clsx('mb-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] font-medium', view === 'reviews' ? 'bg-panel-2' : 'hover:bg-panel-2/60')}>
           <GitPullRequest size={14} className="text-accent" /> Review cockpit
+          <ReviewBadges />
         </button>
         <OnCallButton active={view === 'oncall'} onClick={() => setView('oncall')} />
       </div>
@@ -358,6 +361,25 @@ function UsageBadge({ onOpen }: { onOpen: () => void }): React.JSX.Element | nul
   )
 }
 
+/** Next to Review cockpit: how many reviews are running, and how many finished unseen. */
+function ReviewBadges(): React.JSX.Element | null {
+  const runs = useReviews((s) => s.runs)
+  const unseen = useReviews((s) => s.unseen)
+  const running = Object.values(runs).filter((r) => isRunBusy(r)).length
+  const fresh = Object.keys(unseen).length
+  if (!running && !fresh) return null
+  return (
+    <span className="ml-auto inline-flex items-center gap-1.5">
+      {running > 0 && (
+        <span className="inline-flex items-center gap-1 text-[10px] text-muted" title={`${running} review${running === 1 ? '' : 's'} running`}>
+          <Spinner /> {running}
+        </span>
+      )}
+      {fresh > 0 && <span className="rounded-full bg-accent/20 px-1.5 text-[10px] font-semibold text-accent" title={`${fresh} finished since you last looked`}>{fresh}</span>}
+    </span>
+  )
+}
+
 /** On call entry: shows how many incidents wait for you. */
 function OnCallButton({ active, onClick }: { active: boolean; onClick: () => void }): React.JSX.Element {
   const state = useOnCall((s) => s.state)
@@ -426,7 +448,7 @@ function SpaceDots({ ids, currentId, onPick, onAdd }: { ids: string[]; currentId
   )
 }
 
-function WorkspaceRow({ ws, grouped, selected, busy, onClick }: { ws: Workspace; grouped: boolean; selected: boolean; busy: boolean; onClick: () => void }): React.JSX.Element {
+function WorkspaceRow({ ws, grouped, selected, busy, done, onClick }: { ws: Workspace; grouped: boolean; selected: boolean; busy: boolean; done?: boolean; onClick: () => void }): React.JSX.Element {
   const branch = ws.repos[0]?.branch
   const allLabels = useApp((s) => s.labels)
   const rowLabels = (ws.labelIds ?? []).map((id) => allLabels.find((l) => l.id === id)).filter((l): l is NonNullable<typeof l> => Boolean(l))
@@ -500,7 +522,7 @@ function WorkspaceRow({ ws, grouped, selected, busy, onClick }: { ws: Workspace;
             </span>
           )}
           <span className="ml-auto shrink-0">
-            {busy || ws.status === 'creating' || ws.status === 'archiving' ? <Spinner /> : ws.status === 'error' ? <span className="inline-block h-2 w-2 rounded-full bg-danger" title={ws.error} /> : null}
+            {busy || ws.status === 'creating' || ws.status === 'archiving' ? <Spinner /> : ws.status === 'error' ? <span className="inline-block h-2 w-2 rounded-full bg-danger" title={ws.error} /> : done ? <span className="inline-block h-2 w-2 rounded-full bg-accent" title="Finished since you last looked" /> : null}
           </span>
         </div>
         <div className="flex items-center gap-1.5 text-[11px] text-muted">

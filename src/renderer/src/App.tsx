@@ -8,6 +8,7 @@ import { OnCallView } from './components/OnCallView'
 import { AuthLinkDialog } from './components/AuthLinkDialog'
 import type { AuthLink } from '@shared/types'
 import { useOnCall } from './stores/oncall'
+import { useReviews } from './stores/reviews'
 import { NewWorkspaceDialog } from './components/NewWorkspaceDialog'
 import { SettingsWindow } from './components/SettingsWindow'
 import { PermissionPrompt } from './components/PermissionPrompt'
@@ -37,6 +38,14 @@ export default function App(): React.JSX.Element {
   useEffect(() => api.on('ui:authDone', (d) => setAuthLink((cur) => (cur && cur.provider === d.provider ? null : cur))), [])
   useEffect(() => api.on('ui:openFeedback', ({ tab }) => setFeedbackDialog(tab)), [setFeedbackDialog])
   useEffect(() => api.on('ui:openOnboarding', ({ kind }) => setOnboarding(kind)), [setOnboarding])
+  useEffect(
+    () =>
+      api.on('ui:openReview', ({ key }) => {
+        useApp.getState().setView('reviews')
+        useReviews.getState().select(key)
+      }),
+    []
+  )
   useEffect(
     () =>
       api.on('ui:openOnCall', ({ incidentId }) => {

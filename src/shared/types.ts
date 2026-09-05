@@ -528,6 +528,32 @@ export interface ReviewFinding {
   body: string
   suggestion?: string
   approved: boolean
+  /** The lines the finding points at, from the PR head at review time. */
+  snippet?: { start: number; lines: string[] }
+  /** Set once a fix round changed code for it. */
+  addressedRound?: number
+}
+/** One pass of the fixer over a set of findings, ending in a commit pushed to the PR branch. */
+export interface FixRound {
+  n: number
+  status: 'fixing' | 'pushing' | 'done' | 'error'
+  findingIds: string[]
+  startedAt: string
+  finishedAt?: string
+  summary?: string
+  commit?: string
+  error?: string
+  costUsd: number
+}
+export interface ReviewIteration {
+  status: 'running' | 'done' | 'stopped' | 'error'
+  maxRounds: number
+  round: number
+  phase?: string
+  startedAt: string
+  finishedAt?: string
+  summary?: string
+  error?: string
 }
 
 export interface ReviewVerdict {
@@ -535,7 +561,7 @@ export interface ReviewVerdict {
   summary: string
 }
 
-export type ReviewRunStatus = 'preparing' | 'running' | 'done' | 'error' | 'submitted' | 'cancelled'
+export type ReviewRunStatus = 'preparing' | 'running' | 'fixing' | 'done' | 'error' | 'submitted' | 'cancelled'
 
 export interface ReviewRun {
   key: string
@@ -553,6 +579,13 @@ export interface ReviewRun {
   costUsd?: number
   submittedUrl?: string
   checkoutPath?: string
+  /** owner/name of the head repository; pushes are only possible when it is the PR's own repository. */
+  headRepo?: string
+  isFork?: boolean
+  fixes?: FixRound[]
+  iteration?: ReviewIteration
+  /** How many review passes ran for this PR (each fix round triggers one more). */
+  passes?: number
 }
 
 export interface StoreData {

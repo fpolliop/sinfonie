@@ -82,6 +82,10 @@ export function ReviewCockpit(): React.JSX.Element {
 
   const selectedPr = prs.find((p) => keyOf(p) === selectedKey) ?? runs[selectedKey ?? '']?.pr
   const selectedRun = selectedKey ? runs[selectedKey] : undefined
+  const markSeen = useReviews((s) => s.markSeen)
+  useEffect(() => {
+    if (selectedKey) markSeen(selectedKey)
+  }, [selectedKey, selectedRun?.status, selectedRun?.iteration?.status, markSeen])
 
   const start = async (pr: ReviewPr): Promise<void> => {
     try {
@@ -220,8 +224,9 @@ export function ReviewCockpit(): React.JSX.Element {
 
 function RunBadge({ run }: { run?: ReviewRun }): React.JSX.Element | null {
   if (!run) return null
-  if (run.status === 'preparing' || run.status === 'running') return <Spinner />
+  if (run.status === 'preparing' || run.status === 'running' || run.status === 'fixing' || run.iteration?.status === 'running') return <Spinner />
   if (run.status === 'submitted') return <Badge tone="ok">submitted</Badge>
+  if (run.iteration?.status === 'done' && run.verdict?.decision === 'approve') return <Badge tone="ok">ready to merge</Badge>
   if (run.status === 'error') return <Badge tone="danger">failed</Badge>
   if (run.status === 'cancelled') return <Badge>cancelled</Badge>
   const crit = run.findings.filter((f) => f.severity === 'critical' || f.severity === 'major').length
@@ -246,8 +251,14 @@ function PrDetail({ pr, run, onStart }: { pr: ReviewPr; run?: ReviewRun; onStart
       setError(err instanceof Error ? err.message : String(err))
     }
   }
-  const busy = run?.status === 'preparing' || run?.status === 'running'
+  const iterating = run?.iteration?.status === 'running'
+  const busy = run?.status === 'preparing' || run?.status === 'running' || run?.status === 'fixing' || iterating
+  const [maxRounds, setMaxRounds] = useState(3)
   const findings = run?.findings ?? []
+  const fixable = findings.filter((f) => f.severity !== 'nit' && !f.addressedRound)
+  const selectedFixable = findings.filter((f) => f.approved && !f.addressedRound)
+  const canPush = run ? !run.isFork : false
+  const fix = (ids: string[] | 'all'): Promise<void> => act(() => api.invoke('reviews:fix', run!.key, ids))
   const approvedCount = findings.filter((f) => f.approved).length
   const counts = SEV_ORDER.map((sev) => [sev, findings.filter((f) => f.severity === sev).length] as const)
   const visible = findings.filter((f) => !hidden.has(f.severity))
@@ -297,9 +308,23 @@ function PrDetail({ pr, run, onStart }: { pr: ReviewPr; run?: ReviewRun; onStart
           </Button>
         )}
         {busy && (
-          <Button variant="danger" onClick={() => act(() => api.invoke('reviews:cancel', run!.key))}>
-            <Square size={12} /> Cancel
+          <Button variant="danger" onClick={() => act(() => (iterating || run?.status === 'fixing' ? api.invoke('reviews:stopIteration', run!.key) : api.invoke('reviews:cancel', run!.key)))}>
+            <Square size={12} /> {iterating ? 'Stop iterating' : run?.status === 'fixing' ? 'Stop fixing' : 'Cancel'}
           </Button>
+        )}
+        {run && !busy && run.status !== 'submitted' && (
+          <span className="inline-flex items-center gap-1">
+            <Button variant="subtle" disabled={!canPush} title={canPush ? 'Fix all findings, push, review again, and repeat until the reviewer approves or the round cap is reached' : `This PR comes from a fork (${run.headRepo}); Sinfonie cannot push to it`} onClick={() => act(() => api.invoke('reviews:iterate', run.key, maxRounds))}>
+              <RefreshCw size={13} /> Iterate until ready
+            </Button>
+            <select className="rounded-md border border-border bg-bg px-1 py-1 text-[11px]" value={maxRounds} onChange={(e) => setMaxRounds(Number(e.target.value))} title="Maximum fix rounds">
+              {[1, 2, 3, 5].map((n) => (
+                <option key={n} value={n}>
+                  {n} round{n === 1 ? '' : 's'} max
+                </option>
+              ))}
+            </select>
+          </span>
         )}
         {run && !busy && !readOnly && (
           <Button variant="ghost" onClick={() => act(() => api.invoke('reviews:discard', run.key))}>
@@ -319,13 +344,54 @@ function PrDetail({ pr, run, onStart }: { pr: ReviewPr; run?: ReviewRun; onStart
       </div>
 
       {busy && (
-        <div className="rounded-xl border border-border bg-panel p-4">
+        <div className={clsx('rounded-xl border p-4', iterating ? 'border-accent/40 bg-accent/5' : 'border-border bg-panel')}>
           <div className="flex items-center gap-2 text-[13px]">
-            <Spinner /> <span className="font-medium">{run?.status === 'preparing' ? 'Preparing' : 'Reviewing'}</span>
-            <span className="text-muted">{run?.phase}</span>
+            <Spinner />
+            <span className="font-medium">{iterating ? `Iterating · round ${run!.iteration!.round} of ${run!.iteration!.maxRounds}` : run?.status === 'fixing' ? 'Fixing' : run?.status === 'preparing' ? 'Preparing' : 'Reviewing'}</span>
+            <span className="text-muted">{iterating ? run!.iteration!.phase : run?.phase}</span>
           </div>
-          <p className="mt-1 text-[12px] text-muted">The reviewer checks out the branch, reads the diff and the code around it, and returns findings with a verdict. A few minutes for a large PR.</p>
+          <p className="mt-1 text-[12px] text-muted">
+            {iterating
+              ? 'Fix every finding worth fixing, commit and push to the PR branch, review the new head, and repeat until the reviewer approves or the round cap is hit. You can stop at any point; pushed commits stay.'
+              : run?.status === 'fixing'
+                ? 'The fixer edits the checkout, runs cheap tests, then Sinfonie commits and pushes to the PR branch.'
+                : 'The reviewer checks out the branch, reads the diff and the code around it, and returns findings with a verdict. A few minutes for a large PR.'}
+          </p>
         </div>
+      )}
+      {run?.iteration && run.iteration.status !== 'running' && (
+        <div className={clsx('rounded-xl border p-4 text-[12px]', run.iteration.status === 'done' ? 'border-ok/40 bg-ok/5' : run.iteration.status === 'error' ? 'border-danger/40 bg-danger/10' : 'border-border bg-panel')}>
+          <div className="mb-1 flex items-center gap-2 text-[13px] font-medium">
+            {run.iteration.status === 'done' ? 'Iteration finished' : run.iteration.status === 'stopped' ? 'Iteration stopped' : 'Iteration failed'}
+            <span className="text-[11px] font-normal text-muted">
+              {run.iteration.round} fix round{run.iteration.round === 1 ? '' : 's'} · {run.passes ?? 0} review pass{(run.passes ?? 0) === 1 ? '' : 'es'} · ${(run.costUsd ?? 0).toFixed(2)}
+            </span>
+          </div>
+          <div className="whitespace-pre-wrap text-muted">{run.iteration.summary ?? run.iteration.error}</div>
+        </div>
+      )}
+      {run?.fixes && run.fixes.length > 0 && (
+        <section>
+          <h3 className="mb-1.5 text-[12px] font-medium uppercase tracking-wide text-muted">Fix rounds</h3>
+          <div className="flex flex-col gap-1.5">
+            {run.fixes.map((r) => (
+              <div key={r.n} className="rounded-lg border border-border px-3 py-2 text-[12px]">
+                <div className="flex items-center gap-2">
+                  <span className="font-medium">Round {r.n}</span>
+                  <Badge tone={r.status === 'done' ? 'ok' : r.status === 'error' ? 'danger' : 'accent'}>{r.status}</Badge>
+                  <span className="text-muted">{r.findingIds.length} finding{r.findingIds.length === 1 ? '' : 's'}</span>
+                  {r.commit && (
+                    <button className="font-mono text-[11px] text-accent hover:underline" onClick={() => void api.invoke('shell:openExternal', `${pr.url.replace(/\/pull\/\d+$/, '')}/commit/${r.commit}`)}>
+                      {r.commit.slice(0, 7)}
+                    </button>
+                  )}
+                  <span className="ml-auto text-[11px] text-muted">${r.costUsd.toFixed(2)}</span>
+                </div>
+                {(r.summary || r.error) && <div className={clsx('mt-1 whitespace-pre-wrap', r.error ? 'text-danger' : 'text-muted')}>{r.error ?? r.summary}</div>}
+              </div>
+            ))}
+          </div>
+        </section>
       )}
       {run?.status === 'error' && (
         <div className="rounded-xl border border-danger/40 bg-danger/10 p-4 text-[12px]">
@@ -365,6 +431,16 @@ function PrDetail({ pr, run, onStart }: { pr: ReviewPr; run?: ReviewRun; onStart
                   <button className="text-[11px] text-accent hover:underline" onClick={() => act(() => api.invoke('reviews:setAll', run.key, approvedCount < findings.length))}>
                     {approvedCount < findings.length ? 'Select all' : 'Clear all'}
                   </button>
+                  {!busy && selectedFixable.length > 0 && (
+                    <Button size="sm" variant="subtle" disabled={!canPush} title={canPush ? 'Fix the selected findings in the PR branch and push' : 'Cannot push to a fork'} onClick={() => fix(selectedFixable.map((f) => f.id))}>
+                      Fix {selectedFixable.length} selected
+                    </Button>
+                  )}
+                  {!busy && fixable.length > 0 && (
+                    <Button size="sm" variant="subtle" disabled={!canPush} title={canPush ? 'Fix every unaddressed finding except nits, then push' : 'Cannot push to a fork'} onClick={() => fix('all')}>
+                      Fix all {fixable.length}
+                    </Button>
+                  )}
                 </>
               )}
             </div>
@@ -377,7 +453,7 @@ function PrDetail({ pr, run, onStart }: { pr: ReviewPr; run?: ReviewRun; onStart
                     <span className="ml-auto shrink-0 text-[11px] text-muted">{list.length} finding{list.length === 1 ? '' : 's'}</span>
                   </div>
                   {list.map((f) => (
-                    <FindingCard key={f.id} runKey={run.key} finding={f} readOnly={readOnly} />
+                    <FindingCard key={f.id} runKey={run.key} finding={f} readOnly={readOnly} onFix={!busy && canPush ? (id) => void fix([id]) : undefined} />
                   ))}
                 </div>
               ))}
@@ -441,7 +517,7 @@ function VerdictEditor({ run, disabled }: { run: ReviewRun; disabled: boolean })
   )
 }
 
-function FindingCard({ runKey, finding: f, readOnly }: { runKey: string; finding: ReviewFinding; readOnly: boolean }): React.JSX.Element {
+function FindingCard({ runKey, finding: f, readOnly, onFix }: { runKey: string; finding: ReviewFinding; readOnly: boolean; onFix?: (id: string) => void }): React.JSX.Element {
   const setError = useApp((s) => s.setError)
   const [open, setOpen] = useState(f.severity === 'critical' || f.severity === 'major')
   const [body, setBody] = useState(f.body)
@@ -456,13 +532,28 @@ function FindingCard({ runKey, finding: f, readOnly }: { runKey: string; finding
         <button className="flex min-w-0 flex-1 items-center gap-2 text-left" onClick={() => setOpen(!open)}>
           <ChevronRight size={12} className={clsx('shrink-0 text-muted transition-transform', open && 'rotate-90')} />
           <span className={clsx('h-2 w-2 shrink-0 rounded-full', SEV_DOT[f.severity])} title={f.severity} />
-          <span className={clsx('truncate text-[13px]', f.approved ? 'font-medium' : '')}>{f.title}</span>
+          <span className={clsx('truncate text-[13px]', f.approved ? 'font-medium' : '', f.addressedRound && 'text-muted line-through')}>{f.title}</span>
+          {f.addressedRound && <Badge tone="ok">fixed in round {f.addressedRound}</Badge>}
           {f.suggestion && <span className="shrink-0 rounded bg-panel-2 px-1 text-[10px] uppercase tracking-wide text-muted">suggestion</span>}
           <span className="ml-auto shrink-0 font-mono text-[11px] text-muted">{f.line != null ? `L${f.line}` : 'file'}</span>
         </button>
       </div>
       {open && (
         <div className="border-t border-border/60 px-3 py-2 pl-9">
+          {f.snippet && (
+            <div className="mb-2 overflow-auto rounded-md border border-border bg-bg font-mono text-[11.5px] leading-[1.5]">
+              {f.snippet.lines.map((line, i) => {
+                const no = f.snippet!.start + i
+                const hit = no === f.line
+                return (
+                  <div key={no} className={clsx('flex', hit && 'bg-warn/15')}>
+                    <span className={clsx('w-11 shrink-0 select-none border-r border-border px-2 text-right text-muted/70', hit && 'text-warn')}>{no}</span>
+                    <pre className="m-0 whitespace-pre px-2">{line || ' '}</pre>
+                  </div>
+                )
+              })}
+            </div>
+          )}
           {readOnly ? <div className="whitespace-pre-wrap text-[12.5px]">{f.body}</div> : <textarea rows={Math.min(10, Math.max(2, body.split('\n').length + 1))} className={clsx(inputCls, 'font-sans')} value={body} onChange={(e) => setBody(e.target.value)} onBlur={() => body !== f.body && patch({ body })} />}
           {f.suggestion && (
             <div className="mt-2">
@@ -482,6 +573,11 @@ function FindingCard({ runKey, finding: f, readOnly }: { runKey: string; finding
               <Button size="sm" variant={f.approved ? 'subtle' : 'primary'} onClick={() => patch({ approved: !f.approved })}>
                 {f.approved ? 'Leave out' : 'Post this one'}
               </Button>
+              {onFix && !f.addressedRound && (
+                <Button size="sm" variant="subtle" onClick={() => onFix(f.id)} title="Fix this finding in the PR branch and push">
+                  Fix this
+                </Button>
+              )}
             </div>
           )}
         </div>

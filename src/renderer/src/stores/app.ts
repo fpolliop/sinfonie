@@ -169,6 +169,7 @@ export const useApp = create<AppState>((set, get) => ({
     set({ spaces: d.spaces, labels: d.labels, repos: d.repos, workspaces: d.workspaces, settings: d.settings, selectedId: stillThere ? selected : null })
   },
   select: (id) => {
+    if (id) void import('./chat').then((m) => m.useChat.getState().markSeen(id))
     if (id) localStorage.setItem('orchestra.selected', id)
     else localStorage.removeItem('orchestra.selected')
     localStorage.setItem('orchestra.view', 'workspace')

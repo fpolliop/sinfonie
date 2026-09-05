@@ -130,6 +130,11 @@ export interface SinfonieInvoke {
   'reviews:setAll': (key: string, approved: boolean) => ReviewRun
   'reviews:setVerdict': (key: string, verdict: ReviewVerdict) => ReviewRun
   'reviews:submit': (key: string) => ReviewRun
+  /** Fix the given findings (or every unaddressed non-nit one) in the PR checkout, commit and push. */
+  'reviews:fix': (key: string, findingIds: string[] | 'all') => ReviewRun
+  /** Fix, push, re-review, repeat until approved or maxRounds. */
+  'reviews:iterate': (key: string, maxRounds?: number) => ReviewRun
+  'reviews:stopIteration': (key: string) => void
 
   'agent:send': (workspaceId: string, text: string, images?: ChatImageInput[]) => void
   'agent:interrupt': (workspaceId: string) => void
@@ -241,6 +246,8 @@ export interface SinfonieEvents {
   'ui:authLink': AuthLink
   /** That sign-in finished; close the dialog. */
   'ui:authDone': { provider: AuthLink['provider']; connId: string }
+  /** Open the review cockpit on this PR (notification click). */
+  'ui:openReview': { key: string }
   /** Open the On call view on this incident (notification click, deep link). */
   'ui:openOnCall': { incidentId?: string }
   /** An agent started using the browser of this workspace; the renderer brings the pane forward. */

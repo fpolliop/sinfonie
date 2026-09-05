@@ -461,6 +461,9 @@ export function registerIpc(): void {
   handle('reviews:setAll', (key, approved) => reviews.setAllFindings(key, approved, emitReview))
   handle('reviews:setVerdict', (key, verdict) => reviews.setVerdict(key, verdict, emitReview))
   handle('reviews:submit', (key) => reviews.submitReview(key, emitReview))
+  handle('reviews:fix', (key, ids) => reviews.fixFindings(key, ids, emitReview))
+  handle('reviews:iterate', (key, max) => reviews.iterate(key, max ?? 3, emitReview))
+  handle('reviews:stopIteration', (key) => reviews.stopIteration(key))
 
   // ---- agent ----
   // Messages held back by a limit warning, until the user picks a way forward.
