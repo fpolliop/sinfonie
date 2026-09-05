@@ -1,4 +1,4 @@
-import type { AuthLink, BrowserState, CrewPriority, LimitAlternative, UsageSnapshot, ChatImageInput, Incident, IncidentStatus, LinearIssue, LinearSettings, OnCallState, ResourceSnapshot, Severity, SlackConnection, LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion,
+import type { AuthLink, BrowserState, CrewPriority, FsEntry, LimitAlternative, UsageSnapshot, ChatImageInput, Incident, IncidentStatus, LinearIssue, LinearSettings, OnCallState, ResourceSnapshot, Severity, SlackConnection, LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion,
   AgentEvent,
   ChatItem,
   JiraIssue,
@@ -77,6 +77,11 @@ export interface SinfonieInvoke {
   'workspaces:removeRepo': (workspaceId: string, repoId: string, opts: { deleteBranch: boolean }) => Workspace
 
   'git:status': (workspaceId: string) => RepoGitStatus[]
+  // ---- files (confined to the workspace) ----
+  'fs:list': (workspaceId: string, dir: string, showHidden?: boolean) => FsEntry[]
+  'fs:read': (workspaceId: string, path: string) => { text: string; truncated: boolean; binary: boolean; size: number }
+  'fs:reveal': (workspaceId: string, path: string) => void
+  'fs:open': (workspaceId: string, path: string) => void
   'git:diff': (workspaceId: string, repoId: string, path?: string) => string
   'git:commit': (workspaceId: string, repoId: string, message: string) => string
   'git:push': (workspaceId: string, repoId: string) => string

@@ -43,6 +43,7 @@ import * as browser from './services/browser/service'
 import * as browserHttp from './services/browser/http'
 import * as workspaceTools from './services/workspace-tools'
 import { saveImages } from './services/images'
+import * as files from './services/files'
 import * as slack from './services/slack'
 import * as oncall from './services/oncall/service'
 import * as usage from './services/usage'
@@ -565,6 +566,12 @@ export function registerIpc(): void {
   handle('oncall:ask', (id, q) => oncall.ask(id, q))
   handle('oncall:remove', (id) => oncall.remove(id))
   setTimeout(() => oncall.reconcile(), 5_000)
+
+  // ---- files ----
+  handle('fs:list', (id, dir, hidden) => files.list(id, dir, hidden))
+  handle('fs:read', (id, p) => files.read(id, p))
+  handle('fs:reveal', (id, p) => files.reveal(id, p))
+  handle('fs:open', (id, p) => files.open(id, p))
 
   // ---- workspace browser ----
   browser.setEmitters(

@@ -715,6 +715,13 @@ export interface RepoPr {
   fetchedAt: string
 }
 
+export interface FsEntry {
+  name: string
+  path: string
+  dir: boolean
+  size: number
+}
+
 export interface GitFileStatus {
   path: string
   /** M, A, D, R, ?, etc. */

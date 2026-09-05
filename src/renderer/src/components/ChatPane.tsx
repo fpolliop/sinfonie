@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { ChevronRight, Square, RotateCcw, Send, ShieldCheck, XCircle, AlertTriangle, Info, History, Users, GitFork, ListTree, ArrowLeft, StickyNote, Paperclip, X } from 'lucide-react'
 import { imageFiles } from '@/lib/images'
-import type { AgentEvent, ChatImageRef, LimitAlternative } from '@shared/types'
+import type { ChatTurnResult, AgentEvent, ChatImageRef, LimitAlternative } from '@shared/types'
 import { NotesPanel } from './NotesPanel'
 import { useNotes } from '@/stores/notes'
 import { api } from '@/lib/api'
@@ -56,6 +56,8 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
   const draft = chat?.draft ?? ''
   const pendingImages = chat?.images ?? NO_IMAGES
   const fileInput = useRef<HTMLInputElement>(null)
+  const taRef = useRef<HTMLTextAreaElement>(null)
+  const [taHeight, setTaHeight] = useState<number>(() => Number(localStorage.getItem('sinfonie.composerHeight')) || 0)
   const queue = chat?.queue ?? []
   const disabled = ws?.status !== 'ready'
   const canSend = !disabled && (Boolean(draft.trim()) || pendingImages.length > 0)
@@ -220,34 +222,21 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
                 }
               }}
               rows={3}
+              ref={taRef}
+              style={taHeight ? { height: taHeight } : undefined}
+              onMouseUp={() => {
+                const h = taRef.current?.offsetHeight
+                if (h && h !== taHeight) {
+                  setTaHeight(h)
+                  localStorage.setItem('sinfonie.composerHeight', String(h))
+                }
+              }}
               placeholder={disabled ? 'Workspace is not ready' : busy ? 'Type to queue a message for when this turn ends… (Enter to queue)' : 'Describe the change across your repos… (Enter to send, Shift+Enter for newline, paste or drop images)'}
-              className="w-full resize-none bg-transparent px-3 pt-3 text-[13px] outline-none placeholder:text-muted"
+              className="min-h-[64px] max-h-[60vh] w-full resize-y bg-transparent px-3 pt-3 text-[13px] outline-none placeholder:text-muted"
             />
             <div className="flex items-center gap-2 px-2 pb-2">
               <ModePicker mode={mode} onChange={changeMode} />
-              <span className="text-[11px] text-muted">
-                <span className="rounded bg-panel-2 px-1 py-px text-[10px] uppercase tracking-wide">{engineLabel}</span>{' '}
-                {budgetMode && (
-                  <span className="mr-1 rounded bg-ok/15 px-1 py-px text-[10px] uppercase tracking-wide text-ok" title="Budget mode: Sonnet orchestrator, low effort, two subagents, a spend cap per turn. Change it in the space settings.">
-                    budget
-                  </span>
-                )}
-                {chat?.model ?? `model: ${settingsModel}`}
-                {chat?.contextTokens ? (
-                  <span className={clsx('ml-1', chat.contextTokens >= 120000 ? 'text-warn' : '')} title="Tokens the model re-reads on every message in this session. Start a new session for a new task to keep this small.">
-                    · context {chat.contextTokens >= 1000 ? `${Math.round(chat.contextTokens / 1000)}k` : chat.contextTokens}
-                  </span>
-                ) : null}
-                {chat?.lastResult && (
-                  <>
-                    {' '}
-                    · session ${chat.lastResult.costUsd.toFixed(2)} · {(chat.lastResult.durationMs / 1000).toFixed(1)}s
-                    {chat.lastResult.byModel && chat.lastResult.byModel.length > 1 && (
-                      <span title="Cost split by model for this session"> ({chat.lastResult.byModel.map((m) => `${shortModel(m.model)} $${m.costUsd.toFixed(2)}`).join(', ')})</span>
-                    )}
-                  </>
-                )}
-              </span>
+              <SessionPill engineLabel={engineLabel} budgetMode={budgetMode} model={chat?.model ?? settingsModel} contextTokens={chat?.contextTokens} result={chat?.lastResult} />
               <span className="ml-auto" />
               <Button size="sm" variant="ghost" title="Attach images (or paste / drop them into the message)" onClick={() => fileInput.current?.click()} disabled={disabled}>
                 <Paperclip size={13} />
@@ -349,6 +338,70 @@ function Block({ block }: { block: ChatBlock }): React.JSX.Element | null {
 }
 
 const NO_IMAGES: never[] = []
+
+/** The session's vitals in one small pill; the details open on click. */
+function SessionPill({ engineLabel, budgetMode, model, contextTokens, result }: { engineLabel: string; budgetMode: boolean; model: string; contextTokens?: number; result?: ChatTurnResult }): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent): void => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [open])
+  const ctx = contextTokens ? (contextTokens >= 1000 ? `${Math.round(contextTokens / 1000)}k` : String(contextTokens)) : null
+  const hot = (contextTokens ?? 0) >= 120000
+  return (
+    <div ref={ref} className="relative">
+      <button onClick={() => setOpen(!open)} className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[11px] text-muted hover:bg-panel-2 hover:text-text" title="Session details">
+        <span className="rounded bg-panel-2 px-1 py-px text-[10px] uppercase tracking-wide">{engineLabel}</span>
+        {budgetMode && <span className="rounded bg-ok/15 px-1 py-px text-[10px] uppercase tracking-wide text-ok">budget</span>}
+        <span className="font-mono">{shortModel(model)}</span>
+        {ctx && <span className={clsx('font-mono', hot && 'text-warn')}>· {ctx}</span>}
+        {result && <span className="font-mono">· ${result.costUsd.toFixed(2)}</span>}
+        <ChevronRight size={11} className={clsx('transition-transform', open ? '-rotate-90' : 'rotate-90')} />
+      </button>
+      {open && (
+        <div className="absolute bottom-full left-0 z-20 mb-1 w-[300px] rounded-lg border border-border bg-panel p-3 text-[12px] shadow-2xl">
+          <Row k="Engine" v={engineLabel} />
+          <Row k="Model" v={model} />
+          {budgetMode && <Row k="Budget mode" v="Sonnet orchestrator, low effort, two subagents, per-turn cap" />}
+          <Row k="Context" v={contextTokens ? `${contextTokens.toLocaleString()} tokens${hot ? ' · large, consider a new session' : ''}` : 'no turn yet'} warn={hot} />
+          {result && (
+            <>
+              <Row k="Session cost" v={`$${result.costUsd.toFixed(2)}`} />
+              <Row k="Last turn" v={`${(result.durationMs / 1000).toFixed(1)}s · ${result.numTurns} step${result.numTurns === 1 ? '' : 's'}`} />
+              {result.byModel && result.byModel.length > 0 && (
+                <div className="mt-2 border-t border-border pt-2">
+                  <div className="mb-1 text-[10px] uppercase tracking-wide text-muted">By model</div>
+                  {result.byModel.map((m) => (
+                    <div key={m.model} className="flex justify-between font-mono text-[11px]">
+                      <span>{shortModel(m.model)}</span>
+                      <span>
+                        ${m.costUsd.toFixed(2)} · {m.outputTokens >= 1000 ? `${Math.round(m.outputTokens / 1000)}k` : m.outputTokens} out
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+          <div className="mt-2 border-t border-border pt-2 text-[11px] text-muted">Estimates at list price. Every message re-reads the context; a new session for a new task keeps it small.</div>
+        </div>
+      )}
+    </div>
+  )
+}
+function Row({ k, v, warn }: { k: string; v: string; warn?: boolean }): React.JSX.Element {
+  return (
+    <div className="flex gap-2 py-0.5">
+      <span className="w-[88px] shrink-0 text-muted">{k}</span>
+      <span className={clsx('min-w-0 flex-1', warn && 'text-warn')}>{v}</span>
+    </div>
+  )
+}
 
 /** Near or past a subscription limit: what happened and the ways forward, each one click. */
 function LimitCard({ workspaceId, ev }: { workspaceId: string; ev: Extract<AgentEvent, { type: 'limit' }> }): React.JSX.Element {
