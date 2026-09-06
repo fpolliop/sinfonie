@@ -1,5 +1,6 @@
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, powerMonitor } from 'electron'
 import { autoUpdater } from 'electron-updater'
+import { getStore } from '../store'
 import type { UpdateInfo } from '@shared/types'
 
 const REPO = 'fpolliop/sinfonie-releases'
@@ -25,10 +26,31 @@ function newer(a: string, b: string): boolean {
 }
 
 let wired = false
+let idleTimer: NodeJS.Timeout | null = null
+let isIdle: () => boolean = () => true
+/** Tell the updater how to know that nothing is running (agents, reviews, on-call); wired from ipc. */
+export function setIdleProbe(fn: () => boolean): void {
+  isIdle = fn
+}
+/** Restart into the downloaded update once no agent runs and the user has been away for a bit. */
+export function installWhenIdle(on: boolean): void {
+  if (idleTimer) clearInterval(idleTimer)
+  idleTimer = null
+  if (latest) send({ ...latest, installWhenIdle: on })
+  if (!on) return
+  idleTimer = setInterval(() => {
+    if (latest?.state !== 'ready') return
+    if (!isIdle() || powerMonitor.getSystemIdleTime() < 45) return
+    if (idleTimer) clearInterval(idleTimer)
+    idleTimer = null
+    installUpdate()
+  }, 20_000)
+  idleTimer.unref()
+}
 /**
  * Signed builds update in place: electron-updater reads latest-mac.yml from the public releases
- * repo, downloads the zip on request, verifies its signature against the running app, and swaps
- * the bundle on restart. Nothing downloads without the user pressing the button.
+ * repo, downloads the zip (on its own unless auto-download is off), verifies its signature against
+ * the running app, and swaps the bundle on restart: now, when idle, or on the next quit.
  */
 function wire(): void {
   if (wired) return
@@ -36,9 +58,13 @@ function wire(): void {
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = true
   autoUpdater.logger = { info: () => undefined, warn: (m) => console.warn('[updater]', m), error: (m) => console.error('[updater]', m), debug: () => undefined }
-  autoUpdater.on('update-available', (u) => send({ state: 'available', version: u.version, current: app.getVersion(), url: releaseUrl(u.version), releaseUrl: releaseUrl(u.version), notes: typeof u.releaseNotes === 'string' ? u.releaseNotes.slice(0, 2000) : '' }))
+  autoUpdater.on('update-available', (u) => {
+    const auto = getStore().get().settings.autoDownloadUpdates !== false
+    send({ state: auto ? 'downloading' : 'available', auto, percent: 0, version: u.version, current: app.getVersion(), url: releaseUrl(u.version), releaseUrl: releaseUrl(u.version), notes: typeof u.releaseNotes === 'string' ? u.releaseNotes.slice(0, 2000) : '' })
+    if (auto) autoUpdater.downloadUpdate().catch((err) => console.warn('[updater] auto-download', err))
+  })
   autoUpdater.on('download-progress', (p) => latest && send({ ...latest, state: 'downloading', percent: Math.round(p.percent) }))
-  autoUpdater.on('update-downloaded', (u) => send({ state: 'ready', version: u.version, current: app.getVersion(), url: releaseUrl(u.version), releaseUrl: releaseUrl(u.version), notes: latest?.notes ?? '' }))
+  autoUpdater.on('update-downloaded', (u) => send({ state: 'ready', auto: latest?.auto, installWhenIdle: Boolean(idleTimer), version: u.version, current: app.getVersion(), url: releaseUrl(u.version), releaseUrl: releaseUrl(u.version), notes: latest?.notes ?? '' }))
   autoUpdater.on('error', (err) => {
     console.warn('[updater]', err.message)
     // Only surface errors the user can act on: a failed download of an update they asked for.
@@ -76,7 +102,7 @@ export async function checkForUpdate(): Promise<UpdateInfo | null> {
 export async function downloadUpdate(): Promise<void> {
   if (!app.isPackaged) throw new Error('In-app updates only work in the installed app. Download it from the release page.')
   wire()
-  if (latest) send({ ...latest, state: 'downloading', percent: 0 })
+  if (latest) send({ ...latest, state: 'downloading', auto: false, percent: 0 })
   await autoUpdater.downloadUpdate()
 }
 

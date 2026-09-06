@@ -107,6 +107,8 @@ export interface SinfonieInvoke {
   'updates:check': () => UpdateInfo | null
   'updates:download': () => void
   'updates:install': () => void
+  /** Arm or disarm the idle restart for a downloaded update. */
+  'updates:installWhenIdle': (on: boolean) => void
   'feedback:send': (payload: { kind: 'feedback' | 'feature' | 'bug'; message: string; email?: string; includeLogs?: boolean; attachments?: { name: string; mime: string; data: string }[] }) => { ok: boolean; error?: string }
   'logs:open': () => void
   'logs:list': () => ErrorEntry[]

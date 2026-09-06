@@ -31,7 +31,7 @@ import { setAuthLinkEmitters, authDone } from './services/auth-link'
 import * as accounts from './services/accounts'
 import * as reviews from './services/reviews'
 import * as sessionsSvc from './services/sessions'
-import { checkForUpdate, latestKnownUpdate, downloadUpdate, installUpdate } from './services/updates'
+import { checkForUpdate, latestKnownUpdate, downloadUpdate, installUpdate, installWhenIdle, setIdleProbe } from './services/updates'
 import { clearErrors, listErrors, logsDir, sendFeedback, noteMessage } from './services/telemetry'
 import * as interaction from './services/interaction'
 import * as providers from './services/providers'
@@ -411,6 +411,16 @@ export function registerIpc(): void {
   handle('updates:check', async () => (await checkForUpdate()) ?? latestKnownUpdate())
   handle('updates:download', () => downloadUpdate())
   handle('updates:install', () => installUpdate())
+  handle('updates:installWhenIdle', (on) => installWhenIdle(Boolean(on)))
+  // Idle for the updater: no agent turn, no review run or fix round, no on-call triage or fix PR in flight.
+  setIdleProbe(() => {
+    const { workspaces: all } = getStore().get()
+    if (all.some((w) => agent.isBusy(w.id))) return false
+    if (reviews.listRuns().some((r) => r.status === 'preparing' || r.status === 'running' || r.status === 'fixing' || r.iteration?.status === 'running')) return false
+    const oc = oncall.state()
+    if (oc.triaging || oc.incidents.some((i) => i.fix?.status === 'running')) return false
+    return true
+  })
   handle('app:version', () => app.getVersion())
   handle('feedback:send', async (p) => {
     let logs: string | undefined

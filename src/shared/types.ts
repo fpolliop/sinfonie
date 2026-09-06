@@ -472,6 +472,8 @@ export interface Settings {
   grokModel?: string
   /** Send anonymised crash reports (error message, stack, version, OS) to sinfonie.dev. Default on. */
   crashReports?: boolean
+  /** Download new releases as soon as they are found (default true); the banner then only asks when to restart. */
+  autoDownloadUpdates?: boolean
   /** Send an anonymous daily usage ping (random install id, version, OS, engines, counts). Default on. */
   usageStats?: boolean
   /** Random id for the usage ping; never tied to an account. */
@@ -1173,6 +1175,10 @@ export interface LimitAlternative {
 export interface UpdateInfo {
   /** available: offer the download. downloading: show progress. ready: offer the restart. error: the download failed. */
   state: 'available' | 'downloading' | 'ready' | 'error'
+  /** The download started on its own (auto-download); the banner stays quiet until ready. */
+  auto?: boolean
+  /** Ready and armed: the app restarts by itself once no agent runs and the user has stepped away. */
+  installWhenIdle?: boolean
   percent?: number
   error?: string
   version: string

@@ -411,6 +411,8 @@ function AboutPage(): React.JSX.Element {
   }
   const setOnboarding = useApp((s) => s.setOnboarding)
   const closeSettings = useApp((s) => s.closeSettings)
+  const settings = useApp((s) => s.settings)
+  const setError = useApp((s) => s.setError)
   return (
     <div className="max-w-[640px]">
       <div className="mb-4 flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-[12px]">
@@ -437,6 +439,13 @@ function AboutPage(): React.JSX.Element {
           </Button>
         </span>
       </div>
+      <label className="mt-3 flex items-start gap-2 text-[13px]">
+        <input type="checkbox" className="mt-0.5" checked={settings.autoDownloadUpdates !== false} onChange={(e) => api.invoke('settings:update', { autoDownloadUpdates: e.target.checked }).catch((err) => setError(String(err)))} />
+        <span>
+          Download updates automatically
+          <span className="block text-[11px] text-muted">New releases download in the background as soon as they are found; you only choose when to restart: now, when idle, or on the next quit.</span>
+        </span>
+      </label>
       <p className="mt-3 text-[11px] text-muted">Updates are checked at launch and every six hours. Unsigned builds update by downloading the new version.</p>
     </div>
   )
