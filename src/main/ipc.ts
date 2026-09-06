@@ -48,6 +48,7 @@ import * as slack from './services/slack'
 import * as oncall from './services/oncall/service'
 import * as gcp from './services/gcp'
 import * as assistant from './services/assistant'
+import * as db from './services/db/service'
 import type { CostMode, CostModeScope } from '@shared/types'
 import * as usage from './services/usage'
 import { costModeFor } from './services/cost-mode'
@@ -592,6 +593,18 @@ export function registerIpc(): void {
   handle('gcp:projects', (account, force) => gcp.projects(account || undefined, Boolean(force)))
   handle('gcp:login', (account) => gcp.login(account || undefined))
   handle('gcp:test', (spaceId) => gcp.test(spaceId))
+  // ---- databases ----
+  db.setHistoryEmitter((connectionId) => send('db:history', { connectionId }))
+  handle('db:list', (spaceId) => db.list(spaceId))
+  handle('db:save', (spaceId, conn, secrets) => db.save(spaceId, conn, secrets))
+  handle('db:remove', (spaceId, id) => db.remove(spaceId, id))
+  handle('db:test', (spaceId, conn, secrets) => db.test(spaceId, conn, secrets))
+  handle('db:schema', (spaceId, id, refresh) => db.schema(spaceId, id, Boolean(refresh)))
+  handle('db:query', (spaceId, id, sql, opts) => db.runQuery(spaceId, id, sql, { ...(opts ?? {}), source: 'user' }))
+  handle('db:cancel', (spaceId, id) => db.cancel(spaceId, id))
+  handle('db:history', (connectionId) => db.getHistory(connectionId))
+  handle('db:cloudSqlInstances', (spaceId) => db.cloudSqlInstances(spaceId))
+  handle('db:classify', (sql) => db.classifySql(sql))
   // ---- setup assistant ----
   assistant.setEmitter((e) => send('assistant:event', e))
   assistant.setHost({ addRepoAt, setCostMode: (scope, mode) => applyCostMode(scope, mode), openSettings: (t) => send('ui:openSettings', t) })

@@ -18,6 +18,7 @@ import { accountEnv } from '../accounts'
 import * as resources from '../resources'
 import { logError } from '../telemetry'
 import * as gcp from '../gcp'
+import * as dbTools from '../db/tools'
 import { git } from '../git'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
@@ -384,6 +385,9 @@ async function runAgent(spaceId: string, prompt: string, opts: { schema?: Record
   }
   const gcpOn = Boolean(gcp.gcpFor(spaceId))
   if (gcpOn) mcpServers = { ...mcpServers, gcp: gcp.sdkServer(spaceId) }
+  // Read-only database access (no workspace id, so writes are never offered).
+  const dbOn = Boolean(spaceId) && getStore().get().spaces.find((s) => s.id === spaceId)?.databases?.length
+  if (dbOn) mcpServers = { ...mcpServers, db: dbTools.sdkServer(spaceId) }
   const options: Options = {
     ...claudeExecutableOption(),
     cwd: workDir(),
@@ -392,7 +396,7 @@ async function runAgent(spaceId: string, prompt: string, opts: { schema?: Record
     maxTurns: opts.maxTurns,
     ...(s.model ? { model: s.model } : {}),
     ...(opts.schema ? { outputFormat: { type: 'json_schema', schema: opts.schema } } : {}),
-    allowedTools: ['Read', 'Grep', 'Glob', 'LS', 'WebFetch', 'WebSearch', 'mcp__slack__*', ...gcp.SDK_ALLOWED],
+    allowedTools: ['Read', 'Grep', 'Glob', 'LS', 'WebFetch', 'WebSearch', 'mcp__slack__*', ...gcp.SDK_ALLOWED, ...dbTools.SDK_ALLOWED],
     disallowedTools: ['Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'Bash', 'Agent', 'Task'],
     mcpServers,
     strictMcpConfig: true,
@@ -404,6 +408,7 @@ async function runAgent(spaceId: string, prompt: string, opts: { schema?: Record
         'You are the on-call engineer assistant inside Sinfonie. You investigate, you do not change anything: no file edits, no commands, no Slack posts. Suggested replies go in the customerReply field and a human sends them.',
         dirs.length ? `Source code of the services is available read-only at: ${dirs.join(', ')}. Use it to trace stack traces, find owners of a feature, and check recent behaviour.` : 'No source code is attached; reason from the thread and Slack history.',
         'The Slack MCP server lets you read more of the channel and search other threads for similar issues; use it when the thread alone is not enough.',
+        dbOn ? dbTools.promptFor(spaceId).trim() + ' Use them to identify affected users or records by the ids in the alert.' : '',
         gcpOn ? gcp.promptFor(spaceId).trim() + ' For an alert, measure recurrence first (gcp_error_groups, then gcp_logs with the same message), follow the correlation or request id in the logs, and check the service\u2019s revisions and scaling before you blame a cold start or a deploy.' : '',
         s.context ? `Team context from the user:\n${s.context}` : ''
       ]

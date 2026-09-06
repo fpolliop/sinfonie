@@ -25,6 +25,7 @@ import { isReadOnlyCommand } from '../readonly'
 import * as jira from '../jira'
 import * as linear from '../linear'
 import * as gcp from '../gcp'
+import * as dbTools from '../db/tools'
 import { logError } from '../telemetry'
 
 type Emit = (e: AgentEvent) => void
@@ -248,10 +249,10 @@ async function runTurn(ws: Workspace, session: NativeSession, emit: Emit): Promi
   const crew = space?.useCrew === false || lean ? [] : (space?.agents ?? settings.agents).filter((a) => a.enabled && a.name.trim())
   const mcp = await connectMcp(ws, session)
   const gcpOn = Boolean(gcp.gcpFor(ws.spaceId)) && (space ? space.exposeGcpMcp !== false : true)
-  const tools: ToolSet = { ...builtin, ...mcp.tools, ...(lean ? {} : { ...notes.aiTools(ws.id), ...browserTools.aiTools(ws.id) }), ...(gcpOn ? gcp.aiTools(ws.spaceId) : {}), ...workspaceTools.aiTools(ws.id), ...(crew.length ? { Agent: crewTool(ws, crew, ctx, emit, mode) } : {}) }
+  const tools: ToolSet = { ...builtin, ...mcp.tools, ...(lean ? {} : { ...notes.aiTools(ws.id), ...browserTools.aiTools(ws.id) }), ...(gcpOn ? gcp.aiTools(ws.spaceId) : {}), ...(ws.spaceId && space?.databases?.length ? dbTools.aiTools(ws.spaceId, ws.id) : {}), ...workspaceTools.aiTools(ws.id), ...(crew.length ? { Agent: crewTool(ws, crew, ctx, emit, mode) } : {}) }
   const agent = new ToolLoopAgent({
     model: resolveModel(modelRef),
-    instructions: systemPrompt(ws, crew, mcp.names) + notes.promptFor(ws.id, true) + (gcpOn ? gcp.promptFor(ws.spaceId) : ''),
+    instructions: systemPrompt(ws, crew, mcp.names) + notes.promptFor(ws.id, true) + (gcpOn ? gcp.promptFor(ws.spaceId) : '') + (ws.spaceId && space?.databases?.length ? dbTools.promptFor(ws.spaceId) : ''),
     tools,
     stopWhen: stepCountIs(120),
     toolApproval: approvalPolicy(mode, ws)

@@ -68,6 +68,11 @@ function run(args: string[], opts: { account?: string; project?: string; timeout
   })
 }
 
+/** Any gcloud command as JSON text, for other services (Cloud SQL instance lists…). */
+export function gcloudJson(args: string[], opts: { account?: string; project?: string } = {}): Promise<string> {
+  return run(args, { ...opts, timeoutMs: 90_000 })
+}
+
 // ---------- status, projects, login ----------
 
 let statusCache: { at: number; value: GcpStatus } | null = null
@@ -135,7 +140,7 @@ export function login(account?: string): Promise<GcpStatus> {
   })
 }
 
-async function accessToken(account?: string): Promise<string> {
+export async function accessToken(account?: string): Promise<string> {
   return (await run(['auth', 'print-access-token'], { account, json: false })).trim()
 }
 

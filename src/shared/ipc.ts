@@ -33,7 +33,7 @@ import type { AuthLink, BrowserState, ContextUsage, CrewPriority, FsEntry, Limit
   Space,
   StoreData,
   TerminalDataEvent,
-  Workspace, CostMode, CostModeScope, GcpStatus, AssistantItem } from './types'
+  Workspace, CostMode, CostModeScope, GcpStatus, AssistantItem, DbConnection, DbSecrets, DbSchema, DbQueryResult, DbHistoryEntry } from './types'
 
 /** Request/response channels (ipcRenderer.invoke). */
 export interface SinfonieInvoke {
@@ -179,6 +179,18 @@ export interface SinfonieInvoke {
   'agent:reset': (workspaceId: string) => void
   /** Set the cost profile at one scope; sessions that are affected restart and resume their conversation. */
   'costMode:set': (scope: CostModeScope, mode: CostMode | null) => void
+  // ---- databases ----
+  'db:list': (spaceId: string) => DbConnection[]
+  'db:save': (spaceId: string, conn: DbConnection, secrets?: DbSecrets) => DbConnection
+  'db:remove': (spaceId: string, id: string) => void
+  'db:test': (spaceId: string, conn: DbConnection, secrets?: DbSecrets) => { ok: boolean; message: string; ms: number }
+  'db:schema': (spaceId: string, id: string, refresh?: boolean) => DbSchema
+  'db:query': (spaceId: string, id: string, sql: string, opts?: { maxRows?: number; timeoutMs?: number; allowWrite?: boolean }) => DbQueryResult
+  'db:cancel': (spaceId: string, id: string) => string
+  'db:history': (connectionId: string) => DbHistoryEntry[]
+  'db:cloudSqlInstances': (spaceId: string) => { connectionName: string; name: string; engine: string; region: string }[]
+  /** Read-only classification, so the Data tab can warn before running a write. */
+  'db:classify': (sql: string) => { statements: number; readOnly: boolean; first: string }
   // ---- setup assistant ----
   'assistant:send': (text: string) => void
   'assistant:history': () => { items: AssistantItem[]; busy: boolean }
@@ -275,6 +287,7 @@ export interface SinfonieEvents {
   'ui:openReview': { key: string }
   /** The assistant (or main) asks the renderer to show a settings page. */
   'ui:openSettings': { scope: 'app'; page: string } | { scope: 'space'; spaceId: string; page: string }
+  'db:history': { connectionId: string }
   'assistant:event': { type: 'item'; item: AssistantItem } | { type: 'delta'; id: string; text: string } | { type: 'status'; busy: boolean } | { type: 'reset' }
   /** Open the On call view on this incident (notification click, deep link). */
   'ui:openOnCall': { incidentId?: string }

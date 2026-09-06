@@ -20,11 +20,13 @@ import { Badge, Button, Dialog, Field, inputCls } from './ui'
 import { shortPath } from '@/lib/format'
 import { BrowserPane } from './BrowserPane'
 import { FilesPane } from './FilesPane'
+import { DataPane } from './DataPane'
 import { useBrowser } from '@/stores/browser'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'chat', label: 'Chat' },
   { id: 'files', label: 'Files' },
+  { id: 'data', label: 'Data' },
   { id: 'changes', label: 'Changes' },
   { id: 'prs', label: 'PRs' },
   { id: 'terminal', label: 'Terminal' },
@@ -219,6 +221,7 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
           <ChatPane workspaceId={ws.id} />
         </div>
         <div className={clsx('h-full', tab !== 'files' && 'hidden')}>{tab === 'files' && <FilesPane workspaceId={ws.id} />}</div>
+        <div className={clsx('h-full', tab !== 'data' && 'hidden')}>{tab === 'data' && <DataPane workspaceId={ws.id} />}</div>
         <div className={clsx('h-full', tab !== 'changes' && 'hidden')}>{tab === 'changes' && <ChangesPane workspaceId={ws.id} />}</div>
         <div className={clsx('h-full', tab !== 'prs' && 'hidden')}>{tab === 'prs' && <PrsPane workspaceId={ws.id} />}</div>
         <div className={clsx('h-full', tab !== 'terminal' && 'hidden')}>

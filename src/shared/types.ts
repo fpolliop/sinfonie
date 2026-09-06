@@ -235,6 +235,8 @@ export interface Space {
   gcp?: GcpSettings
   /** Sessions in this space get the read-only gcp_* tools when a project is set (default true). */
   exposeGcpMcp?: boolean
+  /** Database connections for this space; passwords are in the keychain. */
+  databases?: DbConnection[]
   /** This space's own Slack sign-in; falls back to the application's. */
   slack?: SlackConnection
   /** This space's on-call agent: its channels, context and limits. */
@@ -1145,6 +1147,89 @@ export interface UsageSettings {
   contextWarnTokens?: number
 }
 /** What the user can do when a limit is near or hit. */
+// ---- Databases ----
+
+export type DbKind = 'postgres' | 'mysql'
+export interface DbTunnel {
+  kind: 'none' | 'ssh' | 'cloudsql'
+  sshHost?: string
+  sshPort?: number
+  sshUser?: string
+  /** Private key path; ~ allowed. Password/passphrase live in the keychain. */
+  sshKeyPath?: string
+  /** Cloud SQL: project:region:instance */
+  instance?: string
+  ipType?: 'PUBLIC' | 'PRIVATE' | 'PSC'
+  /** Cloud SQL IAM database authentication: no password, user = the Google account. */
+  iamAuth?: boolean
+  /** gcloud account to authenticate the connector with; default the space's Google Cloud account. */
+  account?: string
+}
+export interface DbConnection {
+  id: string
+  name: string
+  kind: DbKind
+  host?: string
+  port?: number
+  database: string
+  user?: string
+  ssl?: boolean
+  tunnel?: DbTunnel
+  /** Writes stay refused unless this is on; even then the user confirms each statement from an agent. */
+  allowWrites?: boolean
+  createdAt: string
+  /** Derived on read: a password is stored in the keychain. */
+  hasPassword?: boolean
+}
+export interface DbSecrets {
+  password?: string
+  sshPassword?: string
+  sshPassphrase?: string
+}
+export interface DbColumn {
+  name: string
+  type: string
+  nullable: boolean
+  default?: string
+  pk?: boolean
+}
+export interface DbTable {
+  schema: string
+  name: string
+  kind: 'table' | 'view'
+  columns?: DbColumn[]
+  /** Estimated row count when the engine offers one. */
+  rows?: number
+  /** False when the connection's user lacks SELECT on it (Postgres reports every table, greyed out). */
+  readable?: boolean
+}
+export interface DbSchema {
+  tables: DbTable[]
+  fetchedAt: string
+}
+export interface DbQueryResult {
+  id: string
+  connectionId: string
+  sql: string
+  columns: { name: string; type?: string }[]
+  rows: unknown[][]
+  /** Rows the statement produced (before the cap). */
+  rowCount: number
+  affected?: number
+  command?: string
+  truncated: boolean
+  ms: number
+  readOnly: boolean
+}
+export interface DbHistoryEntry {
+  at: string
+  sql: string
+  ms: number
+  rowCount?: number
+  error?: string
+  source: 'user' | 'agent'
+}
+
 /** One entry of the setup assistant's conversation. */
 export interface AssistantItem {
   id: string

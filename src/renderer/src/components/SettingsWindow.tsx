@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react'
 import clsx from 'clsx'
-import { Plus, RefreshCw, Trash2, FolderGit2, Settings as SettingsIcon, Layers, Server, UserCircle2, Users, Plug, Ticket, GitPullRequest, MessageSquarePlus, Info, FolderTree, ChevronRight, Gauge, Siren, CircleDot, Hash, Activity, Cloud, Sparkles } from 'lucide-react'
+import { Plus, RefreshCw, Trash2, FolderGit2, Settings as SettingsIcon, Layers, Server, UserCircle2, Users, Plug, Ticket, GitPullRequest, MessageSquarePlus, Info, FolderTree, ChevronRight, Gauge, Siren, CircleDot, Hash, Activity, Cloud, Sparkles, Database } from 'lucide-react'
 import { GcpSection } from './GcpSection'
+import { DatabasesSection } from './DatabasesSection'
 import { api } from '@/lib/api'
 import { useApp, type SettingsTarget, type AppPage, type SpacePage } from '@/stores/app'
 import { Badge, Button, Field, inputCls } from './ui'
@@ -54,6 +55,7 @@ const SPACE_PAGES: { id: SpacePage; label: string; icon: React.ReactNode; desc: 
   { id: 'slack', label: 'Slack', icon: <Hash size={14} />, desc: 'This space\u2019s Slack sign-in, when it lives in a different Slack workspace than the application default.', overrides: 'slack', group: 'Integrations' },
   { id: 'github', label: 'GitHub', icon: <GitPullRequest size={14} />, desc: 'Which GitHub owners the review cockpit lists for this space.', group: 'Integrations' },
   { id: 'gcp', label: 'Google Cloud', icon: <Cloud size={14} />, desc: 'This space’s Google Cloud project, when it differs from the application default.', overrides: 'gcp', group: 'Integrations' },
+  { id: 'databases', label: 'Databases', icon: <Database size={14} />, desc: 'Postgres and MySQL connections for the Data tab and read-only agent tools: direct, SSH tunnel or Cloud SQL.', group: 'Integrations' },
   { id: 'mcp', label: 'MCP servers', icon: <Plug size={14} />, desc: 'Servers for this space, on top of the application-wide ones.', overrides: 'mcp', group: 'Integrations' }
 ]
 
@@ -585,6 +587,8 @@ function SpacePageView({ space, page }: { space: Space; page: SpacePage }): Reac
       return <JiraSection connId={space.id} title="Jira for this space" intro="Connect the Jira site this space’s tickets live in. Leave it disconnected to use the application’s default connection." />
     case 'linear':
       return <LinearSection connId={space.id} title="Linear for this space" intro="Connect the Linear workspace this space’s issues live in. Leave it disconnected to use the application’s default connection." />
+    case 'databases':
+      return <DatabasesSection spaceId={space.id} />
     case 'gcp':
       return <GcpSection connId={space.id} title="Google Cloud for this space" intro="The project this space’s services run in. Sessions here and the space’s on-call agent get read-only Cloud Logging, Cloud Run, Error Reporting and gcloud list / describe tools." />
     case 'oncall':
