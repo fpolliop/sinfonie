@@ -65,6 +65,8 @@ const recent = new Map<string, number>()
 /** Log locally, and report once per distinct error per hour. Never includes chat content. */
 export function reportCrash(where: string, err: unknown, extra?: Record<string, unknown>): void {
   logError(where, err, extra)
+  // Development runs (electron-vite, hot reload, pkill restarts) produced most stored crashes; keep them local unless opted in.
+  if (!app.isPackaged && process.env.SINFONIE_CRASH_PING !== '1') return
   const message = err instanceof Error ? `${err.name}: ${err.message}` : String(err)
   const key = `${where}:${message}`
   const now = Date.now()
@@ -78,7 +80,11 @@ export function reportCrash(where: string, err: unknown, extra?: Record<string, 
 export function installCrashHandlers(): void {
   process.on('uncaughtException', (err) => reportCrash('main:uncaughtException', err))
   process.on('unhandledRejection', (reason) => reportCrash('main:unhandledRejection', reason))
-  app.on('render-process-gone', (_e, _wc, details) => reportCrash('renderer:process-gone', new Error(details.reason), { exitCode: details.exitCode }))
+  app.on('render-process-gone', (_e, _wc, details) => {
+    // 'killed' and 'clean-exit' are external terminations (quit, SIGTERM, dev restarts), not crashes.
+    if (details.reason === 'killed' || details.reason === 'clean-exit') return
+    reportCrash('renderer:process-gone', new Error(details.reason), { exitCode: details.exitCode })
+  })
   app.on('child-process-gone', (_e, details) => {
     if (details.reason !== 'clean-exit' && details.reason !== 'killed') logError('child-process-gone', new Error(`${details.type}: ${details.reason}`), { name: details.name })
   })
