@@ -24,6 +24,7 @@ import { estimateCost, resolveModel } from '../providers'
 import { isReadOnlyCommand } from '../readonly'
 import * as jira from '../jira'
 import * as linear from '../linear'
+import * as gcp from '../gcp'
 import { logError } from '../telemetry'
 
 type Emit = (e: AgentEvent) => void
@@ -246,10 +247,11 @@ async function runTurn(ws: Workspace, session: NativeSession, emit: Emit): Promi
   const lean = costModeFor(ws.spaceId, ws.id) === 'lean'
   const crew = space?.useCrew === false || lean ? [] : (space?.agents ?? settings.agents).filter((a) => a.enabled && a.name.trim())
   const mcp = await connectMcp(ws, session)
-  const tools: ToolSet = { ...builtin, ...mcp.tools, ...(lean ? {} : { ...notes.aiTools(ws.id), ...browserTools.aiTools(ws.id) }), ...workspaceTools.aiTools(ws.id), ...(crew.length ? { Agent: crewTool(ws, crew, ctx, emit, mode) } : {}) }
+  const gcpOn = Boolean(gcp.gcpFor(ws.spaceId)) && (space ? space.exposeGcpMcp !== false : true)
+  const tools: ToolSet = { ...builtin, ...mcp.tools, ...(lean ? {} : { ...notes.aiTools(ws.id), ...browserTools.aiTools(ws.id) }), ...(gcpOn ? gcp.aiTools(ws.spaceId) : {}), ...workspaceTools.aiTools(ws.id), ...(crew.length ? { Agent: crewTool(ws, crew, ctx, emit, mode) } : {}) }
   const agent = new ToolLoopAgent({
     model: resolveModel(modelRef),
-    instructions: systemPrompt(ws, crew, mcp.names) + notes.promptFor(ws.id, true),
+    instructions: systemPrompt(ws, crew, mcp.names) + notes.promptFor(ws.id, true) + (gcpOn ? gcp.promptFor(ws.spaceId) : ''),
     tools,
     stopWhen: stepCountIs(120),
     toolApproval: approvalPolicy(mode, ws)

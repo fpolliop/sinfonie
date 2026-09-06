@@ -46,6 +46,7 @@ import { saveImages } from './services/images'
 import * as files from './services/files'
 import * as slack from './services/slack'
 import * as oncall from './services/oncall/service'
+import * as gcp from './services/gcp'
 import * as usage from './services/usage'
 import { costModeFor } from './services/cost-mode'
 import * as limits from './services/limits'
@@ -573,6 +574,12 @@ export function registerIpc(): void {
   handle('oncall:addProposal', (id, text) => oncall.addProposal(id, text))
   handle('oncall:ask', (id, q) => oncall.ask(id, q))
   handle('oncall:remove', (id) => oncall.remove(id))
+  handle('oncall:openFixPr', (id) => oncall.openFixPr(id))
+  // ---- google cloud ----
+  handle('gcp:status', (force) => gcp.status(Boolean(force)))
+  handle('gcp:projects', (account, force) => gcp.projects(account || undefined, Boolean(force)))
+  handle('gcp:login', () => gcp.login())
+  handle('gcp:test', (spaceId) => gcp.test(spaceId))
   setTimeout(() => oncall.reconcile(), 5_000)
 
   // ---- files ----

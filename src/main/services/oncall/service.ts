@@ -17,7 +17,14 @@ import * as slack from '../slack'
 import { accountEnv } from '../accounts'
 import * as resources from '../resources'
 import { logError } from '../telemetry'
+import * as gcp from '../gcp'
+import { git } from '../git'
+import { execFile } from 'child_process'
+import { promisify } from 'util'
+import { costModeFor, leanModel } from '../cost-mode'
 import type { Incident, IncidentStatus, OnCallSettings, OnCallState, Proposal, Severity, TriageReport } from '@shared/types'
+
+const exec = promisify(execFile)
 
 /** One watcher: a space (or '' for the application config), its settings, and which Slack login serves it. */
 interface Config {
@@ -298,7 +305,19 @@ const TRIAGE_SCHEMA = {
     nextSteps: { type: 'array', items: { type: 'string' } },
     customerReply: { type: 'string', description: 'A short reply to post in the thread, only when a reply is appropriate. Plain Slack text.' },
     needsHuman: { type: 'boolean' },
-    confidence: { type: 'string', enum: ['low', 'medium', 'high'] }
+    confidence: { type: 'string', enum: ['low', 'medium', 'high'] },
+    proposedFix: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['repo', 'summary', 'changes', 'risks'],
+      description: 'Only when confidence is high and the root cause is in the code: the change you would make.',
+      properties: {
+        repo: { type: 'string', description: 'Repository name as it appears in the source directories (top folder).' },
+        summary: { type: 'string', description: 'One paragraph: what to change and why it fixes the cause.' },
+        changes: { type: 'array', items: { type: 'string' }, description: 'Concrete edits, one per file: path and what changes.' },
+        risks: { type: 'string', description: 'Idempotency, retries, migrations, behaviour changes to watch.' }
+      }
+    }
   }
 }
 
@@ -363,6 +382,8 @@ async function runAgent(spaceId: string, prompt: string, opts: { schema?: Record
   } catch (err) {
     console.warn('[oncall] slack mcp unavailable', err)
   }
+  const gcpOn = Boolean(gcp.gcpFor(spaceId))
+  if (gcpOn) mcpServers = { ...mcpServers, gcp: gcp.sdkServer(spaceId) }
   const options: Options = {
     ...claudeExecutableOption(),
     cwd: workDir(),
@@ -371,7 +392,7 @@ async function runAgent(spaceId: string, prompt: string, opts: { schema?: Record
     maxTurns: opts.maxTurns,
     ...(s.model ? { model: s.model } : {}),
     ...(opts.schema ? { outputFormat: { type: 'json_schema', schema: opts.schema } } : {}),
-    allowedTools: ['Read', 'Grep', 'Glob', 'LS', 'WebFetch', 'WebSearch', 'mcp__slack__*'],
+    allowedTools: ['Read', 'Grep', 'Glob', 'LS', 'WebFetch', 'WebSearch', 'mcp__slack__*', ...gcp.SDK_ALLOWED],
     disallowedTools: ['Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'Bash', 'Agent', 'Task'],
     mcpServers,
     strictMcpConfig: true,
@@ -383,6 +404,7 @@ async function runAgent(spaceId: string, prompt: string, opts: { schema?: Record
         'You are the on-call engineer assistant inside Sinfonie. You investigate, you do not change anything: no file edits, no commands, no Slack posts. Suggested replies go in the customerReply field and a human sends them.',
         dirs.length ? `Source code of the services is available read-only at: ${dirs.join(', ')}. Use it to trace stack traces, find owners of a feature, and check recent behaviour.` : 'No source code is attached; reason from the thread and Slack history.',
         'The Slack MCP server lets you read more of the channel and search other threads for similar issues; use it when the thread alone is not enough.',
+        gcpOn ? gcp.promptFor(spaceId).trim() + ' For an alert, measure recurrence first (gcp_error_groups, then gcp_logs with the same message), follow the correlation or request id in the logs, and check the service\u2019s revisions and scaling before you blame a cold start or a deploy.' : '',
         s.context ? `Team context from the user:\n${s.context}` : ''
       ]
         .filter(Boolean)
@@ -425,6 +447,7 @@ async function triage(inc: Incident): Promise<void> {
     '',
     'Decide severity and category, find the likely cause (check the code when a feature or error is named), list evidence you actually verified, and propose next steps for the on-call engineer.',
     inc.kind === 'support' ? 'If a reply to the requester is appropriate now, draft it in customerReply: short, friendly, factual, no promises about timelines. Leave it empty when a human should answer first.' : 'For alerts, customerReply stays empty.',
+    'When you are confident (high) that the root cause is in the code and you can name the change, fill proposedFix: the repository (top folder of the source directories), a one-paragraph plan, the concrete edits per file, and the risks. Leave proposedFix out otherwise; the user can ask Sinfonie to open a draft PR from it.',
     'Return the structured result.'
   ].join('\n')
   const r = await runAgent(inc.spaceId, prompt, { schema: TRIAGE_SCHEMA, maxTurns: 30 })
@@ -536,6 +559,170 @@ export function addProposal(id: string, text: string): Incident {
   publish()
   return inc
 }
+// ---------- draft PR with the proposed fix ----------
+
+const DESTRUCTIVE = /\bgit\s+(push|reset\s+--hard|checkout\s+--\s|clean\s+-f|rebase|branch\s+-D|commit)\b|\brm\s+-rf\b/
+const FIX_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['summary', 'commitMessage', 'prTitle', 'prBody', 'filesChanged'],
+  properties: {
+    summary: { type: 'string', description: 'Two or three sentences for the incident record.' },
+    commitMessage: { type: 'string', description: 'Conventional commit subject line.' },
+    prTitle: { type: 'string' },
+    prBody: { type: 'string', description: 'Markdown: what changed, why it fixes the incident, how it was verified, what to watch.' },
+    filesChanged: { type: 'array', items: { type: 'string' } },
+    verification: { type: 'string', description: 'Tests or checks you ran and their result; or why none.' }
+  }
+}
+const slug = (s: string): string =>
+  s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40)
+
+/** The repository the fix belongs to: the triage's repo name, else the one the evidence paths mention most. */
+function pickRepo(inc: Incident): { id: string; name: string; path: string; defaultBranch: string } {
+  const { repos } = getStore().get()
+  const pool = repos.filter((r) => (inc.spaceId ? r.spaceId === inc.spaceId : true))
+  if (!pool.length) throw new Error('This space has no repositories registered, so there is nowhere to open the PR.')
+  const want = inc.report?.proposedFix?.repo?.trim().toLowerCase()
+  const byName = want ? pool.find((r) => r.name.toLowerCase() === want || r.path.toLowerCase().endsWith('/' + want)) : undefined
+  if (byName) return byName
+  const text = [...(inc.report?.evidence ?? []), ...(inc.report?.proposedFix?.changes ?? [])].join('\n').toLowerCase()
+  const scored = pool.map((r) => ({ r, n: text.split(r.name.toLowerCase() + '/').length - 1 })).sort((a, b) => b.n - a.n)
+  if (scored[0]?.n > 0) return scored[0].r
+  if (pool.length === 1) return pool[0]
+  throw new Error(`Could not tell which repository the fix belongs to (${pool.map((r) => r.name).join(', ')}). Re-triage so the report names it, or add the repository name to the evidence.`)
+}
+
+export async function openFixPr(id: string): Promise<Incident> {
+  const inc = find(id)
+  if (!inc.report) throw new Error('Triage the incident first.')
+  if (inc.fix?.status === 'running') return inc
+  const repo = pickRepo(inc)
+  inc.fix = { status: 'running', phase: `Preparing a branch in ${repo.name}`, startedAt: new Date().toISOString() }
+  inc.updatedAt = new Date().toISOString()
+  publish()
+  void (async () => {
+    const fix = inc.fix!
+    const set = (patch: Partial<typeof fix>): void => {
+      Object.assign(fix, patch)
+      inc.updatedAt = new Date().toISOString()
+      publish()
+    }
+    const g = git(repo.path)
+    const branch = `sinfonie/oncall-${inc.id.slice(0, 6)}-${slug(inc.title) || 'fix'}`
+    const dir = join(workDir(), `fix-${inc.id}`)
+    try {
+      await g.fetch(['origin', repo.defaultBranch])
+      if (existsSync(dir)) await g.raw(['worktree', 'remove', '--force', dir]).catch(() => undefined)
+      await g.raw(['worktree', 'add', '-b', branch, dir, `origin/${repo.defaultBranch}`])
+      set({ branch, phase: 'Agent is writing the fix' })
+      const s = settingsFor(inc.spaceId)
+      const { settings } = getStore().get()
+      const model = s.model ?? settings.model
+      const r = inc.report!
+      const prompt = [
+        `You are fixing the root cause of a production incident in the repository ${repo.name} (a fresh checkout of ${repo.defaultBranch} on branch ${branch}).`,
+        '',
+        `Incident: ${inc.title}`,
+        `Summary: ${r.summary}`,
+        `Likely cause: ${r.likelyCause}`,
+        r.evidence.length ? `Evidence:\n${r.evidence.map((e) => `- ${e}`).join('\n')}` : '',
+        r.proposedFix ? `Proposed fix:\n${r.proposedFix.summary}\nChanges:\n${r.proposedFix.changes.map((c) => `- ${c}`).join('\n')}\nRisks: ${r.proposedFix.risks}` : 'No fix was proposed by the triage; derive the smallest change that removes the cause from the evidence above.',
+        '',
+        'Thread excerpt:',
+        threadText(inc).slice(0, 3000),
+        '',
+        'Rules: make the smallest correct change that removes the cause, in the repository\u2019s existing style. Read the surrounding code first. Add or adjust a test when one is cheap and the repo has a pattern for it. Run the narrowest relevant check (type-check or the touched tests) when it exists and is quick; fix what you broke. Do not commit or push: Sinfonie commits, pushes and opens a draft PR. Do not touch unrelated code.',
+        'Return the structured result when done.'
+      ]
+        .filter(Boolean)
+        .join('\n')
+      const options: Options = {
+        ...claudeExecutableOption(),
+        cwd: dir,
+        permissionMode: 'acceptEdits',
+        allowedTools: ['Read', 'Grep', 'Glob', 'LS', 'Edit', 'Write', 'MultiEdit', 'Bash'],
+        disallowedTools: ['Agent', 'Task', 'WebFetch', 'WebSearch', 'NotebookEdit'],
+        canUseTool: async (tool, input) => {
+          if (tool === 'Bash' && DESTRUCTIVE.test(String((input as { command?: unknown }).command ?? ''))) return { behavior: 'deny', message: 'Not during a fix run: Sinfonie commits and pushes; never rewrite history or delete trees.' }
+          return { behavior: 'allow', updatedInput: input }
+        },
+        model: costModeFor(inc.spaceId) !== 'standard' ? leanModel(model) : model,
+        maxTurns: 60,
+        settingSources: ['project'],
+        outputFormat: { type: 'json_schema', schema: FIX_SCHEMA },
+        env: { ...process.env, ...accountEnv(s.claudeAccountId) },
+        stderr: (d) => console.error(`[oncall fix ${inc.id}]`, d.trimEnd()),
+        spawnClaudeCodeProcess: (o) => {
+          const child = spawn(o.command, o.args, { cwd: o.cwd, env: o.env as NodeJS.ProcessEnv, stdio: ['pipe', 'pipe', 'pipe'], signal: o.signal })
+          resources.registerProcess(child.pid, { kind: 'agent', label: 'On call fix' })
+          child.once('exit', () => resources.unregisterProcess(child.pid))
+          return child as unknown as SpawnedProcess
+        }
+      }
+      let out: { summary?: string; commitMessage?: string; prTitle?: string; prBody?: string; filesChanged?: string[]; verification?: string } = {}
+      let text = ''
+      for await (const msg of query({ prompt, options }) as AsyncIterable<SDKMessage>) {
+        if (msg.type === 'assistant') for (const b of msg.message.content) if (b.type === 'text') text = b.text
+        if (msg.type === 'result') {
+          set({ costUsd: msg.total_cost_usd })
+          inc.costUsd += msg.total_cost_usd
+          try {
+            usage.recordTurn(usage.fromResult(msg, { workspaceId: '', spaceId: inc.spaceId, accountId: s.claudeAccountId ?? defaultAccountId('anthropic') ?? 'default', kind: 'oncall' }))
+          } catch {
+            /* ledger must never break the fix */
+          }
+          out = ((msg as { structured_output?: unknown }).structured_output ?? tryParse(text) ?? {}) as typeof out
+          if (msg.subtype !== 'success') throw new Error(`Fix run ended with ${msg.subtype.replace(/_/g, ' ')}`)
+        }
+      }
+      set({ phase: 'Committing and pushing' })
+      const gw = git(dir)
+      const status = await gw.status()
+      if (!status.files.length) throw new Error(`The agent made no changes. ${out.summary ?? text.slice(0, 300)}`)
+      await gw.add(['-A'])
+      const subject = (out.commitMessage?.trim() || `fix: ${slug(inc.title).replace(/-/g, ' ')}`).split('\n')[0]
+      const commit = await gw.commit(`${subject}\n\n${out.summary ?? ''}\n\nDrafted with Sinfonie on-call from incident ${inc.id}${inc.permalink ? ` (${inc.permalink})` : ''}.`)
+      await gw.push(['-u', 'origin', branch])
+      set({ commit: commit.commit || (await gw.revparse(['HEAD'])).trim(), phase: 'Opening the draft PR' })
+      const body = [
+        out.prBody ?? out.summary ?? '',
+        '',
+        '## Incident',
+        r.summary,
+        '',
+        `**Likely cause:** ${r.likelyCause}`,
+        r.evidence.length ? `\n**Evidence**\n${r.evidence.map((e) => `- ${e}`).join('\n')}` : '',
+        out.verification ? `\n**Verification:** ${out.verification}` : '',
+        r.proposedFix?.risks ? `\n**Risks to watch:** ${r.proposedFix.risks}` : '',
+        inc.permalink ? `\nSlack thread: ${inc.permalink}` : '',
+        '',
+        `🤖 Drafted by Sinfonie on-call from incident ${inc.id}. Review before merging.`
+      ].join('\n')
+      const { stdout } = await exec('gh', ['pr', 'create', '--draft', '--head', branch, '--base', repo.defaultBranch, '--title', out.prTitle?.trim() || subject, '--body', body], { cwd: dir, env: process.env, maxBuffer: 4 * 1024 * 1024 })
+      const prUrl = stdout.trim().split('\n').find((l) => /^https?:\/\//.test(l.trim()))?.trim()
+      set({ status: 'done', prUrl, phase: 'Draft PR opened', finishedAt: new Date().toISOString() })
+      inc.notes.push({ at: new Date().toISOString(), role: 'agent', text: `Draft PR opened${prUrl ? `: ${prUrl}` : ''} (branch ${branch}). ${out.summary ?? ''}`.trim() })
+      if (prUrl) inc.proposals.push({ id: nanoid(8), kind: 'slack_reply', channelId: inc.channelId, threadTs: inc.threadTs, text: `Draft PR with a proposed fix: ${prUrl}`, status: 'proposed', createdAt: new Date().toISOString() })
+      notify(`Draft PR ready: ${inc.title}`, prUrl ?? branch, inc.id)
+      await g.raw(['worktree', 'remove', '--force', dir]).catch(() => undefined)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      set({ status: 'failed', error: message, phase: undefined, finishedAt: new Date().toISOString() })
+      logError('oncall:fix', err, { incident: inc.id })
+      await g.raw(['worktree', 'remove', '--force', dir]).catch(() => undefined)
+    } finally {
+      save()
+      publish()
+    }
+  })()
+  return inc
+}
+
 export function remove(id: string): void {
   load()
   data.incidents = data.incidents.filter((i) => i.id !== id)

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import clsx from 'clsx'
-import { Plus, RefreshCw, Trash2, FolderGit2, Settings as SettingsIcon, Layers, Server, UserCircle2, Users, Plug, Ticket, GitPullRequest, MessageSquarePlus, Info, FolderTree, ChevronRight, Gauge, Siren, CircleDot, Hash, Activity } from 'lucide-react'
+import { Plus, RefreshCw, Trash2, FolderGit2, Settings as SettingsIcon, Layers, Server, UserCircle2, Users, Plug, Ticket, GitPullRequest, MessageSquarePlus, Info, FolderTree, ChevronRight, Gauge, Siren, CircleDot, Hash, Activity, Cloud } from 'lucide-react'
+import { GcpSection } from './GcpSection'
 import { api } from '@/lib/api'
 import { useApp, type SettingsTarget, type AppPage, type SpacePage } from '@/stores/app'
 import { Badge, Button, Field, inputCls } from './ui'
@@ -38,6 +39,7 @@ const APP_PAGES: { id: AppPage; label: string; icon: React.ReactNode; desc: stri
   { id: 'jira', label: 'Jira', icon: <Ticket size={14} />, desc: 'The fallback Jira connection for spaces without their own.', group: 'Integrations' },
   { id: 'linear', label: 'Linear', icon: <CircleDot size={14} />, desc: 'The fallback Linear connection for spaces without their own.', group: 'Integrations' },
   { id: 'slack', label: 'Slack', icon: <Hash size={14} />, desc: 'Your Slack sign-in, used by the on-call agent and available to sessions.', group: 'Integrations' },
+  { id: 'gcp', label: 'Google Cloud', icon: <Cloud size={14} />, desc: 'Your gcloud login and default project: read-only logs, Cloud Run and Error Reporting for sessions and the on-call agent.', group: 'Integrations' },
   { id: 'mcp', label: 'MCP servers', icon: <Plug size={14} />, desc: 'MCP servers available in every space.', group: 'Integrations' },
   { id: 'feedback', label: 'Feedback & diagnostics', icon: <MessageSquarePlus size={14} />, desc: 'Send feedback, review captured errors, control crash reports.' },
   { id: 'about', label: 'About & updates', icon: <Info size={14} />, desc: 'Version, links, and update checks.' }
@@ -51,6 +53,7 @@ const SPACE_PAGES: { id: SpacePage; label: string; icon: React.ReactNode; desc: 
   { id: 'linear', label: 'Linear', icon: <CircleDot size={14} />, desc: 'This space’s Linear login.', overrides: 'linear', group: 'Integrations' },
   { id: 'slack', label: 'Slack', icon: <Hash size={14} />, desc: 'This space\u2019s Slack sign-in, when it lives in a different Slack workspace than the application default.', overrides: 'slack', group: 'Integrations' },
   { id: 'github', label: 'GitHub', icon: <GitPullRequest size={14} />, desc: 'Which GitHub owners the review cockpit lists for this space.', group: 'Integrations' },
+  { id: 'gcp', label: 'Google Cloud', icon: <Cloud size={14} />, desc: 'This space\u2019s Google Cloud project, when it differs from the application default.', overrides: 'gcp', group: 'Integrations' },
   { id: 'mcp', label: 'MCP servers', icon: <Plug size={14} />, desc: 'Servers for this space, on top of the application-wide ones.', overrides: 'mcp', group: 'Integrations' }
 ]
 
@@ -272,6 +275,8 @@ function AppPageView({ page }: { page: AppPage }): React.JSX.Element {
       return <JiraSection connId="" title="Default Jira connection" intro="Used by spaces that have not connected their own Jira. Connect a space’s own site on its Jira page." />
     case 'linear':
       return <LinearSection connId="" title="Default Linear connection" intro="Used by spaces that have not connected their own Linear. Connect a space’s own on its Linear page." />
+    case 'gcp':
+      return <GcpSection connId="" title="Google Cloud (application default)" />
     case 'slack':
       return (
         <div className="max-w-[760px]">
@@ -567,6 +572,8 @@ function SpacePageView({ space, page }: { space: Space; page: SpacePage }): Reac
       return <JiraSection connId={space.id} title="Jira for this space" intro="Connect the Jira site this space’s tickets live in. Leave it disconnected to use the application’s default connection." />
     case 'linear':
       return <LinearSection connId={space.id} title="Linear for this space" intro="Connect the Linear workspace this space’s issues live in. Leave it disconnected to use the application’s default connection." />
+    case 'gcp':
+      return <GcpSection connId={space.id} title="Google Cloud for this space" intro="The project this space\u2019s services run in. Sessions here and the space\u2019s on-call agent get read-only Cloud Logging, Cloud Run, Error Reporting and gcloud list / describe tools." />
     case 'oncall':
       return <OnCallSettings spaceId={space.id} />
     case 'slack':

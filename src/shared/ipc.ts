@@ -33,7 +33,7 @@ import type { AuthLink, BrowserState, ContextUsage, CrewPriority, FsEntry, Limit
   Space,
   StoreData,
   TerminalDataEvent,
-  Workspace, CostMode, CostModeScope } from './types'
+  Workspace, CostMode, CostModeScope, GcpStatus } from './types'
 
 /** Request/response channels (ipcRenderer.invoke). */
 export interface SinfonieInvoke {
@@ -41,7 +41,7 @@ export interface SinfonieInvoke {
   'settings:update': (patch: Partial<Settings>) => Settings
 
   'spaces:create': (name: string) => Space
-  'spaces:update': (id: string, patch: Partial<Pick<Space, 'name' | 'color' | 'claudeAccountId' | 'model' | 'permissionMode' | 'workspacesRoot' | 'browserSensitiveOrigins' | 'githubOwners' | 'exposeLinearMcp' | 'oncall' | 'budgetMode' | 'leanMode' | 'mcpServers' | 'exposeJiraMcp' | 'strictMcp' | 'agents' | 'useCrew' | 'engine'>>) => Space
+  'spaces:update': (id: string, patch: Partial<Pick<Space, 'name' | 'color' | 'claudeAccountId' | 'model' | 'permissionMode' | 'workspacesRoot' | 'browserSensitiveOrigins' | 'githubOwners' | 'exposeLinearMcp' | 'oncall' | 'budgetMode' | 'leanMode' | 'gcp' | 'exposeGcpMcp' | 'mcpServers' | 'exposeJiraMcp' | 'strictMcp' | 'agents' | 'useCrew' | 'engine'>>) => Space
   /** MCP servers found in Claude Code's own config (~/.claude.json), for importing. */
   'mcp:importable': () => McpServerSpec[]
   'spaces:delete': (id: string) => void
@@ -213,6 +213,13 @@ export interface SinfonieInvoke {
   'oncall:addProposal': (incidentId: string, text: string) => Incident
   'oncall:ask': (incidentId: string, question: string) => Incident
   'oncall:remove': (incidentId: string) => void
+  /** Draft a PR with the triage's proposed fix: branch from the default branch, agent edits, push, `gh pr create --draft`. */
+  'oncall:openFixPr': (incidentId: string) => Incident
+  'gcp:status': (force?: boolean) => GcpStatus
+  'gcp:projects': (account?: string, force?: boolean) => { projectId: string; name: string }[]
+  'gcp:login': () => GcpStatus
+  /** Runs one small read in the space's (or app's) project and describes the result. */
+  'gcp:test': (spaceId: string) => string
   // ---- workspace browser ----
   'browser:state': (workspaceId: string) => BrowserState
   /** Where the Browser pane sits in the window (CSS px), or null while hidden. */

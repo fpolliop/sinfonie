@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import clsx from 'clsx'
-import { Siren, ExternalLink, RefreshCw, Send, Trash2, MessageSquare, Sparkles, Settings as SettingsIcon } from 'lucide-react'
+import { Siren, ExternalLink, RefreshCw, Send, Trash2, MessageSquare, Sparkles, Settings as SettingsIcon, GitPullRequest } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { useOnCall, subscribeOnCall } from '@/stores/oncall'
@@ -192,6 +192,50 @@ function IncidentDetail({ inc, go }: { inc: Incident; go: (fn: () => Promise<unk
                   ))}
                 </ol>
               </>
+            )}
+          </section>
+        )}
+        {r && (
+          <section className={clsx('rounded-lg border p-3', r.proposedFix ? 'border-ok/40 bg-ok/5' : 'border-border')}>
+            <div className="mb-1 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-muted">
+              Proposed fix
+              {r.proposedFix && r.confidence === 'high' && <Badge tone="ok">recommended</Badge>}
+            </div>
+            {r.proposedFix ? (
+              <>
+                <p className="mb-2">{r.proposedFix.summary}</p>
+                <ul className="mb-2 list-disc pl-5 text-[12px]">
+                  {r.proposedFix.changes.map((c, i) => (
+                    <li key={i}>{c}</li>
+                  ))}
+                </ul>
+                {r.proposedFix.risks && (
+                  <p className="mb-2 text-[12px] text-muted">
+                    <span className="font-medium text-text">Risks:</span> {r.proposedFix.risks}
+                  </p>
+                )}
+              </>
+            ) : (
+              <p className="mb-2 text-[12px] text-muted">The triage did not propose a code change{r.confidence !== 'high' ? ` (confidence ${r.confidence})` : ''}. You can still ask for a draft PR; the agent derives the change from the evidence.</p>
+            )}
+            {inc.fix?.status === 'running' ? (
+              <div className="flex items-center gap-2 text-[12px] text-muted">
+                <Spinner /> {inc.fix.phase ?? 'Working…'}
+                {inc.fix.branch && <span className="font-mono">{inc.fix.branch}</span>}
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-center gap-2">
+                <Button size="sm" variant={r.proposedFix && r.confidence === 'high' ? 'primary' : undefined} onClick={() => go(() => api.invoke('oncall:openFixPr', inc.id))} title="Branch from the default branch, let the agent apply the fix, push, and open a draft PR for review">
+                  <GitPullRequest size={12} /> {inc.fix?.status === 'done' ? 'Open another draft PR' : inc.fix?.status === 'failed' ? 'Retry the draft PR' : 'Open a draft PR with the fix'}
+                </Button>
+                {inc.fix?.status === 'done' && inc.fix.prUrl && (
+                  <Button size="sm" variant="ghost" onClick={() => void api.invoke('shell:openExternal', inc.fix!.prUrl!)}>
+                    <ExternalLink size={12} /> {inc.fix.prUrl.replace(/^https?:\/\/github\.com\//, '')}
+                  </Button>
+                )}
+                {inc.fix?.status === 'failed' && <span className="text-[12px] text-danger">Failed: {inc.fix.error}</span>}
+                {inc.fix?.costUsd ? <span className="text-[11px] text-muted">${inc.fix.costUsd.toFixed(2)}</span> : null}
+              </div>
             )}
           </section>
         )}

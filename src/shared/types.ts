@@ -231,6 +231,10 @@ export interface Space {
   /** The space's own Jira connection. Absent means "use the default one from Settings". */
   jira?: JiraSettings
   linear?: LinearSettings
+  /** Google Cloud project for this space (overrides the app one). */
+  gcp?: GcpSettings
+  /** Sessions in this space get the read-only gcp_* tools when a project is set (default true). */
+  exposeGcpMcp?: boolean
   /** This space's own Slack sign-in; falls back to the application's. */
   slack?: SlackConnection
   /** This space's on-call agent: its channels, context and limits. */
@@ -442,6 +446,8 @@ export interface Settings {
   permissionMode: PermissionMode
   jira: JiraSettings
   linear?: LinearSettings
+  /** App-wide Google Cloud project; spaces can override. */
+  gcp?: GcpSettings
   /** Accounts for every vendor (the name predates multi-vendor support). */
   claudeAccounts: ClaudeAccount[]
   /** Default Anthropic account. */
@@ -983,6 +989,26 @@ export interface TriageReport {
   customerReply?: string
   needsHuman: boolean
   confidence: 'low' | 'medium' | 'high'
+  /** Present when the agent is confident the root cause is in the code and can describe the change. */
+  proposedFix?: ProposedFix
+}
+export interface ProposedFix {
+  /** Repository name as registered in Sinfonie (or the top folder of the evidence paths). */
+  repo: string
+  summary: string
+  changes: string[]
+  risks: string
+}
+export interface IncidentFix {
+  status: 'running' | 'done' | 'failed'
+  phase?: string
+  branch?: string
+  prUrl?: string
+  commit?: string
+  error?: string
+  costUsd?: number
+  startedAt: string
+  finishedAt?: string
 }
 export interface Proposal {
   id: string
@@ -1016,6 +1042,8 @@ export interface Incident {
   updatedAt: string
   triagedAt?: string
   error?: string
+  /** The draft-PR run for the proposed fix, when the user asked for one. */
+  fix?: IncidentFix
 }
 export interface OnCallState {
   running: boolean
@@ -1115,6 +1143,21 @@ export interface UsageSettings {
   contextWarnTokens?: number
 }
 /** What the user can do when a limit is near or hit. */
+export interface GcpSettings {
+  projectId: string
+  /** gcloud account to run as; default the active one. */
+  account?: string
+  region?: string
+}
+export interface GcpStatus {
+  installed: boolean
+  path?: string
+  version?: string
+  accounts: { account: string; active: boolean }[]
+  defaultProject?: string
+  error?: string
+}
+
 /** How hard a session tries to save tokens. */
 export type CostMode = 'standard' | 'budget' | 'lean'
 export type CostModeScope = { kind: 'workspace'; id: string } | { kind: 'space'; id: string } | { kind: 'app' }

@@ -8,6 +8,7 @@ import { toBase64 } from './images'
 import * as usage from './usage'
 import * as limits from './limits'
 import { costModeFor, leanModel, leanBashCommand, leanPrompt, LEAN, LEAN_DISALLOWED } from './cost-mode'
+import * as gcp from './gcp'
 import type { ChatImageRef } from '@shared/types'
 import { z } from 'zod'
 import { classifyModel } from '@shared/types'
@@ -197,6 +198,8 @@ async function mcpServersFor(ws: Workspace, onWarning?: (text: string) => void):
       onWarning?.(`Linear tools are off for this session: ${err instanceof Error ? err.message : String(err)}`)
     }
   }
+  // Google Cloud: read-only tools over the user's local gcloud login, when the space (or app) names a project.
+  if (gcp.gcpFor(ws.spaceId) && (space ? space.exposeGcpMcp !== false : true) && !out.gcp) out.gcp = gcp.sdkServer(ws.spaceId)
   return out
 }
 
@@ -347,13 +350,13 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
     abortController: abort,
     canUseTool,
     systemPrompt: lean
-      ? { type: 'preset', preset: 'claude_code', append: systemPromptFor(ws, true) + (Object.keys(mcpServers).length ? `\nMCP servers available in this workspace: ${Object.keys(mcpServers).join(', ')}.` : '') + leanPrompt() }
-      : { type: 'preset', preset: 'claude_code', append: systemPromptFor(ws) + (Object.keys(mcpServers).length ? `\nMCP servers available in this workspace: ${Object.keys(mcpServers).join(', ')}.` : '') + crew.prompt + notes.promptFor(ws.id, true) + '\n' + browserTools.promptFor(ws.port) },
+      ? { type: 'preset', preset: 'claude_code', append: systemPromptFor(ws, true) + (Object.keys(mcpServers).length ? `\nMCP servers available in this workspace: ${Object.keys(mcpServers).join(', ')}.` : '') + (mcpServers.gcp ? gcp.promptFor(ws.spaceId) : '') + leanPrompt() }
+      : { type: 'preset', preset: 'claude_code', append: systemPromptFor(ws) + (Object.keys(mcpServers).length ? `\nMCP servers available in this workspace: ${Object.keys(mcpServers).join(', ')}.` : '') + crew.prompt + notes.promptFor(ws.id, true) + (mcpServers.gcp ? gcp.promptFor(ws.spaceId) : '') + '\n' + browserTools.promptFor(ws.port) },
     ...(Object.keys(crew.agents).length ? { agents: crew.agents } : {}),
     ...(Object.keys(mcpServers).length ? { mcpServers } : {}),
     ...(space?.strictMcp ?? settings.strictMcp ? { strictMcpConfig: true } : {}),
     settingSources: ['user', 'project', 'local'],
-    allowedTools: lean ? [...workspaceTools.SDK_ALLOWED] : [...browserTools.sdkAllowedTools(), ...workspaceTools.SDK_ALLOWED],
+    allowedTools: lean ? [...workspaceTools.SDK_ALLOWED, ...gcp.SDK_ALLOWED] : [...browserTools.sdkAllowedTools(), ...workspaceTools.SDK_ALLOWED, ...gcp.SDK_ALLOWED],
     hooks: {
       PreToolUse: [
         ...(lean || budget
