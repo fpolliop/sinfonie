@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { ChevronRight, Square, RotateCcw, Send, ShieldCheck, XCircle, AlertTriangle, Info, History, Users, GitFork, ListTree, ArrowLeft, StickyNote, Paperclip, X } from 'lucide-react'
+import { ChevronRight, ChevronDown, Square, RotateCcw, Send, ShieldCheck, XCircle, AlertTriangle, Info, History, Users, GitFork, ListTree, ArrowLeft, StickyNote, Paperclip, X } from 'lucide-react'
 import { imageFiles } from '@/lib/images'
 import type { ContextUsage, ChatTurnResult, AgentEvent, ChatImageRef, LimitAlternative, CostMode, CostModeScope } from '@shared/types'
 import { NotesPanel } from './NotesPanel'
+import { ContextMenu } from './ContextMenu'
 import { useNotes } from '@/stores/notes'
 import { api } from '@/lib/api'
 import { PERMISSION_MODES, type PermissionMode } from '@shared/types'
@@ -245,7 +246,7 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
               placeholder={disabled ? 'Workspace is not ready' : busy ? 'Type to queue a message for when this turn ends… (Enter to queue)' : 'Describe the change across your repos… (Enter to send, Shift+Enter for newline, paste or drop images)'}
               className="min-h-[64px] max-h-[60vh] w-full resize-y bg-transparent px-3 pt-3 text-[13px] outline-none placeholder:text-muted"
             />
-            <div className="flex items-center gap-2 px-2 pb-2">
+            <div className="flex min-w-0 flex-wrap items-center gap-2 px-2 pb-2">
               <ModePicker mode={mode} onChange={changeMode} />
               <SessionPill workspaceId={workspaceId} spaceId={ws?.spaceId} engineLabel={engineLabel} budgetMode={budgetMode} leanMode={leanMode} costMode={costMode} costModeSource={costModeSource} model={chat?.model ?? settingsModel} contextTokens={chat?.contextTokens} contextWindow={chat?.contextWindow} cacheRead={chat?.contextCacheRead} history={chat?.contextHistory} result={chat?.lastResult} busy={busy} onNewSession={() => void reset(workspaceId)} />
               <span className="ml-auto" />
@@ -253,15 +254,7 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
                 <Paperclip size={13} />
               </Button>
               <NotesButton workspaceId={workspaceId} />
-              <Button size="sm" variant="ghost" title="New workspace with a copy of this conversation (like /fork)" onClick={() => setForkDlg(true)} disabled={busy || disabled}>
-                <GitFork size={13} /> Fork
-              </Button>
-              <Button size="sm" variant="ghost" title="Continue a past Claude Code session here (like /resume)" onClick={() => setResumeDlg(true)} disabled={busy}>
-                <History size={13} /> Resume
-              </Button>
-              <Button size="sm" variant="ghost" title="Start a fresh session" onClick={() => void reset(workspaceId)} disabled={busy}>
-                <RotateCcw size={13} /> New session
-              </Button>
+              <SessionMenu busy={busy} disabled={disabled} onFork={() => setForkDlg(true)} onResume={() => setResumeDlg(true)} onNew={() => void reset(workspaceId)} />
               {busy ? (
                 <>
                   <Button size="sm" onClick={onSubmit} disabled={!canSend} title="Deliver when the current turn ends">
@@ -1025,6 +1018,35 @@ function Collapsible({ label, body, muted }: { label: string; body: string; mute
 }
 
 const NO_NOTES: never[] = []
+
+/** Fork, Resume and New session behind one button, so the composer row stays short. */
+function SessionMenu({ busy, disabled, onFork, onResume, onNew }: { busy: boolean; disabled: boolean; onFork: () => void; onResume: () => void; onNew: () => void }): React.JSX.Element {
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  const open = (e: React.MouseEvent<HTMLButtonElement>): void => {
+    const r = e.currentTarget.getBoundingClientRect()
+    setMenu({ x: r.left, y: r.top - 8 - 3 * 34 })
+  }
+  return (
+    <>
+      <Button size="sm" variant="ghost" title="Fork, resume or restart this session" onClick={open}>
+        Session <ChevronDown size={12} />
+      </Button>
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          onClose={() => setMenu(null)}
+          entries={[
+            { label: 'Fork into a new workspace', icon: <GitFork size={13} />, onClick: onFork, disabled: busy || disabled },
+            { label: 'Resume a past session…', icon: <History size={13} />, onClick: onResume, disabled: busy },
+            { separator: true },
+            { label: 'New session', icon: <RotateCcw size={13} />, onClick: onNew, disabled: busy }
+          ]}
+        />
+      )}
+    </>
+  )
+}
 
 /** Toggles the Notes panel; shows how many todos are open. */
 function NotesButton({ workspaceId }: { workspaceId: string }): React.JSX.Element {
