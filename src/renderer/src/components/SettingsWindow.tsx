@@ -53,7 +53,7 @@ const SPACE_PAGES: { id: SpacePage; label: string; icon: React.ReactNode; desc: 
   { id: 'linear', label: 'Linear', icon: <CircleDot size={14} />, desc: 'This space’s Linear login.', overrides: 'linear', group: 'Integrations' },
   { id: 'slack', label: 'Slack', icon: <Hash size={14} />, desc: 'This space\u2019s Slack sign-in, when it lives in a different Slack workspace than the application default.', overrides: 'slack', group: 'Integrations' },
   { id: 'github', label: 'GitHub', icon: <GitPullRequest size={14} />, desc: 'Which GitHub owners the review cockpit lists for this space.', group: 'Integrations' },
-  { id: 'gcp', label: 'Google Cloud', icon: <Cloud size={14} />, desc: 'This space\u2019s Google Cloud project, when it differs from the application default.', overrides: 'gcp', group: 'Integrations' },
+  { id: 'gcp', label: 'Google Cloud', icon: <Cloud size={14} />, desc: 'This space’s Google Cloud project, when it differs from the application default.', overrides: 'gcp', group: 'Integrations' },
   { id: 'mcp', label: 'MCP servers', icon: <Plug size={14} />, desc: 'Servers for this space, on top of the application-wide ones.', overrides: 'mcp', group: 'Integrations' }
 ]
 
@@ -573,7 +573,7 @@ function SpacePageView({ space, page }: { space: Space; page: SpacePage }): Reac
     case 'linear':
       return <LinearSection connId={space.id} title="Linear for this space" intro="Connect the Linear workspace this space’s issues live in. Leave it disconnected to use the application’s default connection." />
     case 'gcp':
-      return <GcpSection connId={space.id} title="Google Cloud for this space" intro="The project this space\u2019s services run in. Sessions here and the space\u2019s on-call agent get read-only Cloud Logging, Cloud Run, Error Reporting and gcloud list / describe tools." />
+      return <GcpSection connId={space.id} title="Google Cloud for this space" intro="The project this space’s services run in. Sessions here and the space’s on-call agent get read-only Cloud Logging, Cloud Run, Error Reporting and gcloud list / describe tools." />
     case 'oncall':
       return <OnCallSettings spaceId={space.id} />
     case 'slack':
