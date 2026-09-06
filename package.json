@@ -124,7 +124,10 @@
       "node-pty",
       "electron-winstaller",
       "@anthropic-ai/claude-agent-sdk"
-    ]
+    ],
+    "overrides": {
+      "cpu-features": "file:stubs/cpu-features"
+    }
   },
   "homepage": "https://sinfonie.dev",
   "repository": {

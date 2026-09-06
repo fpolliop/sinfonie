@@ -1,0 +1,7 @@
+{
+  "name": "cpu-features",
+  "version": "0.0.10",
+  "description": "Stub for ssh2's optional native helper: the real package needs a node-gyp build that fails under electron-rebuild, and ssh2 wraps the require in try/catch.",
+  "main": "index.js",
+  "license": "MIT"
+}
