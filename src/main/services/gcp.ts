@@ -58,6 +58,10 @@ function run(args: string[], opts: { account?: string; project?: string; timeout
           .filter((l) => l.trim() && !/^Updates are available|^To update|^\$ gcloud components/.test(l))
           .slice(-4)
           .join(' ')
+        if (/Reauthentication (failed|required)|cannot prompt during non-interactive|invalid_grant|Token has been expired or revoked/i.test(tail)) {
+          reject(new Error(`Google account ${opts.account ?? '(active)'} needs to sign in again; its organisation requires periodic re-authentication. Press "Re-authenticate" next to it under Settings → Integrations → Google Cloud, then retry.`))
+          return
+        }
         reject(new Error(tail || 'gcloud failed'))
       } else resolve(String(stdout))
     })
@@ -79,7 +83,15 @@ export async function status(force = false): Promise<GcpStatus> {
         run(['auth', 'list']),
         run(['config', 'get-value', 'project'], { json: false }).then((s) => s.trim()).catch(() => '')
       ])
-      const accounts = (JSON.parse(accountsRaw) as { account: string; status?: string }[]).map((a) => ({ account: a.account, active: a.status === 'ACTIVE' }))
+      const listed = (JSON.parse(accountsRaw) as { account: string; status?: string }[]).map((a) => ({ account: a.account, active: a.status === 'ACTIVE' }))
+      // Which user accounts can still mint a token without a browser: Workspace session policies expire them.
+      const accounts = await Promise.all(
+        listed.map(async (a) => {
+          if (/\.gserviceaccount\.com$/.test(a.account)) return a
+          const valid = await run(['auth', 'print-access-token'], { account: a.account, json: false, timeoutMs: 20_000 }).then(() => true, () => false)
+          return { ...a, valid }
+        })
+      )
       value = { installed: true, path: bin, version, accounts, defaultProject: project && project !== '(unset)' ? project : undefined }
     } catch (err) {
       value = { installed: true, path: bin, accounts: [], error: errText(err) }
@@ -101,11 +113,11 @@ export async function projects(account?: string, force = false): Promise<{ proje
 }
 
 /** `gcloud auth login --brief`: opens the browser, completes on the localhost callback, no terminal needed. */
-export function login(): Promise<GcpStatus> {
+export function login(account?: string): Promise<GcpStatus> {
   const bin = gcloudBin()
   if (!bin) return Promise.reject(new Error('gcloud is not installed. Install the Google Cloud SDK first (brew install --cask google-cloud-sdk).'))
   return new Promise((resolve, reject) => {
-    const child = spawn(bin, ['auth', 'login', '--brief', '--quiet'], { env: { ...process.env, CLOUDSDK_CORE_DISABLE_PROMPTS: '1' }, stdio: ['ignore', 'pipe', 'pipe'] })
+    const child = spawn(bin, ['auth', 'login', ...(account ? [account] : []), '--brief', '--quiet'], { env: { ...process.env, CLOUDSDK_CORE_DISABLE_PROMPTS: '1' }, stdio: ['ignore', 'pipe', 'pipe'] })
     let err = ''
     child.stderr.on('data', (d: Buffer) => (err += d.toString()))
     const timer = setTimeout(() => child.kill(), 5 * 60_000)

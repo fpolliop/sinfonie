@@ -1153,7 +1153,8 @@ export interface GcpStatus {
   installed: boolean
   path?: string
   version?: string
-  accounts: { account: string; active: boolean }[]
+  /** valid is false when the account's tokens need an interactive re-login (Workspace session policies). */
+  accounts: { account: string; active: boolean; valid?: boolean }[]
   defaultProject?: string
   error?: string
 }

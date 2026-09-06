@@ -43,10 +43,10 @@ export function GcpSection({ connId, title, intro }: { connId: string; title?: s
       setError(String(err))
     }
   }
-  const login = (): void => {
+  const login = (which?: string): void => {
     setBusy('login')
     api
-      .invoke('gcp:login')
+      .invoke('gcp:login', which)
       .then(setStatus)
       .catch((err) => setError(String(err)))
       .finally(() => setBusy(null))
@@ -75,7 +75,7 @@ export function GcpSection({ connId, title, intro }: { connId: string; title?: s
             <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => load(true)}>
               <RefreshCw size={12} className={busy === 'status' ? 'animate-spin' : ''} /> Refresh
             </Button>
-            <Button size="sm" disabled={busy !== null || status?.installed === false} onClick={login}>
+            <Button size="sm" disabled={busy !== null || status?.installed === false} onClick={() => login()}>
               <LogIn size={12} /> {busy === 'login' ? 'Waiting for the browser…' : status?.accounts.length ? 'Sign in with another account' : 'Sign in'}
             </Button>
           </span>
@@ -87,10 +87,25 @@ export function GcpSection({ connId, title, intro }: { connId: string; title?: s
         )}
         {status?.installed && status.accounts.length === 0 && <p className="mt-2 text-muted">No Google account is signed in yet. Sign in opens the browser; the login stays in gcloud, not in Sinfonie.</p>}
         {status?.installed && status.accounts.length > 0 && (
-          <p className="mt-2 text-muted">
-            Signed in as {status.accounts.map((a) => a.account).join(', ')}
-            {status.defaultProject ? ` · gcloud default project ${status.defaultProject}` : ''}
-          </p>
+          <div className="mt-2 space-y-1">
+            {status.accounts.map((a) => (
+              <div key={a.account} className="flex items-center gap-2">
+                <span className={a.valid === false ? 'text-muted line-through' : ''}>{a.account}</span>
+                {a.active && <Badge>gcloud active</Badge>}
+                {a.valid === false && <Badge tone="warn">needs sign-in</Badge>}
+                {a.valid === false && (
+                  <button className="text-[11px] text-accent hover:underline" disabled={busy !== null} onClick={() => login(a.account)}>
+                    Re-authenticate
+                  </button>
+                )}
+                {account === a.account && <Badge tone="ok">used here</Badge>}
+              </div>
+            ))}
+            <p className="text-muted">
+              Every signed-in account stays usable side by side; Sinfonie passes the account per command, so spaces can use different ones without switching. Work accounts whose organisation enforces periodic re-authentication show “needs sign-in” when their session lapsed: re-authenticate that one, the others are untouched.
+              {status.defaultProject ? ` gcloud default project: ${status.defaultProject}.` : ''}
+            </p>
+          </div>
         )}
       </div>
       {inherited?.projectId && <p className="text-[12px] text-muted">This space inherits the application project {inherited.projectId}. Pick a project below to override it.</p>}
@@ -100,6 +115,7 @@ export function GcpSection({ connId, title, intro }: { connId: string; title?: s
           {(status?.accounts ?? []).map((a) => (
             <option key={a.account} value={a.account}>
               {a.account}
+              {a.valid === false ? ' (needs sign-in)' : ''}
             </option>
           ))}
         </select>

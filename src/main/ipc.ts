@@ -578,7 +578,7 @@ export function registerIpc(): void {
   // ---- google cloud ----
   handle('gcp:status', (force) => gcp.status(Boolean(force)))
   handle('gcp:projects', (account, force) => gcp.projects(account || undefined, Boolean(force)))
-  handle('gcp:login', () => gcp.login())
+  handle('gcp:login', (account) => gcp.login(account || undefined))
   handle('gcp:test', (spaceId) => gcp.test(spaceId))
   setTimeout(() => oncall.reconcile(), 5_000)
 

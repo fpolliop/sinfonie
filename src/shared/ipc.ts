@@ -217,7 +217,8 @@ export interface SinfonieInvoke {
   'oncall:openFixPr': (incidentId: string) => Incident
   'gcp:status': (force?: boolean) => GcpStatus
   'gcp:projects': (account?: string, force?: boolean) => { projectId: string; name: string }[]
-  'gcp:login': () => GcpStatus
+  /** `gcloud auth login [account]`: opens the browser; pass the account to re-authenticate an expired one. */
+  'gcp:login': (account?: string) => GcpStatus
   /** Runs one small read in the space's (or app's) project and describes the result. */
   'gcp:test': (spaceId: string) => string
   // ---- workspace browser ----
