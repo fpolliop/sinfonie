@@ -1145,6 +1145,15 @@ export interface UsageSettings {
   contextWarnTokens?: number
 }
 /** What the user can do when a limit is near or hit. */
+/** One entry of the setup assistant's conversation. */
+export interface AssistantItem {
+  id: string
+  role: 'user' | 'assistant' | 'tool' | 'system'
+  text: string
+  tool?: { name: string; input: Record<string, unknown>; ok: boolean; ms?: number }
+  createdAt: string
+}
+
 export interface GcpSettings {
   projectId: string
   /** gcloud account to run as; default the active one. */

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import clsx from 'clsx'
-import { Plus, RefreshCw, Trash2, FolderGit2, Settings as SettingsIcon, Layers, Server, UserCircle2, Users, Plug, Ticket, GitPullRequest, MessageSquarePlus, Info, FolderTree, ChevronRight, Gauge, Siren, CircleDot, Hash, Activity, Cloud } from 'lucide-react'
+import { Plus, RefreshCw, Trash2, FolderGit2, Settings as SettingsIcon, Layers, Server, UserCircle2, Users, Plug, Ticket, GitPullRequest, MessageSquarePlus, Info, FolderTree, ChevronRight, Gauge, Siren, CircleDot, Hash, Activity, Cloud, Sparkles } from 'lucide-react'
 import { GcpSection } from './GcpSection'
 import { api } from '@/lib/api'
 import { useApp, type SettingsTarget, type AppPage, type SpacePage } from '@/stores/app'
@@ -59,6 +59,7 @@ const SPACE_PAGES: { id: SpacePage; label: string; icon: React.ReactNode; desc: 
 
 export function SettingsWindow({ target, onClose }: { target: SettingsTarget; onClose: () => void }): React.JSX.Element {
   const { spaces, openSettings } = useApp()
+  const setAssistantOpen = useApp((st) => st.setAssistantOpen)
   const space = target.scope === 'space' ? spaces.find((s) => s.id === target.spaceId) : undefined
   // Hide any workspace browser page while settings are up, so this overlay stays clickable.
   useEffect(() => {
@@ -93,7 +94,10 @@ export function SettingsWindow({ target, onClose }: { target: SettingsTarget; on
           ))}
           <div className="mt-3 flex items-center px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-muted">
             Spaces
-            <button className="ml-auto rounded p-0.5 hover:bg-panel-2 hover:text-text" title="New space" onClick={() => openSettings({ scope: 'app', page: 'spaces' })}>
+            <button className="ml-auto rounded p-0.5 hover:bg-panel-2 hover:text-text" title="Ask the setup assistant (⇧⌘A)" onClick={() => setAssistantOpen(true)}>
+            <Sparkles size={13} />
+          </button>
+          <button className="rounded p-0.5 hover:bg-panel-2 hover:text-text" title="New space" onClick={() => openSettings({ scope: 'app', page: 'spaces' })}>
               <Plus size={12} />
             </button>
           </div>

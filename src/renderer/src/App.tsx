@@ -15,6 +15,7 @@ import { PermissionPrompt } from './components/PermissionPrompt'
 import { BranchRenamePrompt } from './components/BranchRenamePrompt'
 import { ReviewCockpit } from './components/ReviewCockpit'
 import { FeedbackDialog } from './components/FeedbackDialog'
+import { AssistantPane } from './components/AssistantPane'
 import { SetupWizard } from './components/onboarding/SetupWizard'
 import { Tour } from './components/onboarding/Tour'
 import { GettingStarted } from './components/onboarding/GettingStarted'
@@ -23,7 +24,7 @@ import logo from './assets/logo.svg'
 import { Button } from './components/ui'
 
 export default function App(): React.JSX.Element {
-  const { loaded, load, selectedId, view, showNewWorkspace, settingsTarget, closeSettings, setShowNewWorkspace, setShowSettings, error, setError, stepSpace, setActiveSpace, feedbackDialog, setFeedbackDialog, onboarding, setOnboarding } = useApp()
+  const { loaded, load, selectedId, view, showNewWorkspace, settingsTarget, closeSettings, setShowNewWorkspace, setShowSettings, error, setError, stepSpace, setActiveSpace, feedbackDialog, setFeedbackDialog, onboarding, setOnboarding, assistantOpen, setAssistantOpen, openSettings } = useApp()
   const subscribeChat = useChat((s) => s.subscribe)
   const subscribeScripts = useScripts((s) => s.subscribe)
 
@@ -37,6 +38,7 @@ export default function App(): React.JSX.Element {
   useEffect(() => api.on('ui:authLink', setAuthLink), [])
   useEffect(() => api.on('ui:authDone', (d) => setAuthLink((cur) => (cur && cur.provider === d.provider ? null : cur))), [])
   useEffect(() => api.on('ui:openFeedback', ({ tab }) => setFeedbackDialog(tab)), [setFeedbackDialog])
+  useEffect(() => api.on('ui:openSettings', (t) => openSettings(t as Parameters<typeof openSettings>[0])), [openSettings])
   useEffect(() => api.on('ui:openOnboarding', ({ kind }) => setOnboarding(kind)), [setOnboarding])
   useEffect(
     () =>
@@ -60,6 +62,10 @@ export default function App(): React.JSX.Element {
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'f') {
         e.preventDefault()
         setFeedbackDialog('feedback')
+      }
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'a') {
+        e.preventDefault()
+        setAssistantOpen(true)
       }
       if ((e.metaKey || e.ctrlKey) && ((e.shiftKey && e.key.toLowerCase() === 'n') || (!e.shiftKey && !e.altKey && e.key.toLowerCase() === 't'))) {
         e.preventDefault()
@@ -86,7 +92,7 @@ export default function App(): React.JSX.Element {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [setShowNewWorkspace, setShowSettings, stepSpace, setActiveSpace, setFeedbackDialog])
+  }, [setShowNewWorkspace, setShowSettings, stepSpace, setActiveSpace, setFeedbackDialog, setAssistantOpen])
 
   if (!loaded) return <div className="flex h-full items-center justify-center text-muted">Loading…</div>
 
@@ -99,6 +105,7 @@ export default function App(): React.JSX.Element {
       {showNewWorkspace && <NewWorkspaceDialog onClose={() => setShowNewWorkspace(false)} />}
       {settingsTarget && <SettingsWindow target={settingsTarget} onClose={closeSettings} />}
       {feedbackDialog && <FeedbackDialog tab={feedbackDialog} onClose={() => setFeedbackDialog(null)} />}
+      {assistantOpen && <AssistantPane onClose={() => setAssistantOpen(false)} />}
       <PermissionPrompt />
       <BranchRenamePrompt />
       {onboarding === 'setup' && <SetupWizard onClose={() => setOnboarding(null)} />}

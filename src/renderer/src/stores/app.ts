@@ -47,6 +47,8 @@ interface AppState {
   branchPrompt: { workspaceId: string; name: string; newSlug: string; currentBranch: string } | null
   feedbackDialog: 'feedback' | 'errors' | null
   setFeedbackDialog: (v: 'feedback' | 'errors' | null) => void
+  assistantOpen: boolean
+  setAssistantOpen: (v: boolean) => void
   /** The first-run setup assistant or the spotlight tour, when one is showing. */
   onboarding: 'setup' | 'tour' | null
   setOnboarding: (v: 'setup' | 'tour' | null) => void
@@ -150,6 +152,8 @@ export const useApp = create<AppState>((set, get) => ({
   branchPrompt: null,
   feedbackDialog: null,
   setFeedbackDialog: (feedbackDialog) => set({ feedbackDialog }),
+  assistantOpen: false,
+  setAssistantOpen: (assistantOpen) => set({ assistantOpen }),
 
   onboarding: null,
   setOnboarding: (onboarding) => set({ onboarding }),

@@ -127,6 +127,9 @@ app.on('open-url', (e, url) => {
   handleDeepLink(url)
 })
 
+// Development aid: SINFONIE_CDP_PORT=9333 pnpm dev exposes the renderer over CDP for scripted checks.
+if (process.env.SINFONIE_CDP_PORT && !app.isPackaged) app.commandLine.appendSwitch('remote-debugging-port', process.env.SINFONIE_CDP_PORT)
+
 app.whenReady().then(async () => {
   await adoptShellPath()
   images.registerProtocol()

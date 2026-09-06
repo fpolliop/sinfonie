@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { Plus, Settings, Archive, Pencil, Folder, Code2, TerminalSquare, Trash2, GitPullRequest, Layers, ArrowDownWideNarrow, ArrowUpNarrowWide, Filter, ChevronRight, MessageSquarePlus, Siren, Activity } from 'lucide-react'
+import { Plus, Settings, Archive, Pencil, Folder, Code2, TerminalSquare, Trash2, GitPullRequest, Layers, ArrowDownWideNarrow, ArrowUpNarrowWide, Filter, ChevronRight, MessageSquarePlus, Siren, Activity, Sparkles } from 'lucide-react'
 import { ERRORS_SEEN_KEY } from './FeedbackDialog'
 import { useResources, subscribeResources, gb } from '@/stores/resources'
 import { useOnCall, subscribeOnCall } from '@/stores/oncall'
@@ -99,6 +99,7 @@ export function Sidebar(): React.JSX.Element {
         <button data-tour="new-workspace" className="no-drag rounded-md p-1.5 text-muted hover:bg-panel-2 hover:text-text" title="New workspace (⇧⌘N)" onClick={() => setShowNewWorkspace(true, currentId)}>
           <Plus size={16} />
         </button>
+        <AssistantButton />
         <FeedbackButton />
         <button data-tour="settings" className="no-drag rounded-md p-1.5 text-muted hover:bg-panel-2 hover:text-text" title="Settings (⌘,)" onClick={() => setShowSettings(true)}>
           <Settings size={16} />
@@ -235,6 +236,16 @@ export function Sidebar(): React.JSX.Element {
         />
       )}
     </aside>
+  )
+}
+
+/** Opens the setup assistant: a conversation that configures spaces, repos, crews and integrations. */
+function AssistantButton(): React.JSX.Element {
+  const setAssistantOpen = useApp((s) => s.setAssistantOpen)
+  return (
+    <button className="no-drag rounded-md p-1.5 text-muted hover:bg-panel-2 hover:text-text" title="Setup assistant (⇧⌘A)" onClick={() => setAssistantOpen(true)}>
+      <Sparkles size={16} />
+    </button>
   )
 }
 

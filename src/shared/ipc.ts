@@ -33,7 +33,7 @@ import type { AuthLink, BrowserState, ContextUsage, CrewPriority, FsEntry, Limit
   Space,
   StoreData,
   TerminalDataEvent,
-  Workspace, CostMode, CostModeScope, GcpStatus } from './types'
+  Workspace, CostMode, CostModeScope, GcpStatus, AssistantItem } from './types'
 
 /** Request/response channels (ipcRenderer.invoke). */
 export interface SinfonieInvoke {
@@ -179,6 +179,11 @@ export interface SinfonieInvoke {
   'agent:reset': (workspaceId: string) => void
   /** Set the cost profile at one scope; sessions that are affected restart and resume their conversation. */
   'costMode:set': (scope: CostModeScope, mode: CostMode | null) => void
+  // ---- setup assistant ----
+  'assistant:send': (text: string) => void
+  'assistant:history': () => { items: AssistantItem[]; busy: boolean }
+  'assistant:reset': () => void
+  'assistant:stop': () => void
   'agent:setMode': (workspaceId: string, mode: PermissionMode) => Workspace
   'chat:load': (workspaceId: string) => { items: ChatItem[]; busy: boolean }
   // ---- session notes ----
@@ -268,6 +273,9 @@ export interface SinfonieEvents {
   'ui:authDone': { provider: AuthLink['provider']; connId: string }
   /** Open the review cockpit on this PR (notification click). */
   'ui:openReview': { key: string }
+  /** The assistant (or main) asks the renderer to show a settings page. */
+  'ui:openSettings': { scope: 'app'; page: string } | { scope: 'space'; spaceId: string; page: string }
+  'assistant:event': { type: 'item'; item: AssistantItem } | { type: 'delta'; id: string; text: string } | { type: 'status'; busy: boolean } | { type: 'reset' }
   /** Open the On call view on this incident (notification click, deep link). */
   'ui:openOnCall': { incidentId?: string }
   /** An agent started using the browser of this workspace; the renderer brings the pane forward. */

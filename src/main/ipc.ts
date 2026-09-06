@@ -47,6 +47,8 @@ import * as files from './services/files'
 import * as slack from './services/slack'
 import * as oncall from './services/oncall/service'
 import * as gcp from './services/gcp'
+import * as assistant from './services/assistant'
+import type { CostMode, CostModeScope } from '@shared/types'
 import * as usage from './services/usage'
 import { costModeFor } from './services/cost-mode'
 import * as limits from './services/limits'
@@ -590,6 +592,13 @@ export function registerIpc(): void {
   handle('gcp:projects', (account, force) => gcp.projects(account || undefined, Boolean(force)))
   handle('gcp:login', (account) => gcp.login(account || undefined))
   handle('gcp:test', (spaceId) => gcp.test(spaceId))
+  // ---- setup assistant ----
+  assistant.setEmitter((e) => send('assistant:event', e))
+  assistant.setHost({ addRepoAt, setCostMode: (scope, mode) => applyCostMode(scope, mode), openSettings: (t) => send('ui:openSettings', t) })
+  handle('assistant:send', (text) => assistant.send(text))
+  handle('assistant:history', () => assistant.history())
+  handle('assistant:reset', () => assistant.reset())
+  handle('assistant:stop', () => assistant.stop())
   setTimeout(() => oncall.reconcile(), 5_000)
 
   // ---- files ----
@@ -663,7 +672,7 @@ export function registerIpc(): void {
     agent.resetSession(id)
     clearTranscript(id)
   })
-  handle('costMode:set', (scope, mode) => {
+  const applyCostMode = (scope: CostModeScope, mode: CostMode | null): void => {
     const all = getStore().get().workspaces
     const before = new Map(all.map((w) => [w.id, costModeFor(w.spaceId, w.id)]))
     if (scope.kind === 'workspace') {
@@ -696,7 +705,8 @@ export function registerIpc(): void {
         emitAgent({ type: 'status', workspaceId: w.id, busy: false })
       }
     }
-  })
+  }
+  handle('costMode:set', (scope, mode) => applyCostMode(scope, mode))
   handle('chat:load', (id) => {
     if (!agent.isBusy(id)) markInterrupted(id)
     return { items: getTranscript(id), busy: agent.isBusy(id) }
