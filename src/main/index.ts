@@ -122,10 +122,10 @@ function handleDeepLink(raw: string): void {
       if (err) logError('slack:oauth', new Error(err))
       if (code) void slack.finishAuth(code).catch((e) => logError('slack:oauth', e))
       focus()
-    } else if (u.host === 'join') {
-      // An invite link: hand the token to the Plan page, which joins (after sign-in if needed).
-      const token = u.searchParams.get('token')
-      if (token) for (const win of BrowserWindow.getAllWindows()) win.webContents.send('cloud:invite', { token })
+    } else if (u.host === 'join' || u.host === 'redeem') {
+      // An invite or coupon link: hand it to the Plan page, which acts on it (after sign-in if needed).
+      const token = u.searchParams.get('token') || u.searchParams.get('code')
+      if (token) for (const win of BrowserWindow.getAllWindows()) win.webContents.send('cloud:invite', { token, kind: u.host as 'join' | 'redeem' })
       focus()
     }
   } catch (e) {

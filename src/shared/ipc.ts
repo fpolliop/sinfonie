@@ -116,6 +116,7 @@ export interface SinfonieInvoke {
   'cloud:renameOrg': (orgId: string, name: string) => CloudOrgDetail
   'cloud:leaveOrg': (orgId: string) => void
   'cloud:acceptInvite': (codeOrUrl: string) => CloudOrgDetail
+  'cloud:redeem': (code: string) => CloudState
   // ---- phone companion ----
   'remote:status': () => RemoteStatus
   'remote:pair': () => { url: string; qrSvg: string }
@@ -323,8 +324,8 @@ export interface SinfonieEvents {
   'ui:authLink': AuthLink
   /** That sign-in finished; close the dialog. */
   'ui:authDone': { provider: AuthLink['provider']; connId: string }
-  /** A sinfonie://join link arrived: the Plan page should accept this invite. */
-  'cloud:invite': { token: string }
+  /** A sinfonie://join or sinfonie://redeem link arrived: the Plan page should act on it. */
+  'cloud:invite': { token: string; kind: 'join' | 'redeem' }
   'remote:status': RemoteStatus
   /** Open the review cockpit on this PR (notification click). */
   'ui:openReview': { key: string }

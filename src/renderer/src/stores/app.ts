@@ -42,8 +42,8 @@ interface AppState {
   settingsTarget: SettingsTarget | null
   openSettings: (t: SettingsTarget) => void
   /** An invite token from a sinfonie://join link, waiting for the Plan page to accept it. */
-  pendingInvite: string | null
-  setPendingInvite: (token: string | null) => void
+  pendingInvite: { token: string; kind: 'join' | 'redeem' } | null
+  setPendingInvite: (p: { token: string; kind: 'join' | 'redeem' } | null) => void
   closeSettings: () => void
   showArchived: boolean
   error: string | null

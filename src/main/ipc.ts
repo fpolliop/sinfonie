@@ -488,6 +488,7 @@ export function registerIpc(): void {
   handle('cloud:renameOrg', (orgId, name) => cloud.renameOrg(orgId, name))
   handle('cloud:leaveOrg', (orgId) => cloud.leaveOrg(orgId))
   handle('cloud:acceptInvite', (code) => cloud.acceptInvite(code))
+  handle('cloud:redeem', (code) => cloud.redeem(code))
   // ---- shared spaces ----
   handle('shared:definition', (spaceId) => sharedSpace.definitionFor(spaceId))
   handle('shared:export', (spaceId, repoId) => sharedSpace.exportSpace(spaceId, repoId))

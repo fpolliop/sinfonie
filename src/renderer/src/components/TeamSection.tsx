@@ -45,12 +45,12 @@ export function TeamSection({ signedIn }: { signedIn: boolean }): React.JSX.Elem
   }
   // A sinfonie://join link arrived while (or before) this page was open.
   useEffect(() => {
-    if (!pendingInvite) return
+    if (!pendingInvite || pendingInvite.kind !== 'join') return
     if (!signedIn) {
-      setCode(pendingInvite)
+      setCode(pendingInvite.token)
       return
     }
-    const token = pendingInvite
+    const token = pendingInvite.token
     setPendingInvite(null)
     void join(token)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -72,7 +72,7 @@ export function TeamSection({ signedIn }: { signedIn: boolean }): React.JSX.Elem
           </Button>
         )}
       </div>
-      {!signedIn && <p className="text-[12px] text-muted">Sign in to see your teams{pendingInvite ? ', then the invite you opened will be accepted' : ''}.</p>}
+      {!signedIn && <p className="text-[12px] text-muted">Sign in to see your teams{pendingInvite?.kind === 'join' ? ', then the invite you opened will be accepted' : ''}.</p>}
       {signedIn && orgs && orgs.length === 0 && <p className="mb-3 text-[12px] text-muted">You are not in a team yet. Buy the Team plan above to start one, or paste an invite from a team admin below.</p>}
       {(orgs ?? []).map((org) => {
         const admin = org.role === 'admin'
