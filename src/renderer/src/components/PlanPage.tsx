@@ -53,7 +53,7 @@ function CouponBox({ signedIn }: { signedIn: boolean }): React.JSX.Element {
     try {
       const st = await api.invoke('cloud:redeem', c)
       setCode('')
-      setDone(st.account?.grant ? `You are on ${PLAN_LABELS[st.account.plan]}${st.account.grant.until ? ` until ${new Date(st.account.grant.until).toLocaleDateString()}` : ''}. Enjoy.` : 'Code accepted.')
+      setDone(st.account?.grant && st.account.grant.kind !== 'trial' ? `You are on ${PLAN_LABELS[st.account.plan]}${st.account.grant.until ? ` until ${new Date(st.account.grant.until).toLocaleDateString()}` : ''}. Enjoy.` : 'Code accepted.')
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -135,7 +135,9 @@ export function PlanPage(): React.JSX.Element {
                 {account.user.name || account.user.login}
                 <Badge tone={plan === 'free' ? 'muted' : 'accent'}>{PLAN_LABELS[plan]}</Badge>
                 {account.subscription?.status && account.subscription.status !== 'active' && <Badge tone="warn">{account.subscription.status.replace('_', ' ')}</Badge>}
-                {account.grant && account.grant.plan === plan && <Badge tone="ok">{account.grant.until ? `free until ${new Date(account.grant.until).toLocaleDateString()}` : 'free, on us'}</Badge>}
+                {account.grant && account.grant.plan === plan && !account.subscription && (
+                  <Badge tone="ok">{account.grant.kind === 'trial' ? `trial, ends ${new Date(account.grant.until ?? '').toLocaleDateString()}` : account.grant.until ? `free until ${new Date(account.grant.until).toLocaleDateString()}` : 'free, on us'}</Badge>
+                )}
               </div>
               <div className="truncate text-[12px] text-muted">
                 @{account.user.login}
