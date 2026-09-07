@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { ChevronRight, ChevronDown, Square, RotateCcw, Send, ShieldCheck, XCircle, AlertTriangle, Info, History, Users, GitFork, ListTree, ArrowLeft, StickyNote, Paperclip, X } from 'lucide-react'
+import { ChevronRight, ChevronDown, ChevronsUpDown, Square, RotateCcw, Send, ShieldCheck, XCircle, AlertTriangle, Info, History, Users, GitFork, ListTree, ArrowLeft, StickyNote, Paperclip, X } from 'lucide-react'
 import { imageFiles } from '@/lib/images'
 import type { ContextUsage, ChatTurnResult, AgentEvent, ChatImageRef, LimitAlternative, CostMode, CostModeScope } from '@shared/types'
 import { NotesPanel } from './NotesPanel'
@@ -59,6 +59,28 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
   const fileInput = useRef<HTMLInputElement>(null)
   const taRef = useRef<HTMLTextAreaElement>(null)
   const [taHeight, setTaHeight] = useState<number>(() => Number(localStorage.getItem('sinfonie.composerHeight')) || 0)
+  // Custom resize handle in the top-right corner: the composer's bottom edge is pinned, so dragging up makes it taller.
+  const startResize = (e: React.MouseEvent): void => {
+    e.preventDefault()
+    const startY = e.clientY
+    const startH = taRef.current?.offsetHeight ?? taHeight ?? 64
+    const maxH = Math.floor(window.innerHeight * 0.6)
+    let h = startH
+    const onMove = (ev: MouseEvent): void => {
+      h = Math.min(maxH, Math.max(64, startH - (ev.clientY - startY)))
+      if (taRef.current) taRef.current.style.height = `${h}px`
+    }
+    const onUp = (): void => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+      document.body.style.cursor = ''
+      setTaHeight(h)
+      localStorage.setItem('sinfonie.composerHeight', String(h))
+    }
+    document.body.style.cursor = 'ns-resize'
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
   const queue = chat?.queue ?? []
   const disabled = ws?.status !== 'ready'
   const canSend = !disabled && (Boolean(draft.trim()) || pendingImages.length > 0)
@@ -213,6 +235,19 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
               </div>
             )}
             <input ref={fileInput} type="file" accept="image/*" multiple className="hidden" onChange={(e) => (e.target.files?.length && void addImages(workspaceId, Array.from(e.target.files)), (e.target.value = ''))} />
+            <div className="relative">
+              <div
+                className="absolute right-1.5 top-1.5 z-10 cursor-ns-resize rounded p-1 text-muted/60 hover:bg-panel-2 hover:text-text"
+                title="Drag to resize"
+                onMouseDown={startResize}
+                onDoubleClick={() => {
+                  setTaHeight(0)
+                  localStorage.removeItem('sinfonie.composerHeight')
+                  if (taRef.current) taRef.current.style.height = ''
+                }}
+              >
+                <ChevronsUpDown size={12} />
+              </div>
             <textarea
               value={draft}
               disabled={disabled}
@@ -236,16 +271,10 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
               rows={3}
               ref={taRef}
               style={taHeight ? { height: taHeight } : undefined}
-              onMouseUp={() => {
-                const h = taRef.current?.offsetHeight
-                if (h && h !== taHeight) {
-                  setTaHeight(h)
-                  localStorage.setItem('sinfonie.composerHeight', String(h))
-                }
-              }}
               placeholder={disabled ? 'Workspace is not ready' : busy ? 'Type to queue a message for when this turn ends… (Enter to queue)' : 'Describe the change across your repos… (Enter to send, Shift+Enter for newline, paste or drop images)'}
-              className="min-h-[64px] max-h-[60vh] w-full resize-y bg-transparent px-3 pt-3 text-[13px] outline-none placeholder:text-muted"
+              className="block min-h-[64px] max-h-[60vh] w-full resize-none bg-transparent pt-3 pl-3 pr-8 text-[13px] outline-none placeholder:text-muted"
             />
+            </div>
             <div className="flex min-w-0 flex-wrap items-center gap-2 px-2 pb-2">
               <ModePicker mode={mode} onChange={changeMode} />
               <SessionPill workspaceId={workspaceId} spaceId={ws?.spaceId} engineLabel={engineLabel} budgetMode={budgetMode} leanMode={leanMode} costMode={costMode} costModeSource={costModeSource} model={chat?.model ?? settingsModel} contextTokens={chat?.contextTokens} contextWindow={chat?.contextWindow} cacheRead={chat?.contextCacheRead} history={chat?.contextHistory} result={chat?.lastResult} busy={busy} onNewSession={() => void reset(workspaceId)} />
@@ -433,7 +462,7 @@ function SessionPill({ workspaceId, spaceId, engineLabel, budgetMode, leanMode, 
   const byServer = Object.entries((usage?.mcpTools ?? []).reduce<Record<string, number>>((m, t) => ((m[t.serverName] = (m[t.serverName] ?? 0) + t.tokens), m), {})).sort((a, b) => b[1] - a[1])
   return (
     <div ref={ref} className="relative">
-      <button onClick={() => setOpen(!open)} className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[11px] text-muted hover:bg-panel-2 hover:text-text" title="Session and context details">
+      <button data-tour="session" onClick={() => setOpen(!open)} className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[11px] text-muted hover:bg-panel-2 hover:text-text" title="Session and context details">
         <span className="rounded bg-panel-2 px-1 py-px text-[10px] uppercase tracking-wide">{engineLabel}</span>
         {leanMode ? <span className="rounded bg-ok/15 px-1 py-px text-[10px] uppercase tracking-wide text-ok" title="Lean mode: one Sonnet agent, no crew, trimmed context, 25 tool calls per message">lean</span> : budgetMode && <span className="rounded bg-ok/15 px-1 py-px text-[10px] uppercase tracking-wide text-ok">budget</span>}
         <span className="font-mono">{shortModel(model)}</span>

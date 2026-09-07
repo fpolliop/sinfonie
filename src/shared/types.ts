@@ -1139,6 +1139,8 @@ export interface AuthLink {
   /** '' for the application connection, else the space id. */
   connId: string
   url: string
+  /** Who the user approves access on, when the provider alone does not say (cloud: GitHub or Google). */
+  label?: string
 }
 
 // ---- On call ----
@@ -1246,7 +1248,12 @@ export interface Incident {
   error?: string
   /** The draft-PR run for the proposed fix, when the user asked for one. */
   fix?: IncidentFix
+  /** Alerts only: how many times the same alert fired while this incident was open (1 when absent). */
+  occurrences?: number
+  lastSeenAt?: string
 }
+/** One change applied to a selection of incidents. */
+export type OnCallBulkOp = { action: 'setStatus'; status: IncidentStatus } | { action: 'setSeverity'; severity: Severity } | { action: 'triage' } | { action: 'remove' }
 export interface OnCallState {
   running: boolean
   /** Space ids with an active watcher ('' for the application-level config). */
@@ -1347,7 +1354,7 @@ export interface UsageSettings {
 /** What the user can do when a limit is near or hit. */
 // ---- Databases ----
 
-export type DbKind = 'postgres' | 'mysql'
+export type DbKind = 'postgres' | 'mysql' | 'sqlite' | 'mongodb' | 'bigquery'
 export interface DbTunnel {
   kind: 'none' | 'ssh' | 'cloudsql'
   sshHost?: string
@@ -1373,6 +1380,14 @@ export interface DbConnection {
   user?: string
   ssl?: boolean
   tunnel?: DbTunnel
+  /** SQLite: database file path (~ allowed). */
+  path?: string
+  /** MongoDB: authentication database (default admin). */
+  authSource?: string
+  /** BigQuery: project, location (e.g. US, EU, us-central1) and gcloud account; defaults come from the space's Google Cloud settings. */
+  projectId?: string
+  location?: string
+  account?: string
   /** Writes stay refused unless this is on; even then the user confirms each statement from an agent. */
   allowWrites?: boolean
   createdAt: string
@@ -1381,6 +1396,8 @@ export interface DbConnection {
 }
 export interface DbSecrets {
   password?: string
+  /** MongoDB: a full connection URI (mongodb+srv://…) instead of host/user/password. */
+  uri?: string
   sshPassword?: string
   sshPassphrase?: string
 }
@@ -1390,6 +1407,8 @@ export interface DbColumn {
   nullable: boolean
   default?: string
   pk?: boolean
+  /** Foreign key target as schema.table + column. */
+  fk?: { table: string; column: string }
 }
 export interface DbTable {
   schema: string

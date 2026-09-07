@@ -475,7 +475,7 @@ export function registerIpc(): void {
     return accounts.addAccount(name, vendor)
   })
   // ---- Sinfonie account and plan ----
-  handle('cloud:signIn', () => cloud.signIn())
+  handle('cloud:signIn', (provider) => cloud.signIn(provider))
   handle('cloud:signOut', () => cloud.signOut())
   handle('cloud:refresh', () => cloud.refresh())
   handle('cloud:checkout', (plan, period, seats) => cloud.checkout(plan, period, seats))
@@ -643,6 +643,7 @@ export function registerIpc(): void {
   handle('oncall:addProposal', (id, text) => oncall.addProposal(id, text))
   handle('oncall:ask', (id, q) => oncall.ask(id, q))
   handle('oncall:remove', (id) => oncall.remove(id))
+  handle('oncall:bulk', (ids, op) => oncall.bulk(ids, op))
   handle('oncall:openFixPr', (id) => oncall.openFixPr(id))
   // ---- google cloud ----
   handle('gcp:status', (force) => gcp.status(Boolean(force)))
@@ -660,7 +661,14 @@ export function registerIpc(): void {
   handle('db:cancel', (spaceId, id) => db.cancel(spaceId, id))
   handle('db:history', (connectionId) => db.getHistory(connectionId))
   handle('db:cloudSqlInstances', (spaceId) => db.cloudSqlInstances(spaceId))
-  handle('db:classify', (sql) => db.classifySql(sql))
+  handle('db:classify', (spaceId, id, text) => db.classify(spaceId, id, text))
+  handle('db:explain', (spaceId, id, text) => db.explain(spaceId, id, text))
+  handle('db:update', (spaceId, id, req) => db.updateRow(spaceId, id, req))
+  handle('db:updatePreview', (spaceId, id, req) => db.updatePreview(db.get(spaceId, id), req))
+  handle('db:csvPreview', (path) => db.csvPreview(path || undefined))
+  handle('db:import', (spaceId, id, req) => db.importCsv(spaceId, id, req))
+  handle('db:export', (spaceId, id, text, format) => db.exportResult(spaceId, id, text, format))
+  handle('db:pickSqlite', () => db.pickSqliteFile())
   // ---- setup assistant ----
   assistant.setEmitter((e) => send('assistant:event', e))
   assistant.setHost({ addRepoAt, setCostMode: (scope, mode) => applyCostMode(scope, mode), openSettings: (t) => send('ui:openSettings', t) })

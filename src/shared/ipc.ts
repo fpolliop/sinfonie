@@ -1,4 +1,4 @@
-import type { AuthLink, BillingPeriod, CloudOrgDetail, CloudState, Plan, RemoteSettings, RemoteStatus, SpaceDefinition, SpaceImportPreview, SpaceImportResolution, BrowserState, ContextUsage, CrewPriority, FsEntry, LimitAlternative, UsageSnapshot, ChatImageInput, Incident, IncidentStatus, LinearIssue, LinearSettings, OnCallState, ResourceSnapshot, Severity, SlackConnection, LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion,
+import type { AuthLink, BillingPeriod, CloudOrgDetail, CloudState, Plan, RemoteSettings, RemoteStatus, SpaceDefinition, SpaceImportPreview, SpaceImportResolution, BrowserState, ContextUsage, CrewPriority, FsEntry, LimitAlternative, UsageSnapshot, ChatImageInput, Incident, IncidentStatus, LinearIssue, LinearSettings, OnCallState, ResourceSnapshot, Severity, SlackConnection, LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion, OnCallBulkOp,
   AgentEvent,
   ChatItem,
   JiraIssue,
@@ -103,7 +103,7 @@ export interface SinfonieInvoke {
   'linear:issue': (connId: string, identifier: string) => LinearIssue
   'workspaces:refreshLinear': (workspaceId: string) => Workspace
   // ---- Sinfonie account and plan ----
-  'cloud:signIn': () => void
+  'cloud:signIn': (provider?: 'github' | 'google') => void
   'cloud:signOut': () => CloudState
   'cloud:refresh': () => CloudState
   'cloud:checkout': (plan: Exclude<Plan, 'free'>, period: BillingPeriod, seats?: number) => void
@@ -218,7 +218,15 @@ export interface SinfonieInvoke {
   'db:history': (connectionId: string) => DbHistoryEntry[]
   'db:cloudSqlInstances': (spaceId: string) => { connectionName: string; name: string; engine: string; region: string }[]
   /** Read-only classification, so the Data tab can warn before running a write. */
-  'db:classify': (sql: string) => { statements: number; readOnly: boolean; first: string }
+  'db:classify': (spaceId: string, id: string, text: string) => { statements: number; readOnly: boolean; first: string }
+  'db:explain': (spaceId: string, id: string, text: string) => string
+  /** UPDATE one row by primary key on a connection that allows writes; the UI confirmed the preview. */
+  'db:update': (spaceId: string, id: string, req: { table: { schema: string; name: string }; pk: Record<string, unknown>; set: Record<string, unknown> }) => { affected: number; preview: string }
+  'db:updatePreview': (spaceId: string, id: string, req: { table: { schema: string; name: string }; pk: Record<string, unknown>; set: Record<string, unknown> }) => string
+  'db:csvPreview': (path?: string) => { path: string; delimiter: string; headers: string[]; sample: string[][]; rowCount: number } | null
+  'db:import': (spaceId: string, id: string, req: { path: string; delimiter: string; table: { schema: string; name: string }; mapping: Record<string, string>; coerceTypes?: boolean }) => { inserted: number; ms: number }
+  'db:export': (spaceId: string, id: string, text: string, format: 'csv' | 'json') => { path: string; rows: number } | null
+  'db:pickSqlite': () => string | null
   // ---- setup assistant ----
   'assistant:send': (text: string) => void
   'assistant:history': () => { items: AssistantItem[]; busy: boolean }
@@ -260,6 +268,8 @@ export interface SinfonieInvoke {
   'oncall:addProposal': (incidentId: string, text: string) => Incident
   'oncall:ask': (incidentId: string, question: string) => Incident
   'oncall:remove': (incidentId: string) => void
+  /** Applies one change to many incidents; returns how many were touched. */
+  'oncall:bulk': (incidentIds: string[], op: OnCallBulkOp) => number
   /** Draft a PR with the triage's proposed fix: branch from the default branch, agent edits, push, `gh pr create --draft`. */
   'oncall:openFixPr': (incidentId: string) => Incident
   'gcp:status': (force?: boolean) => GcpStatus

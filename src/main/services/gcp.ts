@@ -58,7 +58,7 @@ function run(args: string[], opts: { account?: string; project?: string; timeout
           .filter((l) => l.trim() && !/^Updates are available|^To update|^\$ gcloud components/.test(l))
           .slice(-4)
           .join(' ')
-        if (/Reauthentication (failed|required)|cannot prompt during non-interactive|invalid_grant|Token has been expired or revoked/i.test(tail)) {
+        if (/Reauthentication (failed|required)|cannot prompt during non-interactive|invalid_grant|Token has been expired or revoked|do not currently have an active account/i.test(String(stderr || err.message))) {
           reject(new Error(`Google account ${opts.account ?? '(active)'} needs to sign in again; its organisation requires periodic re-authentication. Press "Re-authenticate" next to it under Settings → Integrations → Google Cloud, then retry.`))
           return
         }

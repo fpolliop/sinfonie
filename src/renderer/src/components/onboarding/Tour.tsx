@@ -16,14 +16,22 @@ const STOPS: Stop[] = [
   { anchor: 'spaces', title: 'Spaces', text: 'Each dot is a space: its own repositories, workspaces, crew and settings. Personal, work, a client. ⌃1…9 jumps to one, ⌘⌥← and ⌘⌥→ step through them, and a two-finger swipe on the sidebar does too.' },
   { anchor: 'new-workspace', title: 'Workspaces', text: 'A workspace is one branch across every repo you pick. Sinfonie creates a git worktree per repo in its own folder, so a full-stack change lives in one place. ⇧⌘N opens this.' },
   { anchor: 'repos', title: 'The repos in a workspace', text: 'Every repo here is on the same branch. The dot shows its pull request state; click one to see the PR and review comments.' },
+  { anchor: 'session', title: 'Session, context and cost mode', text: 'Engine and model, how full the context window is, the cost of this session, and the cost mode: Standard, Budget or Lean. Lean runs one Sonnet agent with no crew and capped turns, for tight subscriptions. Compact or start a new session from here.' },
   { anchor: 'mode', title: 'Permission mode', text: 'How much the agent may do without asking. Plan only reads. Default asks before edits and commands. Auto-edit accepts edits. Auto also runs safe commands. Shift+Tab cycles.' },
   { anchor: 'notes', title: 'Session notes', text: 'Notes, reminders and todos for this workspace. The orchestrator reads them, adds follow-ups it finds, and ticks todos it completes. Ask it to “remember” something and it lands here.' },
+  { anchor: 'tab-data', title: 'Data', text: 'Your databases: Postgres, MySQL, SQLite, MongoDB and BigQuery, directly, through SSH, or through Cloud SQL with your Google login. Schema tree, SQL editor, ERD, inline editing, CSV import and export. Read-only by default, for you and for the agents.' },
+  { anchor: 'tab-browser', title: 'Browser', text: 'A browser the agent can drive: check the app on localhost, read documentation, operate consoles you are signed into. Sensitive sites always ask you first.' },
   { anchor: 'activity', title: 'Crew activity', text: 'Who did what in this session: the orchestrator and every crew member it delegated to, on whatever vendor each runs. Click a running member to watch it.' },
   { anchor: 'reviews', title: 'Review cockpit', text: 'Your open pull requests across all repos in one list. AI review reads the diff, you approve the findings that matter, and it drafts the reply.', prepare: () => {
       if (useApp.getState().view !== 'workspace') useApp.getState().setView('workspace')
     }
   },
-  { anchor: 'settings', title: 'Settings', text: 'Accounts for every vendor, model providers, the crew, MCP servers, Jira. Application-wide on the left, per space on the right. ⌘, opens it.' }
+  { anchor: 'oncall', title: 'On call', text: 'Watches your Slack alert and support channels, triages each incident against your code and your Google Cloud logs, proposes replies you approve, and opens a draft PR with the fix when it is sure of the cause.', prepare: () => {
+      if (useApp.getState().view !== 'workspace') useApp.getState().setView('workspace')
+    }
+  },
+  { anchor: 'assistant', title: 'Setup assistant', text: 'Talk to it to set things up: it interviews you about how your team works and designs a crew, adds repositories, creates spaces, connects Slack, Linear, Jira and Google Cloud, and sets cost modes. It confirms before every change. ⇧⌘A.' },
+  { anchor: 'settings', title: 'Settings', text: 'Accounts for every vendor, model providers, the crew, usage, resources, and the integrations: Jira, Linear, Slack, Google Cloud, databases, MCP servers. Application-wide on the left, per space on the right. ⌘, opens it.' }
 ]
 
 const PAD = 6

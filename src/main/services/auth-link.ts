@@ -12,8 +12,8 @@ export function setAuthLinkEmitters(onLink: (l: AuthLink) => void, onDone: (l: P
   emitLink = onLink
   emitDone = onDone
 }
-export function presentAuthLink(provider: AuthLink['provider'], connId: string, url: string): void {
-  emitLink?.({ provider, connId, url })
+export function presentAuthLink(provider: AuthLink['provider'], connId: string, url: string, label?: string): void {
+  emitLink?.({ provider, connId, url, ...(label ? { label } : {}) })
 }
 export function authDone(provider: AuthLink['provider'], connId: string): void {
   emitDone?.({ provider, connId })

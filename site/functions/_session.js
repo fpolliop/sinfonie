@@ -23,6 +23,46 @@ export function randomToken(bytes = 32) {
 }
 export const newId = () => randomToken(9)
 
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
+/** The small page the browser lands on after an OAuth round trip. */
+export function oauthPage(title, bodyHtml) {
+  return new Response(
+    `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sinfonie · ${esc(title)}</title>
+<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0f1115;color:#e6e8ec;font:15px/1.5 -apple-system,system-ui,sans-serif}main{max-width:460px;padding:32px;text-align:center}h1{font-size:20px;margin:0 0 8px}p{color:#8b93a1;margin:0 0 16px}</style>
+<main><h1>${esc(title)}</h1><p>${bodyHtml}</p></main></html>`,
+    { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } }
+  )
+}
+export { esc }
+
+export const STATE_RE = /^[A-Za-z0-9_-]{16,64}$/
+
+/**
+ * Finishes a sign-in from any provider: finds the user by provider id, else by verified email (so a
+ * GitHub and a Google login with the same address are one account), else creates them; then mints a
+ * desktop session and parks it under the app's state for /oauth/poll.
+ */
+export async function completeSignIn(env, request, state, identity) {
+  const { provider, providerId, login, name, email, avatarUrl } = identity
+  const col = provider === 'google' ? 'google_id' : 'github_id'
+  let row = await env.DB.prepare(`SELECT id FROM users WHERE ${col} = ?1`).bind(providerId).first()
+  if (!row && email) row = await env.DB.prepare('SELECT id FROM users WHERE lower(email) = lower(?1)').bind(email).first()
+  const userId = row?.id || newId()
+  if (row) {
+    await env.DB.prepare(`UPDATE users SET ${col} = ?2, login = COALESCE(login, ?3), name = COALESCE(?4, name), email = COALESCE(?5, email), avatar_url = COALESCE(?6, avatar_url), last_seen_at = datetime('now') WHERE id = ?1`)
+      .bind(userId, providerId, login, name || null, email || null, avatarUrl || null)
+      .run()
+  } else {
+    await env.DB.prepare(`INSERT INTO users (id, ${col}, login, name, email, avatar_url, last_seen_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, datetime('now'))`).bind(userId, providerId, login, name || null, email || null, avatarUrl || null).run()
+  }
+  const token = randomToken(32)
+  await env.DB.batch([
+    env.DB.prepare('INSERT INTO sessions (token_hash, user_id, user_agent) VALUES (?1, ?2, ?3)').bind(await sha256(token), userId, (request.headers.get('User-Agent') || '').slice(0, 200)),
+    env.DB.prepare('INSERT OR REPLACE INTO oauth_codes (state, code) VALUES (?1, ?2)').bind(`session:${state}`, token)
+  ])
+  return userId
+}
+
 export function bearer(request) {
   return (request.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '').trim()
 }

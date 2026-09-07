@@ -98,15 +98,16 @@ function stopPolling(): void {
   pollTimer = null
   pendingState = null
 }
-/** Opens the GitHub sign-in on sinfonie.dev and polls for the session the callback parks under our state. */
-export async function signIn(): Promise<void> {
+export type SignInProvider = 'github' | 'google'
+/** Opens the GitHub or Google sign-in on sinfonie.dev and polls for the session the callback parks under our state. */
+export async function signIn(provider: SignInProvider = 'github'): Promise<void> {
   stopPolling()
   const st = randomBytes(24).toString('base64url')
   pendingState = st
   const until = Date.now() + 5 * 60_000
   pollTimer = setInterval(() => {
     if (Date.now() > until || pendingState !== st) return stopPolling()
-    void fetch(`${CLOUD_URL}/oauth/github/poll?state=${encodeURIComponent(st)}`, { signal: AbortSignal.timeout(10_000) })
+    void fetch(`${CLOUD_URL}/oauth/poll?state=${encodeURIComponent(st)}`, { signal: AbortSignal.timeout(10_000) })
       .then((r) => r.json() as Promise<{ token?: string; error?: string }>)
       .then(async (j) => {
         if (!j.token || pendingState !== st) return
@@ -115,7 +116,7 @@ export async function signIn(): Promise<void> {
       })
       .catch(() => undefined)
   }, 2000)
-  presentAuthLink('cloud', '', `${CLOUD_URL}/oauth/github/start?state=${encodeURIComponent(st)}`)
+  presentAuthLink('cloud', '', `${CLOUD_URL}/oauth/${provider}/start?state=${encodeURIComponent(st)}`, provider === 'google' ? 'Google' : 'GitHub')
 }
 async function finishSignIn(token: string): Promise<void> {
   const account = await call<CloudAccount>('/api/me', {}, token)
