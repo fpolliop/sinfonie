@@ -266,6 +266,63 @@ export interface Space {
   workspacesRoot?: string
   /** Extra hostnames (optionally with a path prefix) where every browser action asks first. */
   browserSensitiveOrigins?: string[]
+  /** Set when this space follows a sinfonie.space.json shared with a team. */
+  shared?: SharedSpaceLink
+}
+
+// ---------- shared spaces ----------
+
+/** Name of the definition file a team commits next to its code. */
+export const SPACE_FILE = 'sinfonie.space.json'
+export interface SharedSpaceLink {
+  /** Absolute path of the definition file on this Mac. */
+  file: string
+  /** Hash of the file content last applied, to notice changes. */
+  hash: string
+  /** The repository the file lives in, when it was written from this app. */
+  repoId?: string
+  appliedAt: string
+}
+/** One repository in a shared space, identified by its remote rather than a local path. */
+export interface SharedRepo {
+  remote: string
+  name: string
+  defaultBranch: string
+}
+/** The keys of a Space that are shared; everything about accounts, secrets and local paths stays personal. */
+export type SharedSpaceSettings = Pick<Space, 'engine' | 'model' | 'permissionMode' | 'useCrew' | 'agents' | 'budgetMode' | 'leanMode' | 'strictMcp' | 'githubOwners' | 'browserSensitiveOrigins' | 'exposeGcpMcp' | 'exposeJiraMcp' | 'exposeLinearMcp'> & {
+  mcpServers?: McpServerSpec[]
+  jira?: Pick<JiraSettings, 'siteUrl' | 'defaultJql'>
+  linear?: Pick<LinearSettings, 'defaultQuery'>
+  gcp?: Pick<GcpSettings, 'projectId' | 'region'>
+  oncall?: Pick<OnCallSettings, 'enabled' | 'channels' | 'pollSeconds' | 'model' | 'maxTriagesPerHour' | 'context'>
+}
+export interface SpaceDefinition {
+  /** Format version. */
+  sinfonie: 1
+  name: string
+  color?: string
+  /** Team that owns the definition; members join it under the Team plan. */
+  orgId?: string
+  updatedAt: string
+  repos: SharedRepo[]
+  settings: SharedSpaceSettings
+}
+/** What importing a definition would do, repo by repo. */
+export interface SpaceImportPreview {
+  file: string
+  definition: SpaceDefinition
+  /** An existing space already following this file, if any. */
+  existingSpaceId?: string
+  repos: { remote: string; name: string; defaultBranch: string; match?: { repoId: string; path: string; spaceId?: string } }[]
+}
+/** How to get each repository that is not on this Mac yet. */
+export interface SpaceImportResolution {
+  remote: string
+  /** Use this existing checkout. */
+  path?: string
+  /** Clone into this parent folder. */
+  cloneInto?: string
 }
 
 export const SPACE_COLORS = ['#7c9cff', '#60a5fa', '#22d3ee', '#2dd4bf', '#4ade80', '#a3e635', '#fbbf24', '#fb923c', '#f87171', '#f472b6', '#e879f9', '#a78bfa', '#c084fc', '#f5d0a9', '#94a3b8', '#e5e7eb']
@@ -495,6 +552,93 @@ export interface Settings {
   leanMode?: boolean
   /** Per-turn spend cap in budget mode, USD at list price. */
   turnBudgetUsd?: number
+  /** Sinfonie account and plan, as last confirmed by sinfonie.dev. The session token itself lives in secrets. */
+  cloud?: CloudState
+}
+
+// ---------- plans ----------
+
+export type Plan = 'free' | 'pro' | 'team'
+export const PLAN_LABELS: Record<Plan, string> = { free: 'Free', pro: 'Pro', team: 'Team' }
+/** null means unlimited. */
+export interface PlanLimits {
+  spaces: number | null
+  reposPerSpace: number | null
+  accountsPerVendor: number | null
+}
+export const PLAN_LIMITS: Record<Plan, PlanLimits> = {
+  free: { spaces: 1, reposPerSpace: 2, accountsPerVendor: 1 },
+  pro: { spaces: null, reposPerSpace: null, accountsPerVendor: null },
+  team: { spaces: null, reposPerSpace: null, accountsPerVendor: null }
+}
+export type PlanFeature = 'crew' | 'reviewCockpit' | 'jira' | 'linear' | 'oncall' | 'sharedSpaces'
+export const PLAN_FEATURES: Record<Plan, PlanFeature[]> = {
+  free: [],
+  pro: ['crew', 'reviewCockpit', 'jira', 'linear', 'oncall'],
+  team: ['crew', 'reviewCockpit', 'jira', 'linear', 'oncall', 'sharedSpaces']
+}
+export type BillingPeriod = 'month' | 'year'
+
+export interface CloudUser {
+  id: string
+  login: string
+  name?: string
+  email?: string
+  avatarUrl?: string
+}
+export interface CloudOrg {
+  id: string
+  name: string
+  role: 'admin' | 'member'
+  plan: Plan
+  seats: number
+}
+export interface CloudMember {
+  id: string
+  login: string
+  name?: string
+  avatarUrl?: string
+  role: 'admin' | 'member'
+  since: string
+}
+export interface CloudInvite {
+  token: string
+  email?: string
+  role: 'admin' | 'member'
+  createdAt: string
+  url: string
+}
+/** A team as /api/orgs describes it: members for everyone, open invites for admins. */
+export interface CloudOrgDetail extends CloudOrg {
+  subscription?: CloudSubscription
+  members: CloudMember[]
+  invites: CloudInvite[]
+}
+export interface CloudSubscription {
+  /** Paddle status: active, trialing, past_due, paused, canceled. */
+  status: string
+  period?: BillingPeriod
+  renewsAt?: string
+  /** Set when the subscription ends at the period end. */
+  endsAt?: string
+}
+/** What sinfonie.dev says about the signed-in user. */
+export interface CloudAccount {
+  user: CloudUser
+  orgs: CloudOrg[]
+  plan: Plan
+  subscription?: CloudSubscription
+  /** Plan limits are enforced in the app only when the server says so (off until checkout works). */
+  enforce: boolean
+  /** True when the server can sell plans (Paddle configured). */
+  billing: boolean
+}
+export interface CloudState {
+  account?: CloudAccount
+  /** When the account was last confirmed by the server. */
+  checkedAt?: string
+  /** Last refresh problem, for the Plan page. */
+  error?: string
 }
 
 /** What the crew optimizer favours when assigning models. */
@@ -937,7 +1081,7 @@ export interface ErrorEntry {
 
 /** A sign-in URL the renderer shows with Open / Copy, instead of the app opening a browser on its own. */
 export interface AuthLink {
-  provider: 'jira' | 'linear' | 'slack'
+  provider: 'jira' | 'linear' | 'slack' | 'cloud'
   /** '' for the application connection, else the space id. */
   connId: string
   url: string

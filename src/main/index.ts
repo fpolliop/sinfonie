@@ -7,6 +7,7 @@ import * as browser from './services/browser/service'
 import * as images from './services/images'
 import * as slack from './services/slack'
 import { adoptShellPath } from './services/shell-path'
+import * as cloud from './services/cloud'
 import * as oncall from './services/oncall/service'
 import { installCrashHandlers, rendererConsoleError, logError, startUsagePings } from './services/telemetry'
 import { Menu, nativeImage } from 'electron'
@@ -107,16 +108,24 @@ if (app.isPackaged && !app.isDefaultProtocolClient('sinfonie')) app.setAsDefault
 function handleDeepLink(raw: string): void {
   try {
     const u = new URL(raw)
-    if (u.host === 'oauth' && u.pathname === '/slack') {
-      const code = u.searchParams.get('code')
-      const err = u.searchParams.get('error')
-      if (err) logError('slack:oauth', new Error(err))
-      if (code) void slack.finishAuth(code).catch((e) => logError('slack:oauth', e))
+    const focus = (): void => {
       const win = BrowserWindow.getAllWindows()[0]
       if (win) {
         win.show()
         win.focus()
       }
+    }
+    if (u.host === 'oauth' && u.pathname === '/slack') {
+      const code = u.searchParams.get('code')
+      const err = u.searchParams.get('error')
+      if (err) logError('slack:oauth', new Error(err))
+      if (code) void slack.finishAuth(code).catch((e) => logError('slack:oauth', e))
+      focus()
+    } else if (u.host === 'join') {
+      // An invite link: hand the token to the Plan page, which joins (after sign-in if needed).
+      const token = u.searchParams.get('token')
+      if (token) for (const win of BrowserWindow.getAllWindows()) win.webContents.send('cloud:invite', { token })
+      focus()
     }
   } catch (e) {
     logError('deep-link', e, { raw })
@@ -144,6 +153,7 @@ app.whenReady().then(async () => {
   createWindow()
   startUpdateChecks()
   startUsagePings()
+  cloud.start()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })

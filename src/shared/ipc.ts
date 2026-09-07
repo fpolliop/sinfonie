@@ -1,4 +1,4 @@
-import type { AuthLink, BrowserState, ContextUsage, CrewPriority, FsEntry, LimitAlternative, UsageSnapshot, ChatImageInput, Incident, IncidentStatus, LinearIssue, LinearSettings, OnCallState, ResourceSnapshot, Severity, SlackConnection, LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion,
+import type { AuthLink, BillingPeriod, CloudOrgDetail, CloudState, Plan, SpaceDefinition, SpaceImportPreview, SpaceImportResolution, BrowserState, ContextUsage, CrewPriority, FsEntry, LimitAlternative, UsageSnapshot, ChatImageInput, Incident, IncidentStatus, LinearIssue, LinearSettings, OnCallState, ResourceSnapshot, Severity, SlackConnection, LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion,
   AgentEvent,
   ChatItem,
   JiraIssue,
@@ -102,6 +102,29 @@ export interface SinfonieInvoke {
   'linear:search': (connId: string, query: string) => LinearIssue[]
   'linear:issue': (connId: string, identifier: string) => LinearIssue
   'workspaces:refreshLinear': (workspaceId: string) => Workspace
+  // ---- Sinfonie account and plan ----
+  'cloud:signIn': () => void
+  'cloud:signOut': () => CloudState
+  'cloud:refresh': () => CloudState
+  'cloud:checkout': (plan: Exclude<Plan, 'free'>, period: BillingPeriod, seats?: number) => void
+  'cloud:portal': () => void
+  'cloud:orgs': () => CloudOrgDetail[]
+  'cloud:invite': (orgId: string, role: 'admin' | 'member', email?: string) => CloudOrgDetail
+  'cloud:revokeInvite': (orgId: string, token: string) => CloudOrgDetail
+  'cloud:setMemberRole': (orgId: string, userId: string, role: 'admin' | 'member') => CloudOrgDetail
+  'cloud:removeMember': (orgId: string, userId: string) => CloudOrgDetail
+  'cloud:renameOrg': (orgId: string, name: string) => CloudOrgDetail
+  'cloud:leaveOrg': (orgId: string) => void
+  'cloud:acceptInvite': (codeOrUrl: string) => CloudOrgDetail
+  // ---- shared spaces (sinfonie.space.json) ----
+  'shared:definition': (spaceId: string) => SpaceDefinition
+  'shared:export': (spaceId: string, repoId: string) => { file: string }
+  'shared:pickFile': () => string | null
+  'shared:preview': (file: string) => SpaceImportPreview
+  'shared:import': (file: string, resolutions: SpaceImportResolution[]) => Space
+  'shared:pending': () => { spaceId: string; file: string; missing: boolean; changed: boolean }[]
+  'shared:apply': (spaceId: string) => Space
+  'shared:unlink': (spaceId: string) => Space
 
   'shell:openExternal': (url: string) => void
   'updates:check': () => UpdateInfo | null
@@ -291,6 +314,8 @@ export interface SinfonieEvents {
   'ui:authLink': AuthLink
   /** That sign-in finished; close the dialog. */
   'ui:authDone': { provider: AuthLink['provider']; connId: string }
+  /** A sinfonie://join link arrived: the Plan page should accept this invite. */
+  'cloud:invite': { token: string }
   /** Open the review cockpit on this PR (notification click). */
   'ui:openReview': { key: string }
   /** The assistant (or main) asks the renderer to show a settings page. */

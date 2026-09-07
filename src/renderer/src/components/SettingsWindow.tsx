@@ -1,13 +1,13 @@
 import React, { useEffect, useState } from 'react'
 import clsx from 'clsx'
-import { Plus, RefreshCw, Trash2, FolderGit2, Settings as SettingsIcon, Layers, Server, UserCircle2, Users, Plug, Ticket, GitPullRequest, MessageSquarePlus, Info, FolderTree, ChevronRight, Gauge, Siren, CircleDot, Hash, Activity, Cloud, Sparkles, Database } from 'lucide-react'
+import { Plus, RefreshCw, Trash2, FolderGit2, Settings as SettingsIcon, Layers, Server, UserCircle2, Users, Plug, Ticket, GitPullRequest, MessageSquarePlus, Info, FolderTree, ChevronRight, Gauge, Siren, CircleDot, Hash, Activity, Cloud, Sparkles, Database, Gem, FileJson } from 'lucide-react'
 import { GcpSection } from './GcpSection'
 import { DatabasesSection } from './DatabasesSection'
 import { api } from '@/lib/api'
 import { useApp, type SettingsTarget, type AppPage, type SpacePage } from '@/stores/app'
 import { Badge, Button, Field, inputCls } from './ui'
 import { shortPath } from '@/lib/format'
-import { PERMISSION_MODES, SPACE_COLORS, jiraConnectionFor, linearConnectionFor, type Space } from '@shared/types'
+import { PERMISSION_MODES, SPACE_COLORS, SPACE_FILE, jiraConnectionFor, linearConnectionFor, type Space } from '@shared/types'
 import { JiraSection } from './JiraSection'
 import { LinearSection } from './LinearSection'
 import { SlackConnectionCard } from './SlackConnectionCard'
@@ -18,6 +18,8 @@ import { ProvidersSection } from './ProvidersSection'
 import { EngineSelect, NativeModelSelect } from './EngineSelect'
 import { AccountsPage, acpProbeCache } from './AccountsPage'
 import { ResourcesPage } from './ResourcesPage'
+import { PlanPage } from './PlanPage'
+import { ImportSpaceDialog, SharedSpaceSection } from './SharedSpace'
 import { UsagePage } from './UsagePage'
 import { OnCallSettings } from './OnCallSettings'
 import { ACP_ENGINES, VENDORS } from '@shared/types'
@@ -43,6 +45,7 @@ const APP_PAGES: { id: AppPage; label: string; icon: React.ReactNode; desc: stri
   { id: 'gcp', label: 'Google Cloud', icon: <Cloud size={14} />, desc: 'Your gcloud login and default project: read-only logs, Cloud Run and Error Reporting for sessions and the on-call agent.', group: 'Integrations' },
   { id: 'mcp', label: 'MCP servers', icon: <Plug size={14} />, desc: 'MCP servers available in every space.', group: 'Integrations' },
   { id: 'feedback', label: 'Feedback & diagnostics', icon: <MessageSquarePlus size={14} />, desc: 'Send feedback, review captured errors, control crash reports.' },
+  { id: 'plan', label: 'Plan', icon: <Gem size={14} />, desc: 'Your Sinfonie account and plan. Agent subscriptions stay with their vendors.' },
   { id: 'about', label: 'About & updates', icon: <Info size={14} />, desc: 'Version, links, and update checks.' }
 ]
 const SPACE_PAGES: { id: SpacePage; label: string; icon: React.ReactNode; desc: string; overrides?: AppPage; group?: string }[] = [
@@ -258,6 +261,8 @@ function AppPageView({ page }: { page: AppPage }): React.JSX.Element {
       return <ResourcesPage />
     case 'usage':
       return <UsagePage />
+    case 'plan':
+      return <PlanPage />
     case 'oncall':
       return <OnCallSettings />
     case 'crew':
@@ -310,6 +315,7 @@ function SpacesPage(): React.JSX.Element {
   const { spaces, workspaces, repos, openSettings } = useApp()
   const go = useGo()
   const [name, setName] = useState('')
+  const [importing, setImporting] = useState(false)
   const add = (): void => {
     if (!name.trim()) return
     void go(async () => {
@@ -325,7 +331,11 @@ function SpacesPage(): React.JSX.Element {
         <Button variant="primary" disabled={!name.trim()} onClick={add}>
           <Plus size={13} /> Add space
         </Button>
+        <Button onClick={() => setImporting(true)} title={`Import a ${SPACE_FILE} a teammate committed`}>
+          <FileJson size={13} /> Join shared…
+        </Button>
       </div>
+      {importing && <ImportSpaceDialog onClose={() => setImporting(false)} />}
       <div className="flex flex-col gap-1.5">
         {spaces.map((s) => {
           const nWs = workspaces.filter((w) => w.spaceId === s.id && w.status !== 'archived').length
@@ -665,6 +675,7 @@ function SpaceRepos({ space }: { space: Space }): React.JSX.Element {
           </Button>
         </div>
       )}
+      <SharedSpaceSection space={space} />
     </div>
   )
 }

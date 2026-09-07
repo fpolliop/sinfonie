@@ -4,7 +4,7 @@ import { api } from '@/lib/api'
 import { Button, Dialog } from './ui'
 import type { AuthLink } from '@shared/types'
 
-const NAMES: Record<AuthLink['provider'], string> = { jira: 'Jira', linear: 'Linear', slack: 'Slack' }
+const NAMES: Record<AuthLink['provider'], string> = { jira: 'Jira', linear: 'Linear', slack: 'Slack', cloud: 'GitHub' }
 
 /** A sign-in link: open it in the default browser, or copy it to paste into the browser that is logged in. */
 export function AuthLinkDialog({ link, onClose }: { link: AuthLink; onClose: () => void }): React.JSX.Element {
@@ -16,7 +16,7 @@ export function AuthLinkDialog({ link, onClose }: { link: AuthLink; onClose: () 
     setTimeout(() => setCopied(false), 2000)
   }
   return (
-    <Dialog title={`Sign in to ${name}`} onClose={onClose} width={480}>
+    <Dialog title={link.provider === 'cloud' ? 'Sign in to Sinfonie with GitHub' : `Sign in to ${name}`} onClose={onClose} width={480}>
       <p className="mb-3 text-[13px] text-muted">Approve access on {name}'s site, then come back here. If your default browser is not the one signed in to {name}, copy the link and open it where you are.</p>
       <div className="mb-4 max-h-[72px] overflow-auto rounded-md border border-border bg-bg px-2.5 py-2 font-mono text-[11px] text-muted break-all select-all">{link.url}</div>
       <div className="flex items-center gap-2">

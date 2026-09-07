@@ -3,7 +3,7 @@ import type { Label, Repo, Settings, Space, StoreData, Workspace } from '@shared
 import { api } from '@/lib/api'
 
 export type Tab = 'chat' | 'changes' | 'prs' | 'terminal' | 'run' | 'browser' | 'files' | 'data'
-export type AppPage = 'general' | 'spaces' | 'repos' | 'providers' | 'accounts' | 'logins' | 'crew' | 'resources' | 'usage' | 'oncall' | 'mcp' | 'jira' | 'linear' | 'slack' | 'gcp' | 'feedback' | 'about'
+export type AppPage = 'general' | 'spaces' | 'repos' | 'providers' | 'accounts' | 'logins' | 'crew' | 'resources' | 'usage' | 'oncall' | 'mcp' | 'jira' | 'linear' | 'slack' | 'gcp' | 'feedback' | 'plan' | 'about'
 export type SpacePage = 'general' | 'repos' | 'crew' | 'oncall' | 'mcp' | 'jira' | 'linear' | 'slack' | 'gcp' | 'databases' | 'github'
 export type SettingsTarget = { scope: 'app'; page: AppPage } | { scope: 'space'; spaceId: string; page: SpacePage }
 
@@ -41,6 +41,9 @@ interface AppState {
   /** The open settings page, or null when the window is closed. */
   settingsTarget: SettingsTarget | null
   openSettings: (t: SettingsTarget) => void
+  /** An invite token from a sinfonie://join link, waiting for the Plan page to accept it. */
+  pendingInvite: string | null
+  setPendingInvite: (token: string | null) => void
   closeSettings: () => void
   showArchived: boolean
   error: string | null
@@ -146,6 +149,8 @@ export const useApp = create<AppState>((set, get) => ({
   showNewWorkspace: false,
   settingsTarget: null,
   openSettings: (settingsTarget) => set({ settingsTarget }),
+  pendingInvite: null,
+  setPendingInvite: (pendingInvite) => set({ pendingInvite }),
   closeSettings: () => set({ settingsTarget: null }),
   showArchived: false,
   error: null,
