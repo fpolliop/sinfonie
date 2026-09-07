@@ -1,0 +1,13 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["JNFBBVN9F6.dev.sinfonie.app"],
+        "components": [
+          { "/": "/m", "comment": "Pairing links from the Mac app open in the phone app" },
+          { "/": "/m/*" }
+        ]
+      }
+    ]
+  }
+}
