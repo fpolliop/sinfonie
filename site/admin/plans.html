@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex">
+<title>Sinfonie admin · Plans</title>
+<link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
+<style>
+  :root{--bg:#0b0d11;--bg2:#0f1115;--panel:#141821;--panel2:#1b2030;--border:#232a38;--border2:#2d3546;--text:#e8eaf0;--muted:#8f97a8;--dim:#5f6779;--accent:#7c9cff;--accent2:#5b7cff;--ok:#4ade80;--warn:#fbbf24;--danger:#ff6b6b;--mono:ui-monospace,"SF Mono",Menlo,monospace;--sans:-apple-system,BlinkMacSystemFont,"SF Pro Text",Inter,system-ui,sans-serif}
+  *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 var(--sans)}
+  header{display:flex;align-items:center;gap:12px;padding:12px 20px;border-bottom:1px solid var(--border);background:var(--bg2);position:sticky;top:0;z-index:5}
+  header img{width:24px;height:24px;border-radius:6px}header b{font-size:15px}header nav{display:flex;gap:14px;margin-left:16px;font-size:13px}header nav a{color:var(--muted);text-decoration:none}header nav a.on{color:var(--text)}header .who{margin-left:auto;font:12px var(--mono);color:var(--dim)}
+  main{max-width:1180px;margin:0 auto;padding:20px}
+  h2{font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim);margin:22px 0 10px;font-family:var(--mono);font-weight:600}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:14px 16px}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  label{font-size:12px;color:var(--muted)}label.chk{display:inline-flex;align-items:center;gap:6px;color:var(--text)}
+  input,select{background:var(--bg2);border:1px solid var(--border2);border-radius:8px;color:var(--text);padding:7px 10px;font:13px var(--sans);outline:none}input:focus,select:focus{border-color:var(--accent)}input[type=number]{width:84px}input[type=checkbox]{width:auto}
+  .btn{background:var(--panel2);border:1px solid var(--border2);color:var(--text);padding:6px 10px;border-radius:8px;cursor:pointer;font:13px var(--sans)}.btn.danger{color:var(--danger)}.btn.primary{background:var(--accent2);border-color:transparent;color:#fff}.btn:disabled{opacity:.5;cursor:default}
+  table{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-top:10px}
+  th{font:11px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--dim);text-align:left;padding:10px 12px;border-bottom:1px solid var(--border)}
+  td{padding:9px 12px;border-bottom:1px solid var(--border);vertical-align:middle}
+  tr.r{cursor:pointer}tr.r:hover td{background:rgba(255,255,255,.02)}tr.off td{opacity:.55}
+  tr.detail td{background:var(--bg2);padding:14px 16px;cursor:default}
+  code{font:12px var(--mono);letter-spacing:.06em}
+  .k{font:11px var(--mono);padding:2px 7px;border-radius:999px;border:1px solid var(--border2);color:var(--muted)}.k.team{color:var(--accent);border-color:rgba(124,156,255,.5)}.k.pro{color:var(--ok);border-color:rgba(74,222,128,.5)}.k.off{color:var(--danger);border-color:rgba(255,107,107,.5)}
+  .meta{font:11px var(--mono);color:var(--dim)}
+  .empty{padding:24px;text-align:center;color:var(--muted)}
+  .gate{max-width:420px;margin:80px auto;background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:22px}.gate p{color:var(--muted);font-size:13px}
+  .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--panel2);border:1px solid var(--border2);padding:8px 14px;border-radius:10px;font-size:13px;display:none}
+</style>
+</head>
+<body>
+<header><img src="/assets/logo.svg" alt=""><b>Sinfonie admin</b><nav><a href="/admin/">Queue</a><a href="/admin/stats">Stats</a><a href="/admin/compare">Competitors</a><a class="on" href="/admin/plans">Plans</a></nav><span class="who" id="who"></span></header>
+<main>
+  <div id="gate" class="gate" hidden>
+    <b>Admin token</b>
+    <p>Cloudflare Access is not configured yet, so this page falls back to the admin token.</p>
+    <input id="tok" type="password" placeholder="ADMIN_TOKEN" style="width:100%"><div class="row" style="margin-top:10px"><button class="btn primary" id="tokgo">Continue</button></div>
+  </div>
+  <div id="app" hidden>
+    <h2>Free trial</h2>
+    <div class="card">
+      <div class="row">
+        <label class="chk"><input type="checkbox" id="trialOn"> New accounts start with a free trial</label>
+        <label>for <input type="number" id="trialDays" min="0" max="365"> days of</label>
+        <select id="trialPlan"><option value="pro">Pro</option><option value="team">Team (all features)</option></select>
+        <button class="btn primary" id="trialSave">Save</button>
+        <span class="meta" id="trialNote"></span>
+      </div>
+      <div class="meta" style="margin-top:8px">Applies to accounts created after saving. Nobody's card is asked for; when the trial ends the account falls back to Free and keeps everything it has.</div>
+    </div>
+
+    <h2>Coupons</h2>
+    <div class="card">
+      <div class="row">
+        <input id="cCode" placeholder="Code (blank = generated)" style="width:210px;font-family:var(--mono);text-transform:uppercase">
+        <select id="cPlan"><option value="team">All features</option><option value="pro">Pro</option></select>
+        <label>uses <input type="number" id="cUses" min="1" value="1"></label>
+        <label class="chk"><input type="checkbox" id="cUsesInf"> unlimited</label>
+        <label>access <input type="number" id="cDays" min="1" value="30"> days</label>
+        <label class="chk"><input type="checkbox" id="cDaysInf" checked> for good</label>
+        <input id="cNote" placeholder="Note, e.g. who it is for" style="flex:1;min-width:160px">
+        <button class="btn primary" id="cCreate">Create</button>
+      </div>
+    </div>
+    <table><thead><tr><th>Code</th><th>Grants</th><th>Uses</th><th>Access</th><th>Note</th><th>Status</th><th>Created</th></tr></thead><tbody id="rows"></tbody></table>
+    <div class="empty" id="empty" hidden>No coupons yet.</div>
+  </div>
+</main>
+<div class="toast" id="toast"></div>
+<script>
+(function(){
+  var token = localStorage.getItem('sinfonie.adminToken') || ''
+  var $ = function(id){ return document.getElementById(id) }
+  var state = { coupons: [], open: null }
+  function headers(){ var h = { 'Content-Type': 'application/json' }; if (token) h.Authorization = 'Bearer ' + token; return h }
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c] }) }
+  function toast(m){ var t=$('toast'); t.textContent=m; t.style.display='block'; clearTimeout(t._t); t._t=setTimeout(function(){ t.style.display='none' }, 2200) }
+  function api(method, path, body){
+    return fetch(path, { method: method, headers: headers(), body: body ? JSON.stringify(body) : undefined }).then(function(r){
+      if (r.status===401) throw new Error('unauthorized')
+      return r.json().then(function(j){ if (!r.ok) throw new Error(j.error_description || j.error || ('HTTP '+r.status)); return j })
+    })
+  }
+  function fail(e){ if (String(e.message).indexOf('unauthorized')>=0) { localStorage.removeItem('sinfonie.adminToken'); token=''; $('app').hidden=true; $('gate').hidden=false } else toast(e.message) }
+  function day(iso){ return iso ? new Date(iso.replace(' ','T')+(iso.indexOf('Z')>0||iso.indexOf('+')>0?'':'Z')).toLocaleDateString() : '' }
+  function usesText(c){ return c.uses + ' / ' + (c.maxUses==null ? '∞' : c.maxUses) }
+  function accessText(c){ return c.durationDays==null ? 'for good' : c.durationDays + ' days' }
+  function status(c){
+    if (c.disabled) return '<span class="k off">disabled</span>'
+    if (c.expiresAt && Date.parse(c.expiresAt) < Date.now()) return '<span class="k off">expired</span>'
+    if (c.maxUses!=null && c.uses>=c.maxUses) return '<span class="k">used up</span>'
+    return '<span class="k" style="color:var(--ok)">active</span>'
+  }
+  function load(){
+    Promise.all([api('GET','/api/admin/settings'), api('GET','/api/admin/coupons')]).then(function(r){
+      $('gate').hidden = true; $('app').hidden = false
+      var s = r[0]; $('trialOn').checked = s.trialEnabled; $('trialDays').value = s.trialDays; $('trialPlan').value = s.trialPlan
+      state.coupons = r[1].coupons; render()
+    }).catch(fail)
+  }
+  function render(){
+    var tb = $('rows'); tb.innerHTML = ''
+    $('empty').hidden = state.coupons.length > 0
+    state.coupons.forEach(function(c){
+      var tr = document.createElement('tr'); tr.className = 'r' + (c.disabled ? ' off' : '')
+      tr.innerHTML = '<td><code>'+esc(c.code)+'</code></td><td><span class="k '+esc(c.plan)+'">'+(c.plan==='team'?'all features':'Pro')+'</span></td><td>'+usesText(c)+'</td><td>'+accessText(c)+(c.expiresAt?'<div class="meta">redeem by '+day(c.expiresAt)+'</div>':'')+'</td><td>'+esc(c.note||'')+'</td><td>'+status(c)+'</td><td class="meta">'+day(c.createdAt)+'</td>'
+      tr.onclick = function(){ state.open = state.open===c.code ? null : c.code; render() }
+      tb.appendChild(tr)
+      if (state.open === c.code) {
+        var d = document.createElement('tr'); d.className = 'detail'
+        var who = c.redemptions.length ? '<div class="meta" style="margin-bottom:10px">Redeemed by ' + c.redemptions.map(function(r){ return esc(r.name||r.login||'?') + ' (' + day(r.at) + ')' }).join(', ') + '</div>' : '<div class="meta" style="margin-bottom:10px">Not redeemed yet.</div>'
+        d.innerHTML = '<td colspan="7">' + who +
+          '<div class="row"><input data-f="url" readonly value="'+esc(c.url)+'" style="width:340px;font-family:var(--mono);font-size:12px"><button class="btn" data-a="copy">Copy link</button></div>' +
+          '<div class="row" style="margin-top:10px">' +
+            '<select data-f="plan"><option value="team"'+(c.plan==='team'?' selected':'')+'>All features</option><option value="pro"'+(c.plan==='pro'?' selected':'')+'>Pro</option></select>' +
+            '<label>uses <input type="number" min="1" data-f="uses" value="'+(c.maxUses==null?'':c.maxUses)+'"'+(c.maxUses==null?' disabled':'')+'></label><label class="chk"><input type="checkbox" data-f="usesInf"'+(c.maxUses==null?' checked':'')+'> unlimited</label>' +
+            '<label>access <input type="number" min="1" data-f="days" value="'+(c.durationDays==null?'':c.durationDays)+'"'+(c.durationDays==null?' disabled':'')+'> days</label><label class="chk"><input type="checkbox" data-f="daysInf"'+(c.durationDays==null?' checked':'')+'> for good</label>' +
+            '<label>redeem by <input type="date" data-f="exp" value="'+(c.expiresAt?c.expiresAt.slice(0,10):'')+'"></label>' +
+            '<input data-f="note" placeholder="Note" value="'+esc(c.note||'')+'" style="flex:1;min-width:140px">' +
+          '</div>' +
+          '<div class="row" style="margin-top:10px"><button class="btn primary" data-a="save">Save</button><button class="btn" data-a="toggle">'+(c.disabled?'Enable':'Disable')+'</button>'+(c.redemptions.length?'':'<button class="btn danger" data-a="del">Delete</button>')+'</div></td>'
+        var q = function(sel){ return d.querySelector('[data-f='+sel+']') }
+        q('usesInf').onchange = function(){ q('uses').disabled = this.checked }
+        q('daysInf').onchange = function(){ q('days').disabled = this.checked }
+        d.querySelector('[data-a=copy]').onclick = function(e){ e.stopPropagation(); navigator.clipboard.writeText(c.url).then(function(){ toast('Link copied') }) }
+        d.querySelector('[data-a=save]').onclick = function(e){ e.stopPropagation()
+          api('PATCH', '/api/admin/coupons/'+encodeURIComponent(c.code), { plan: q('plan').value, maxUses: q('usesInf').checked ? null : Number(q('uses').value||1), durationDays: q('daysInf').checked ? null : Number(q('days').value||1), expiresAt: q('exp').value ? q('exp').value+'T23:59:59Z' : null, note: q('note').value })
+            .then(function(j){ state.coupons=j.coupons; render(); toast('Saved') }).catch(fail) }
+        d.querySelector('[data-a=toggle]').onclick = function(e){ e.stopPropagation(); api('PATCH', '/api/admin/coupons/'+encodeURIComponent(c.code), { disabled: !c.disabled }).then(function(j){ state.coupons=j.coupons; render() }).catch(fail) }
+        var del = d.querySelector('[data-a=del]'); if (del) del.onclick = function(e){ e.stopPropagation(); if (!confirm('Delete '+c.code+'?')) return; api('DELETE', '/api/admin/coupons/'+encodeURIComponent(c.code)).then(function(j){ state.open=null; state.coupons=j.coupons; render() }).catch(fail) }
+        d.querySelectorAll('input,select,button').forEach(function(el){ el.addEventListener('click', function(e){ e.stopPropagation() }) })
+        tb.appendChild(d)
+      }
+    })
+  }
+  $('trialSave').onclick = function(){ api('PUT', '/api/admin/settings', { trialEnabled: $('trialOn').checked, trialDays: Number($('trialDays').value||0), trialPlan: $('trialPlan').value }).then(function(s){ $('trialNote').textContent = s.trialEnabled ? 'On: '+s.trialDays+' days of '+s.trialPlan : 'Off'; toast('Saved') }).catch(fail) }
+  $('cUsesInf').onchange = function(){ $('cUses').disabled = this.checked }
+  $('cDaysInf').onchange = function(){ $('cDays').disabled = this.checked }
+  $('cDays').disabled = true
+  $('cCreate').onclick = function(){
+    api('POST', '/api/admin/coupons', { code: $('cCode').value.trim() || undefined, plan: $('cPlan').value, maxUses: $('cUsesInf').checked ? null : Number($('cUses').value||1), durationDays: $('cDaysInf').checked ? null : Number($('cDays').value||1), note: $('cNote').value })
+      .then(function(j){ state.coupons=j.coupons; state.open=j.code; $('cCode').value=''; $('cNote').value=''; render(); navigator.clipboard.writeText(j.url).then(function(){ toast(j.code+' created, link copied') }, function(){ toast(j.code+' created') }) }).catch(fail)
+  }
+  $('tokgo').onclick = function(){ token = $('tok').value.trim(); localStorage.setItem('sinfonie.adminToken', token); load() }
+  $('tok').addEventListener('keydown', function(e){ if(e.key==='Enter') $('tokgo').click() })
+  load()
+})()
+</script>
+</body>
+</html>

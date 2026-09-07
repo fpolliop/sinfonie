@@ -37,6 +37,15 @@ export { esc }
 
 export const STATE_RE = /^[A-Za-z0-9_-]{16,64}$/
 
+/** Admin-editable settings with their defaults. Values are strings in D1. */
+export const SETTING_DEFAULTS = { trial_enabled: 'true', trial_days: '14', trial_plan: 'pro' }
+export async function getSettings(env) {
+  const { results } = await env.DB.prepare('SELECT key, value FROM app_settings').all().catch(() => ({ results: [] }))
+  const out = { ...SETTING_DEFAULTS }
+  for (const r of results) if (r.key in out) out[r.key] = r.value
+  return { trialEnabled: out.trial_enabled === 'true', trialDays: Math.max(0, Number(out.trial_days) || 0), trialPlan: out.trial_plan === 'team' ? 'team' : 'pro' }
+}
+
 /**
  * Finishes a sign-in from any provider: finds the user by provider id, else by verified email (so a
  * GitHub and a Google login with the same address are one account), else creates them; then mints a
@@ -53,7 +62,12 @@ export async function completeSignIn(env, request, state, identity) {
       .bind(userId, providerId, login, name || null, email || null, avatarUrl || null)
       .run()
   } else {
-    await env.DB.prepare(`INSERT INTO users (id, ${col}, login, name, email, avatar_url, last_seen_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, datetime('now'))`).bind(userId, providerId, login, name || null, email || null, avatarUrl || null).run()
+    // A new account: the cardless trial, when the admin has it on.
+    const st = await getSettings(env)
+    const trialUntil = st.trialEnabled && st.trialDays > 0 ? new Date(Date.now() + st.trialDays * 86400_000).toISOString() : null
+    await env.DB.prepare(`INSERT INTO users (id, ${col}, login, name, email, avatar_url, last_seen_at, trial_plan, trial_until) VALUES (?1, ?2, ?3, ?4, ?5, ?6, datetime('now'), ?7, ?8)`)
+      .bind(userId, providerId, login, name || null, email || null, avatarUrl || null, trialUntil ? st.trialPlan : null, trialUntil)
+      .run()
   }
   const token = randomToken(32)
   await env.DB.batch([
@@ -98,6 +112,8 @@ export async function accountFor(user, env) {
   let plan = 'free'
   const overrideLive = user.plan_override && RANK[user.plan_override] !== undefined && (!user.plan_override_until || Date.parse(user.plan_override_until) > Date.now())
   if (overrideLive) plan = best(plan, user.plan_override)
+  const trialLive = user.trial_plan && RANK[user.trial_plan] !== undefined && user.trial_until && Date.parse(user.trial_until) > Date.now()
+  if (trialLive) plan = best(plan, user.trial_plan)
   if (subscriptionLive(user)) plan = best(plan, 'pro')
   const orgs = memberships.map((o) => {
     const orgPlan = o.plan_override === 'team' || subscriptionLive(o) ? 'team' : 'free'
@@ -112,7 +128,8 @@ export async function accountFor(user, env) {
     orgs,
     plan,
     subscription,
-    grant: overrideLive ? { plan: user.plan_override, until: user.plan_override_until || undefined } : undefined,
+    // What gives the plan when it is not a subscription: a coupon/manual grant beats a trial of the same rank.
+    grant: overrideLive && (!trialLive || RANK[user.plan_override] >= RANK[user.trial_plan]) ? { kind: user.plan_override_until ? 'coupon' : 'manual', plan: user.plan_override, until: user.plan_override_until || undefined } : trialLive ? { kind: 'trial', plan: user.trial_plan, until: user.trial_until } : undefined,
     enforce: String(env.PLANS_ENFORCED || '').toLowerCase() === 'true',
     billing: Boolean(env.PADDLE_API_KEY && env.PADDLE_PRICE_PRO_MONTH)
   }

@@ -14,7 +14,7 @@ export async function onRequestPost({ request, env }) {
   const code = String(b.code || '').trim().toUpperCase().replace(/\s+/g, '')
   if (!/^[A-Z0-9-]{4,40}$/.test(code)) return error('invalid_code', 'That does not look like a code.')
   const c = await env.DB.prepare('SELECT * FROM coupons WHERE code = ?1').bind(code).first()
-  if (!c) return error('unknown_code', 'This code does not exist.', 404)
+  if (!c || c.disabled) return error('unknown_code', 'This code does not exist.', 404)
   if (c.expires_at && Date.parse(c.expires_at) < Date.now()) return error('expired', 'This code has expired.', 410)
   const already = await env.DB.prepare('SELECT 1 FROM coupon_redemptions WHERE code = ?1 AND user_id = ?2').bind(code, user.id).first()
   if (already) return error('already_used', 'You already used this code.', 409)

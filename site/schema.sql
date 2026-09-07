@@ -149,3 +149,14 @@ CREATE TABLE IF NOT EXISTS coupon_redemptions (
   redeemed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (code, user_id)
 );
+
+-- Admin-editable settings (trial on/off and length); defaults live in _session.js.
+CREATE TABLE IF NOT EXISTS app_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+ALTER TABLE coupons ADD COLUMN disabled INTEGER NOT NULL DEFAULT 0;
+-- The cardless trial every new account gets, separate from coupon grants (plan_override).
+ALTER TABLE users ADD COLUMN trial_plan TEXT;
+ALTER TABLE users ADD COLUMN trial_until TEXT;
