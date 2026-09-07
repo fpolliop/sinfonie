@@ -1,27 +1,52 @@
+import 'react-native-gesture-handler'
 import React, { useEffect, useRef, useState } from 'react'
 import { ActivityIndicator, View } from 'react-native'
 import { StatusBar } from 'expo-status-bar'
 import * as Linking from 'expo-linking'
 import * as Notifications from 'expo-notifications'
-import { DarkTheme, NavigationContainer, type NavigationContainerRef } from '@react-navigation/native'
+import { DarkTheme, DrawerActions, NavigationContainer, type NavigationContainerRef } from '@react-navigation/native'
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
-import { SafeAreaProvider } from 'react-native-safe-area-context'
+import { createDrawerNavigator } from '@react-navigation/drawer'
+import { GestureHandlerRootView } from 'react-native-gesture-handler'
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { C } from './theme'
 import { connect, loadPairing, savePairing, useStore } from './store'
 import { handleResponse, setupCategories } from './notifications'
 import { parsePairingLink } from './protocol'
+import { DrawerContent } from './navigation/DrawerContent'
 import { PairScreen } from './screens/PairScreen'
 import { WorkspacesScreen } from './screens/WorkspacesScreen'
+import { InboxScreen } from './screens/InboxScreen'
 import { ChatScreen } from './screens/ChatScreen'
 import { SettingsScreen } from './screens/SettingsScreen'
 
-export type RootStack = {
-  Workspaces: undefined
-  Chat: { workspaceId: string }
+export type WorkspaceFilter = 'needs' | 'running'
+export type DrawerParams = {
+  Workspaces: { filter?: WorkspaceFilter; space?: string } | undefined
+  Inbox: undefined
   Settings: undefined
 }
+export type RootStack = {
+  Main: undefined
+  Chat: { workspaceId: string }
+}
 const Stack = createNativeStackNavigator<RootStack>()
+const Drawer = createDrawerNavigator<DrawerParams>()
 const theme = { ...DarkTheme, colors: { ...DarkTheme.colors, background: C.bg, card: C.bg, text: C.text, border: C.border, primary: C.accent } }
+
+function Main(): React.JSX.Element {
+  const insets = useSafeAreaInsets()
+  return (
+    <Drawer.Navigator
+      drawerContent={(p) => <DrawerContent {...p} />}
+      screenOptions={{ headerShown: false, drawerType: 'front', drawerStyle: { backgroundColor: C.bg2, width: 300 }, overlayColor: 'rgba(0,0,0,.55)', sceneStyle: { backgroundColor: C.bg, paddingTop: insets.top } }}
+    >
+      <Drawer.Screen name="Workspaces" component={WorkspacesScreen} />
+      <Drawer.Screen name="Inbox" component={InboxScreen} />
+      <Drawer.Screen name="Settings" component={SettingsScreen} />
+    </Drawer.Navigator>
+  )
+}
 
 export default function App(): React.JSX.Element {
   const [ready, setReady] = useState(false)
@@ -66,7 +91,7 @@ export default function App(): React.JSX.Element {
   useEffect(() => {
     if (!__DEV__) return
     const g = globalThis as unknown as { __sinfonie?: Record<string, unknown> }
-    g.__sinfonie = { ...(g.__sinfonie ?? {}), open: openWorkspace, back: () => nav.current?.goBack() }
+    g.__sinfonie = { ...(g.__sinfonie ?? {}), open: openWorkspace, back: () => nav.current?.goBack(), drawer: () => nav.current?.dispatch(DrawerActions.openDrawer()), go: (name: string, params?: object) => (nav.current as unknown as { navigate: (n: string, p?: object) => void } | null)?.navigate(name, params) }
   })
   async function onLink(url: string): Promise<void> {
     const parsed = parsePairingLink(url)
@@ -81,28 +106,29 @@ export default function App(): React.JSX.Element {
     )
   }
   return (
-    <SafeAreaProvider>
-      <StatusBar style="light" />
-      {!pairing ? (
-        <PairScreen />
-      ) : (
-        <NavigationContainer
-          ref={nav}
-          theme={theme}
-          onReady={() => {
-            if (pendingOpen.current) {
-              nav.current?.navigate('Chat', { workspaceId: pendingOpen.current })
-              pendingOpen.current = null
-            }
-          }}
-        >
-          <Stack.Navigator screenOptions={{ headerStyle: { backgroundColor: C.bg }, headerTintColor: C.text, headerTitleStyle: { fontWeight: '600' }, headerShadowVisible: false, contentStyle: { backgroundColor: C.bg } }}>
-            <Stack.Screen name="Workspaces" component={WorkspacesScreen} />
-            <Stack.Screen name="Chat" component={ChatScreen} />
-            <Stack.Screen name="Settings" component={SettingsScreen} />
-          </Stack.Navigator>
-        </NavigationContainer>
-      )}
-    </SafeAreaProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <StatusBar style="light" />
+        {!pairing ? (
+          <PairScreen />
+        ) : (
+          <NavigationContainer
+            ref={nav}
+            theme={theme}
+            onReady={() => {
+              if (pendingOpen.current) {
+                nav.current?.navigate('Chat', { workspaceId: pendingOpen.current })
+                pendingOpen.current = null
+              }
+            }}
+          >
+            <Stack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: C.bg } }}>
+              <Stack.Screen name="Main" component={Main} />
+              <Stack.Screen name="Chat" component={ChatScreen} />
+            </Stack.Navigator>
+          </NavigationContainer>
+        )}
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   )
 }
