@@ -3,14 +3,19 @@ import { CheckCircle2, Circle, X } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 
-/** Six things a new install does, ticked from real state. Lives on the empty page until dismissed or done. */
+/** Eight things a new install does, ticked from real state. Lives on the empty page until dismissed or done. */
 export function GettingStarted(): React.JSX.Element | null {
-  const { settings, spaces, repos, workspaces, openSettings, setShowNewWorkspace, setView, setOnboarding } = useApp()
+  const { settings, spaces, repos, workspaces, openSettings, setShowNewWorkspace, setView, setOnboarding, setAssistantOpen } = useApp()
   const [reviewed, setReviewed] = useState(false)
+  const [assisted, setAssisted] = useState(false)
   useEffect(() => {
     api
       .invoke('reviews:runs')
       .then((r) => setReviewed(r.length > 0))
+      .catch(() => undefined)
+    api
+      .invoke('assistant:history')
+      .then((h) => setAssisted(h.items.length > 0))
       .catch(() => undefined)
   }, [])
   if (settings.onboarding?.checklistDismissedAt) return null
@@ -20,7 +25,9 @@ export function GettingStarted(): React.JSX.Element | null {
     { done: repos.length > 0, text: 'Add repositories to it', go: () => (spaces[0] ? openSettings({ scope: 'space', spaceId: spaces[0].id, page: 'repos' }) : openSettings({ scope: 'app', page: 'repos' })) },
     { done: workspaces.length > 0, text: 'Create a workspace', go: () => setShowNewWorkspace(true) },
     { done: workspaces.some((w) => w.sessionId || Object.keys(w).some((k) => k.startsWith('acp:'))), text: 'Send a first message', go: () => workspaces[0] && useApp.getState().select(workspaces[0].id) },
-    { done: reviewed, text: 'Run an AI review on a pull request', go: () => setView('reviews') }
+    { done: reviewed, text: 'Run an AI review on a pull request', go: () => setView('reviews') },
+    { done: assisted || spaces.some((s) => (s.agents?.length ?? 0) > 0), text: 'Let the assistant design your crew', go: () => setAssistantOpen(true) },
+    { done: spaces.some((s) => (s.databases?.length ?? 0) > 0 || Boolean(s.gcp?.projectId)) || Boolean(settings.gcp?.projectId), text: 'Connect a database or Google Cloud', go: () => (spaces[0] ? openSettings({ scope: 'space', spaceId: spaces[0].id, page: 'databases' }) : openSettings({ scope: 'app', page: 'gcp' })) }
   ]
   const left = items.filter((i) => !i.done).length
   if (left === 0) return null
