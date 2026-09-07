@@ -7,6 +7,7 @@ import * as browser from './services/browser/service'
 import * as images from './services/images'
 import * as slack from './services/slack'
 import { adoptShellPath } from './services/shell-path'
+import * as cloud from './services/cloud'
 import * as oncall from './services/oncall/service'
 import { installCrashHandlers, rendererConsoleError, logError, startUsagePings } from './services/telemetry'
 import { Menu, nativeImage } from 'electron'
@@ -144,6 +145,7 @@ app.whenReady().then(async () => {
   createWindow()
   startUpdateChecks()
   startUsagePings()
+  cloud.start()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })

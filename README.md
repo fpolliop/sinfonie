@@ -98,3 +98,12 @@ gh secret set APPLE_TEAM_ID -R fpolliop/sinfonie               # 10 characters, 
 - Read the queue: `pnpm feedback` (uses your Cloudflare login), or `GET https://sinfonie.dev/api/feedback?token=ADMIN_TOKEN` (secret set on the Pages project).
 - Local error log on each machine: `~/Library/Application Support/Sinfonie/logs/errors.log`, also reachable from Settings → Open logs folder.
 - Schema: `site/schema.sql`; apply with `wrangler d1 execute sinfonie-feedback --remote --file site/schema.sql --config site/wrangler.toml`.
+
+## Accounts and plans
+
+Settings → Plan signs the user in with GitHub through sinfonie.dev (`site/functions/oauth/github/*`, same parked-code relay as Slack) and keeps a session token in the encrypted secrets. `GET /api/me` returns the account and the effective plan (free, pro, team), computed in `site/functions/_session.js` from the user's Paddle subscription, team membership (`orgs`, `org_members`) and manual overrides (`users.plan_override`). The app caches the answer in `settings.cloud`, refreshes every six hours, and treats an answer older than two weeks as free.
+
+- Limits per plan are in `PLAN_LIMITS` (`src/shared/types.ts`) and enforced by `cloud.assertWithin` in `src/main/services/cloud.ts` when creating spaces, adding repos to a space and adding accounts. They only bite when the server sends `enforce: true` (Pages variable `PLANS_ENFORCED=true`); existing data is never locked. `SINFONIE_PLAN=pro|team` overrides for development.
+- Checkout is Paddle Billing, server-side: `POST /api/billing/checkout?plan=&period=` creates the transaction and returns the URL; `/api/billing/webhook` applies `subscription.*` events; `/api/billing/portal` opens Paddle's customer portal.
+- Pages secrets and variables: `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` (OAuth app with callback `https://sinfonie.dev/oauth/github/callback`), `PADDLE_API_KEY`, `PADDLE_CLIENT_TOKEN`, `PADDLE_WEBHOOK_SECRET`, `PADDLE_ENV` (`sandbox` or `live`), `PADDLE_PRICE_PRO_MONTH`, `PADDLE_PRICE_PRO_YEAR`, `PADDLE_PRICE_TEAM_MONTH`, `PADDLE_PRICE_TEAM_YEAR`, `PLANS_ENFORCED`.
+- Grant a plan by hand: `UPDATE users SET plan_override = 'pro' WHERE login = '<github login>'`.

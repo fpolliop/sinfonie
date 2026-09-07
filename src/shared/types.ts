@@ -495,6 +495,72 @@ export interface Settings {
   leanMode?: boolean
   /** Per-turn spend cap in budget mode, USD at list price. */
   turnBudgetUsd?: number
+  /** Sinfonie account and plan, as last confirmed by sinfonie.dev. The session token itself lives in secrets. */
+  cloud?: CloudState
+}
+
+// ---------- plans ----------
+
+export type Plan = 'free' | 'pro' | 'team'
+export const PLAN_LABELS: Record<Plan, string> = { free: 'Free', pro: 'Pro', team: 'Team' }
+/** null means unlimited. */
+export interface PlanLimits {
+  spaces: number | null
+  reposPerSpace: number | null
+  accountsPerVendor: number | null
+}
+export const PLAN_LIMITS: Record<Plan, PlanLimits> = {
+  free: { spaces: 1, reposPerSpace: 2, accountsPerVendor: 1 },
+  pro: { spaces: null, reposPerSpace: null, accountsPerVendor: null },
+  team: { spaces: null, reposPerSpace: null, accountsPerVendor: null }
+}
+export type PlanFeature = 'crew' | 'reviewCockpit' | 'jira' | 'linear' | 'oncall' | 'sharedSpaces'
+export const PLAN_FEATURES: Record<Plan, PlanFeature[]> = {
+  free: [],
+  pro: ['crew', 'reviewCockpit', 'jira', 'linear', 'oncall'],
+  team: ['crew', 'reviewCockpit', 'jira', 'linear', 'oncall', 'sharedSpaces']
+}
+export type BillingPeriod = 'month' | 'year'
+
+export interface CloudUser {
+  id: string
+  login: string
+  name?: string
+  email?: string
+  avatarUrl?: string
+}
+export interface CloudOrg {
+  id: string
+  name: string
+  role: 'admin' | 'member'
+  plan: Plan
+  seats: number
+}
+export interface CloudSubscription {
+  /** Paddle status: active, trialing, past_due, paused, canceled. */
+  status: string
+  period?: BillingPeriod
+  renewsAt?: string
+  /** Set when the subscription ends at the period end. */
+  endsAt?: string
+}
+/** What sinfonie.dev says about the signed-in user. */
+export interface CloudAccount {
+  user: CloudUser
+  orgs: CloudOrg[]
+  plan: Plan
+  subscription?: CloudSubscription
+  /** Plan limits are enforced in the app only when the server says so (off until checkout works). */
+  enforce: boolean
+  /** True when the server can sell plans (Paddle configured). */
+  billing: boolean
+}
+export interface CloudState {
+  account?: CloudAccount
+  /** When the account was last confirmed by the server. */
+  checkedAt?: string
+  /** Last refresh problem, for the Plan page. */
+  error?: string
 }
 
 /** What the crew optimizer favours when assigning models. */
@@ -937,7 +1003,7 @@ export interface ErrorEntry {
 
 /** A sign-in URL the renderer shows with Open / Copy, instead of the app opening a browser on its own. */
 export interface AuthLink {
-  provider: 'jira' | 'linear' | 'slack'
+  provider: 'jira' | 'linear' | 'slack' | 'cloud'
   /** '' for the application connection, else the space id. */
   connId: string
   url: string

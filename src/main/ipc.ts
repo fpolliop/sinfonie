@@ -27,6 +27,7 @@ import { runScript, stopScript, workspaceEnv } from './services/scripts'
 import { repoPrStatus } from './services/github'
 import * as jira from './services/jira'
 import * as linear from './services/linear'
+import * as cloud from './services/cloud'
 import { setAuthLinkEmitters, authDone } from './services/auth-link'
 import * as accounts from './services/accounts'
 import * as reviews from './services/reviews'
@@ -101,6 +102,7 @@ export function registerIpc(): void {
 
   // ---- spaces ----
   handle('spaces:create', (name) => {
+    cloud.assertWithin('spaces', getStore().get().spaces.length)
     const space: Space = { id: nanoid(6), name: name.trim() || 'Space', color: SPACE_COLORS[getStore().get().spaces.length % SPACE_COLORS.length], createdAt: new Date().toISOString() }
     getStore().update((d) => d.spaces.push(space))
     return space
@@ -162,6 +164,7 @@ export function registerIpc(): void {
   })
   handle('repos:setSpace', (rid, spaceId) => {
     let out: Repo | undefined
+    if (spaceId && getStore().get().repos.find((x) => x.id === rid)?.spaceId !== spaceId) cloud.assertWithin('reposPerSpace', reposInSpace(spaceId))
     getStore().update((d) => {
       const r = d.repos.find((x) => x.id === rid)
       if (r) {
@@ -196,9 +199,11 @@ export function registerIpc(): void {
   })
 
   // ---- repos ----
+  const reposInSpace = (spaceId: string): number => getStore().get().repos.filter((r) => r.spaceId === spaceId).length
   const addRepoAt = async (path: string, spaceId?: string): Promise<Repo> => {
     if (!(await git.isGitRepo(path))) throw new Error(`${path} is not the root of a git repository`)
     const existing = getStore().get().repos.find((x) => x.path === path)
+    if (spaceId && existing?.spaceId !== spaceId) cloud.assertWithin('reposPerSpace', reposInSpace(spaceId))
     if (existing) {
       if (spaceId && existing.spaceId !== spaceId) {
         getStore().update((d) => {
@@ -450,7 +455,17 @@ export function registerIpc(): void {
   })
 
   // ---- claude accounts ----
-  handle('accounts:add', (name, vendor) => accounts.addAccount(name, vendor))
+  handle('accounts:add', (name, vendor) => {
+    const v = vendor ?? 'anthropic'
+    cloud.assertWithin('accountsPerVendor', getStore().get().settings.claudeAccounts.filter((a) => (a.vendor ?? 'anthropic') === v).length, v)
+    return accounts.addAccount(name, vendor)
+  })
+  // ---- Sinfonie account and plan ----
+  handle('cloud:signIn', () => cloud.signIn())
+  handle('cloud:signOut', () => cloud.signOut())
+  handle('cloud:refresh', () => cloud.refresh())
+  handle('cloud:checkout', (plan, period, seats) => cloud.checkout(plan, period, seats))
+  handle('cloud:portal', () => cloud.portal())
   handle('accounts:remove', (id) => accounts.removeAccount(id))
   handle('accounts:setDefault', (id) => accounts.setDefaultAccount(id))
   handle('accounts:check', (id) => accounts.checkAccount(id))

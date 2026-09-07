@@ -1,4 +1,4 @@
-import type { AuthLink, BrowserState, ContextUsage, CrewPriority, FsEntry, LimitAlternative, UsageSnapshot, ChatImageInput, Incident, IncidentStatus, LinearIssue, LinearSettings, OnCallState, ResourceSnapshot, Severity, SlackConnection, LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion,
+import type { AuthLink, BillingPeriod, CloudState, Plan, BrowserState, ContextUsage, CrewPriority, FsEntry, LimitAlternative, UsageSnapshot, ChatImageInput, Incident, IncidentStatus, LinearIssue, LinearSettings, OnCallState, ResourceSnapshot, Severity, SlackConnection, LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion,
   AgentEvent,
   ChatItem,
   JiraIssue,
@@ -102,6 +102,12 @@ export interface SinfonieInvoke {
   'linear:search': (connId: string, query: string) => LinearIssue[]
   'linear:issue': (connId: string, identifier: string) => LinearIssue
   'workspaces:refreshLinear': (workspaceId: string) => Workspace
+  // ---- Sinfonie account and plan ----
+  'cloud:signIn': () => void
+  'cloud:signOut': () => CloudState
+  'cloud:refresh': () => CloudState
+  'cloud:checkout': (plan: Exclude<Plan, 'free'>, period: BillingPeriod, seats?: number) => void
+  'cloud:portal': () => void
 
   'shell:openExternal': (url: string) => void
   'updates:check': () => UpdateInfo | null
