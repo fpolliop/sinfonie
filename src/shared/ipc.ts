@@ -1,4 +1,4 @@
-import type { AuthLink, BillingPeriod, CloudOrgDetail, CloudState, Plan, SpaceDefinition, SpaceImportPreview, SpaceImportResolution, BrowserState, ContextUsage, CrewPriority, FsEntry, LimitAlternative, UsageSnapshot, ChatImageInput, Incident, IncidentStatus, LinearIssue, LinearSettings, OnCallState, ResourceSnapshot, Severity, SlackConnection, LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion,
+import type { AuthLink, BillingPeriod, CloudOrgDetail, CloudState, Plan, SpaceDefinition, SpaceImportPreview, SpaceImportResolution, BrowserState, ContextUsage, CrewPriority, FsEntry, LimitAlternative, UsageSnapshot, ChatImageInput, Incident, IncidentStatus, LinearIssue, LinearSettings, OnCallBulkOp, OnCallState, ResourceSnapshot, Severity, SlackConnection, LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion,
   AgentEvent,
   ChatItem,
   JiraIssue,
@@ -263,6 +263,8 @@ export interface SinfonieInvoke {
   'oncall:addProposal': (incidentId: string, text: string) => Incident
   'oncall:ask': (incidentId: string, question: string) => Incident
   'oncall:remove': (incidentId: string) => void
+  /** Applies one change to many incidents; returns how many were touched. */
+  'oncall:bulk': (incidentIds: string[], op: OnCallBulkOp) => number
   /** Draft a PR with the triage's proposed fix: branch from the default branch, agent edits, push, `gh pr create --draft`. */
   'oncall:openFixPr': (incidentId: string) => Incident
   'gcp:status': (force?: boolean) => GcpStatus
