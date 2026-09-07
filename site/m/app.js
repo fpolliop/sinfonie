@@ -25,8 +25,10 @@
 
   // ---------- pairing from the QR link ----------
   const hash = new URLSearchParams(location.hash.replace(/^#/, ''))
+  let handoff = null // the same pairing, for the native app if it is installed
   if (hash.get('k')) {
     await S.savePairing(hash.get('k'), hash.get('relay') || undefined)
+    handoff = 'sinfonie://pair#' + location.hash.replace(/^#/, '')
     history.replaceState(null, '', location.pathname)
   }
   const openWs = hash.get('ws')
@@ -380,6 +382,12 @@
   }
 
   // ---------- go ----------
+  if (handoff) {
+    const b = document.createElement('div')
+    b.className = 'banner'
+    b.innerHTML = '<span style="flex:1">Have the Sinfonie app installed? It gets real notifications.</span><a class="btn primary sm" href="' + esc(handoff) + '">Open in the app</a>'
+    $('list').insertBefore(b, $('list').firstChild)
+  }
   $('list').classList.remove('hidden')
   renderHeader()
   connect()

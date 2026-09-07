@@ -81,9 +81,9 @@ export function RemotePage(): React.JSX.Element {
             <div className="h-[220px] w-[220px] shrink-0 rounded-md bg-panel-2 p-2 [&>svg]:h-full [&>svg]:w-full" dangerouslySetInnerHTML={{ __html: pairing.qrSvg }} />
             <div className="text-[12px] text-muted">
               <ol className="list-decimal space-y-1.5 pl-4">
-                <li>Scan this with the phone's camera. It opens sinfonie.dev/m in the browser.</li>
-                <li>Add the page to the home screen (Share → Add to Home Screen on iPhone) and open it from there.</li>
-                <li>Tap "Enable notifications" in the phone app so it can wake you when an agent needs you.</li>
+                <li>Install Sinfonie on the phone (App Store or Google Play) and scan this code from its Pair screen.</li>
+                <li>Or scan it with the camera: it opens sinfonie.dev/m, a web version you can add to the home screen.</li>
+                <li>Tap "Enable notifications" on the phone so it can wake you when an agent needs you.</li>
               </ol>
               <p className="mt-2">The link holds the pairing key, so treat it like a password. Anyone who has it can read and reply to your workspaces. Unpair here if a phone is lost.</p>
               <Button size="sm" className="mt-2" onClick={() => void copy()}>

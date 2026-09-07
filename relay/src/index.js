@@ -6,7 +6,7 @@
  *
  *   GET  /room/:id/ws?role=desktop|phone&auth=…   WebSocket
  *   POST /room/:id/send?auth=…                    one envelope for the desktop (from the service worker)
- *   POST /room/:id/push?auth=…                    register a PushSubscription
+ *   POST /room/:id/push?auth=…                    register a push address (Web Push subscription or Expo token)
  *   GET  /vapid                                   the public key phones subscribe with
  */
 import { sendPush } from './webpush.js'
@@ -75,12 +75,9 @@ export class Room {
       return json({ ok: true })
     }
     if (action === 'push' && request.method === 'POST') {
-      const sub = await request.json().catch(() => null)
-      if (!sub?.endpoint || !sub?.keys?.p256dh || !sub?.keys?.auth) return json({ error: 'bad_subscription' }, 400)
-      const subs = (await this.ctx.storage.get('pushSubs')) || {}
-      subs[sub.endpoint] = { endpoint: sub.endpoint, keys: sub.keys, addedAt: Date.now() }
-      await this.ctx.storage.put('pushSubs', subs)
-      return json({ ok: true, count: Object.keys(subs).length })
+      const count = await this.addSubscription(await request.json().catch(() => null))
+      if (count === null) return json({ error: 'bad_subscription' }, 400)
+      return json({ ok: true, count })
     }
     return json({ error: 'not_found' }, 404)
   }
@@ -131,11 +128,10 @@ export class Room {
         for (const p of this.sockets('phone')) p.close(4001, 'unpaired')
         return
       }
-      if (role === 'phone' && ctl.ctl === 'push-subscribe' && ctl.subscription?.endpoint) {
-        const subs = (await this.ctx.storage.get('pushSubs')) || {}
-        subs[ctl.subscription.endpoint] = { endpoint: ctl.subscription.endpoint, keys: ctl.subscription.keys, addedAt: Date.now() }
-        await this.ctx.storage.put('pushSubs', subs)
-        return ws.send(JSON.stringify({ ctl: 'push-ok', count: Object.keys(subs).length }))
+      if (role === 'phone' && ctl.ctl === 'push-subscribe') {
+        const count = await this.addSubscription(ctl.subscription)
+        if (count !== null) return ws.send(JSON.stringify({ ctl: 'push-ok', count }))
+        return
       }
       return
     }
@@ -155,25 +151,70 @@ export class Room {
     }
   }
 
-  /** Sends the desktop's notification to every subscribed phone; drops subscriptions the push service says are gone. */
+  /**
+   * A phone's push address: a Web Push subscription ({ endpoint, keys }) from the PWA, or an Expo
+   * push token ({ expo }) from the native app. Returns the count, or null when the shape is wrong.
+   */
+  async addSubscription(sub) {
+    let entry = null
+    if (sub?.expo && /^Expo(nent)?PushToken\[[^\]]+\]$/.test(sub.expo)) entry = { kind: 'expo', expo: sub.expo, addedAt: Date.now() }
+    else if (sub?.endpoint && sub?.keys?.p256dh && sub?.keys?.auth) entry = { kind: 'web', endpoint: sub.endpoint, keys: sub.keys, addedAt: Date.now() }
+    if (!entry) return null
+    const subs = (await this.ctx.storage.get('pushSubs')) || {}
+    subs[entry.expo || entry.endpoint] = entry
+    await this.ctx.storage.put('pushSubs', subs)
+    return Object.keys(subs).length
+  }
+
+  /** Sends the desktop's notification to every subscribed phone; drops addresses the push services say are gone. */
   async notify(ctl) {
-    if (!this.env.VAPID_PRIVATE_KEY) return
     const subs = (await this.ctx.storage.get('pushSubs')) || {}
     const payload = { title: String(ctl.title || 'Sinfonie').slice(0, 120), body: String(ctl.body || '').slice(0, 240), tag: String(ctl.tag || '').slice(0, 80), data: ctl.data || {} }
     let changed = false
-    await Promise.all(
-      Object.values(subs).map(async (s) => {
-        try {
-          const r = await sendPush(s, payload, this.env)
-          if (r.gone) {
-            delete subs[s.endpoint]
+    const web = Object.values(subs).filter((s) => s.kind !== 'expo')
+    const expo = Object.values(subs).filter((s) => s.kind === 'expo')
+    if (this.env.VAPID_PRIVATE_KEY) {
+      await Promise.all(
+        web.map(async (s) => {
+          try {
+            const r = await sendPush(s, payload, this.env)
+            if (r.gone) {
+              delete subs[s.endpoint]
+              changed = true
+            }
+          } catch (e) {
+            console.error('push failed', e)
+          }
+        })
+      )
+    }
+    if (expo.length) {
+      const kind = payload.data.kind
+      const messages = expo.map((s) => ({
+        to: s.expo,
+        title: payload.title,
+        body: payload.body,
+        sound: 'default',
+        priority: 'high',
+        data: payload.data,
+        channelId: kind === 'permission' || kind === 'question' ? 'prompts' : 'activity',
+        ...(kind === 'permission' ? { categoryId: 'sinfonie.permission' } : {}),
+        ...(kind === 'permission' || kind === 'question' ? { interruptionLevel: 'time-sensitive' } : {})
+      }))
+      try {
+        const r = await fetch('https://exp.host/--/api/v2/push/send', { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...(this.env.EXPO_ACCESS_TOKEN ? { Authorization: `Bearer ${this.env.EXPO_ACCESS_TOKEN}` } : {}) }, body: JSON.stringify(messages) })
+        const j = await r.json().catch(() => ({}))
+        const tickets = Array.isArray(j.data) ? j.data : []
+        tickets.forEach((t, i) => {
+          if (t?.status === 'error' && t.details?.error === 'DeviceNotRegistered') {
+            delete subs[expo[i].expo]
             changed = true
           }
-        } catch (e) {
-          console.error('push failed', e)
-        }
-      })
-    )
+        })
+      } catch (e) {
+        console.error('expo push failed', e)
+      }
+    }
     if (changed) await this.ctx.storage.put('pushSubs', subs)
   }
 }
