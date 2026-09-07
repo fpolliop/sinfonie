@@ -433,7 +433,7 @@ function SessionPill({ workspaceId, spaceId, engineLabel, budgetMode, leanMode, 
   const byServer = Object.entries((usage?.mcpTools ?? []).reduce<Record<string, number>>((m, t) => ((m[t.serverName] = (m[t.serverName] ?? 0) + t.tokens), m), {})).sort((a, b) => b[1] - a[1])
   return (
     <div ref={ref} className="relative">
-      <button onClick={() => setOpen(!open)} className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[11px] text-muted hover:bg-panel-2 hover:text-text" title="Session and context details">
+      <button data-tour="session" onClick={() => setOpen(!open)} className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[11px] text-muted hover:bg-panel-2 hover:text-text" title="Session and context details">
         <span className="rounded bg-panel-2 px-1 py-px text-[10px] uppercase tracking-wide">{engineLabel}</span>
         {leanMode ? <span className="rounded bg-ok/15 px-1 py-px text-[10px] uppercase tracking-wide text-ok" title="Lean mode: one Sonnet agent, no crew, trimmed context, 25 tool calls per message">lean</span> : budgetMode && <span className="rounded bg-ok/15 px-1 py-px text-[10px] uppercase tracking-wide text-ok">budget</span>}
         <span className="font-mono">{shortModel(model)}</span>

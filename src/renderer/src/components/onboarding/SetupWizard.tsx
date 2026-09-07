@@ -18,8 +18,8 @@ const STEPS = ['Welcome', 'Sign in', 'First space', 'Ready'] as const
 export function SetupWizard({ onClose }: { onClose: () => void }): React.JSX.Element {
   const [step, setStep] = useState(0)
   const [spaceId, setSpaceId] = useState<string | null>(null)
-  const { settings, setError, setShowNewWorkspace, setOnboarding, setActiveSpace } = useApp()
-  const finish = async (then?: 'workspace' | 'tour'): Promise<void> => {
+  const { settings, setError, setShowNewWorkspace, setOnboarding, setActiveSpace, setAssistantOpen } = useApp()
+  const finish = async (then?: 'workspace' | 'tour' | 'assistant'): Promise<void> => {
     try {
       await api.invoke('settings:update', { onboarding: { ...(settings.onboarding ?? {}), setupDoneAt: new Date().toISOString() } })
     } catch (err) {
@@ -29,6 +29,7 @@ export function SetupWizard({ onClose }: { onClose: () => void }): React.JSX.Ele
     if (spaceId) setActiveSpace(spaceId)
     if (then === 'workspace') setShowNewWorkspace(true, spaceId ?? undefined)
     if (then === 'tour') setOnboarding('tour')
+    if (then === 'assistant') setAssistantOpen(true)
   }
   return (
     <div className="fixed inset-0 z-[60] flex flex-col bg-bg text-text">
@@ -50,7 +51,7 @@ export function SetupWizard({ onClose }: { onClose: () => void }): React.JSX.Ele
           {step === 0 && <Welcome />}
           {step === 1 && <SignIn />}
           {step === 2 && <FirstSpace spaceId={spaceId} onSpace={setSpaceId} />}
-          {step === 3 && <Ready spaceId={spaceId} onWorkspace={() => void finish('workspace')} onTour={() => void finish('tour')} onDone={() => void finish()} />}
+          {step === 3 && <Ready spaceId={spaceId} onWorkspace={() => void finish('workspace')} onTour={() => void finish('tour')} onAssistant={() => void finish('assistant')} onDone={() => void finish()} />}
         </div>
       </div>
       {step < 3 && (
@@ -122,8 +123,20 @@ const FEATURES = [
   {
     icon: <Sparkles size={16} />,
     title: 'Review cockpit',
-    text: 'Open pull requests across your repos in one list. AI review reads the diff, you approve the findings that matter, and it drafts the reply.',
+    text: 'Open pull requests across your repos in one list. AI review reads the diff, you approve the findings that matter, and it fixes what you approve.',
     art: <ArtReview />
+  },
+  {
+    icon: <Sparkles size={16} />,
+    title: 'A setup assistant',
+    text: 'Tell it how your team builds, tests and ships. It designs a crew with prompts written for your repos, adds repositories, creates spaces and connects your tools, confirming every change first.',
+    art: <ArtAssistant />
+  },
+  {
+    icon: <GitBranch size={16} />,
+    title: 'Databases and on-call',
+    text: 'A Data tab for Postgres, MySQL, SQLite, MongoDB and BigQuery, read-only by default. An on-call agent that triages Slack alerts against your code and cloud logs and drafts the fix as a PR.',
+    art: <ArtData />
   }
 ]
 
@@ -211,6 +224,46 @@ function ArtCrew(): React.JSX.Element {
         <Pill key={k.n} x={k.x} y={58} w={72} label={k.n} sub={k.m} />
       ))}
     </svg>
+  )
+}
+
+function ArtAssistant(): React.JSX.Element {
+  return (
+    <div className="w-[190px] rounded-lg border border-border bg-bg p-2 text-[10px]">
+      <div className="ml-auto w-[80%] rounded-md bg-accent/15 px-2 py-1">Set up my crew</div>
+      <div className="mt-1 w-[88%] rounded-md bg-panel px-2 py-1 text-muted">How do you test? Unit and e2e, or just unit?</div>
+      <div className="mt-1 flex gap-1">
+        {['Unit', 'Unit + e2e', 'Other'].map((o, i) => (
+          <span key={o} className={clsx('rounded border px-1 py-px', i === 1 ? 'border-accent/60 text-accent' : 'border-border text-muted')}>
+            {o}
+          </span>
+        ))}
+      </div>
+      <div className="mt-1 w-[88%] rounded-md bg-panel px-2 py-1 text-muted">Proposed: explorer (haiku), implementer (sonnet), tester (haiku), reviewer (opus). Save?</div>
+    </div>
+  )
+}
+
+function ArtData(): React.JSX.Element {
+  return (
+    <div className="w-[190px] rounded-lg border border-border bg-bg p-2 font-mono text-[9px]">
+      <div className="text-muted">SELECT id, email FROM users LIMIT 3</div>
+      <div className="mt-1 grid grid-cols-[28px_1fr] gap-x-1 border-t border-border pt-1">
+        {[
+          ['1', 'ada@x.io'],
+          ['2', 'linus@x.io'],
+          ['3', 'grace@x.io']
+        ].map(([a, b]) => (
+          <React.Fragment key={a}>
+            <span className="text-muted">{a}</span>
+            <span>{b}</span>
+          </React.Fragment>
+        ))}
+      </div>
+      <div className="mt-1.5 flex items-center gap-1 border-t border-border pt-1 text-muted">
+        <span className="h-1.5 w-1.5 rounded-full bg-danger" /> #on-call: ETIMEDOUT worker → draft PR ready
+      </div>
+    </div>
   )
 }
 
@@ -484,7 +537,7 @@ function FirstSpace({ spaceId, onSpace }: { spaceId: string | null; onSpace: (id
 
 // ---------- 4. Ready ----------
 
-function Ready({ spaceId, onWorkspace, onTour, onDone }: { spaceId: string | null; onWorkspace: () => void; onTour: () => void; onDone: () => void }): React.JSX.Element {
+function Ready({ spaceId, onWorkspace, onTour, onAssistant, onDone }: { spaceId: string | null; onWorkspace: () => void; onTour: () => void; onAssistant: () => void; onDone: () => void }): React.JSX.Element {
   const { settings, spaces, repos } = useApp()
   const space = spaces.find((s) => s.id === spaceId)
   const mine = useMemo(() => repos.filter((r) => r.spaceId === spaceId), [repos, spaceId])
@@ -508,10 +561,13 @@ function Ready({ spaceId, onWorkspace, onTour, onDone }: { spaceId: string | nul
           </div>
         ))}
       </div>
-      <p className="mx-auto mt-4 max-w-[460px] text-[13px] text-muted">A workspace is one branch across the repos you pick. Create the first one now, or take a two-minute tour of the app.</p>
-      <div className="mt-6 flex items-center justify-center gap-2">
+      <p className="mx-auto mt-4 max-w-[460px] text-[13px] text-muted">A workspace is one branch across the repos you pick. Create the first one now, let the assistant design your crew and connect your tools, or take a two-minute tour of the app.</p>
+      <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
         <Button variant="primary" onClick={onWorkspace}>
           Create your first workspace
+        </Button>
+        <Button onClick={onAssistant}>
+          <Sparkles size={13} /> Set up with the assistant
         </Button>
         <Button onClick={onTour}>Take the tour</Button>
         <Button variant="ghost" onClick={onDone}>

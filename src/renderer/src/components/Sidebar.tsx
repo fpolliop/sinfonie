@@ -243,7 +243,7 @@ export function Sidebar(): React.JSX.Element {
 function AssistantButton(): React.JSX.Element {
   const setAssistantOpen = useApp((s) => s.setAssistantOpen)
   return (
-    <button className="no-drag rounded-md p-1.5 text-muted hover:bg-panel-2 hover:text-text" title="Setup assistant (⇧⌘A)" onClick={() => setAssistantOpen(true)}>
+    <button data-tour="assistant" className="no-drag rounded-md p-1.5 text-muted hover:bg-panel-2 hover:text-text" title="Setup assistant (⇧⌘A)" onClick={() => setAssistantOpen(true)}>
       <Sparkles size={16} />
     </button>
   )
@@ -408,7 +408,7 @@ function OnCallButton({ active, onClick }: { active: boolean; onClick: () => voi
   useEffect(() => subscribeOnCall(), [])
   const open = state?.incidents.filter((i) => i.status === 'new' || i.status === 'open').length ?? 0
   return (
-    <button onClick={onClick} className={clsx('mb-2 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] font-medium', active ? 'bg-panel-2' : 'hover:bg-panel-2/60')}>
+    <button data-tour="oncall" onClick={onClick} className={clsx('mb-2 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] font-medium', active ? 'bg-panel-2' : 'hover:bg-panel-2/60')}>
       <Siren size={14} className={state?.running ? 'text-accent' : 'text-muted'} /> On call
       {open > 0 && <span className="ml-auto rounded-full bg-warn/20 px-1.5 text-[10px] font-semibold text-warn">{open}</span>}
     </button>

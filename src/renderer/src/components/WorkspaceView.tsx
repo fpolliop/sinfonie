@@ -180,7 +180,7 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
         </div>
         <nav className="no-drag ml-auto flex items-center gap-0.5 rounded-lg bg-panel p-0.5">
           {TABS.map((t) => (
-            <button key={t.id} onClick={() => setTab(t.id)} className={clsx('relative rounded-md px-3 py-1 text-[12px] font-medium', tab === t.id ? 'bg-panel-2 text-text' : 'text-muted hover:text-text')}>
+            <button key={t.id} data-tour={t.id === 'data' ? 'tab-data' : t.id === 'browser' ? 'tab-browser' : undefined} onClick={() => setTab(t.id)} className={clsx('relative rounded-md px-3 py-1 text-[12px] font-medium', tab === t.id ? 'bg-panel-2 text-text' : 'text-muted hover:text-text')}>
               {t.label}
               {t.id === 'browser' && browserBusy && <span className="absolute right-1 top-1 h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />}
             </button>
