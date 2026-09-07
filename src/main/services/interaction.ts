@@ -45,9 +45,16 @@ export function askQuestion(workspaceId: string, questions: Question[], signal?:
   })
 }
 
+/** Told whenever a prompt is answered from anywhere (renderer or phone), so other surfaces can drop it. */
+let onAnswered: (requestId: string) => void = () => undefined
+export function setAnsweredListener(fn: typeof onAnswered): void {
+  onAnswered = fn
+}
 export function answerPermission(r: PermissionResponse): void {
   pendingPermissions.get(r.requestId)?.(r)
+  onAnswered(r.requestId)
 }
 export function answerQuestion(r: QuestionResponse): void {
   pendingQuestions.get(r.requestId)?.(r)
+  onAnswered(r.requestId)
 }

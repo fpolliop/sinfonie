@@ -29,6 +29,7 @@ import * as jira from './services/jira'
 import * as linear from './services/linear'
 import * as cloud from './services/cloud'
 import * as sharedSpace from './services/shared-space'
+import * as remote from './services/remote'
 import { setAuthLinkEmitters, authDone } from './services/auth-link'
 import * as accounts from './services/accounts'
 import * as reviews from './services/reviews'
@@ -55,7 +56,7 @@ import type { CostMode, CostModeScope } from '@shared/types'
 import * as usage from './services/usage'
 import { costModeFor } from './services/cost-mode'
 import * as limits from './services/limits'
-import type { ChatImageRef, Engine } from '@shared/types'
+import type { ChatImageInput, ChatImageRef, Engine } from '@shared/types'
 import { carrySessionToAccount } from './services/sessions'
 
 function send<C extends keyof SinfonieEvents>(channel: C, payload: SinfonieEvents[C]): void {
@@ -73,6 +74,7 @@ const emitScript = (e: Parameters<typeof send<'script:output'>>[1]): void => sen
 const emitAgent = (e: Parameters<typeof send<'agent:event'>>[1]): void => {
   recordEvent(e)
   send('agent:event', e)
+  remote.onAgentEvent(e)
   // A session went idle: a waiting message may take its slot.
   if (e.type === 'status' && !e.busy) void resources.release()
 }
@@ -88,9 +90,20 @@ export function registerIpc(): void {
     (l) => send('ui:authDone', l)
   )
   interaction.setInteractionEmitters(
-    (p) => send('agent:permission', p),
-    (q) => send('agent:question', q)
+    (p) => {
+      send('agent:permission', p)
+      remote.onPermission(p)
+    },
+    (q) => {
+      send('agent:question', q)
+      remote.onQuestion(q)
+    }
   )
+  interaction.setAnsweredListener((id) => {
+    remote.onAnswered(id)
+    send('agent:promptResolved', { requestId: id })
+  })
+  remote.setStatusEmitter((s) => send('remote:status', s))
   getStore().subscribe(() => send('store:changed', getStore().public()))
   workspaceTools.setScriptEmitter(emitScript)
 
@@ -521,7 +534,7 @@ export function registerIpc(): void {
   // ---- agent ----
   // Messages held back by a limit warning, until the user picks a way forward.
   const parked = new Map<string, { itemId: string; text: string; images?: ChatImageRef[] }>()
-  handle('agent:send', (id, text, images) => {
+  const sendMessage = (id: string, text: string, images?: ChatImageInput[]): void | Promise<void> => {
     noteMessage(agent.engineFor(id))
     const refs = images?.length ? saveImages(id, images) : undefined
     if (agent.engineFor(id) === 'claude-code' && !agent.isBusy(id)) {
@@ -533,7 +546,14 @@ export function registerIpc(): void {
       }
     }
     return resources.submit(id, text, refs)
-  })
+  }
+  handle('agent:send', (id, text, images) => sendMessage(id, text, images))
+  remote.setBridge({ send: (id, text) => sendMessage(id, text), interrupt: (id) => agent.interrupt(id), permission: (r) => interaction.answerPermission(r), question: (r) => interaction.answerQuestion(r) })
+  // ---- phone companion ----
+  handle('remote:status', () => remote.status())
+  handle('remote:pair', () => remote.pair())
+  handle('remote:unpair', () => remote.unpair())
+  handle('remote:updateSettings', (patch) => remote.updateSettings(patch))
   usage.setEmitter((s) => send('usage:changed', s))
   handle('usage:get', () => usage.snapshot())
   handle('usage:resolveLimit', async (id, itemId, choice) => {
@@ -624,6 +644,7 @@ export function registerIpc(): void {
   handle('oncall:addProposal', (id, text) => oncall.addProposal(id, text))
   handle('oncall:ask', (id, q) => oncall.ask(id, q))
   handle('oncall:remove', (id) => oncall.remove(id))
+  handle('oncall:bulk', (ids, op) => oncall.bulk(ids, op))
   handle('oncall:openFixPr', (id) => oncall.openFixPr(id))
   // ---- google cloud ----
   handle('gcp:status', (force) => gcp.status(Boolean(force)))

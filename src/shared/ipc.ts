@@ -1,4 +1,4 @@
-import type { AuthLink, BillingPeriod, CloudOrgDetail, CloudState, Plan, SpaceDefinition, SpaceImportPreview, SpaceImportResolution, BrowserState, ContextUsage, CrewPriority, FsEntry, LimitAlternative, UsageSnapshot, ChatImageInput, Incident, IncidentStatus, LinearIssue, LinearSettings, OnCallState, ResourceSnapshot, Severity, SlackConnection, LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion,
+import type { AuthLink, BillingPeriod, CloudOrgDetail, CloudState, Plan, RemoteSettings, RemoteStatus, SpaceDefinition, SpaceImportPreview, SpaceImportResolution, BrowserState, ContextUsage, CrewPriority, FsEntry, LimitAlternative, UsageSnapshot, ChatImageInput, Incident, IncidentStatus, LinearIssue, LinearSettings, OnCallState, ResourceSnapshot, Severity, SlackConnection, LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion, OnCallBulkOp,
   AgentEvent,
   ChatItem,
   JiraIssue,
@@ -117,6 +117,11 @@ export interface SinfonieInvoke {
   'cloud:leaveOrg': (orgId: string) => void
   'cloud:acceptInvite': (codeOrUrl: string) => CloudOrgDetail
   'cloud:redeem': (code: string) => CloudState
+  // ---- phone companion ----
+  'remote:status': () => RemoteStatus
+  'remote:pair': () => { url: string; qrSvg: string }
+  'remote:unpair': () => RemoteStatus
+  'remote:updateSettings': (patch: Partial<RemoteSettings>) => RemoteSettings
   // ---- shared spaces (sinfonie.space.json) ----
   'shared:definition': (spaceId: string) => SpaceDefinition
   'shared:export': (spaceId: string, repoId: string) => { file: string }
@@ -264,6 +269,8 @@ export interface SinfonieInvoke {
   'oncall:addProposal': (incidentId: string, text: string) => Incident
   'oncall:ask': (incidentId: string, question: string) => Incident
   'oncall:remove': (incidentId: string) => void
+  /** Applies one change to many incidents; returns how many were touched. */
+  'oncall:bulk': (incidentIds: string[], op: OnCallBulkOp) => number
   /** Draft a PR with the triage's proposed fix: branch from the default branch, agent edits, push, `gh pr create --draft`. */
   'oncall:openFixPr': (incidentId: string) => Incident
   'gcp:status': (force?: boolean) => GcpStatus
@@ -294,6 +301,8 @@ export interface SinfonieEvents {
   'agent:event': AgentEvent
   'agent:permission': PermissionRequest
   'agent:question': QuestionRequest
+  /** A prompt was answered from another surface (the phone). */
+  'agent:promptResolved': { requestId: string }
   'script:output': ScriptOutputEvent
   'terminal:data': TerminalDataEvent
   'terminal:exit': { terminalId: string; exitCode: number }
@@ -317,6 +326,7 @@ export interface SinfonieEvents {
   'ui:authDone': { provider: AuthLink['provider']; connId: string }
   /** A sinfonie://join or sinfonie://redeem link arrived: the Plan page should act on it. */
   'cloud:invite': { token: string; kind: 'join' | 'redeem' }
+  'remote:status': RemoteStatus
   /** Open the review cockpit on this PR (notification click). */
   'ui:openReview': { key: string }
   /** The assistant (or main) asks the renderer to show a settings page. */

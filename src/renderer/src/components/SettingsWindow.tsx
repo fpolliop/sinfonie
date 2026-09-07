@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import clsx from 'clsx'
-import { Plus, RefreshCw, Trash2, FolderGit2, Settings as SettingsIcon, Layers, Server, UserCircle2, Users, Plug, Ticket, GitPullRequest, MessageSquarePlus, Info, FolderTree, ChevronRight, Gauge, Siren, CircleDot, Hash, Activity, Cloud, Sparkles, Database, Gem, FileJson } from 'lucide-react'
+import { Plus, RefreshCw, Trash2, FolderGit2, Settings as SettingsIcon, Layers, Server, UserCircle2, Users, Plug, Ticket, GitPullRequest, MessageSquarePlus, Info, FolderTree, ChevronRight, Gauge, Siren, CircleDot, Hash, Activity, Cloud, Sparkles, Database, Gem, FileJson, Smartphone } from 'lucide-react'
 import { GcpSection } from './GcpSection'
 import { DatabasesSection } from './DatabasesSection'
 import { api } from '@/lib/api'
@@ -19,6 +19,7 @@ import { EngineSelect, NativeModelSelect } from './EngineSelect'
 import { AccountsPage, acpProbeCache } from './AccountsPage'
 import { ResourcesPage } from './ResourcesPage'
 import { PlanPage } from './PlanPage'
+import { RemotePage } from './RemotePage'
 import { ImportSpaceDialog, SharedSpaceSection } from './SharedSpace'
 import { UsagePage } from './UsagePage'
 import { OnCallSettings } from './OnCallSettings'
@@ -45,6 +46,7 @@ const APP_PAGES: { id: AppPage; label: string; icon: React.ReactNode; desc: stri
   { id: 'gcp', label: 'Google Cloud', icon: <Cloud size={14} />, desc: 'Your gcloud login and default project: read-only logs, Cloud Run and Error Reporting for sessions and the on-call agent.', group: 'Integrations' },
   { id: 'mcp', label: 'MCP servers', icon: <Plug size={14} />, desc: 'MCP servers available in every space.', group: 'Integrations' },
   { id: 'feedback', label: 'Feedback & diagnostics', icon: <MessageSquarePlus size={14} />, desc: 'Send feedback, review captured errors, control crash reports.' },
+  { id: 'phone', label: 'Phone', icon: <Smartphone size={14} />, desc: 'Pair a phone to continue conversations and get notified when an agent needs you.' },
   { id: 'plan', label: 'Plan', icon: <Gem size={14} />, desc: 'Your Sinfonie account and plan. Agent subscriptions stay with their vendors.' },
   { id: 'about', label: 'About & updates', icon: <Info size={14} />, desc: 'Version, links, and update checks.' }
 ]
@@ -263,6 +265,8 @@ function AppPageView({ page }: { page: AppPage }): React.JSX.Element {
       return <UsagePage />
     case 'plan':
       return <PlanPage />
+    case 'phone':
+      return <RemotePage />
     case 'oncall':
       return <OnCallSettings />
     case 'crew':

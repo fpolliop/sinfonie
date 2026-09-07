@@ -1,13 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import clsx from 'clsx'
-import { Siren, ExternalLink, RefreshCw, Send, Trash2, MessageSquare, Sparkles, Settings as SettingsIcon, GitPullRequest } from 'lucide-react'
+import { Siren, ExternalLink, RefreshCw, Send, Trash2, MessageSquare, Sparkles, Settings as SettingsIcon, GitPullRequest, Search, Filter, X, Check, Ban } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
-import { useOnCall, subscribeOnCall } from '@/stores/oncall'
+import { useOnCall, subscribeOnCall, matchesFilters, type OnCallFilters, type OnCallView as ViewId } from '@/stores/oncall'
 import { Badge, Button, Spinner, inputCls } from './ui'
 import { Markdown } from '@/lib/markdown'
 import { timeAgo } from '@/lib/format'
-import type { Incident, IncidentStatus, Severity } from '@shared/types'
+import type { Incident, IncidentStatus, OnCallBulkOp, Severity } from '@shared/types'
 
 const SEV: Record<Severity, { tone: 'muted' | 'ok' | 'warn' | 'danger' | 'accent'; label: string }> = {
   low: { tone: 'muted', label: 'low' },
@@ -24,21 +24,51 @@ const STATUSES: { id: IncidentStatus; label: string }[] = [
   { id: 'dismissed', label: 'Dismissed' }
 ]
 const OPEN = new Set<IncidentStatus>(['new', 'triaging', 'open', 'waiting'])
+const VIEWS: { id: ViewId; label: string; hint: string; counted?: boolean }[] = [
+  { id: 'open', label: 'Open', hint: 'Everything not resolved or dismissed', counted: true },
+  { id: 'new', label: 'New', hint: 'Not yet triaged', counted: true },
+  { id: 'needs', label: 'Needs you', hint: 'Triage asked for a human, or a reply is drafted', counted: true },
+  { id: 'resolved', label: 'Done', hint: 'Resolved or dismissed' },
+  { id: 'all', label: 'All', hint: 'Every incident' }
+]
+const NO_INCIDENTS: Incident[] = []
+const selectCls = 'h-6 min-w-0 rounded-md border border-border bg-bg px-1 text-[11px]'
 
 export function OnCallView(): React.JSX.Element {
-  const { state, selectedId, select, filter, setFilter } = useOnCall()
+  const { state, selectedId, select, filters, setFilters, checked, toggleChecked, setChecked } = useOnCall()
   const settings = useApp((s) => s.settings)
   const openSettings = useApp((s) => s.openSettings)
   const setError = useApp((s) => s.setError)
   useEffect(() => subscribeOnCall(), [])
   const [checking, setChecking] = useState(false)
+  const [showFilters, setShowFilters] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [bulkBusy, setBulkBusy] = useState(false)
   const checkNow = (): void => {
     setChecking(true)
     void go(() => api.invoke('oncall:pollNow')).finally(() => setChecking(false))
   }
-  const incidents = useMemo(() => (state?.incidents ?? []).filter((i) => filter === 'all' || OPEN.has(i.status)), [state, filter])
-  const selected = state?.incidents.find((i) => i.id === selectedId) ?? null
+  const all = state?.incidents ?? NO_INCIDENTS
+  const incidents = useMemo(() => all.filter((i) => matchesFilters(i, filters)), [all, filters])
+  const counts = useMemo(() => {
+    const c = { open: 0, new: 0, needs: 0, waiting: 0, resolved: 0, all: all.length }
+    for (const i of all) {
+      if (OPEN.has(i.status)) c.open++
+      if (i.status === 'new' || i.status === 'triaging') c.new++
+      if (OPEN.has(i.status) && (i.report?.needsHuman || i.proposals.some((p) => p.status === 'proposed'))) c.needs++
+      if (i.status === 'waiting') c.waiting++
+      if (i.status === 'resolved' || i.status === 'dismissed') c.resolved++
+    }
+    return c
+  }, [all])
+  const channels = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const i of all) m.set(i.channelId, i.channelName)
+    return [...m].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name))
+  }, [all])
+  const selected = all.find((i) => i.id === selectedId) ?? null
   const spaces = useApp((s) => s.spaces)
+  const incidentSpaces = useMemo(() => spaces.filter((sp) => all.some((i) => i.spaceId === sp.id)), [spaces, all])
   const configured = (state?.activeSpaces.length ?? 0) > 0 || Boolean(settings.slack?.connected && (settings.oncall?.channels?.length ?? 0) > 0) || spaces.some((sp) => (sp.oncall?.channels?.length ?? 0) > 0)
   const spaceOf = (id: string): { name: string; color: string } | null => {
     const sp = spaces.find((x) => x.id === id)
@@ -51,6 +81,20 @@ export function OnCallView(): React.JSX.Element {
       setError(err instanceof Error ? err.message : String(err))
     }
   }
+  const narrowed = Boolean(filters.channel || filters.severity || filters.kind || filters.spaceId)
+  const visibleIds = incidents.map((i) => i.id)
+  const allVisibleChecked = visibleIds.length > 0 && visibleIds.every((id) => checked.includes(id))
+  const bulk = (op: OnCallBulkOp): void => {
+    if (!checked.length) return
+    setBulkBusy(true)
+    setConfirmDelete(false)
+    void go(async () => {
+      await api.invoke('oncall:bulk', checked, op)
+      if (op.action === 'remove' && selectedId && checked.includes(selectedId)) select(null)
+      setChecked([])
+    }).finally(() => setBulkBusy(false))
+  }
+  const statusText = checking ? 'Checking Slack…' : state?.lastError ? state.lastError : state?.lastPollAt ? `Checked ${timeAgo(state.lastPollAt)}${state.nextPollAt ? `, next in ${Math.max(0, Math.round((new Date(state.nextPollAt).getTime() - Date.now()) / 1000))}s` : ''}` : state?.running ? 'Waiting for the first check…' : ''
 
   return (
     <div className="flex h-full">
@@ -58,7 +102,7 @@ export function OnCallView(): React.JSX.Element {
         <div className="drag flex h-[52px] items-center gap-2 border-b border-border px-4">
           <Siren size={15} className="text-accent" />
           <span className="text-[13px] font-semibold">On call</span>
-          <span className={clsx('ml-1 h-2 w-2 rounded-full', state?.running ? 'bg-ok' : 'bg-muted/50')} title={state?.running ? `Watching ${state.activeSpaces.map((id) => spaceOf(id)?.name ?? 'application').join(', ')}${state.lastPollAt ? `, last check ${timeAgo(state.lastPollAt)}` : ''}` : 'Not running'} />
+          <span className={clsx('ml-1 h-2 w-2 rounded-full', state?.running ? 'bg-ok' : 'bg-muted/50')} title={state?.running ? `Watching ${state.activeSpaces.map((id) => spaceOf(id)?.name ?? 'application').join(', ')}${state.lastPollAt ? `, last check ${timeAgo(state.lastPollAt)}` : ''}. Slack allows one channel or thread read per minute, so watched channels and open threads are checked in turn.` : 'Not running'} />
           <div className="no-drag ml-auto flex items-center gap-1">
             <button className="rounded-md p-1 text-muted hover:bg-panel-2 hover:text-text disabled:opacity-40" title="Check Slack now" onClick={checkNow} disabled={!configured || checking}>
               <RefreshCw size={13} className={clsx(checking && 'animate-spin')} />
@@ -68,17 +112,105 @@ export function OnCallView(): React.JSX.Element {
             </button>
           </div>
         </div>
-        <div className="flex items-center gap-1 border-b border-border px-3 py-1.5 text-[11px]">
-          {(['open', 'all'] as const).map((f) => (
-            <button key={f} onClick={() => setFilter(f)} className={clsx('rounded px-2 py-0.5 capitalize', filter === f ? 'bg-panel-2 text-text' : 'text-muted hover:text-text')}>
-              {f}
+        <div className="flex items-center gap-0.5 border-b border-border px-2 py-1.5 text-[11px]">
+          {VIEWS.map((v) => (
+            <button key={v.id} onClick={() => setFilters({ view: v.id })} className={clsx('flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5', filters.view === v.id ? 'bg-panel-2 text-text' : 'text-muted hover:text-text')} title={`${v.hint}${counts[v.id] ? ` (${counts[v.id]})` : ''}`}>
+              {v.label}
+              {v.counted && counts[v.id] > 0 && <span className={clsx('rounded-full px-1 text-[10px] tabular-nums', v.id === 'needs' && filters.view !== v.id ? 'bg-warn/15 text-warn' : 'bg-panel text-muted')}>{counts[v.id]}</span>}
             </button>
           ))}
-          <span className={clsx('ml-auto truncate', state?.lastError && !checking ? 'text-warn' : 'text-muted')} title={state?.lastError ?? ''}>
-            {checking ? 'Checking Slack…' : state?.lastError ? state.lastError : state?.lastPollAt ? `Checked ${timeAgo(state.lastPollAt)}${state.nextPollAt ? `, next in ${Math.max(0, Math.round((new Date(state.nextPollAt).getTime() - Date.now()) / 1000))}s` : ''}` : state?.running ? 'Waiting for the first check…' : ''}
-          </span>
         </div>
-        {state?.running && <div className="border-b border-border bg-panel px-3 py-1 text-[10px] text-muted">Slack allows one channel or thread read per minute per app, so watched channels and open threads are checked in turn.</div>}
+        <div className="flex items-center gap-1.5 border-b border-border px-2 py-1.5">
+          <div className="relative min-w-0 flex-1">
+            <Search size={12} className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-muted" />
+            <input className="w-full rounded-md border border-border bg-bg py-1 pl-6 pr-6 text-[12px] outline-none placeholder:text-muted focus:border-accent" placeholder="Search incidents" value={filters.q} onChange={(e) => setFilters({ q: e.target.value })} />
+            {filters.q && (
+              <button className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted hover:text-text" onClick={() => setFilters({ q: '' })} title="Clear search">
+                <X size={12} />
+              </button>
+            )}
+          </div>
+          <button className={clsx('relative rounded-md p-1 hover:bg-panel-2', showFilters || narrowed ? 'text-accent' : 'text-muted hover:text-text')} title="Filter incidents by channel, severity, kind or space" onClick={() => setShowFilters(!showFilters)}>
+            <Filter size={13} />
+            {narrowed && <span className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-accent" />}
+          </button>
+        </div>
+        {showFilters && (
+          <div data-testid="oncall-filters" className="grid grid-cols-2 gap-1.5 border-b border-border bg-panel px-2 py-2 text-[11px]">
+            <select className={selectCls} value={filters.channel} onChange={(e) => setFilters({ channel: e.target.value })} title="Channel">
+              <option value="">All channels</option>
+              {channels.map((c) => (
+                <option key={c.id} value={c.id}>
+                  #{c.name}
+                </option>
+              ))}
+            </select>
+            <select className={selectCls} value={filters.severity} onChange={(e) => setFilters({ severity: e.target.value as Severity | '' })} title="Severity">
+              <option value="">Any severity</option>
+              {(Object.keys(SEV) as Severity[]).map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+            <select className={selectCls} value={filters.kind} onChange={(e) => setFilters({ kind: e.target.value as OnCallFilters['kind'] })} title="Kind">
+              <option value="">Alerts and support</option>
+              <option value="alerts">Alerts only</option>
+              <option value="support">Support only</option>
+            </select>
+            {incidentSpaces.length > 1 ? (
+              <select className={selectCls} value={filters.spaceId} onChange={(e) => setFilters({ spaceId: e.target.value })} title="Space">
+                <option value="">All spaces</option>
+                {incidentSpaces.map((sp) => (
+                  <option key={sp.id} value={sp.id}>
+                    {sp.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span />
+            )}
+            {narrowed && (
+              <button className="col-span-2 text-left text-accent hover:underline" onClick={() => setFilters({ channel: '', severity: '', kind: '', spaceId: '' })}>
+                Clear filters
+              </button>
+            )}
+          </div>
+        )}
+        {checked.length > 0 ? (
+          <div className="flex items-center gap-1 border-b border-border bg-accent/10 px-2 py-1 text-[11px]">
+            <input type="checkbox" className="accent-accent" checked={allVisibleChecked} onChange={() => setChecked(allVisibleChecked ? [] : visibleIds)} title={allVisibleChecked ? 'Clear selection' : 'Select everything in the list'} />
+            <span className="shrink-0 whitespace-nowrap tabular-nums">{checked.length} selected</span>
+            <div className="ml-auto flex items-center gap-0.5">
+              <BulkButton icon={<Sparkles size={13} />} title={`Triage ${checked.length} selected`} disabled={bulkBusy} onClick={() => bulk({ action: 'triage' })} />
+              <BulkButton icon={<Check size={13} />} title={`Resolve ${checked.length} selected`} disabled={bulkBusy} onClick={() => bulk({ action: 'setStatus', status: 'resolved' })} />
+              <BulkButton icon={<Ban size={13} />} title={`Dismiss ${checked.length} selected (not incidents)`} disabled={bulkBusy} onClick={() => bulk({ action: 'setStatus', status: 'dismissed' })} />
+              <select className="h-6 w-[68px] rounded-md border border-border bg-bg px-1 text-[11px]" value="" title="Set severity for selected" disabled={bulkBusy} onChange={(e) => e.target.value && bulk({ action: 'setSeverity', severity: e.target.value as Severity })}>
+                <option value="">Severity</option>
+                {(Object.keys(SEV) as Severity[]).map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+              {confirmDelete ? (
+                <button className="rounded-md bg-danger px-1.5 py-0.5 text-white hover:opacity-90" onClick={() => bulk({ action: 'remove' })} onBlur={() => setConfirmDelete(false)} autoFocus>
+                  Delete {checked.length}?
+                </button>
+              ) : (
+                <BulkButton icon={<Trash2 size={13} />} title={`Delete ${checked.length} selected from the list`} danger disabled={bulkBusy} onClick={() => setConfirmDelete(true)} />
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center gap-1.5 border-b border-border px-2 py-1 text-[11px]">
+            <input type="checkbox" className="accent-accent" checked={false} disabled={visibleIds.length === 0} onChange={() => setChecked(visibleIds)} title="Select everything in the list" />
+            <span className={clsx('min-w-0 flex-1 truncate', state?.lastError && !checking ? 'text-warn' : 'text-muted')} title={statusText}>
+              {statusText || (visibleIds.length ? `Select all ${visibleIds.length}` : '')}
+            </span>
+            {bulkBusy && <Spinner />}
+          </div>
+        )}
         <div className="flex-1 overflow-auto">
           {!configured && (
             <div className="p-4 text-[12px] text-muted">
@@ -88,28 +220,54 @@ export function OnCallView(): React.JSX.Element {
               </Button>
             </div>
           )}
-          {configured && incidents.length === 0 && <div className="p-4 text-[12px] text-muted">{filter === 'open' ? 'Nothing open. New messages in the watched channels appear here within a minute.' : 'No incidents yet.'}</div>}
-          {incidents.map((i) => (
-            <button key={i.id} onClick={() => select(i.id)} className={clsx('block w-full border-b border-border px-3 py-2 text-left hover:bg-panel-2/60', i.id === selectedId && 'bg-panel-2')}>
-              <div className="flex items-center gap-1.5 text-[11px] text-muted">
-                {i.severity ? <Badge tone={SEV[i.severity].tone}>{SEV[i.severity].label}</Badge> : <Badge>{i.status === 'triaging' ? 'triaging' : 'untriaged'}</Badge>}
-                {spaceOf(i.spaceId) && <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: spaceOf(i.spaceId)!.color }} title={spaceOf(i.spaceId)!.name} />}
-                <span>#{i.channelName}</span>
-                <span className="ml-auto">{timeAgo(i.updatedAt)}</span>
+          {configured && incidents.length === 0 && (
+            <div className="p-4 text-[12px] text-muted">
+              {all.length === 0 ? 'No incidents yet. New messages in the watched channels appear here within a minute.' : filters.q || narrowed ? 'Nothing matches these filters.' : filters.view === 'open' ? 'Nothing open.' : 'Nothing here.'}
+            </div>
+          )}
+          {incidents.map((i) => {
+            const isChecked = checked.includes(i.id)
+            return (
+              <div key={i.id} className={clsx('group flex border-b border-border hover:bg-panel-2/60', i.id === selectedId && 'bg-panel-2', isChecked && 'bg-accent/5')}>
+                <label className="flex shrink-0 cursor-pointer items-start px-2 pt-2.5" onClick={(e) => e.stopPropagation()}>
+                  <input type="checkbox" className={clsx('accent-accent', !isChecked && checked.length === 0 && 'opacity-40 group-hover:opacity-100')} checked={isChecked} onChange={() => toggleChecked(i.id)} />
+                </label>
+                <button onClick={() => select(i.id)} className="block min-w-0 flex-1 py-2 pr-3 text-left">
+                  <div className="flex items-center gap-1.5 text-[11px] text-muted">
+                    {i.severity ? <Badge tone={SEV[i.severity].tone}>{SEV[i.severity].label}</Badge> : <Badge>{i.status === 'triaging' ? 'triaging' : 'untriaged'}</Badge>}
+                    {(i.occurrences ?? 1) > 1 && (
+                      <span className="rounded bg-panel px-1 text-[10px] tabular-nums" title={`Fired ${i.occurrences} times${i.lastSeenAt ? `, last ${timeAgo(i.lastSeenAt)}` : ''}`}>
+                        ×{i.occurrences}
+                      </span>
+                    )}
+                    {spaceOf(i.spaceId) && !filters.spaceId && <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: spaceOf(i.spaceId)!.color }} title={spaceOf(i.spaceId)!.name} />}
+                    <span className="truncate">#{i.channelName}</span>
+                    <span className="ml-auto shrink-0">{timeAgo(i.updatedAt)}</span>
+                  </div>
+                  <div className={clsx('mt-0.5 truncate text-[13px]', i.status === 'new' || i.status === 'open' ? 'font-medium' : 'text-muted')}>{i.title}</div>
+                  <div className="mt-0.5 flex items-center gap-2 text-[11px] text-muted">
+                    <span>{STATUSES.find((s) => s.id === i.status)?.label}</span>
+                    {i.status === 'triaging' && <Spinner />}
+                    {i.proposals.some((p) => p.status === 'proposed') && <span className="text-accent">reply drafted</span>}
+                    {i.report?.needsHuman && <span className="text-warn">needs you</span>}
+                  </div>
+                </button>
               </div>
-              <div className={clsx('mt-0.5 truncate text-[13px]', i.status === 'new' || i.status === 'open' ? 'font-medium' : 'text-muted')}>{i.title}</div>
-              <div className="mt-0.5 flex items-center gap-2 text-[11px] text-muted">
-                <span>{STATUSES.find((s) => s.id === i.status)?.label}</span>
-                {i.status === 'triaging' && <Spinner />}
-                {i.proposals.some((p) => p.status === 'proposed') && <span className="text-accent">reply drafted</span>}
-                {i.report?.needsHuman && <span className="text-warn">needs you</span>}
-              </div>
-            </button>
-          ))}
+            )
+          })}
         </div>
       </div>
       <div className="min-w-0 flex-1 overflow-auto">{selected ? <IncidentDetail inc={selected} go={go} /> : <div className="drag flex h-[52px]" />}</div>
     </div>
+  )
+}
+
+function BulkButton({ icon, label, title, onClick, disabled, danger }: { icon: React.ReactNode; label?: string; title: string; onClick: () => void; disabled?: boolean; danger?: boolean }): React.JSX.Element {
+  return (
+    <button className={clsx('inline-flex h-6 items-center gap-1 rounded-md px-1.5 text-[11px] hover:bg-panel-2 disabled:opacity-40', danger ? 'text-muted hover:text-danger' : 'text-text')} title={title} aria-label={title} onClick={onClick} disabled={disabled}>
+      {icon}
+      {label}
+    </button>
   )
 }
 
@@ -155,6 +313,7 @@ function IncidentDetail({ inc, go }: { inc: Incident; go: (fn: () => Promise<unk
         </select>
         <span className="text-muted">
           #{inc.channelName} · {inc.kind} · opened {timeAgo(inc.createdAt)}
+          {(inc.occurrences ?? 1) > 1 ? ` · fired ${inc.occurrences} times${inc.lastSeenAt ? `, last ${timeAgo(inc.lastSeenAt)}` : ''}` : ''}
           {inc.costUsd > 0 ? ` · $${inc.costUsd.toFixed(2)} spent` : ''}
         </span>
         {r && <Badge tone={r.confidence === 'high' ? 'ok' : r.confidence === 'medium' ? 'accent' : 'warn'}>{r.confidence} confidence</Badge>}

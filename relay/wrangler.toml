@@ -1,0 +1,14 @@
+name = "sinfonie-relay"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+routes = [{ pattern = "relay.sinfonie.dev", custom_domain = true }]
+
+[[durable_objects.bindings]]
+name = "ROOMS"
+class_name = "Room"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Room"]
+
+# Secrets (wrangler secret put): VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY (base64url, P-256), VAPID_SUBJECT (mailto:).

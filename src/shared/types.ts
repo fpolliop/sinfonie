@@ -554,7 +554,61 @@ export interface Settings {
   turnBudgetUsd?: number
   /** Sinfonie account and plan, as last confirmed by sinfonie.dev. The session token itself lives in secrets. */
   cloud?: CloudState
+  /** The phone companion: pairing state and what to be notified about. The pairing key lives in secrets. */
+  remote?: RemoteSettings
 }
+
+// ---------- phone companion ----------
+
+export interface RemoteSettings {
+  pairedAt?: string
+  /** Push to the phone only after this many minutes without input on the Mac. Default 1. */
+  awayMinutes?: number
+  notifyPrompts?: boolean
+  notifyFinished?: boolean
+  notifyErrors?: boolean
+}
+export interface RemoteStatus {
+  paired: boolean
+  connected: boolean
+  phones: number
+  relay: string
+  pairedAt?: string
+  lastError?: string
+}
+/** What the phone shows in its workspace list. */
+export interface RemoteWorkspace {
+  id: string
+  name: string
+  space?: { name: string; color: string }
+  stage: WorkspaceStage
+  status: WorkspaceStatus
+  busy: boolean
+  needsInput: boolean
+  lastMessageAt?: string
+  lastText?: string
+}
+export type RemotePrompt = { kind: 'permission'; request: PermissionRequest } | { kind: 'question'; request: QuestionRequest }
+/** Desktop → phone, inside the encrypted envelope. */
+export type RemoteToPhone =
+  | { type: 'hello'; host: string; version: string }
+  | { type: 'workspaces'; items: RemoteWorkspace[] }
+  | { type: 'transcript'; workspaceId: string; items: ChatItem[] }
+  | { type: 'item'; workspaceId: string; item: ChatItem }
+  | { type: 'busy'; workspaceId: string; busy: boolean }
+  | { type: 'prompts'; items: RemotePrompt[] }
+  | { type: 'prompt'; prompt: RemotePrompt }
+  | { type: 'prompt:resolved'; requestId: string }
+  | { type: 'error'; workspaceId?: string; message: string }
+/** Phone → desktop, inside the encrypted envelope. */
+export type RemoteFromPhone =
+  | { type: 'sync' }
+  | { type: 'subscribe'; workspaceId: string }
+  | { type: 'unsubscribe'; workspaceId: string }
+  | { type: 'send'; workspaceId: string; text: string }
+  | { type: 'interrupt'; workspaceId: string }
+  | { type: 'permission'; requestId: string; decision: PermissionResponse['decision'] }
+  | { type: 'question'; requestId: string; answers: Record<string, string>; response?: string }
 
 // ---------- plans ----------
 
@@ -1196,7 +1250,12 @@ export interface Incident {
   error?: string
   /** The draft-PR run for the proposed fix, when the user asked for one. */
   fix?: IncidentFix
+  /** Alerts only: how many times the same alert fired while this incident was open (1 when absent). */
+  occurrences?: number
+  lastSeenAt?: string
 }
+/** One change applied to a selection of incidents. */
+export type OnCallBulkOp = { action: 'setStatus'; status: IncidentStatus } | { action: 'setSeverity'; severity: Severity } | { action: 'triage' } | { action: 'remove' }
 export interface OnCallState {
   running: boolean
   /** Space ids with an active watcher ('' for the application-level config). */
