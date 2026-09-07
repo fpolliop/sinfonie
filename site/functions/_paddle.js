@@ -24,6 +24,37 @@ export function planForPrice(env, priceId) {
   return null
 }
 
+let ipCache = { at: 0, base: '', cidrs: [] }
+/**
+ * Is this request from one of Paddle's published webhook addresses? Fetched from /ips (the source of
+ * truth, which can change) and cached for an hour. Returns null when the list cannot be fetched, so the
+ * caller can fall back to the signature alone rather than dropping real events.
+ */
+export async function fromPaddle(request, env) {
+  const ip = request.headers.get('CF-Connecting-IP') || ''
+  if (!ip) return null
+  const base = paddleBase(env)
+  if (Date.now() - ipCache.at > 3600_000 || ipCache.base !== base) {
+    try {
+      const r = await fetch(`${base}/ips`)
+      const j = await r.json()
+      if (Array.isArray(j.data?.ipv4_cidrs) && j.data.ipv4_cidrs.length) ipCache = { at: Date.now(), base, cidrs: j.data.ipv4_cidrs }
+    } catch {
+      /* keep the previous list, if any */
+    }
+  }
+  if (!ipCache.cidrs.length) return null
+  return ipCache.cidrs.some((c) => inCidr(ip, c))
+}
+function inCidr(ip, cidr) {
+  const [net, bitsStr] = cidr.split('/')
+  const bits = Number(bitsStr ?? 32)
+  const toInt = (a) => a.split('.').reduce((n, o) => ((n << 8) + Number(o)) >>> 0, 0)
+  if (!/^\d+\.\d+\.\d+\.\d+$/.test(ip) || !/^\d+\.\d+\.\d+\.\d+$/.test(net)) return false
+  const mask = bits === 0 ? 0 : (~0 << (32 - bits)) >>> 0
+  return ((toInt(ip) & mask) >>> 0) === ((toInt(net) & mask) >>> 0)
+}
+
 /** Verifies Paddle-Signature (ts=…;h1=…) over `${ts}:${rawBody}` with the webhook secret; five-minute replay window. */
 export async function verifySignature(header, rawBody, secret) {
   if (!header || !secret) return false

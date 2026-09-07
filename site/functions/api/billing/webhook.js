@@ -5,9 +5,11 @@
  * subscription's custom_data, or found by subscription id.
  */
 import { json, error } from '../../_session.js'
-import { verifySignature, planForPrice } from '../../_paddle.js'
+import { verifySignature, planForPrice, fromPaddle } from '../../_paddle.js'
 
 export async function onRequestPost({ request, env }) {
+  // Defence in depth: Paddle's published source addresses, then the signature (which is what actually authenticates).
+  if ((await fromPaddle(request, env)) === false) return error('forbidden', 'Not a Paddle address.', 403)
   const raw = await request.text()
   if (!(await verifySignature(request.headers.get('Paddle-Signature'), raw, env.PADDLE_WEBHOOK_SECRET))) return error('bad_signature', 'Signature check failed.', 401)
   let evt

@@ -105,6 +105,11 @@ export function PlanPage(): React.JSX.Element {
     }
   }
   const stale = cloud?.checkedAt ? Date.now() - Date.parse(cloud.checkedAt) > 14 * 24 * 3600_000 : false
+  // Opening the page re-asks the server, so a plan bought a minute ago (or billing just switched on) shows up.
+  useEffect(() => {
+    if (account) void api.invoke('cloud:refresh').catch(() => undefined)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   return (
     <div className="max-w-[820px]">
