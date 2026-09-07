@@ -196,5 +196,7 @@ export const useChat = create<ChatState>((set, get) => ({
     api.on('agent:event', (e) => get().handleEvent(e))
     api.on('agent:permission', (p) => set((s) => ({ permissions: [...s.permissions, p] })))
     api.on('agent:question', (q) => set((s) => ({ questions: [...s.questions, q] })))
+    // Answered elsewhere (the phone): drop the card here too.
+    api.on('agent:promptResolved', ({ requestId }) => set((s) => ({ permissions: s.permissions.filter((p) => p.requestId !== requestId), questions: s.questions.filter((q) => q.requestId !== requestId) })))
   }
 }))
