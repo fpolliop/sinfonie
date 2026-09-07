@@ -1,0 +1,55 @@
+{
+  "expo": {
+    "name": "Sinfonie",
+    "slug": "sinfonie",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "sinfonie",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0b0d11",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0b0d11"
+    },
+    "ios": {
+      "bundleIdentifier": "dev.sinfonie.app",
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Sinfonie uses the camera to scan the pairing code shown by the Mac app.",
+        "UIBackgroundModes": ["remote-notification"],
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "associatedDomains": ["applinks:sinfonie.dev"]
+    },
+    "android": {
+      "package": "dev.sinfonie.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#0b0d11",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "permissions": ["CAMERA", "POST_NOTIFICATIONS"],
+      "predictiveBackGestureEnabled": false,
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [{ "scheme": "https", "host": "sinfonie.dev", "pathPrefix": "/m" }],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
+    },
+    "plugins": [
+      ["expo-camera", { "cameraPermission": "Sinfonie uses the camera to scan the pairing code shown by the Mac app." }],
+      ["expo-notifications", { "icon": "./assets/android-icon-monochrome.png", "color": "#7c9cff" }],
+      "expo-secure-store",
+      ["expo-splash-screen", { "image": "./assets/splash-icon.png", "resizeMode": "contain", "backgroundColor": "#0b0d11" }]
+    ],
+    "extra": {
+      "eas": {}
+    }
+  }
+}

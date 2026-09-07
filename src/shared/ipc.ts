@@ -1,4 +1,4 @@
-import type { AuthLink, BillingPeriod, CloudOrgDetail, CloudState, Plan, SpaceDefinition, SpaceImportPreview, SpaceImportResolution, BrowserState, ContextUsage, CrewPriority, FsEntry, LimitAlternative, UsageSnapshot, ChatImageInput, Incident, IncidentStatus, LinearIssue, LinearSettings, OnCallBulkOp, OnCallState, ResourceSnapshot, Severity, SlackConnection, LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion,
+import type { AuthLink, BillingPeriod, CloudOrgDetail, CloudState, Plan, RemoteSettings, RemoteStatus, SpaceDefinition, SpaceImportPreview, SpaceImportResolution, BrowserState, ContextUsage, CrewPriority, FsEntry, LimitAlternative, UsageSnapshot, ChatImageInput, Incident, IncidentStatus, LinearIssue, LinearSettings, OnCallState, ResourceSnapshot, Severity, SlackConnection, LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion, OnCallBulkOp,
   AgentEvent,
   ChatItem,
   JiraIssue,
@@ -116,6 +116,11 @@ export interface SinfonieInvoke {
   'cloud:renameOrg': (orgId: string, name: string) => CloudOrgDetail
   'cloud:leaveOrg': (orgId: string) => void
   'cloud:acceptInvite': (codeOrUrl: string) => CloudOrgDetail
+  // ---- phone companion ----
+  'remote:status': () => RemoteStatus
+  'remote:pair': () => { url: string; qrSvg: string }
+  'remote:unpair': () => RemoteStatus
+  'remote:updateSettings': (patch: Partial<RemoteSettings>) => RemoteSettings
   // ---- shared spaces (sinfonie.space.json) ----
   'shared:definition': (spaceId: string) => SpaceDefinition
   'shared:export': (spaceId: string, repoId: string) => { file: string }
@@ -295,6 +300,8 @@ export interface SinfonieEvents {
   'agent:event': AgentEvent
   'agent:permission': PermissionRequest
   'agent:question': QuestionRequest
+  /** A prompt was answered from another surface (the phone). */
+  'agent:promptResolved': { requestId: string }
   'script:output': ScriptOutputEvent
   'terminal:data': TerminalDataEvent
   'terminal:exit': { terminalId: string; exitCode: number }
@@ -318,6 +325,7 @@ export interface SinfonieEvents {
   'ui:authDone': { provider: AuthLink['provider']; connId: string }
   /** A sinfonie://join link arrived: the Plan page should accept this invite. */
   'cloud:invite': { token: string }
+  'remote:status': RemoteStatus
   /** Open the review cockpit on this PR (notification click). */
   'ui:openReview': { key: string }
   /** The assistant (or main) asks the renderer to show a settings page. */

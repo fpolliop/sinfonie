@@ -1,0 +1,14 @@
+{
+  "name": "Sinfonie",
+  "short_name": "Sinfonie",
+  "description": "Your Sinfonie workspaces, from your phone.",
+  "start_url": "/m/",
+  "scope": "/m/",
+  "display": "standalone",
+  "background_color": "#0b0d11",
+  "theme_color": "#0b0d11",
+  "icons": [
+    { "src": "/assets/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/assets/apple-touch-icon.png", "sizes": "180x180", "type": "image/png" }
+  ]
+}

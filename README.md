@@ -107,3 +107,12 @@ Settings → Plan signs the user in with GitHub or Google through sinfonie.dev (
 - Checkout is Paddle Billing, server-side: `POST /api/billing/checkout?plan=&period=` creates the transaction and returns the URL; `/api/billing/webhook` applies `subscription.*` events; `/api/billing/portal` opens Paddle's customer portal.
 - Pages secrets and variables: `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` (OAuth app with callback `https://sinfonie.dev/oauth/github/callback`), `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` (web client with redirect `https://sinfonie.dev/oauth/google/callback`), `PADDLE_API_KEY`, `PADDLE_CLIENT_TOKEN`, `PADDLE_WEBHOOK_SECRET`, `PADDLE_ENV` (`sandbox` or `live`), `PADDLE_PRICE_PRO_MONTH`, `PADDLE_PRICE_PRO_YEAR`, `PADDLE_PRICE_TEAM_MONTH`, `PADDLE_PRICE_TEAM_YEAR`, `PLANS_ENFORCED`.
 - Grant a plan by hand: `UPDATE users SET plan_override = 'pro' WHERE login = '<github login>'`.
+
+## Phone companion
+
+Settings → Phone pairs a phone: the QR carries a random key in the URL fragment; room id and auth token are SHA-256 derivations of it, and every message between Mac and phone is AES-GCM encrypted with it (`src/main/services/remote.ts`, `site/m/shared.js`). The relay is a Worker with one Durable Object per room (`relay/`, deployed to relay.sinfonie.dev with `wrangler deploy --config relay/wrangler.toml`); it forwards envelopes, queues phone → desktop messages while the Mac is offline, and sends Web Push (RFC 8291 + VAPID, implemented with WebCrypto in `relay/src/webpush.js`). The only plaintext it reads is the desktop's notification request: workspace name, prompt kind, tool name.
+
+- Native app for iPhone and Android: `mobile/` (Expo). See `mobile/README.md`. Push goes through Expo's push service (the relay accepts an Expo push token as a push address).
+- Web fallback: `site/m/` (plain JS PWA, `marked` from cdnjs for markdown). Service worker shows pushes and answers permission prompts from the notification's Allow/Deny actions by POSTing an encrypted envelope to the relay. When opened from the QR it offers to hand the pairing to the native app (`sinfonie://pair#…`).
+- Pushes go out only when `powerMonitor` reports the Mac idle for `settings.remote.awayMinutes` (default 1). While a phone is connected and an agent runs, a power-save blocker keeps the Mac awake.
+- Relay secrets: `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` (base64url P-256), `VAPID_SUBJECT`. Overrides for development: `SINFONIE_RELAY_URL`, `SINFONIE_PHONE_URL`.
