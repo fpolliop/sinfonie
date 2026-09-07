@@ -18,10 +18,14 @@
       "supportsTablet": true,
       "infoPlist": {
         "NSCameraUsageDescription": "Sinfonie uses the camera to scan the pairing code shown by the Mac app.",
-        "UIBackgroundModes": ["remote-notification"],
+        "UIBackgroundModes": [
+          "remote-notification"
+        ],
         "ITSAppUsesNonExemptEncryption": false
       },
-      "associatedDomains": ["applinks:sinfonie.dev"]
+      "associatedDomains": [
+        "applinks:sinfonie.dev"
+      ]
     },
     "android": {
       "package": "dev.sinfonie.app",
@@ -31,25 +35,64 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "permissions": ["CAMERA", "POST_NOTIFICATIONS"],
+      "permissions": [
+        "CAMERA",
+        "POST_NOTIFICATIONS"
+      ],
       "predictiveBackGestureEnabled": false,
       "intentFilters": [
         {
           "action": "VIEW",
           "autoVerify": true,
-          "data": [{ "scheme": "https", "host": "sinfonie.dev", "pathPrefix": "/m" }],
-          "category": ["BROWSABLE", "DEFAULT"]
+          "data": [
+            {
+              "scheme": "https",
+              "host": "sinfonie.dev",
+              "pathPrefix": "/m"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
+      ],
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.SYSTEM_ALERT_WINDOW"
       ]
     },
     "plugins": [
-      ["expo-camera", { "cameraPermission": "Sinfonie uses the camera to scan the pairing code shown by the Mac app." }],
-      ["expo-notifications", { "icon": "./assets/android-icon-monochrome.png", "color": "#7c9cff" }],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Sinfonie uses the camera to scan the pairing code shown by the Mac app.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/android-icon-monochrome.png",
+          "color": "#7c9cff"
+        }
+      ],
       "expo-secure-store",
-      ["expo-splash-screen", { "image": "./assets/splash-icon.png", "resizeMode": "contain", "backgroundColor": "#0b0d11" }]
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#0b0d11"
+        }
+      ]
     ],
     "extra": {
-      "eas": {}
-    }
+      "eas": {
+        "projectId": "677dbc4c-bcba-4a6b-94e3-dcd626c3d9d3"
+      }
+    },
+    "owner": "fpollio"
   }
 }
