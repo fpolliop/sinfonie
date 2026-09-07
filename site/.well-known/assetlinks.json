@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "dev.sinfonie.app",
+      "sha256_cert_fingerprints": [
+        "A1:5F:CD:C9:59:06:16:3D:E4:66:E3:12:91:8D:32:D0:3F:6D:F4:BF:03:E8:B2:1F:AC:DB:15:1B:51:B9:BF:81"
+      ]
+    }
+  }
+]
