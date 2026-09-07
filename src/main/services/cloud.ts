@@ -11,8 +11,8 @@ import { safeStorage, shell } from 'electron'
 import { randomBytes } from 'crypto'
 import { getStore } from '../store'
 import { presentAuthLink, authDone } from './auth-link'
-import { PLAN_LIMITS, PLAN_LABELS } from '@shared/types'
-import type { BillingPeriod, CloudAccount, CloudState, Plan, PlanLimits, Vendor } from '@shared/types'
+import { PLAN_LIMITS, PLAN_LABELS, PLAN_FEATURES } from '@shared/types'
+import type { BillingPeriod, CloudAccount, CloudOrgDetail, CloudState, Plan, PlanFeature, PlanLimits, Vendor } from '@shared/types'
 
 export const CLOUD_URL = process.env.SINFONIE_CLOUD_URL ?? 'https://sinfonie.dev'
 const GRACE_MS = 14 * 24 * 3600_000
@@ -46,7 +46,7 @@ function writeSessionToken(token: string | undefined): void {
   })
 }
 
-function state(): CloudState {
+export function state(): CloudState {
   return getStore().get().settings.cloud ?? {}
 }
 function patchState(patch: Partial<CloudState> | null): CloudState {
@@ -146,6 +146,56 @@ export async function portal(): Promise<void> {
   await shell.openExternal(url)
 }
 
+// ---------- teams ----------
+function needSession(): void {
+  if (!sessionToken()) throw new Error('Sign in to Sinfonie first.')
+}
+export async function orgs(): Promise<CloudOrgDetail[]> {
+  needSession()
+  return (await call<{ orgs: CloudOrgDetail[] }>('/api/orgs')).orgs
+}
+const jsonInit = (method: string, body?: unknown): RequestInit => ({ method, headers: { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) })
+export async function createInvite(orgId: string, role: 'admin' | 'member' = 'member', email?: string): Promise<CloudOrgDetail> {
+  needSession()
+  return call<CloudOrgDetail>(`/api/orgs/${encodeURIComponent(orgId)}/invites`, jsonInit('POST', { role, email }))
+}
+export async function revokeInvite(orgId: string, token: string): Promise<CloudOrgDetail> {
+  needSession()
+  return call<CloudOrgDetail>(`/api/orgs/${encodeURIComponent(orgId)}/invites?token=${encodeURIComponent(token)}`, { method: 'DELETE' })
+}
+export async function setMemberRole(orgId: string, userId: string, role: 'admin' | 'member'): Promise<CloudOrgDetail> {
+  needSession()
+  return call<CloudOrgDetail>(`/api/orgs/${encodeURIComponent(orgId)}/members/${encodeURIComponent(userId)}`, jsonInit('PATCH', { role }))
+}
+export async function removeMember(orgId: string, userId: string): Promise<CloudOrgDetail> {
+  needSession()
+  return call<CloudOrgDetail>(`/api/orgs/${encodeURIComponent(orgId)}/members/${encodeURIComponent(userId)}`, { method: 'DELETE' })
+}
+export async function renameOrg(orgId: string, name: string): Promise<CloudOrgDetail> {
+  needSession()
+  return call<CloudOrgDetail>(`/api/orgs/${encodeURIComponent(orgId)}`, jsonInit('PATCH', { name }))
+}
+export async function leaveOrg(orgId: string): Promise<void> {
+  needSession()
+  await call(`/api/orgs/${encodeURIComponent(orgId)}`, { method: 'DELETE' })
+  await refresh()
+}
+/** Accepts an invite given as the token, the join link, or the sinfonie://join deep link. */
+export async function acceptInvite(codeOrUrl: string): Promise<CloudOrgDetail> {
+  needSession()
+  let token = codeOrUrl.trim()
+  try {
+    const u = new URL(token)
+    token = u.searchParams.get('token') || u.pathname.split('/').filter(Boolean).pop() || token
+  } catch {
+    // a bare token
+  }
+  if (!/^[A-Za-z0-9_-]{16,64}$/.test(token)) throw new Error('That does not look like an invite code.')
+  const org = await call<CloudOrgDetail>(`/api/invites/${encodeURIComponent(token)}`, { method: 'POST' })
+  await refresh()
+  return org
+}
+
 // ---------- entitlements ----------
 const DEV_PLAN = (['free', 'pro', 'team'] as const).find((p) => p === process.env.SINFONIE_PLAN)
 
@@ -172,6 +222,15 @@ export function assertWithin(what: keyof PlanLimits, current: number, vendor?: V
   const p = PLAN_LABELS[plan()]
   const noun = what === 'spaces' ? `${max} space${max === 1 ? '' : 's'}` : what === 'reposPerSpace' ? `${max} repositories per space` : `${max} ${vendor ?? ''} account${max === 1 ? '' : 's'} per vendor`.replace('  ', ' ')
   throw new Error(`Plan limit: the ${p} plan allows ${noun}. Upgrade under Settings → Plan to add more.`)
+}
+
+/** Throws when the current plan lacks a feature; a no-op until limits are enforced. */
+export function assertFeature(feature: PlanFeature): void {
+  if (!enforced()) return
+  if (PLAN_FEATURES[plan()].includes(feature)) return
+  const need = feature === 'sharedSpaces' ? 'Team' : 'Pro'
+  const what = feature === 'sharedSpaces' ? 'Shared spaces' : feature === 'reviewCockpit' ? 'The review cockpit' : feature === 'oncall' ? 'The on-call agent' : feature === 'crew' ? 'The crew' : `${feature[0].toUpperCase()}${feature.slice(1)}`
+  throw new Error(`Plan limit: ${what} needs the ${need} plan. Upgrade under Settings → Plan.`)
 }
 
 let refreshTimer: NodeJS.Timeout | null = null

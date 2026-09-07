@@ -36,6 +36,14 @@ export default function App(): React.JSX.Element {
 
   const [authLink, setAuthLink] = useState<AuthLink | null>(null)
   useEffect(() => api.on('ui:authLink', setAuthLink), [])
+  useEffect(
+    () =>
+      api.on('cloud:invite', ({ token }) => {
+        useApp.getState().setPendingInvite(token)
+        useApp.getState().openSettings({ scope: 'app', page: 'plan' })
+      }),
+    []
+  )
   useEffect(() => api.on('ui:authDone', (d) => setAuthLink((cur) => (cur && cur.provider === d.provider ? null : cur))), [])
   useEffect(() => api.on('ui:openFeedback', ({ tab }) => setFeedbackDialog(tab)), [setFeedbackDialog])
   useEffect(() => api.on('ui:openSettings', (t) => openSettings(t as Parameters<typeof openSettings>[0])), [openSettings])

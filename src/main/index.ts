@@ -108,16 +108,24 @@ if (app.isPackaged && !app.isDefaultProtocolClient('sinfonie')) app.setAsDefault
 function handleDeepLink(raw: string): void {
   try {
     const u = new URL(raw)
-    if (u.host === 'oauth' && u.pathname === '/slack') {
-      const code = u.searchParams.get('code')
-      const err = u.searchParams.get('error')
-      if (err) logError('slack:oauth', new Error(err))
-      if (code) void slack.finishAuth(code).catch((e) => logError('slack:oauth', e))
+    const focus = (): void => {
       const win = BrowserWindow.getAllWindows()[0]
       if (win) {
         win.show()
         win.focus()
       }
+    }
+    if (u.host === 'oauth' && u.pathname === '/slack') {
+      const code = u.searchParams.get('code')
+      const err = u.searchParams.get('error')
+      if (err) logError('slack:oauth', new Error(err))
+      if (code) void slack.finishAuth(code).catch((e) => logError('slack:oauth', e))
+      focus()
+    } else if (u.host === 'join') {
+      // An invite link: hand the token to the Plan page, which joins (after sign-in if needed).
+      const token = u.searchParams.get('token')
+      if (token) for (const win of BrowserWindow.getAllWindows()) win.webContents.send('cloud:invite', { token })
+      focus()
     }
   } catch (e) {
     logError('deep-link', e, { raw })

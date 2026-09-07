@@ -28,6 +28,7 @@ import { repoPrStatus } from './services/github'
 import * as jira from './services/jira'
 import * as linear from './services/linear'
 import * as cloud from './services/cloud'
+import * as sharedSpace from './services/shared-space'
 import { setAuthLinkEmitters, authDone } from './services/auth-link'
 import * as accounts from './services/accounts'
 import * as reviews from './services/reviews'
@@ -466,6 +467,26 @@ export function registerIpc(): void {
   handle('cloud:refresh', () => cloud.refresh())
   handle('cloud:checkout', (plan, period, seats) => cloud.checkout(plan, period, seats))
   handle('cloud:portal', () => cloud.portal())
+  handle('cloud:orgs', () => cloud.orgs())
+  handle('cloud:invite', (orgId, role, email) => cloud.createInvite(orgId, role, email))
+  handle('cloud:revokeInvite', (orgId, token) => cloud.revokeInvite(orgId, token))
+  handle('cloud:setMemberRole', (orgId, userId, role) => cloud.setMemberRole(orgId, userId, role))
+  handle('cloud:removeMember', (orgId, userId) => cloud.removeMember(orgId, userId))
+  handle('cloud:renameOrg', (orgId, name) => cloud.renameOrg(orgId, name))
+  handle('cloud:leaveOrg', (orgId) => cloud.leaveOrg(orgId))
+  handle('cloud:acceptInvite', (code) => cloud.acceptInvite(code))
+  // ---- shared spaces ----
+  handle('shared:definition', (spaceId) => sharedSpace.definitionFor(spaceId))
+  handle('shared:export', (spaceId, repoId) => sharedSpace.exportSpace(spaceId, repoId))
+  handle('shared:pickFile', async () => {
+    const r = await dialog.showOpenDialog({ properties: ['openFile'], title: 'Open a shared space definition', filters: [{ name: 'Sinfonie space', extensions: ['json'] }] })
+    return r.canceled || r.filePaths.length === 0 ? null : r.filePaths[0]
+  })
+  handle('shared:preview', (file) => sharedSpace.previewImport(file))
+  handle('shared:import', (file, resolutions) => sharedSpace.importSpace(file, resolutions))
+  handle('shared:pending', () => sharedSpace.pendingUpdates())
+  handle('shared:apply', (spaceId) => sharedSpace.applyUpdate(spaceId))
+  handle('shared:unlink', (spaceId) => sharedSpace.unlink(spaceId))
   handle('accounts:remove', (id) => accounts.removeAccount(id))
   handle('accounts:setDefault', (id) => accounts.setDefaultAccount(id))
   handle('accounts:check', (id) => accounts.checkAccount(id))

@@ -41,6 +41,9 @@ interface AppState {
   /** The open settings page, or null when the window is closed. */
   settingsTarget: SettingsTarget | null
   openSettings: (t: SettingsTarget) => void
+  /** An invite token from a sinfonie://join link, waiting for the Plan page to accept it. */
+  pendingInvite: string | null
+  setPendingInvite: (token: string | null) => void
   closeSettings: () => void
   showArchived: boolean
   error: string | null
@@ -146,6 +149,8 @@ export const useApp = create<AppState>((set, get) => ({
   showNewWorkspace: false,
   settingsTarget: null,
   openSettings: (settingsTarget) => set({ settingsTarget }),
+  pendingInvite: null,
+  setPendingInvite: (pendingInvite) => set({ pendingInvite }),
   closeSettings: () => set({ settingsTarget: null }),
   showArchived: false,
   error: null,

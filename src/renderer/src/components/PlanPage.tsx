@@ -13,6 +13,7 @@ function GithubMark({ size = 13 }: { size?: number }): React.JSX.Element {
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { Badge, Button } from './ui'
+import { TeamSection } from './TeamSection'
 import { PLAN_LABELS, PLAN_LIMITS, type BillingPeriod, type Plan, type PlanLimits } from '@shared/types'
 
 const PRICES: Record<Exclude<Plan, 'free'>, Record<BillingPeriod, number>> = { pro: { month: 15, year: 120 }, team: { month: 30, year: 300 } }
@@ -23,8 +24,8 @@ const PLAN_ROWS: { plan: Plan; blurb: string; points: string[] }[] = [
 ]
 
 function limitText(l: PlanLimits): string {
-  const n = (v: number | null): string => (v === null ? 'unlimited' : String(v))
-  return `${n(l.spaces)} spaces · ${n(l.reposPerSpace)} repos per space · ${n(l.accountsPerVendor)} accounts per vendor`
+  const n = (v: number | null, one: string, many: string): string => (v === null ? `unlimited ${many}` : `${v} ${v === 1 ? one : many}`)
+  return `${n(l.spaces, 'space', 'spaces')} · ${n(l.reposPerSpace, 'repo', 'repos')} per space · ${n(l.accountsPerVendor, 'account', 'accounts')} per vendor`
 }
 
 /** Application → Plan: the Sinfonie account, the current plan, and upgrades. */
@@ -34,6 +35,7 @@ export function PlanPage(): React.JSX.Element {
   const setError = useApp((s) => s.setError)
   const [busy, setBusy] = useState<string | null>(null)
   const [period, setPeriod] = useState<BillingPeriod>('year')
+  const [seats, setSeats] = useState(3)
   const account = cloud?.account
   const plan: Plan = account?.plan ?? 'free'
   const run = async (key: string, fn: () => Promise<unknown>): Promise<void> => {
@@ -127,15 +129,20 @@ export function PlanPage(): React.JSX.Element {
                 ))}
               </ul>
               {p !== 'free' && !current && (
-                <Button
-                  variant="primary"
-                  size="sm"
-                  disabled={busy === `buy:${p}` || (account ? !account.billing : false)}
-                  title={account && !account.billing ? 'Checkout is not open yet' : undefined}
-                  onClick={() => void run(`buy:${p}`, () => (account ? api.invoke('cloud:checkout', p, period) : api.invoke('cloud:signIn')))}
-                >
-                  {account ? (plan === 'free' ? `Upgrade to ${PLAN_LABELS[p]}` : `Switch to ${PLAN_LABELS[p]}`) : 'Sign in to upgrade'}
-                </Button>
+                <div className="flex items-center gap-2">
+                  {p === 'team' && account && (
+                    <input type="number" min={1} max={500} value={seats} onChange={(e) => setSeats(Math.max(1, Math.min(500, Number(e.target.value) || 1)))} className="w-16 rounded-md border border-border bg-bg px-2 py-1 text-[12px] outline-none focus:border-accent" title="Seats" />
+                  )}
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    disabled={busy === `buy:${p}` || (account ? !account.billing : false)}
+                    title={account && !account.billing ? 'Checkout is not open yet' : undefined}
+                    onClick={() => void run(`buy:${p}`, () => (account ? api.invoke('cloud:checkout', p, period, p === 'team' ? seats : 1) : api.invoke('cloud:signIn')))}
+                  >
+                    {account ? (plan === 'free' ? `Upgrade to ${PLAN_LABELS[p]}` : `Switch to ${PLAN_LABELS[p]}`) : 'Sign in to upgrade'}
+                  </Button>
+                </div>
               )}
             </div>
           )
@@ -145,6 +152,7 @@ export function PlanPage(): React.JSX.Element {
         Your plan: {limitText(PLAN_LIMITS[plan])}. You have {spaces.length} space{spaces.length === 1 ? '' : 's'}.
         {account && !account.enforce ? ' Limits are not enforced yet; nothing you have today will be locked.' : ''} Agent subscriptions and API keys are yours and are billed by their vendors, never through Sinfonie.
       </p>
+      <TeamSection signedIn={Boolean(account)} />
     </div>
   )
 }
