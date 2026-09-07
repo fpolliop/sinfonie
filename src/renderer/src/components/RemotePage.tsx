@@ -3,14 +3,17 @@ import { Check, Copy, Smartphone, Unlink } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { Badge, Button, Field, inputCls } from './ui'
-import type { RemoteStatus } from '@shared/types'
+import type { RemoteSettings, RemoteStatus } from '@shared/types'
+
+const EMPTY: RemoteSettings = {}
 
 /**
  * Application → Phone: pair a phone with this Mac. The QR carries the pairing key in the URL
  * fragment; the relay only ever sees encrypted envelopes and notification titles.
  */
 export function RemotePage(): React.JSX.Element {
-  const settings = useApp((s) => s.settings.remote ?? {})
+  const remote = useApp((s) => s.settings.remote)
+  const settings = remote ?? EMPTY
   const setError = useApp((s) => s.setError)
   const [status, setStatus] = useState<RemoteStatus | null>(null)
   const [pairing, setPairing] = useState<{ url: string; qrSvg: string } | null>(null)
