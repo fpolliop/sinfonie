@@ -1149,7 +1149,7 @@ export interface UsageSettings {
 /** What the user can do when a limit is near or hit. */
 // ---- Databases ----
 
-export type DbKind = 'postgres' | 'mysql'
+export type DbKind = 'postgres' | 'mysql' | 'sqlite' | 'mongodb' | 'bigquery'
 export interface DbTunnel {
   kind: 'none' | 'ssh' | 'cloudsql'
   sshHost?: string
@@ -1175,6 +1175,14 @@ export interface DbConnection {
   user?: string
   ssl?: boolean
   tunnel?: DbTunnel
+  /** SQLite: database file path (~ allowed). */
+  path?: string
+  /** MongoDB: authentication database (default admin). */
+  authSource?: string
+  /** BigQuery: project, location (e.g. US, EU, us-central1) and gcloud account; defaults come from the space's Google Cloud settings. */
+  projectId?: string
+  location?: string
+  account?: string
   /** Writes stay refused unless this is on; even then the user confirms each statement from an agent. */
   allowWrites?: boolean
   createdAt: string
@@ -1183,6 +1191,8 @@ export interface DbConnection {
 }
 export interface DbSecrets {
   password?: string
+  /** MongoDB: a full connection URI (mongodb+srv://…) instead of host/user/password. */
+  uri?: string
   sshPassword?: string
   sshPassphrase?: string
 }
@@ -1192,6 +1202,8 @@ export interface DbColumn {
   nullable: boolean
   default?: string
   pk?: boolean
+  /** Foreign key target as schema.table + column. */
+  fk?: { table: string; column: string }
 }
 export interface DbTable {
   schema: string

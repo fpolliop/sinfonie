@@ -57,12 +57,12 @@ const DEFS: Def[] = [
   },
   {
     name: 'db_query',
-    description: 'Run SQL on a connection. Read-only statements (SELECT, WITH, EXPLAIN, SHOW, DESCRIBE) run inside a read-only transaction with a timeout; add LIMIT yourself. Writes are refused unless the connection allows them and the user confirms the exact statement. Returns tab-separated rows (first 100).',
+    description: 'Run a statement on a connection. SQL engines (postgres, mysql, sqlite, bigquery): read-only statements run in a read-only mode with a timeout; add LIMIT yourself. MongoDB: send relaxed Extended JSON such as {"collection":"users","find":{"email":"a@b.com"},"projection":{},"sort":{"_id":-1},"limit":20} or {"collection":"orders","aggregate":[...]}, also count / distinct. Writes are refused unless the connection allows them and the user confirms the exact statement. Returns tab-separated rows (first 100).',
     shape: { connection: z.string(), sql: z.string(), maxRows: z.number().int().min(1).max(1000).optional().describe('Default 100') },
     run: async (spaceId, workspaceId, i) => {
       const sql = String(i.sql)
       const conn = db.get(spaceId, String(i.connection))
-      const cls = db.classifySql(sql)
+      const cls = db.classify(spaceId, conn.id, sql)
       let allowWrite = false
       if (!cls.readOnly) {
         if (!conn.allowWrites) throw new Error(`"${conn.name}" is read-only; this statement (${cls.first}) would write. Ask the user to allow writes on the connection if that is intended.`)
@@ -77,13 +77,10 @@ const DEFS: Def[] = [
   },
   {
     name: 'db_explain',
-    description: 'EXPLAIN a read-only statement on a connection (no ANALYZE, nothing runs).',
+    description: 'Explain a read-only statement: the plan (Postgres, MySQL, SQLite, MongoDB) or a BigQuery dry run with bytes processed. Nothing runs.',
     shape: { connection: z.string(), sql: z.string() },
     run: async (spaceId, _ws, i) => {
-      const sql = String(i.sql).trim().replace(/;\s*$/, '')
-      if (!db.classifySql(sql).readOnly) throw new Error('Only read-only statements can be explained here.')
-      const r = await db.runQuery(spaceId, String(i.connection), `EXPLAIN ${sql}`, { maxRows: 500, source: 'agent' })
-      return r.rows.map((row) => row.map((v) => (typeof v === 'object' ? JSON.stringify(v) : String(v))).join(' ')).join('\n')
+      return db.explain(spaceId, String(i.connection), String(i.sql))
     }
   }
 ]

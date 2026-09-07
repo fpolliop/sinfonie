@@ -190,7 +190,15 @@ export interface SinfonieInvoke {
   'db:history': (connectionId: string) => DbHistoryEntry[]
   'db:cloudSqlInstances': (spaceId: string) => { connectionName: string; name: string; engine: string; region: string }[]
   /** Read-only classification, so the Data tab can warn before running a write. */
-  'db:classify': (sql: string) => { statements: number; readOnly: boolean; first: string }
+  'db:classify': (spaceId: string, id: string, text: string) => { statements: number; readOnly: boolean; first: string }
+  'db:explain': (spaceId: string, id: string, text: string) => string
+  /** UPDATE one row by primary key on a connection that allows writes; the UI confirmed the preview. */
+  'db:update': (spaceId: string, id: string, req: { table: { schema: string; name: string }; pk: Record<string, unknown>; set: Record<string, unknown> }) => { affected: number; preview: string }
+  'db:updatePreview': (spaceId: string, id: string, req: { table: { schema: string; name: string }; pk: Record<string, unknown>; set: Record<string, unknown> }) => string
+  'db:csvPreview': (path?: string) => { path: string; delimiter: string; headers: string[]; sample: string[][]; rowCount: number } | null
+  'db:import': (spaceId: string, id: string, req: { path: string; delimiter: string; table: { schema: string; name: string }; mapping: Record<string, string>; coerceTypes?: boolean }) => { inserted: number; ms: number }
+  'db:export': (spaceId: string, id: string, text: string, format: 'csv' | 'json') => { path: string; rows: number } | null
+  'db:pickSqlite': () => string | null
   // ---- setup assistant ----
   'assistant:send': (text: string) => void
   'assistant:history': () => { items: AssistantItem[]; busy: boolean }
