@@ -96,7 +96,8 @@ const best = (a, b) => (RANK[b] > RANK[a] ? b : a)
 export async function accountFor(user, env) {
   const { results: memberships } = await env.DB.prepare('SELECT o.*, m.role FROM org_members m JOIN orgs o ON o.id = m.org_id WHERE m.user_id = ?1 ORDER BY o.created_at').bind(user.id).all()
   let plan = 'free'
-  if (user.plan_override && RANK[user.plan_override] !== undefined) plan = best(plan, user.plan_override)
+  const overrideLive = user.plan_override && RANK[user.plan_override] !== undefined && (!user.plan_override_until || Date.parse(user.plan_override_until) > Date.now())
+  if (overrideLive) plan = best(plan, user.plan_override)
   if (subscriptionLive(user)) plan = best(plan, 'pro')
   const orgs = memberships.map((o) => {
     const orgPlan = o.plan_override === 'team' || subscriptionLive(o) ? 'team' : 'free'
@@ -111,6 +112,7 @@ export async function accountFor(user, env) {
     orgs,
     plan,
     subscription,
+    grant: overrideLive ? { plan: user.plan_override, until: user.plan_override_until || undefined } : undefined,
     enforce: String(env.PLANS_ENFORCED || '').toLowerCase() === 'true',
     billing: Boolean(env.PADDLE_API_KEY && env.PADDLE_PRICE_PRO_MONTH)
   }

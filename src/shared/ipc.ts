@@ -116,6 +116,7 @@ export interface SinfonieInvoke {
   'cloud:renameOrg': (orgId: string, name: string) => CloudOrgDetail
   'cloud:leaveOrg': (orgId: string) => void
   'cloud:acceptInvite': (codeOrUrl: string) => CloudOrgDetail
+  'cloud:redeem': (code: string) => CloudState
   // ---- shared spaces (sinfonie.space.json) ----
   'shared:definition': (spaceId: string) => SpaceDefinition
   'shared:export': (spaceId: string, repoId: string) => { file: string }
@@ -314,8 +315,8 @@ export interface SinfonieEvents {
   'ui:authLink': AuthLink
   /** That sign-in finished; close the dialog. */
   'ui:authDone': { provider: AuthLink['provider']; connId: string }
-  /** A sinfonie://join link arrived: the Plan page should accept this invite. */
-  'cloud:invite': { token: string }
+  /** A sinfonie://join or sinfonie://redeem link arrived: the Plan page should act on it. */
+  'cloud:invite': { token: string; kind: 'join' | 'redeem' }
   /** Open the review cockpit on this PR (notification click). */
   'ui:openReview': { key: string }
   /** The assistant (or main) asks the renderer to show a settings page. */

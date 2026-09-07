@@ -628,6 +628,8 @@ export interface CloudAccount {
   orgs: CloudOrg[]
   plan: Plan
   subscription?: CloudSubscription
+  /** A plan granted without billing (coupon, founder), possibly with an end date. */
+  grant?: { plan: Plan; until?: string }
   /** Plan limits are enforced in the app only when the server says so (off until checkout works). */
   enforce: boolean
   /** True when the server can sell plans (Paddle configured). */

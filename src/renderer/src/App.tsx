@@ -38,8 +38,8 @@ export default function App(): React.JSX.Element {
   useEffect(() => api.on('ui:authLink', setAuthLink), [])
   useEffect(
     () =>
-      api.on('cloud:invite', ({ token }) => {
-        useApp.getState().setPendingInvite(token)
+      api.on('cloud:invite', ({ token, kind }) => {
+        useApp.getState().setPendingInvite({ token, kind })
         useApp.getState().openSettings({ scope: 'app', page: 'plan' })
       }),
     []

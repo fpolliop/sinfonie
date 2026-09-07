@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import clsx from 'clsx'
 import { Check, ExternalLink, LogOut, RefreshCw } from 'lucide-react'
 
@@ -23,7 +23,7 @@ function GithubMark({ size = 13 }: { size?: number }): React.JSX.Element {
 }
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
-import { Badge, Button } from './ui'
+import { Badge, Button, inputCls } from './ui'
 import { TeamSection } from './TeamSection'
 import { PLAN_LABELS, PLAN_LIMITS, type BillingPeriod, type Plan, type PlanLimits } from '@shared/types'
 
@@ -37,6 +37,51 @@ const PLAN_ROWS: { plan: Plan; blurb: string; points: string[] }[] = [
 function limitText(l: PlanLimits): string {
   const n = (v: number | null, one: string, many: string): string => (v === null ? `unlimited ${many}` : `${v} ${v === 1 ? one : many}`)
   return `${n(l.spaces, 'space', 'spaces')} · ${n(l.reposPerSpace, 'repo', 'repos')} per space · ${n(l.accountsPerVendor, 'account', 'accounts')} per vendor`
+}
+
+/** "Have a code?": redeems a coupon, including one that arrived through a sinfonie://redeem link. */
+function CouponBox({ signedIn }: { signedIn: boolean }): React.JSX.Element {
+  const setError = useApp((s) => s.setError)
+  const pendingInvite = useApp((s) => s.pendingInvite)
+  const setPendingInvite = useApp((s) => s.setPendingInvite)
+  const [code, setCode] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [done, setDone] = useState<string | null>(null)
+  const redeem = async (c: string): Promise<void> => {
+    if (!c.trim()) return
+    setBusy(true)
+    try {
+      const st = await api.invoke('cloud:redeem', c)
+      setCode('')
+      setDone(st.account?.grant ? `You are on ${PLAN_LABELS[st.account.plan]}${st.account.grant.until ? ` until ${new Date(st.account.grant.until).toLocaleDateString()}` : ''}. Enjoy.` : 'Code accepted.')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+  useEffect(() => {
+    if (!pendingInvite || pendingInvite.kind !== 'redeem') return
+    if (!signedIn) {
+      setCode(pendingInvite.token)
+      return
+    }
+    const token = pendingInvite.token
+    setPendingInvite(null)
+    void redeem(token)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingInvite, signedIn])
+  return (
+    <div className="mt-3 flex items-center gap-2">
+      <span className="shrink-0 text-[12px] text-muted">Have a code?</span>
+      <input className={clsx(inputCls, 'max-w-[280px] font-mono uppercase')} placeholder="BETA-XXXX-XXXX" value={code} onChange={(e) => setCode(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && void redeem(code)} disabled={!signedIn} title={signedIn ? undefined : 'Sign in first'} />
+      <Button size="sm" disabled={!signedIn || !code.trim() || busy} onClick={() => void redeem(code)}>
+        Redeem
+      </Button>
+      {done && <span className="text-[12px] text-ok">{done}</span>}
+      {!signedIn && pendingInvite?.kind === 'redeem' && <span className="text-[12px] text-muted">Sign in and the code is applied.</span>}
+    </div>
+  )
 }
 
 /** Application → Plan: the Sinfonie account, the current plan, and upgrades. */
@@ -85,6 +130,7 @@ export function PlanPage(): React.JSX.Element {
                 {account.user.name || account.user.login}
                 <Badge tone={plan === 'free' ? 'muted' : 'accent'}>{PLAN_LABELS[plan]}</Badge>
                 {account.subscription?.status && account.subscription.status !== 'active' && <Badge tone="warn">{account.subscription.status.replace('_', ' ')}</Badge>}
+                {account.grant && account.grant.plan === plan && <Badge tone="ok">{account.grant.until ? `free until ${new Date(account.grant.until).toLocaleDateString()}` : 'free, on us'}</Badge>}
               </div>
               <div className="truncate text-[12px] text-muted">
                 @{account.user.login}
@@ -162,6 +208,7 @@ export function PlanPage(): React.JSX.Element {
           )
         })}
       </div>
+      <CouponBox signedIn={Boolean(account)} />
       <p className="mt-3 text-[11px] text-muted">
         Your plan: {limitText(PLAN_LIMITS[plan])}. You have {spaces.length} space{spaces.length === 1 ? '' : 's'}.
         {account && !account.enforce ? ' Limits are not enforced yet; nothing you have today will be locked.' : ''} Agent subscriptions and API keys are yours and are billed by their vendors, never through Sinfonie.

@@ -197,6 +197,20 @@ export async function acceptInvite(codeOrUrl: string): Promise<CloudOrgDetail> {
   return org
 }
 
+/** Redeems a coupon code (or its sinfonie.dev/redeem link) for a free plan. */
+export async function redeem(codeOrUrl: string): Promise<CloudState> {
+  needSession()
+  let code = codeOrUrl.trim()
+  try {
+    const u = new URL(code)
+    code = u.searchParams.get('code') || u.pathname.split('/').filter(Boolean).pop() || code
+  } catch {
+    // a bare code
+  }
+  const account = await call<CloudAccount>('/api/coupons/redeem', jsonInit('POST', { code }))
+  return patchState({ account, checkedAt: new Date().toISOString(), error: undefined })
+}
+
 // ---------- entitlements ----------
 const DEV_PLAN = (['free', 'pro', 'team'] as const).find((p) => p === process.env.SINFONIE_PLAN)
 

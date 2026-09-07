@@ -129,3 +129,23 @@ CREATE TABLE IF NOT EXISTS billing_events (
   payload TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Coupon codes: a code grants a plan for free (beta users, friends). Redeeming sets users.plan_override.
+ALTER TABLE users ADD COLUMN plan_override_until TEXT;
+CREATE TABLE IF NOT EXISTS coupons (
+  code TEXT PRIMARY KEY,
+  plan TEXT NOT NULL DEFAULT 'team',
+  max_uses INTEGER,
+  uses INTEGER NOT NULL DEFAULT 0,
+  -- How long the granted plan lasts after redemption, in days; NULL means for good.
+  duration_days INTEGER,
+  expires_at TEXT,
+  note TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS coupon_redemptions (
+  code TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  redeemed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (code, user_id)
+);
