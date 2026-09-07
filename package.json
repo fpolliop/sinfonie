@@ -1,6 +1,6 @@
 {
   "name": "sinfonie",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "description": "Multi-repo agent workspaces: one workspace spans many repositories, with a crew of models.",
   "main": "./out/main/index.js",
   "author": "Francisco Pollio",
@@ -16,7 +16,8 @@
     "release": "electron-vite build && electron-builder --mac --publish always",
     "site:deploy": "wrangler pages deploy . --cwd site --project-name sinfonie --branch main",
     "feedback": "wrangler d1 execute sinfonie-feedback --remote --json --config site/wrangler.toml --command \"SELECT id, created_at, kind, source, count, app_version, email, substr(message,1,200) AS message FROM feedback ORDER BY id DESC LIMIT 50\"",
-    "dev:fresh": "SINFONIE_USER_DATA=$HOME/.sinfonie-fresh electron-vite dev"
+    "dev:fresh": "SINFONIE_USER_DATA=$HOME/.sinfonie-fresh electron-vite dev",
+    "relay:deploy": "wrangler deploy --config relay/wrangler.toml"
   },
   "build": {
     "appId": "dev.sinfonie.app",
@@ -64,6 +65,7 @@
   "devDependencies": {
     "@types/node": "^26.4.1",
     "@types/pg": "^8.23.1",
+    "@types/qrcode": "^1.5.6",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.6",
     "@types/ssh2": "^1.15.6",
@@ -110,6 +112,7 @@
     "nanoid": "^6.0.1",
     "node-pty": "^1.1.0",
     "pg": "^8.23.0",
+    "qrcode": "^1.5.4",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-markdown": "^10.1.0",

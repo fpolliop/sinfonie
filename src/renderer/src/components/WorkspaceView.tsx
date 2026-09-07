@@ -16,7 +16,7 @@ import { ChangesPane } from './ChangesPane'
 import { TerminalPane } from './TerminalPane'
 import { RunPane } from './RunPane'
 import { PrsPane } from './PrsPane'
-import { Badge, Button, Dialog, Field, inputCls } from './ui'
+import { Badge, Button, Dialog, Field, chipCls, inputCls } from './ui'
 import { shortPath } from '@/lib/format'
 import { BrowserPane } from './BrowserPane'
 import { FilesPane } from './FilesPane'
@@ -101,9 +101,9 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
 
   return (
     <div className="flex h-full flex-col">
-      <header className="drag flex h-[52px] shrink-0 items-center gap-3 border-b border-border px-4">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
+      <header className="drag flex h-[52px] shrink-0 items-center gap-4 border-b border-border px-4">
+        <div className="flex min-w-0 flex-1 flex-col justify-center gap-1">
+          <div className="flex min-w-0 items-center gap-2">
             {editingTitle ? (
               <div className="no-drag w-72">
                 <InlineRename
@@ -117,21 +117,50 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
                 />
               </div>
             ) : (
-              <h1 className="no-drag min-w-0 cursor-text truncate text-[14px] font-semibold" title="Double-click to rename" onDoubleClick={() => setEditingTitle(true)}>
+              <h1 className="no-drag min-w-0 max-w-[280px] shrink-0 cursor-text truncate text-[14px] font-semibold leading-none" title="Double-click to rename" onDoubleClick={() => setEditingTitle(true)}>
                 {ws.name}
               </h1>
             )}
-            <StagePicker stage={ws.stage} disabled={ws.status === 'archived'} onChange={(stage) => run(() => api.invoke('workspaces:setStage', ws.id, stage))} />
-            <SpacePicker pill value={ws.spaceId ?? ''} onChange={(id) => run(() => api.invoke('workspaces:setSpace', ws.id, id || null))} />
-            <LabelPicker ws={ws} />
             {ws.status === 'creating' && <Badge tone="warn">creating</Badge>}
             {ws.status === 'error' && <Badge tone="danger">error</Badge>}
             {ws.status === 'archived' && <Badge>archived</Badge>}
+            <div className="ml-1 flex shrink-0 items-center gap-1.5">
+              <StagePicker stage={ws.stage} disabled={ws.status === 'archived'} onChange={(stage) => run(() => api.invoke('workspaces:setStage', ws.id, stage))} />
+              <SpacePicker pill value={ws.spaceId ?? ''} onChange={(id) => run(() => api.invoke('workspaces:setSpace', ws.id, id || null))} />
+              <LabelPicker ws={ws} />
+            </div>
+            {ws.repos.length > 0 && (
+              <>
+                <span className="mx-1 h-4 w-px shrink-0 bg-border" />
+                <div data-tour="repos" className="flex min-w-0 items-center gap-1.5 overflow-hidden">
+                  {ws.repos.map((r) => {
+                    const pr = prs?.find((p) => p.repoId === r.repoId)?.pr
+                    const open = prs?.find((p) => p.repoId === r.repoId)?.threads.filter((t) => !t.isResolved).length ?? 0
+                    return (
+                      <button
+                        key={r.repoId}
+                        title={pr ? `${pr.title} (#${pr.number})` : shortPath(r.worktreePath)}
+                        onClick={() => setTab('prs')}
+                        className={clsx(chipCls, 'no-drag min-w-0 shrink border bg-panel', r.repoId === ws.primaryRepoId ? 'border-accent/40 text-accent' : 'border-border text-muted hover:text-text')}
+                      >
+                        <span className="truncate">{r.repoName}</span>
+                        {pr && <span className={clsx('h-1.5 w-1.5 shrink-0 rounded-full', pr.state === 'MERGED' ? 'bg-accent' : pr.state === 'CLOSED' ? 'bg-danger' : pr.reviewDecision === 'CHANGES_REQUESTED' || open > 0 ? 'bg-warn' : 'bg-ok')} />}
+                        {open > 0 && <span className="text-warn">{open}</span>}
+                      </button>
+                    )
+                  })}
+                </div>
+              </>
+            )}
           </div>
-          <div className="flex items-center gap-1 text-[11px] text-muted">
-            <GitBranch size={11} /> <span className="truncate">{ws.repos[0]?.branch ?? `${ws.slug} · no repositories yet`}</span> · port {ws.port}
+          <div className="flex min-w-0 items-center gap-1.5 text-[11px] leading-none text-muted">
+            <GitBranch size={11} className="shrink-0" />
+            <span className="truncate">{ws.repos[0]?.branch ?? `${ws.slug} · no repositories yet`}</span>
+            <span className="opacity-50">·</span>
+            <span className="shrink-0">port {ws.port}</span>
             {ws.jira && (
-              <span className="no-drag ml-1 inline-flex items-center gap-1">
+              <span className="no-drag inline-flex items-center gap-1.5">
+                <span className="opacity-50">·</span>
                 <button className="inline-flex items-center gap-1 text-accent hover:underline" title={ws.jira.summary} onClick={() => void api.invoke('shell:openExternal', ws.jira!.url)}>
                   {ws.jira.key} <ExternalLink size={10} />
                 </button>
@@ -144,7 +173,8 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
               </span>
             )}
             {ws.linear && (
-              <span className="no-drag ml-1 inline-flex items-center gap-1">
+              <span className="no-drag inline-flex items-center gap-1.5">
+                <span className="opacity-50">·</span>
                 <button className="inline-flex items-center gap-1 text-accent hover:underline" title={ws.linear.title} onClick={() => void api.invoke('shell:openExternal', ws.linear!.url)}>
                   {ws.linear.identifier} <ExternalLink size={10} />
                 </button>
@@ -158,29 +188,9 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
             )}
           </div>
         </div>
-        <div data-tour="repos" className="ml-2 flex min-w-0 items-center gap-1.5 overflow-hidden">
-          {ws.repos.map((r) => {
-            const pr = prs?.find((p) => p.repoId === r.repoId)?.pr
-            const open = prs?.find((p) => p.repoId === r.repoId)?.threads.filter((t) => !t.isResolved).length ?? 0
-            return (
-              <button
-                key={r.repoId}
-                title={pr ? `${pr.title} (#${pr.number})` : shortPath(r.worktreePath)}
-                onClick={() => setTab('prs')}
-                className={clsx('no-drag inline-flex items-center gap-1 truncate rounded-full border border-border px-2 py-0.5 text-[11px]', r.repoId === ws.primaryRepoId ? 'text-accent border-accent/40' : 'text-muted')}
-              >
-                {r.repoName}
-                {pr && (
-                  <span className={clsx('h-1.5 w-1.5 rounded-full', pr.state === 'MERGED' ? 'bg-accent' : pr.state === 'CLOSED' ? 'bg-danger' : pr.reviewDecision === 'CHANGES_REQUESTED' || open > 0 ? 'bg-warn' : 'bg-ok')} />
-                )}
-                {open > 0 && <span className="text-warn">{open}</span>}
-              </button>
-            )
-          })}
-        </div>
-        <nav className="no-drag ml-auto flex items-center gap-0.5 rounded-lg bg-panel p-0.5">
+        <nav className="no-drag flex shrink-0 items-center gap-0.5 rounded-lg bg-panel p-0.5">
           {TABS.map((t) => (
-            <button key={t.id} data-tour={t.id === 'data' ? 'tab-data' : t.id === 'browser' ? 'tab-browser' : undefined} onClick={() => setTab(t.id)} className={clsx('relative rounded-md px-3 py-1 text-[12px] font-medium', tab === t.id ? 'bg-panel-2 text-text' : 'text-muted hover:text-text')}>
+            <button key={t.id} data-tour={t.id === 'data' ? 'tab-data' : t.id === 'browser' ? 'tab-browser' : undefined} onClick={() => setTab(t.id)} className={clsx('relative h-[26px] rounded-md px-3 text-[12px] font-medium leading-none', tab === t.id ? 'bg-panel-2 text-text' : 'text-muted hover:text-text')}>
               {t.label}
               {t.id === 'browser' && browserBusy && <span className="absolute right-1 top-1 h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />}
             </button>
