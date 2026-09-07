@@ -2,6 +2,17 @@ import React, { useState } from 'react'
 import clsx from 'clsx'
 import { Check, ExternalLink, LogOut, RefreshCw } from 'lucide-react'
 
+/** Google's "G"; lucide dropped brand icons. */
+function GoogleMark({ size = 13 }: { size?: number }): React.JSX.Element {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden>
+      <path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.5h6.5c-.3 1.5-1.1 2.7-2.4 3.6v3h3.8c2.3-2.1 3.6-5.2 3.6-8.8z" />
+      <path fill="#34A853" d="M12 24c3.2 0 6-1.1 8-2.9l-3.8-3c-1.1.7-2.5 1.2-4.2 1.2-3.2 0-5.9-2.2-6.9-5.1H1.1v3.1C3.1 21.3 7.2 24 12 24z" />
+      <path fill="#FBBC05" d="M5.1 14.2c-.5-1.5-.5-3 0-4.5V6.6H1.1c-1.5 3-1.5 6.7 0 9.7l4-3.1z" />
+      <path fill="#EA4335" d="M12 4.8c1.8 0 3.3.6 4.6 1.8l3.4-3.4C17.9 1.2 15.2 0 12 0 7.2 0 3.1 2.7 1.1 6.6l4 3.1c1-2.9 3.7-4.9 6.9-4.9z" />
+    </svg>
+  )
+}
 /** GitHub's mark; lucide dropped brand icons. */
 function GithubMark({ size = 13 }: { size?: number }): React.JSX.Element {
   return (
@@ -57,10 +68,13 @@ export function PlanPage(): React.JSX.Element {
           <div className="flex items-center gap-3">
             <div className="flex-1">
               <div className="text-[13px] font-medium">Not signed in</div>
-              <div className="text-[12px] text-muted">Sign in with GitHub to keep your plan with you across Macs. Sinfonie itself never sees your agent logins; they stay on this machine.</div>
+              <div className="text-[12px] text-muted">Sign in to keep your plan with you across Macs. Sinfonie itself never sees your agent logins; they stay on this machine.</div>
             </div>
-            <Button variant="primary" disabled={busy === 'signin'} onClick={() => void run('signin', () => api.invoke('cloud:signIn'))}>
-              <GithubMark /> Sign in with GitHub
+            <Button variant="primary" disabled={busy !== null} onClick={() => void run('signin', () => api.invoke('cloud:signIn', 'github'))}>
+              <GithubMark /> GitHub
+            </Button>
+            <Button variant="primary" disabled={busy !== null} onClick={() => void run('signin', () => api.invoke('cloud:signIn', 'google'))}>
+              <GoogleMark /> Google
             </Button>
           </div>
         ) : (
@@ -138,7 +152,7 @@ export function PlanPage(): React.JSX.Element {
                     size="sm"
                     disabled={busy === `buy:${p}` || (account ? !account.billing : false)}
                     title={account && !account.billing ? 'Checkout is not open yet' : undefined}
-                    onClick={() => void run(`buy:${p}`, () => (account ? api.invoke('cloud:checkout', p, period, p === 'team' ? seats : 1) : api.invoke('cloud:signIn')))}
+                    onClick={() => void run(`buy:${p}`, () => (account ? api.invoke('cloud:checkout', p, period, p === 'team' ? seats : 1) : api.invoke('cloud:signIn', 'github')))}
                   >
                     {account ? (plan === 'free' ? `Upgrade to ${PLAN_LABELS[p]}` : `Switch to ${PLAN_LABELS[p]}`) : 'Sign in to upgrade'}
                   </Button>

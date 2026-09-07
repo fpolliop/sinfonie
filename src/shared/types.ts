@@ -1085,6 +1085,8 @@ export interface AuthLink {
   /** '' for the application connection, else the space id. */
   connId: string
   url: string
+  /** Who the user approves access on, when the provider alone does not say (cloud: GitHub or Google). */
+  label?: string
 }
 
 // ---- On call ----

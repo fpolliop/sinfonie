@@ -9,14 +9,14 @@ const NAMES: Record<AuthLink['provider'], string> = { jira: 'Jira', linear: 'Lin
 /** A sign-in link: open it in the default browser, or copy it to paste into the browser that is logged in. */
 export function AuthLinkDialog({ link, onClose }: { link: AuthLink; onClose: () => void }): React.JSX.Element {
   const [copied, setCopied] = useState(false)
-  const name = NAMES[link.provider]
+  const name = link.label ?? NAMES[link.provider]
   const copy = async (): Promise<void> => {
     await navigator.clipboard.writeText(link.url)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
   return (
-    <Dialog title={link.provider === 'cloud' ? 'Sign in to Sinfonie with GitHub' : `Sign in to ${name}`} onClose={onClose} width={480}>
+    <Dialog title={link.provider === 'cloud' ? `Sign in to Sinfonie with ${name}` : `Sign in to ${name}`} onClose={onClose} width={480}>
       <p className="mb-3 text-[13px] text-muted">Approve access on {name}'s site, then come back here. If your default browser is not the one signed in to {name}, copy the link and open it where you are.</p>
       <div className="mb-4 max-h-[72px] overflow-auto rounded-md border border-border bg-bg px-2.5 py-2 font-mono text-[11px] text-muted break-all select-all">{link.url}</div>
       <div className="flex items-center gap-2">

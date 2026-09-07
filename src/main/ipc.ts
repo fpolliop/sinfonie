@@ -462,7 +462,7 @@ export function registerIpc(): void {
     return accounts.addAccount(name, vendor)
   })
   // ---- Sinfonie account and plan ----
-  handle('cloud:signIn', () => cloud.signIn())
+  handle('cloud:signIn', (provider) => cloud.signIn(provider))
   handle('cloud:signOut', () => cloud.signOut())
   handle('cloud:refresh', () => cloud.refresh())
   handle('cloud:checkout', (plan, period, seats) => cloud.checkout(plan, period, seats))
