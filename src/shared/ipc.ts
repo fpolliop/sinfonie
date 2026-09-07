@@ -103,7 +103,7 @@ export interface SinfonieInvoke {
   'linear:issue': (connId: string, identifier: string) => LinearIssue
   'workspaces:refreshLinear': (workspaceId: string) => Workspace
   // ---- Sinfonie account and plan ----
-  'cloud:signIn': () => void
+  'cloud:signIn': (provider?: 'github' | 'google') => void
   'cloud:signOut': () => CloudState
   'cloud:refresh': () => CloudState
   'cloud:checkout': (plan: Exclude<Plan, 'free'>, period: BillingPeriod, seats?: number) => void

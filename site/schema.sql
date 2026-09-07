@@ -52,7 +52,9 @@ CREATE INDEX IF NOT EXISTS attachments_feedback ON attachments(feedback_id);
 -- People who signed in to Sinfonie with GitHub.
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
-  github_id INTEGER NOT NULL UNIQUE,
+  -- One or both identities; a second provider with the same verified email links to the same user.
+  github_id INTEGER UNIQUE,
+  google_id TEXT UNIQUE,
   login TEXT NOT NULL,
   name TEXT,
   email TEXT,
@@ -70,6 +72,7 @@ CREATE TABLE IF NOT EXISTS users (
   last_seen_at TEXT
 );
 CREATE INDEX IF NOT EXISTS users_paddle_sub ON users (paddle_subscription_id);
+CREATE INDEX IF NOT EXISTS users_email ON users (email);
 
 -- Desktop sessions. Only the SHA-256 of the bearer token is stored.
 CREATE TABLE IF NOT EXISTS sessions (
