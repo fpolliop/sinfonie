@@ -23,7 +23,7 @@ import { git } from '../git'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { costModeFor, leanModel } from '../cost-mode'
-import type { Incident, IncidentStatus, OnCallSettings, OnCallState, Proposal, Severity, TriageReport } from '@shared/types'
+import type { Incident, IncidentStatus, OnCallBulkOp, OnCallSettings, OnCallState, Proposal, Severity, TriageReport } from '@shared/types'
 
 const exec = promisify(execFile)
 
@@ -60,6 +60,8 @@ function load(): void {
   loaded = true
   try {
     if (existsSync(file())) data = JSON.parse(readFileSync(file(), 'utf8')) as Persisted
+    // Titles saved before emoji shortcodes and Slack markdown were stripped.
+    for (const i of data.incidents) i.title = titleOf(i.title)
   } catch (err) {
     logError('oncall:load', err)
   }
@@ -148,9 +150,21 @@ const NOISE_SUBTYPES = new Set(['channel_join', 'channel_leave', 'channel_topic'
 const titleOf = (text: string): string =>
   text
     .replace(/<[^>]+>/g, (m) => m.replace(/^<[@#!]?[^|>]*\|?/, '').replace(/>$/, ''))
+    .replace(/:[a-z0-9_+-]+:/g, ' ') // emoji shortcodes such as :rotating_light:
+    .replace(/[*_~`]+/g, '') // Slack markdown
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 100) || '(no text)'
+
+/** Alerts that repeat with the same wording within this window join the existing incident instead of opening a new one. */
+const ALERT_GROUP_WINDOW_MS = 6 * 3600_000
+const alertKey = (text: string): string =>
+  titleOf(text)
+    .replace(/\b\d[\d.:/-]*\b/g, '') // timestamps, counts, ids
+    .replace(/[^a-z0-9]+/gi, ' ')
+    .trim()
+    .toLowerCase()
+    .slice(0, 80)
 
 /** Work items, one Slack read each: a channel's new messages, or an open incident's new replies. */
 type Work = { kind: 'channel'; spaceId: string; connId: string; ch: OnCallSettings['channels'][number]; me?: string } | { kind: 'thread'; inc: Incident }
@@ -218,6 +232,19 @@ async function readChannel(w: Extract<Work, { kind: 'channel' }>): Promise<void>
     if (m.thread_ts && m.thread_ts !== m.ts) continue // replies are picked up per incident
     if (ch.kind === 'support' && m.user && m.user === me) continue // the user's own posts are not tickets
     if (ch.kind === 'alerts' && /(resolved|recovered|closed|\bok\b)/i.test(m.text) && resolveAlert(ch.id, m.text)) continue
+    if (ch.kind === 'alerts') {
+      // Alert storms: the same alert firing again joins the incident that is already tracking it.
+      const key = alertKey(m.text)
+      const since = Date.now() - ALERT_GROUP_WINDOW_MS
+      const twin = key && data.incidents.find((i) => i.channelId === ch.id && i.kind === 'alerts' && i.status !== 'resolved' && i.status !== 'dismissed' && new Date(i.updatedAt).getTime() > since && alertKey(i.messages[0]?.text ?? i.title) === key)
+      if (twin) {
+        twin.occurrences = (twin.occurrences ?? 1) + 1
+        twin.lastSeenAt = new Date().toISOString()
+        twin.updatedAt = twin.lastSeenAt
+        if (twin.occurrences <= 3 || twin.occurrences % 10 === 0) twin.notes.push({ at: twin.lastSeenAt, role: 'system', text: `Fired again (${twin.occurrences}× so far).` })
+        continue
+      }
+    }
     const inc: Incident = {
       id: nanoid(10),
       spaceId,
@@ -732,4 +759,34 @@ export function remove(id: string): void {
   load()
   data.incidents = data.incidents.filter((i) => i.id !== id)
   publish()
+}
+
+/** One state write for a whole selection: status, severity, removal, or queueing triage. */
+export function bulk(ids: string[], op: OnCallBulkOp): number {
+  load()
+  const set = new Set(ids)
+  const now = new Date().toISOString()
+  let n = 0
+  if (op.action === 'remove') {
+    const before = data.incidents.length
+    data.incidents = data.incidents.filter((i) => !set.has(i.id))
+    n = before - data.incidents.length
+  } else {
+    for (const inc of data.incidents) {
+      if (!set.has(inc.id)) continue
+      n++
+      if (op.action === 'setStatus') {
+        if (inc.status === 'triaging') continue
+        inc.status = op.status
+        inc.updatedAt = now
+      } else if (op.action === 'setSeverity') {
+        inc.severity = op.severity
+      } else if (op.action === 'triage') {
+        if (inc.status !== 'triaging' && !triageQueue.includes(inc.id)) triageQueue.push(inc.id)
+      }
+    }
+  }
+  publish()
+  if (op.action === 'triage') void drain()
+  return n
 }

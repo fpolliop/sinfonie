@@ -1,7 +1,8 @@
 import React from 'react'
 import clsx from 'clsx'
-import { Layers } from 'lucide-react'
+import { Layers, ChevronDown } from 'lucide-react'
 import { useApp } from '@/stores/app'
+import { chipCls } from './ui'
 
 /** Dropdown over the user's spaces; empty value means "no space". */
 export function SpacePicker({ value, onChange, className, pill }: { value: string; onChange: (id: string) => void; className?: string; pill?: boolean }): React.JSX.Element {
@@ -9,10 +10,10 @@ export function SpacePicker({ value, onChange, className, pill }: { value: strin
   const current = spaces.find((s) => s.id === value)
   if (pill) {
     return (
-      <label className={clsx('no-drag relative inline-flex shrink-0 cursor-pointer items-center gap-1 whitespace-nowrap rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-muted hover:text-text', className)} title="Space">
+      <label className={clsx(chipCls, 'no-drag relative shrink-0 cursor-pointer border border-border bg-panel text-muted hover:text-text', className)} title="Space">
         <span className="h-1.5 w-1.5 rounded-full" style={{ background: current?.color ?? '#8b93a1' }} />
         {current?.name ?? 'No space'}
-        <span className="opacity-60">▾</span>
+        <ChevronDown size={11} className="-mr-0.5 opacity-60" />
         <select className="absolute inset-0 cursor-pointer opacity-0" value={value} onChange={(e) => onChange(e.target.value)}>
           <option value="">No space</option>
           {spaces.map((s) => (

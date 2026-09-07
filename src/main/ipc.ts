@@ -623,6 +623,7 @@ export function registerIpc(): void {
   handle('oncall:addProposal', (id, text) => oncall.addProposal(id, text))
   handle('oncall:ask', (id, q) => oncall.ask(id, q))
   handle('oncall:remove', (id) => oncall.remove(id))
+  handle('oncall:bulk', (ids, op) => oncall.bulk(ids, op))
   handle('oncall:openFixPr', (id) => oncall.openFixPr(id))
   // ---- google cloud ----
   handle('gcp:status', (force) => gcp.status(Boolean(force)))

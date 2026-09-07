@@ -1192,7 +1192,12 @@ export interface Incident {
   error?: string
   /** The draft-PR run for the proposed fix, when the user asked for one. */
   fix?: IncidentFix
+  /** Alerts only: how many times the same alert fired while this incident was open (1 when absent). */
+  occurrences?: number
+  lastSeenAt?: string
 }
+/** One change applied to a selection of incidents. */
+export type OnCallBulkOp = { action: 'setStatus'; status: IncidentStatus } | { action: 'setSeverity'; severity: Severity } | { action: 'triage' } | { action: 'remove' }
 export interface OnCallState {
   running: boolean
   /** Space ids with an active watcher ('' for the application-level config). */

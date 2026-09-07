@@ -60,6 +60,9 @@ export function Field({ label, children, hint }: { label: string; children: Reac
 
 export const inputCls = 'w-full rounded-md border border-border bg-bg px-2.5 py-1.5 text-[13px] outline-none focus:border-accent'
 
+/** Header chip: one height, radius and type size for every pill in the workspace header. */
+export const chipCls = 'inline-flex h-[22px] items-center gap-1.5 whitespace-nowrap rounded-md px-2 text-[11px] font-medium leading-none'
+
 export function Badge({ children, tone = 'muted' }: { children: React.ReactNode; tone?: 'muted' | 'ok' | 'warn' | 'danger' | 'accent' }): React.JSX.Element {
   return (
     <span
