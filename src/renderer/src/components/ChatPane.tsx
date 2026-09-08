@@ -2,7 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { ChevronRight, ChevronDown, ChevronsUpDown, Square, RotateCcw, Send, ShieldCheck, XCircle, AlertTriangle, Info, History, Users, GitFork, ListTree, ArrowLeft, StickyNote, Paperclip, X } from 'lucide-react'
 import { imageFiles } from '@/lib/images'
-import type { ContextUsage, ChatTurnResult, AgentEvent, ChatImageRef, LimitAlternative, CostMode, CostModeScope } from '@shared/types'
+import type { AgentMode, ContextUsage, ChatTurnResult, AgentEvent, ChatImageRef, LimitAlternative, CostMode, CostModeScope } from '@shared/types'
+import { CliView, closeCliView } from './TerminalPane'
 import { NotesPanel } from './NotesPanel'
 import { ContextMenu } from './ContextMenu'
 import { useNotes } from '@/stores/notes'
@@ -40,7 +41,54 @@ const usePanel = (() => {
   }
 })()
 
+/**
+ * The Chat tab: the conversation through the SDK, or the vendor's CLI in a terminal on the same
+ * session. The switch at the top moves between the two without losing the conversation.
+ */
 export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.Element {
+  const ws = useApp((s) => s.workspaces.find((w) => w.id === workspaceId))
+  const spaceMode = useApp((s) => s.spaces.find((sp) => sp.id === ws?.spaceId)?.agentMode)
+  const setError = useApp((s) => s.setError)
+  const draft = useChat((s) => s.chats[workspaceId]?.draft ?? '')
+  const setDraft = useChat((s) => s.setDraft)
+  const load = useChat((s) => s.load)
+  const mode: AgentMode = ws?.agentMode ?? spaceMode ?? 'chat'
+  const claude = (ws?.engine ?? useApp.getState().spaces.find((sp) => sp.id === ws?.spaceId)?.engine ?? useApp.getState().settings.engine ?? 'claude-code') === 'claude-code'
+  const switchTo = (next: AgentMode): void => {
+    if (next === mode) return
+    // Mode first, so the CLI view unmounts before its shell is dropped (otherwise it would respawn one).
+    api
+      .invoke('workspaces:setAgentMode', workspaceId, next)
+      .then(() => {
+        if (next === 'chat') {
+          closeCliView(workspaceId)
+          void load(workspaceId)
+        }
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : String(err)))
+  }
+  return (
+    <div className="flex h-full flex-col">
+      {claude && (
+        <div className="flex h-[30px] shrink-0 items-center gap-2 border-b border-border px-3">
+          <span className="text-[11px] text-muted">{mode === 'cli' ? 'The real Claude Code, on this conversation. Permissions, cost and the phone keep working.' : 'Agent'}</span>
+          <div className="ml-auto flex rounded-md border border-border p-0.5 text-[11px]">
+            {(['chat', 'cli'] as AgentMode[]).map((m) => (
+              <button key={m} className={clsx('rounded px-2 py-0.5', mode === m ? 'bg-panel-2 text-text' : 'text-muted hover:text-text')} onClick={() => switchTo(m)} title={m === 'chat' ? 'Sinfonie chat through the Agent SDK' : "Claude Code's own terminal UI, same session"}>
+              {m === 'chat' ? 'Chat' : 'CLI'}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      <div className="min-h-0 flex-1">
+        {mode === 'cli' && claude ? <CliView workspaceId={workspaceId} prompt={draft} onPromptConsumed={() => setDraft(workspaceId, '')} onBackToChat={() => switchTo('chat')} /> : <ChatPaneInner workspaceId={workspaceId} />}
+      </div>
+    </div>
+  )
+}
+
+function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Element {
   const chat = useChat((s) => s.chats[workspaceId])
   const allQuestions = useChat((s) => s.questions)
   // Filter outside the selector: a selector that returns a fresh array re-renders forever.

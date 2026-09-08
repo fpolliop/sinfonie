@@ -23,6 +23,7 @@ import * as workspaces from './services/workspaces'
 import * as agent from './services/agent'
 import * as terminal from './services/terminal'
 import * as agentCli from './services/agent-cli'
+import * as cliSession from './services/cli-session'
 import { clearTranscript, flushAllTranscripts, getTranscript, markInterrupted, recordEvent } from './services/transcripts'
 import { runScript, stopScript, workspaceEnv } from './services/scripts'
 import { repoPrStatus } from './services/github'
@@ -549,7 +550,13 @@ export function registerIpc(): void {
     return resources.submit(id, text, refs)
   }
   handle('agent:send', (id, text, images) => sendMessage(id, text, images))
-  remote.setBridge({ send: (id, text) => sendMessage(id, text), interrupt: (id) => agent.interrupt(id), permission: (r) => interaction.answerPermission(r), question: (r) => interaction.answerQuestion(r) })
+  remote.setBridge({
+    // In CLI mode the phone types into the terminal; otherwise the SDK session takes the message.
+    send: async (id, text) => (cliSession.isRunning(id) ? cliSession.type(id, text) : sendMessage(id, text)),
+    interrupt: async (id) => (cliSession.isRunning(id) ? cliSession.interrupt(id) : agent.interrupt(id)),
+    permission: (r) => interaction.answerPermission(r),
+    question: (r) => interaction.answerQuestion(r)
+  })
   // ---- phone companion ----
   handle('remote:status', () => remote.status())
   handle('remote:pair', () => remote.pair())
@@ -812,6 +819,21 @@ export function registerIpc(): void {
     )
   })
   handle('terminal:clis', () => agentCli.availableClis())
+  // ---- CLI mode ----
+  cliSession.setEmitter(emitAgent)
+  cliSession.setTerminalEmitters(
+    (terminalId, data) => send('terminal:data', { terminalId, data }),
+    (terminalId, exitCode) => send('terminal:exit', { terminalId, exitCode })
+  )
+  handle('cli:status', (id) => cliSession.status(id))
+  handle('cli:start', (id, opts) => cliSession.start(id, opts))
+  handle('cli:stop', (id) => cliSession.stop(id))
+  handle('cli:type', (id, text) => cliSession.type(id, text))
+  handle('workspaces:setAgentMode', (id, mode) => {
+    // Leaving CLI mode ends the CLI so the chat can resume the same session.
+    if (mode === 'chat') cliSession.stop(id)
+    return workspaces.patchWorkspace(id, { agentMode: mode })
+  })
   handle('terminal:write', (tid, data) => terminal.writeTerminal(tid, data))
   handle('terminal:resize', (tid, cols, rows) => terminal.resizeTerminal(tid, cols, rows))
   handle('terminal:dispose', (tid) => terminal.disposeTerminal(tid))
@@ -823,6 +845,8 @@ export function registerIpc(): void {
     resources.stop()
     flushAllTranscripts()
     agent.closeAllSessions()
+    cliSession.stopAll()
+    cliSession.stopHookServer()
     terminal.disposeAllTerminals()
   })
   // keep runScript referenced for the archive path's typing

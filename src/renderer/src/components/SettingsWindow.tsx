@@ -551,6 +551,14 @@ function SpacePageView({ space, page }: { space: Space; page: SpacePage }): Reac
             <Field label="Engine" hint="Claude Code uses your Claude login; Sinfonie native runs any provider from Model providers.">
               <EngineSelect value={space.engine ?? ''} allowDefault onChange={(e) => go(() => upd({ engine: (e || undefined) as never }))} />
             </Field>
+            {engine === 'claude-code' && (
+              <Field label="New workspaces open in" hint="Chat drives Claude through the SDK with Sinfonie's cards and crew; CLI runs Claude Code's own terminal UI on the same session. Each workspace can switch at any time.">
+                <select className={inputCls} value={space.agentMode ?? 'chat'} onChange={(e) => go(() => upd({ agentMode: e.target.value as 'chat' | 'cli' }))}>
+                  <option value="chat">Chat</option>
+                  <option value="cli">Claude Code CLI</option>
+                </select>
+              </Field>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <Field label="Model" hint={engine === 'native' ? 'Orchestrator model as provider/model.' : ACP_ENGINES.some((e) => e.id === engine) ? 'From the agent’s own model list (see Agent logins).' : 'Orchestrator model for chats in this space.'}>
                 {engine === 'native' ? (

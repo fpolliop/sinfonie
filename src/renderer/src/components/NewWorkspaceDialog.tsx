@@ -41,6 +41,7 @@ export function NewWorkspaceDialog({ onClose }: { onClose: () => void }): React.
   const repos = showAllRepos || spaceRepos.length === 0 ? allRepos : spaceRepos
   const setDraft = useChat((s) => s.setDraft)
   const [name, setName] = useState(newWorkspaceSeed?.name ?? '')
+  const [agentMode, setAgentMode] = useState<'chat' | 'cli'>(space?.agentMode ?? 'chat')
   const [jira, setJira] = useState<WorkspaceJira | null>(null)
   const [linear, setLinear] = useState<WorkspaceLinear | null>(null)
   const linearConn = linearConnectionFor(space)
@@ -96,6 +97,7 @@ export function NewWorkspaceDialog({ onClose }: { onClose: () => void }): React.
         claudeAccountId: accountId,
         ...(spaceId ? { spaceId } : {})
       })
+      if (agentMode !== (space?.agentMode ?? 'chat')) await api.invoke('workspaces:setAgentMode', ws.id, agentMode)
       select(ws.id)
       onClose()
       if (newWorkspaceSeed) {
@@ -224,6 +226,18 @@ export function NewWorkspaceDialog({ onClose }: { onClose: () => void }): React.
       </div>
       <p className="mb-3 text-[11px] text-muted">{selected.length ? "The primary repo is the agent's working directory; the others are added as extra directories. Setup scripts run in every repo after all worktrees exist." : 'No repositories selected: the workspace starts empty, and the agent asks you to attach a repository when the task needs one.'}</p>
       <AccountPicker value={accountId} onChange={setAccountId} className="mb-4" engine={space?.engine ?? settings.engine ?? 'claude-code'} />
+      {(space?.engine ?? settings.engine ?? 'claude-code') === 'claude-code' && (
+        <div className="mb-4 flex items-center gap-2 text-[12px]">
+          <span className="text-muted">Open in</span>
+          <div className="flex rounded-md border border-border p-0.5">
+            {(['chat', 'cli'] as const).map((m) => (
+              <button key={m} type="button" className={clsx('rounded px-2 py-0.5', agentMode === m ? 'bg-panel-2 text-text' : 'text-muted hover:text-text')} onClick={() => setAgentMode(m)} title={m === 'chat' ? 'The Sinfonie chat through the Agent SDK' : "Claude Code's own terminal UI; switch to the chat any time"}>
+                {m === 'chat' ? 'Chat' : 'Claude Code CLI'}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="flex justify-end gap-2">
         <Button onClick={onClose}>Cancel</Button>
         <Button variant="primary" onClick={submit} disabled={busy || !name.trim()}>

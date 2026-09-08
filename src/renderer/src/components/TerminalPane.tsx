@@ -26,6 +26,10 @@ interface Shell {
   repoId: string | null
   /** Set when the pty runs a vendor CLI (claude, codex, …) instead of a plain shell. */
   agent?: Engine
+  /** How the pty is started; the default is terminal:create. CLI mode uses cli:start, which resumes the chat's session. */
+  starter?: (cols: number, rows: number) => Promise<string>
+  /** CLI-mode shells live in the Chat tab, not in the Terminal tab's list. */
+  chatMode?: boolean
   label: string
   container: HTMLDivElement
   term: Terminal
@@ -44,10 +48,10 @@ const notify = (): void => listeners.forEach((l) => l())
 let counter = 0
 
 function shellsOf(workspaceId: string): Shell[] {
-  return [...shells.values()].filter((s) => s.workspaceId === workspaceId)
+  return [...shells.values()].filter((s) => s.workspaceId === workspaceId && !s.chatMode)
 }
 
-function spawnShell(workspaceId: string, repoId: string | null, label: string, agent?: Engine): Shell {
+function spawnShell(workspaceId: string, repoId: string | null, label: string, agent?: Engine, extra: Partial<Pick<Shell, 'starter' | 'chatMode'>> = {}): Shell {
   const container = document.createElement('div')
   container.className = 'h-full w-full'
   const term = new Terminal({
@@ -83,7 +87,7 @@ function spawnShell(workspaceId: string, repoId: string | null, label: string, a
     return true
   })
   const id = `sh${++counter}`
-  const shell: Shell = { id, workspaceId, repoId, agent, label, container, term, fit, search, terminalId: null, opened: false, exited: false, unsub: () => undefined }
+  const shell: Shell = { id, workspaceId, repoId, agent, label, container, term, fit, search, terminalId: null, opened: false, exited: false, unsub: () => undefined, ...extra }
   shells.set(id, shell)
   term.onData((d) => {
     if (shell.exited) return closeShell(id)
@@ -98,20 +102,30 @@ function spawnShell(workspaceId: string, repoId: string | null, label: string, a
 async function ensurePty(shell: Shell): Promise<void> {
   if (shell.terminalId || shell.exited) return
   shell.terminalId = 'starting'
-  const terminalId = await api.invoke('terminal:create', shell.workspaceId, shell.repoId, shell.term.cols, shell.term.rows, shell.agent).catch((err) => {
+  // Output can arrive before we know the pty's id (a command that fails at once): keep everything until then.
+  const early: { terminalId: string; data: string }[] = []
+  const earlyExit: { terminalId: string }[] = []
+  const offEarly = api.on('terminal:data', (e) => void early.push(e))
+  const offEarlyExit = api.on('terminal:exit', (e) => void earlyExit.push(e))
+  const started = shell.starter ? shell.starter(shell.term.cols, shell.term.rows) : api.invoke('terminal:create', shell.workspaceId, shell.repoId, shell.term.cols, shell.term.rows, shell.agent)
+  const terminalId = await started.catch((err) => {
     shell.terminalId = null
     shell.term.write(`\r\n\x1b[31m${err instanceof Error ? err.message : String(err)}\x1b[0m\r\n`)
     return null
   })
+  offEarly()
+  offEarlyExit()
   if (!terminalId) return
   shell.terminalId = terminalId
-  const offData = api.on('terminal:data', (e) => e.terminalId === terminalId && shell.term.write(e.data))
-  const offExit = api.on('terminal:exit', (e) => {
-    if (e.terminalId !== terminalId) return
+  const onExit = (): void => {
     shell.exited = true
     shell.term.write('\r\n\x1b[90m[shell exited, press any key to close]\x1b[0m\r\n')
     notify()
-  })
+  }
+  for (const e of early) if (e.terminalId === terminalId) shell.term.write(e.data)
+  if (earlyExit.some((e) => e.terminalId === terminalId)) onExit()
+  const offData = api.on('terminal:data', (e) => e.terminalId === terminalId && shell.term.write(e.data))
+  const offExit = api.on('terminal:exit', (e) => e.terminalId === terminalId && onExit())
   shell.unsub = () => {
     offData()
     offExit()
@@ -122,7 +136,8 @@ function closeShell(id: string): void {
   const s = shells.get(id)
   if (!s) return
   s.unsub()
-  if (s.terminalId && s.terminalId !== 'starting') void api.invoke('terminal:dispose', s.terminalId)
+  if (s.chatMode) void api.invoke('cli:stop', s.workspaceId)
+  else if (s.terminalId && s.terminalId !== 'starting') void api.invoke('terminal:dispose', s.terminalId)
   s.term.dispose()
   s.container.remove()
   shells.delete(id)
@@ -320,4 +335,77 @@ function FindBar({ shell, onClose }: { shell: Shell; onClose: () => void }): Rea
       </Button>
     </div>
   )
+}
+
+/** The Chat tab in CLI mode: the real claude in this workspace's primary worktree, on the chat's session. */
+export function CliView({ workspaceId, prompt, onPromptConsumed, onBackToChat }: { workspaceId: string; prompt?: string; onPromptConsumed?: () => void; onBackToChat: () => void }): React.JSX.Element {
+  const ws = useApp((s) => s.workspaces.find((w) => w.id === workspaceId))
+  const [, tick] = useState(0)
+  useEffect(() => {
+    const l = (): void => tick((n) => n + 1)
+    listeners.add(l)
+    return () => void listeners.delete(l)
+  }, [])
+  const key = `cli:${workspaceId}`
+  const ready = ws?.status === 'ready'
+  const [gen, setGen] = useState(0)
+  // Spawn in an effect, not during render, and only while the workspace is still in CLI mode.
+  useEffect(() => {
+    if (!ready || shells.has(key)) return
+    const w = useApp.getState().workspaces.find((x) => x.id === workspaceId)
+    const sp = useApp.getState().spaces.find((x) => x.id === w?.spaceId)
+    if ((w?.agentMode ?? sp?.agentMode ?? 'chat') !== 'cli') return
+    const first = prompt?.trim() || undefined
+    const shell = spawnShell(workspaceId, null, 'Claude Code', 'claude-code', {
+      chatMode: true,
+      starter: async (cols, rows) => {
+        const st = await api.invoke('cli:start', workspaceId, { prompt: first, cols, rows })
+        if (first) onPromptConsumed?.()
+        if (!st.terminalId) throw new Error('The CLI did not start.')
+        return st.terminalId
+      }
+    })
+    shells.delete(shell.id)
+    shell.id = key
+    shells.set(key, shell)
+    notify()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, workspaceId, key, gen])
+  const shell = shells.get(key)
+  const [finding, setFinding] = useState(false)
+  const restart = (): void => {
+    closeShell(key)
+    void api.invoke('cli:stop', workspaceId).finally(() => setGen((g) => g + 1))
+  }
+  if (!ws) return <div />
+  if (!ready) return <div className="p-4 text-[12px] text-muted">The CLI opens once the workspace is ready.</div>
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex items-center gap-2 border-b border-border px-3 py-1 text-[12px]">
+        <span className="font-medium">Claude Code CLI</span>
+        <span className="text-muted">{ws.sessionId ? `session ${ws.sessionId.slice(0, 8)}, shared with the chat` : 'new session'}</span>
+        {shell?.exited && <span className="text-warn">exited</span>}
+        <span className="ml-auto flex items-center gap-1">
+          <Button size="sm" variant="ghost" onClick={() => setFinding((f) => !f)} title="Find in output (⌘F)">
+            <Search size={13} />
+          </Button>
+          {shell?.exited && (
+            <Button size="sm" onClick={restart}>
+              Start again
+            </Button>
+          )}
+          <Button size="sm" onClick={onBackToChat} title="Continue this conversation in the chat; the CLI closes">
+            Back to chat
+          </Button>
+        </span>
+      </div>
+      {finding && shell && <FindBar shell={shell} onClose={() => setFinding(false)} />}
+      <div className="relative min-h-0 flex-1 bg-[#0b0d11]">{shell && <Mount shell={shell} visible onFind={() => setFinding(true)} />}</div>
+    </div>
+  )
+}
+
+/** Drops the CLI-mode shell of a workspace (the pty is stopped by cli:stop). */
+export function closeCliView(workspaceId: string): void {
+  closeShell(`cli:${workspaceId}`)
 }
