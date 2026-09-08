@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import clsx from 'clsx'
-import { MessageSquare, FolderTree, Database, GitCompare, GitPullRequest, TerminalSquare, Play, Globe } from 'lucide-react'
+import { MessageSquare, FolderTree, Database, GitPullRequest, TerminalSquare, Play, Globe } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp, type Tab } from '@/stores/app'
 import { useChat } from '@/stores/chat'
@@ -10,14 +10,13 @@ import { useBrowser } from '@/stores/browser'
 
 /**
  * The workspace's tab strip. Tabs read as tools rather than a text list: an icon with the label,
- * grouped by what they are for (talk · look · ship · run), and a live count or dot where the
- * user would otherwise have to click to find out. ⌘1…⌘8 switch tabs; the order matches.
+ * grouped by what they are for (talk · code · run), and a live count or dot where the
+ * user would otherwise have to click to find out. ⌘1…⌘7 switch tabs; the order matches.
  */
 const GROUPS: { id: Tab; label: string; icon: React.ReactNode; hint: string }[][] = [
   [{ id: 'chat', label: 'Chat', icon: <MessageSquare size={13} />, hint: 'Talk to the agent' }],
   [
-    { id: 'files', label: 'Files', icon: <FolderTree size={13} />, hint: 'Browse the worktrees' },
-    { id: 'changes', label: 'Changes', icon: <GitCompare size={13} />, hint: 'What the agent changed; commit and push' },
+    { id: 'code', label: 'Code', icon: <FolderTree size={13} />, hint: 'Files, editor, diffs; commit and push' },
     { id: 'prs', label: 'PRs', icon: <GitPullRequest size={13} />, hint: 'Pull requests for these branches' }
   ],
   [
@@ -74,7 +73,7 @@ export function WorkspaceTabs({ workspaceId }: { workspaceId: string }): React.J
 
   const badge = (id: Tab): React.ReactNode => {
     if (id === 'chat' && agentBusy) return <Dot pulse />
-    if (id === 'changes' && changed) return <Count n={changed} />
+    if (id === 'code' && changed) return <Count n={changed} />
     if (id === 'prs' && openPrs) return <Count n={openPrs} />
     if (id === 'run' && running) return <Dot tone="ok" />
     if (id === 'browser' && browserBusy) return <Dot pulse />

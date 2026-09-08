@@ -175,6 +175,15 @@ export async function status(worktreePath: string): Promise<{
   }
 }
 
+/** The file as committed at HEAD, relative to the worktree; null when HEAD has no such file. */
+export async function showHead(worktreePath: string, path: string): Promise<string | null> {
+  try {
+    return await git(worktreePath).show([`HEAD:${path}`])
+  } catch {
+    return null
+  }
+}
+
 export async function diff(worktreePath: string, path?: string): Promise<string> {
   const g = git(worktreePath)
   const args = ['--no-color']

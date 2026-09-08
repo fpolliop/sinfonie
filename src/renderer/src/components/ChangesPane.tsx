@@ -7,7 +7,7 @@ import { parseUnifiedDiff, toSplitRows, changedNewLines, type DiffFile, type Dif
 import { Badge, Button, Dialog, Field, inputCls } from './ui'
 import type { RepoGitStatus } from '@shared/types'
 
-type ViewMode = 'unified' | 'split' | 'file'
+export type ViewMode = 'unified' | 'split' | 'file'
 const VIEW_KEY = 'sinfonie.changesView'
 const VIEW_MODES: { id: ViewMode; label: string }[] = [
   { id: 'unified', label: 'Unified' },
@@ -161,7 +161,7 @@ export function ChangesPane({ workspaceId }: { workspaceId: string }): React.JSX
   )
 }
 
-function DiffView({ file, view, workspaceId, worktreePath }: { file: DiffFile; view: ViewMode; workspaceId: string; worktreePath: string }): React.JSX.Element {
+export function DiffView({ file, view, workspaceId, worktreePath }: { file: DiffFile; view: ViewMode; workspaceId: string; worktreePath: string }): React.JSX.Element {
   return (
     <div className="border-b border-border">
       <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-panel px-3 py-1.5 font-mono text-[12px]">
@@ -301,7 +301,7 @@ function FileView({ file, workspaceId, worktreePath }: { file: DiffFile; workspa
   )
 }
 
-function CommitDialog({ onClose, onSubmit }: { onClose: () => void; onSubmit: (message: string) => Promise<void> }): React.JSX.Element {
+export function CommitDialog({ onClose, onSubmit }: { onClose: () => void; onSubmit: (message: string) => Promise<void> }): React.JSX.Element {
   const [msg, setMsg] = useState('')
   return (
     <Dialog title="Commit all changes in this repo" onClose={onClose} width={480}>
@@ -329,7 +329,7 @@ function CommitDialog({ onClose, onSubmit }: { onClose: () => void; onSubmit: (m
   )
 }
 
-function PrDialog({ onClose, onSubmit }: { onClose: () => void; onSubmit: (title: string, body: string) => Promise<void> }): React.JSX.Element {
+export function PrDialog({ onClose, onSubmit }: { onClose: () => void; onSubmit: (title: string, body: string) => Promise<void> }): React.JSX.Element {
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
   return (

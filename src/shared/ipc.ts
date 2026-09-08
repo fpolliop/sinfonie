@@ -1,4 +1,4 @@
-import type { AgentMode, AuthLink, BillingPeriod, CliStatus, CloudOrgDetail, CloudState, Plan, RemoteSettings, RemoteStatus, SpaceDefinition, SpaceImportPreview, SpaceImportResolution, BrowserState, ContextUsage, CrewPriority, FsEntry, LimitAlternative, UsageSnapshot, ChatImageInput, Incident, IncidentStatus, LinearIssue, LinearSettings, OnCallState, ResourceSnapshot, Severity, SlackConnection, LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion, OnCallBulkOp,
+import type { AgentMode, AuthLink, CompletionRequest, BillingPeriod, CliStatus, CloudOrgDetail, CloudState, Plan, RemoteSettings, RemoteStatus, SpaceDefinition, SpaceImportPreview, SpaceImportResolution, BrowserState, ContextUsage, CrewPriority, FsEntry, LimitAlternative, UsageSnapshot, ChatImageInput, Incident, IncidentStatus, LinearIssue, LinearSettings, OnCallState, ResourceSnapshot, Severity, SlackConnection, LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion, OnCallBulkOp,
   AgentEvent,
   ChatItem,
   JiraIssue,
@@ -78,7 +78,13 @@ export interface SinfonieInvoke {
   'git:status': (workspaceId: string) => RepoGitStatus[]
   // ---- files (confined to the workspace) ----
   'fs:list': (workspaceId: string, dir: string, showHidden?: boolean) => FsEntry[]
-  'fs:read': (workspaceId: string, path: string) => { text: string; truncated: boolean; binary: boolean; size: number }
+  'fs:read': (workspaceId: string, path: string) => { text: string; truncated: boolean; binary: boolean; size: number; hash: string }
+  /** Saves an edit; refused when the file changed on disk since `expectedHash` was read. */
+  'fs:write': (workspaceId: string, path: string, text: string, expectedHash?: string) => { hash: string }
+  /** The committed version of a file (HEAD), or null when it is untracked. */
+  'git:show': (workspaceId: string, repoId: string, path: string) => string | null
+  'completions:suggest': (req: CompletionRequest) => string
+  'completions:cancel': (workspaceId: string) => void
   'fs:reveal': (workspaceId: string, path: string) => void
   'fs:open': (workspaceId: string, path: string) => void
   'git:diff': (workspaceId: string, repoId: string, path?: string) => string

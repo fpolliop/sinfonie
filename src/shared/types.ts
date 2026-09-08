@@ -558,6 +558,8 @@ export interface Settings {
   turnBudgetUsd?: number
   /** Sinfonie account and plan, as last confirmed by sinfonie.dev. The session token itself lives in secrets. */
   cloud?: CloudState
+  /** Inline suggestions in the Files editor: on/off and the "<providerId>/<modelId>" that writes them. */
+  completions?: CompletionSettings
   /** The phone companion: pairing state and what to be notified about. The pairing key lives in secrets. */
   remote?: RemoteSettings
 }
@@ -613,6 +615,18 @@ export type RemoteFromPhone =
   | { type: 'interrupt'; workspaceId: string }
   | { type: 'permission'; requestId: string; decision: PermissionResponse['decision'] }
   | { type: 'question'; requestId: string; answers: Record<string, string>; response?: string }
+
+export interface CompletionSettings {
+  enabled: boolean
+  model?: string
+}
+export interface CompletionRequest {
+  workspaceId: string
+  path: string
+  language?: string
+  prefix: string
+  suffix: string
+}
 
 // ---------- plans ----------
 
