@@ -170,7 +170,7 @@ function toSdkMcp(spec: McpServerSpec): NonNullable<Options['mcpServers']>[strin
 }
 
 /** App-level servers, then the space's, then the space's Jira login as the Atlassian MCP. */
-async function mcpServersFor(ws: Workspace, onWarning?: (text: string) => void): Promise<Record<string, NonNullable<Options['mcpServers']>[string]>> {
+export async function mcpServersFor(ws: Workspace, onWarning?: (text: string) => void): Promise<Record<string, NonNullable<Options['mcpServers']>[string]>> {
   const { settings, spaces } = getStore().get()
   const space = spaces.find((s) => s.id === ws.spaceId)
   const out: Record<string, NonNullable<Options['mcpServers']>[string]> = {}
