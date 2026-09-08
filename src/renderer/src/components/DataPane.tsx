@@ -12,6 +12,7 @@ import { useApp } from '@/stores/app'
 import { Button, Spinner } from './ui'
 import { ErdView } from './ErdView'
 import { ImportCsvDialog } from './ImportCsvDialog'
+import { InlineRename } from './InlineRename'
 import type { DbConnection, DbHistoryEntry, DbQueryResult, DbSchema, DbTable } from '@shared/types'
 
 const theme = EditorView.theme(
@@ -67,6 +68,7 @@ export function DataPane({ workspaceId }: { workspaceId: string }): React.JSX.El
   const [open, setOpen] = useState<Record<string, boolean>>({})
   const [tabs, setTabs] = useState<QueryTab[]>([])
   const [activeId, setActiveId] = useState<string>('')
+  const [renamingTab, setRenamingTab] = useState<string | null>(null)
   const [results, setResults] = useState<Record<string, DbQueryResult>>({})
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [running, setRunning] = useState(false)
@@ -451,9 +453,21 @@ export function DataPane({ workspaceId }: { workspaceId: string }): React.JSX.El
             <div className="flex items-center gap-0.5 overflow-x-auto border-b border-border px-1 pt-1">
               {tabs.map((t) => (
                 <div key={t.id} className={clsx('group flex shrink-0 items-center gap-1 rounded-t-md px-2 py-1 text-[11px]', t.id === activeId ? 'bg-panel-2 text-text' : 'text-muted hover:text-text')}>
-                  <button onClick={() => setActiveId(t.id)} onDoubleClick={() => setTabs((list) => list.map((x) => (x.id === t.id ? { ...x, title: window.prompt?.('Tab name', x.title) || x.title } : x)))}>
-                    {t.title}
-                  </button>
+                  {renamingTab === t.id ? (
+                    <InlineRename
+                      value={t.title}
+                      className="text-[11px]"
+                      onSave={(v) => {
+                        setRenamingTab(null)
+                        if (v.trim()) setTabs((list) => list.map((x) => (x.id === t.id ? { ...x, title: v.trim() } : x)))
+                      }}
+                      onCancel={() => setRenamingTab(null)}
+                    />
+                  ) : (
+                    <button onClick={() => setActiveId(t.id)} onDoubleClick={() => setRenamingTab(t.id)} title="Double-click to rename">
+                      {t.title}
+                    </button>
+                  )}
                   <button className="rounded p-0.5 text-muted opacity-0 hover:text-text group-hover:opacity-100" onClick={() => closeTab(t.id)}>
                     <X size={10} />
                   </button>
