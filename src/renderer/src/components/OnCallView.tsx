@@ -1,12 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import clsx from 'clsx'
-import { Siren, ExternalLink, RefreshCw, Send, Trash2, MessageSquare, Sparkles, Settings as SettingsIcon, GitPullRequest, Search, Filter, X, Check, Ban } from 'lucide-react'
+import { Siren, ExternalLink, RefreshCw, Send, Trash2, MessageSquare, Sparkles, Settings as SettingsIcon, GitPullRequest, Search, Filter, X, Check, Ban, FolderPlus } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { useOnCall, subscribeOnCall, matchesFilters, type OnCallFilters, type OnCallView as ViewId } from '@/stores/oncall'
 import { Badge, Button, Spinner, inputCls } from './ui'
 import { Markdown } from '@/lib/markdown'
 import { timeAgo } from '@/lib/format'
+import { incidentBrief } from '@shared/oncall-brief'
 import type { Incident, IncidentStatus, OnCallBulkOp, Severity } from '@shared/types'
 
 const SEV: Record<Severity, { tone: 'muted' | 'ok' | 'warn' | 'danger' | 'accent'; label: string }> = {
@@ -272,6 +273,16 @@ function BulkButton({ icon, label, title, onClick, disabled, danger }: { icon: R
 }
 
 function IncidentDetail({ inc, go }: { inc: Incident; go: (fn: () => Promise<unknown>) => Promise<void> }): React.JSX.Element {
+  const setNewWorkspaceSeed = useApp((s) => s.setNewWorkspaceSeed)
+  const setShowNewWorkspace = useApp((s) => s.setShowNewWorkspace)
+  const setView = useApp((s) => s.setView)
+  // Take the thread and the triage into a workspace: the dialog opens in the incident's space with a name and the first message ready.
+  const toWorkspace = (): void => {
+    const name = inc.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48) || 'incident'
+    setNewWorkspaceSeed({ name, draft: incidentBrief(inc) })
+    setView('workspace')
+    setShowNewWorkspace(true, inc.spaceId)
+  }
   const [question, setQuestion] = useState('')
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [asking, setAsking] = useState(false)
@@ -289,6 +300,9 @@ function IncidentDetail({ inc, go }: { inc: Incident; go: (fn: () => Promise<unk
           )}
           <Button size="sm" variant="ghost" title="Run the triage again with the current thread" onClick={() => go(() => api.invoke('oncall:triage', inc.id))} disabled={inc.status === 'triaging'}>
             <Sparkles size={12} /> Re-triage
+          </Button>
+          <Button size="sm" onClick={toWorkspace} title="Open a new workspace in this space with the thread and the triage as the first message">
+            <FolderPlus size={12} /> Work on it
           </Button>
           <button className="rounded p-1 text-muted hover:text-danger" title="Remove this incident from the list" onClick={() => go(() => api.invoke('oncall:remove', inc.id))}>
             <Trash2 size={13} />

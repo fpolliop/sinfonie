@@ -33,14 +33,14 @@ interface Pick {
 }
 
 export function NewWorkspaceDialog({ onClose }: { onClose: () => void }): React.JSX.Element {
-  const { repos: allRepos, spaces, select, openSettings, setError, settings, newWorkspaceSpaceId } = useApp()
+  const { repos: allRepos, spaces, select, openSettings, setError, settings, newWorkspaceSpaceId, newWorkspaceSeed, setNewWorkspaceSeed } = useApp()
   const [spaceId, setSpaceId] = useState(newWorkspaceSpaceId)
   const [showAllRepos, setShowAllRepos] = useState(false)
   const space = spaces.find((s) => s.id === spaceId)
   const spaceRepos = spaceId ? allRepos.filter((r) => r.spaceId === spaceId) : allRepos
   const repos = showAllRepos || spaceRepos.length === 0 ? allRepos : spaceRepos
   const setDraft = useChat((s) => s.setDraft)
-  const [name, setName] = useState('')
+  const [name, setName] = useState(newWorkspaceSeed?.name ?? '')
   const [jira, setJira] = useState<WorkspaceJira | null>(null)
   const [linear, setLinear] = useState<WorkspaceLinear | null>(null)
   const linearConn = linearConnectionFor(space)
@@ -98,6 +98,10 @@ export function NewWorkspaceDialog({ onClose }: { onClose: () => void }): React.
       })
       select(ws.id)
       onClose()
+      if (newWorkspaceSeed) {
+        setDraft(ws.id, newWorkspaceSeed.draft)
+        setNewWorkspaceSeed(null)
+      }
       if (linear) {
         try {
           const full = await api.invoke('linear:issue', linearConn, linear.identifier)

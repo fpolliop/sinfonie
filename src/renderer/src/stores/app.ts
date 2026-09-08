@@ -65,6 +65,9 @@ interface AppState {
   setView: (v: 'workspace' | 'reviews' | 'oncall') => void
   setTab: (t: Tab) => void
   setShowNewWorkspace: (v: boolean, spaceId?: string) => void
+  /** What the New workspace dialog starts from when opened from an incident or a ticket: a name and the first message. */
+  newWorkspaceSeed: { name: string; draft: string } | null
+  setNewWorkspaceSeed: (seed: { name: string; draft: string } | null) => void
   /** Kept for older call sites: opens Application → General. */
   setShowSettings: (v: boolean) => void
   setShowArchived: (v: boolean) => void
@@ -196,6 +199,8 @@ export const useApp = create<AppState>((set, get) => ({
     set({ view })
   },
   setTab: (tab) => set({ tab }),
+  newWorkspaceSeed: null,
+  setNewWorkspaceSeed: (newWorkspaceSeed) => set({ newWorkspaceSeed }),
   setShowNewWorkspace: (v, spaceId) => {
     if (spaceId !== undefined) {
       localStorage.setItem('orchestra.lastSpace', spaceId)
