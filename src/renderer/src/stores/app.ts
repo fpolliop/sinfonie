@@ -127,8 +127,15 @@ export const useApp = create<AppState>((set, get) => ({
     set({ activeSpaceId: id, newWorkspaceSpaceId: id })
     // Land inside the space: keep the selection if it belongs there, else the most recent
     // conversation of that space, else the empty page. Never leave another space's chat on screen.
-    const { workspaces, spaces, selectedId, view } = get()
+    const { workspaces, spaces, selectedId, view, settings } = get()
     if (view === 'reviews') return
+    if (view === 'oncall') {
+      // On call is per space: leave the view when the new space does not watch Slack.
+      const sp = spaces.find((s) => s.id === id)
+      const watches = sp ? Boolean(sp.oncall?.channels?.length) : Boolean(settings.oncall?.channels?.length)
+      if (watches) return
+      get().setView('workspace')
+    }
     const spaceOf = (w: Workspace): string => (w.spaceId && spaces.some((s) => s.id === w.spaceId) ? w.spaceId : '')
     const current = workspaces.find((w) => w.id === selectedId)
     if (current && spaceOf(current) === id) return

@@ -49,7 +49,10 @@ export function OnCallView(): React.JSX.Element {
     setChecking(true)
     void go(() => api.invoke('oncall:pollNow')).finally(() => setChecking(false))
   }
-  const all = state?.incidents ?? NO_INCIDENTS
+  // On call is per space: the view follows the sidebar's active space ('' = the application-level watch).
+  const activeSpaceId = useApp((s) => s.activeSpaceId)
+  const allIncidents = state?.incidents ?? NO_INCIDENTS
+  const all = useMemo(() => allIncidents.filter((i) => i.spaceId === activeSpaceId), [allIncidents, activeSpaceId])
   const incidents = useMemo(() => all.filter((i) => matchesFilters(i, filters)), [all, filters])
   const counts = useMemo(() => {
     const c = { open: 0, new: 0, needs: 0, waiting: 0, resolved: 0, all: all.length }
@@ -69,8 +72,8 @@ export function OnCallView(): React.JSX.Element {
   }, [all])
   const selected = all.find((i) => i.id === selectedId) ?? null
   const spaces = useApp((s) => s.spaces)
-  const incidentSpaces = useMemo(() => spaces.filter((sp) => all.some((i) => i.spaceId === sp.id)), [spaces, all])
-  const configured = (state?.activeSpaces.length ?? 0) > 0 || Boolean(settings.slack?.connected && (settings.oncall?.channels?.length ?? 0) > 0) || spaces.some((sp) => (sp.oncall?.channels?.length ?? 0) > 0)
+  const activeSpace = spaces.find((sp) => sp.id === activeSpaceId)
+  const configured = activeSpaceId ? (activeSpace?.oncall?.channels?.length ?? 0) > 0 || state?.activeSpaces.includes(activeSpaceId) === true : Boolean(settings.slack?.connected && (settings.oncall?.channels?.length ?? 0) > 0) || state?.activeSpaces.includes('') === true
   const spaceOf = (id: string): { name: string; color: string } | null => {
     const sp = spaces.find((x) => x.id === id)
     return sp ? { name: sp.name, color: sp.color } : null
@@ -103,12 +106,17 @@ export function OnCallView(): React.JSX.Element {
         <div className="drag flex h-[52px] items-center gap-2 border-b border-border px-4">
           <Siren size={15} className="text-accent" />
           <span className="text-[13px] font-semibold">On call</span>
+          {activeSpace && (
+            <span className="flex items-center gap-1 text-[12px] text-muted">
+              <span className="h-2 w-2 rounded-full" style={{ background: activeSpace.color }} /> {activeSpace.name}
+            </span>
+          )}
           <span className={clsx('ml-1 h-2 w-2 rounded-full', state?.running ? 'bg-ok' : 'bg-muted/50')} title={state?.running ? `Watching ${state.activeSpaces.map((id) => spaceOf(id)?.name ?? 'application').join(', ')}${state.lastPollAt ? `, last check ${timeAgo(state.lastPollAt)}` : ''}. Slack allows one channel or thread read per minute, so watched channels and open threads are checked in turn.` : 'Not running'} />
           <div className="no-drag ml-auto flex items-center gap-1">
             <button className="rounded-md p-1 text-muted hover:bg-panel-2 hover:text-text disabled:opacity-40" title="Check Slack now" onClick={checkNow} disabled={!configured || checking}>
               <RefreshCw size={13} className={clsx(checking && 'animate-spin')} />
             </button>
-            <button className="rounded-md p-1 text-muted hover:bg-panel-2 hover:text-text" title="On call settings" onClick={() => openSettings({ scope: 'app', page: 'oncall' })}>
+            <button className="rounded-md p-1 text-muted hover:bg-panel-2 hover:text-text" title="On call settings" onClick={() => openSettings(activeSpaceId ? { scope: 'space', spaceId: activeSpaceId, page: 'oncall' } : { scope: 'app', page: 'oncall' })}>
               <SettingsIcon size={13} />
             </button>
           </div>
@@ -159,18 +167,7 @@ export function OnCallView(): React.JSX.Element {
               <option value="alerts">Alerts only</option>
               <option value="support">Support only</option>
             </select>
-            {incidentSpaces.length > 1 ? (
-              <select className={selectCls} value={filters.spaceId} onChange={(e) => setFilters({ spaceId: e.target.value })} title="Space">
-                <option value="">All spaces</option>
-                {incidentSpaces.map((sp) => (
-                  <option key={sp.id} value={sp.id}>
-                    {sp.name}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <span />
-            )}
+            <span />
             {narrowed && (
               <button className="col-span-2 text-left text-accent hover:underline" onClick={() => setFilters({ channel: '', severity: '', kind: '', spaceId: '' })}>
                 Clear filters
