@@ -50,6 +50,9 @@
       <li><b>Jira-first.</b> Start from a ticket, name and branch derived, status shown, Atlassian MCP with the same login. Conductor integrates Linear and GitHub issues; Orca has Jira too.</li>
       <li><b>Both ways to run an agent.</b> The chat with the crew, review cockpit and phone hand-offs, or the vendor's own CLI interactive in the Terminal tab on the same account and permission mode. Orca and Superset only do the second.</li>
       <li><b>On call.</b> Slack incidents triaged by an agent, with a draft PR or a workspace seeded from the thread. Nobody else has an incident path.</li>
+      <li><b>Data next to the code.</b> A database viewer for Postgres, MySQL, SQLite, MongoDB and BigQuery, through SSH or Cloud SQL, read-only for agents by default. Nobody else ships one.</li>
+      <li><b>Teams without a server in the loop.</b> Shared spaces are a file the team commits; accounts, tokens and folders stay local. Conductor and Superset sell cloud workspaces instead.</li>
+      <li><b>Cheapest way in.</b> Free core app, a 14-day Pro trial without a card, coupon codes for beta users; $15 Pro against Conductor's $50 and Superset's $20.</li>
     </ul></div>
     <div class="card lose"><h3>Where they are ahead</h3><ul>
       <li><b>Conductor</b>: Cloud computers (agents keep running off your Mac), multiplayer, Stacks for stacked PRs, workspace from issue, port forwarding, a year of polish and a team behind it. Signed, notarized builds.</li>
@@ -69,6 +72,8 @@
       <li>Vibe Kanban's company shut down in April 2026 (project continues as community open source); Crystal / Nimbalyst: alive? pricing, multi-repo.</li>
       <li>Orca: is the "agent-to-agent orchestration with task handoff" a crew (models per role) or a queue between sessions? MCP configuration. Whether the iOS simulator needs Xcode.</li>
       <li>Superset: what the MCP server exposes; whether Linear is the only tracker; Windows date.</li>
+      <li>Cursor: whether background agents can be started from Slack in the current plans; image support in the agent panel.</li>
+      <li>Vibe Kanban, Crystal, Superset: image attachments in chat.</li>
     </ul></div>
   </div>
   <div class="note">Edit <code>site/admin/compare.html</code> in the repo to update; data lives in the DATA array at the bottom of the file.</div>
@@ -104,7 +109,19 @@ var DATA = [
   ['Mobile companion', [Y,'phone app and web fallback'], [P,'coming soon'], N, [P,'Claude app'], [P,'ChatGPT app'], N, N, N, [Y,'iOS and Android'], [P,'phone through remote access; iOS app announced']],
   ['CLI / SDK / MCP to drive the app itself', N, [Y,'Conductor API on Pro'], N, N, N, N, N, N, [Y,'Orca CLI'], [Y,'CLI, TypeScript SDK, MCP server']],
   ['Voice dictation', N, N, N, N, N, N, N, N, [Y,'on-device models'], N],
-  ['Price', [P,'free beta, unsigned'], [U,'free tier; paid plans'], [Y,'$20+/mo'], [Y,'subscription'], [Y,'ChatGPT plans'], [Y,'free'], [Y,'free'], [Y,'free'], [Y,'free'], [Y,'free; Pro $20/mo for remote workspaces and Linear']],
+  ['On-call agent (Slack triage, draft PR, workspace from the thread)', Y, N, N, N, N, N, N, N, N, N],
+  ['Database viewer (Postgres, MySQL, SQLite, MongoDB, BigQuery)', [Y,'SSH tunnel, Cloud SQL, ERD, editing, import/export'], N, N, N, N, N, N, N, N, N],
+  ['Linear / GitHub issues', [Y,'Linear; GitHub via PR status'], [Y,'Linear, GitHub issues'], N, [P,'via MCP'], N, N, [P,'boards'], N, [Y,'GitHub, Linear and Jira boards'], [Y,'Linear on Pro']],
+  ['Slack', [Y,'sign-in, on-call channels, posting approved replies'], N, [U,'background agents from Slack?'], [P,'via MCP'], N, N, N, N, N, N],
+  ['Google Cloud (logs, Cloud Run, Error Reporting, Cloud SQL)', Y, N, N, [P,'via MCP or gcloud in shell'], N, N, N, N, N, N],
+  ['Teams: seats, invites, roles, shared setup', [Y,'shared space definitions committed to the repo; no cloud'], [Y,'Teams $60/seat, multiplayer, admin'], [Y,'Teams $40/seat'], [P,'Team/Enterprise plans'], [P,'ChatGPT Team'], N, N, N, N, [Y,'org members, remote workspaces on Pro']],
+  ['Several accounts per vendor (work and personal)', [Y,'per vendor, chosen per space or workspace'], N, N, [P,'CLAUDE_CONFIG_DIR by hand'], N, N, N, N, N, N],
+  ['Setup assistant (a conversation that configures the app)', Y, [P,'onboarding wizard'], [P,'onboarding'], N, [P,'onboarding'], N, N, N, N, [P,'onboarding']],
+  ['Usage ledger, budget and lean modes', [Y,'windows per account, spend per day, preflight, budget and lean modes'], N, [P,'usage dashboard'], [P,'/cost, /usage'], [P,'usage in ChatGPT'], N, N, N, N, N],
+  ['Session notes the agent shares', Y, N, N, [P,'memory files'], N, N, N, N, N, N],
+  ['Images in chat', Y, Y, Y, Y, Y, [P,'depends on model'], U, U, [Y,'draw on screenshots'], U],
+  ['Free trial / coupons', [Y,'14-day Pro trial without a card; coupon codes'], [P,'free tier'], [P,'free tier'], N, N, N, N, N, N, [P,'free tier']],
+  ['Price', [Y,'Free; Pro $15/mo or $120/yr; Team $30/seat/mo or $300/yr'], [U,'free tier; paid plans'], [Y,'$20+/mo'], [Y,'subscription'], [Y,'ChatGPT plans'], [Y,'free'], [Y,'free'], [Y,'free'], [Y,'free'], [Y,'free; Pro $20/mo for remote workspaces and Linear']],
 ]
 var t = document.getElementById('m')
 t.innerHTML = '<thead><tr><th>Feature</th>' + TOOLS.map(function(n,i){ return '<th class="'+(i===0?'us':'')+'">'+n+'</th>' }).join('') + '</tr></thead><tbody>' +
