@@ -327,7 +327,7 @@ function SignIn(): React.JSX.Element {
     <div>
       <h2 className="text-[22px] font-semibold tracking-tight">Sign in to the agents you use</h2>
       <p className="mt-1 text-[13px] text-muted">
-        One is enough to start. Claude is the recommended first. Each uses the vendor’s own login, so your subscription applies. You can add more accounts per vendor later under Settings → Accounts.
+        One is enough to start, and the first one you sign in to becomes the default engine for chats. Each uses the vendor’s own login, so your subscription applies. You can add more accounts per vendor later under Settings → Accounts, and change the engine under Settings → General.
       </p>
       <div className="mt-5 flex flex-col gap-2">
         {VENDORS.map((v) => {

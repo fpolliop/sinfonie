@@ -12,7 +12,6 @@ import { useGithub } from '@/stores/github'
 import { useApp, type Tab } from '@/stores/app'
 import { api } from '@/lib/api'
 import { ChatPane } from './ChatPane'
-import { ChangesPane } from './ChangesPane'
 import { TerminalPane } from './TerminalPane'
 import { RunPane } from './RunPane'
 import { PrsPane } from './PrsPane'
@@ -21,18 +20,9 @@ import { shortPath } from '@/lib/format'
 import { BrowserPane } from './BrowserPane'
 import { FilesPane } from './FilesPane'
 import { DataPane } from './DataPane'
+import { WorkspaceTabs } from './WorkspaceTabs'
 import { useBrowser } from '@/stores/browser'
 
-const TABS: { id: Tab; label: string }[] = [
-  { id: 'chat', label: 'Chat' },
-  { id: 'files', label: 'Files' },
-  { id: 'data', label: 'Data' },
-  { id: 'changes', label: 'Changes' },
-  { id: 'prs', label: 'PRs' },
-  { id: 'terminal', label: 'Terminal' },
-  { id: 'run', label: 'Run' },
-  { id: 'browser', label: 'Browser' }
-]
 
 export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.JSX.Element {
   const ws = useApp((s) => s.workspaces.find((w) => w.id === workspaceId))
@@ -188,14 +178,6 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
             )}
           </div>
         </div>
-        <nav className="no-drag flex shrink-0 items-center gap-0.5 rounded-lg bg-panel p-0.5">
-          {TABS.map((t) => (
-            <button key={t.id} data-tour={t.id === 'data' ? 'tab-data' : t.id === 'browser' ? 'tab-browser' : undefined} onClick={() => setTab(t.id)} className={clsx('relative h-[26px] rounded-md px-3 text-[12px] font-medium leading-none', tab === t.id ? 'bg-panel-2 text-text' : 'text-muted hover:text-text')}>
-              {t.label}
-              {t.id === 'browser' && browserBusy && <span className="absolute right-1 top-1 h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />}
-            </button>
-          ))}
-        </nav>
         <div className="no-drag relative">
           <button className="rounded-md p-1.5 text-muted hover:bg-panel-2 hover:text-text" onClick={() => setMenu(!menu)}>
             <MoreHorizontal size={16} />
@@ -206,6 +188,15 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
               <MenuItem icon={<Code2 size={14} />} label="Open in VS Code" onClick={() => run(() => api.invoke('workspaces:openIn', ws.id, 'vscode'))} />
               <MenuItem icon={<Code2 size={14} />} label="Open in Cursor" onClick={() => run(() => api.invoke('workspaces:openIn', ws.id, 'cursor'))} />
               <MenuItem icon={<TerminalSquare size={14} />} label="Open in Terminal" onClick={() => run(() => api.invoke('workspaces:openIn', ws.id, 'terminal'))} />
+              <MenuItem
+                icon={<TerminalSquare size={14} />}
+                label="Claude Code CLI in Terminal tab"
+                onClick={() => {
+                  useApp.getState().setPendingShell({ workspaceId: ws.id, repoId: ws.primaryRepoId, agent: 'claude-code' })
+                  setTab('terminal')
+                }}
+                disabled={ws.status !== 'ready'}
+              />
               <div className="my-1 border-t border-border" />
               <MenuItem icon={<Folder size={14} />} label="Manage repositories…" onClick={() => setReposDlg(true)} disabled={ws.status !== 'ready'} />
               <MenuItem icon={<Pencil size={14} />} label="Rename workspace" onClick={() => setEditingTitle(true)} />
@@ -224,18 +215,18 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
         </div>
       </header>
 
+      <WorkspaceTabs workspaceId={ws.id} />
       {ws.status === 'error' && <div className="border-b border-danger/30 bg-danger/10 px-4 py-2 text-[12px] text-danger">{ws.error}</div>}
 
       <div className="min-h-0 flex-1">
         <div className={clsx('h-full', tab !== 'chat' && 'hidden')}>
           <ChatPane workspaceId={ws.id} />
         </div>
-        <div className={clsx('h-full', tab !== 'files' && 'hidden')}>{tab === 'files' && <FilesPane workspaceId={ws.id} />}</div>
+        <div className={clsx('h-full', tab !== 'code' && 'hidden')}>{tab === 'code' && <FilesPane workspaceId={ws.id} />}</div>
         <div className={clsx('h-full', tab !== 'data' && 'hidden')}>{tab === 'data' && <DataPane workspaceId={ws.id} />}</div>
-        <div className={clsx('h-full', tab !== 'changes' && 'hidden')}>{tab === 'changes' && <ChangesPane workspaceId={ws.id} />}</div>
         <div className={clsx('h-full', tab !== 'prs' && 'hidden')}>{tab === 'prs' && <PrsPane workspaceId={ws.id} />}</div>
         <div className={clsx('h-full', tab !== 'terminal' && 'hidden')}>
-          <TerminalPane workspaceId={ws.id} visible={tab === 'terminal'} />
+          {tab === 'terminal' && <TerminalPane workspaceId={ws.id} visible />}
         </div>
         <div className={clsx('h-full', tab !== 'run' && 'hidden')}>
           <RunPane workspaceId={ws.id} />

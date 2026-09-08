@@ -1,4 +1,4 @@
-import type { AuthLink, BillingPeriod, CloudOrgDetail, CloudState, Plan, RemoteSettings, RemoteStatus, SpaceDefinition, SpaceImportPreview, SpaceImportResolution, BrowserState, ContextUsage, CrewPriority, FsEntry, LimitAlternative, UsageSnapshot, ChatImageInput, Incident, IncidentStatus, LinearIssue, LinearSettings, OnCallState, ResourceSnapshot, Severity, SlackConnection, LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion, OnCallBulkOp,
+import type { AgentMode, AuthLink, CompletionRequest, BillingPeriod, CliStatus, CloudOrgDetail, CloudState, Plan, RemoteSettings, RemoteStatus, SpaceDefinition, SpaceImportPreview, SpaceImportResolution, BrowserState, ContextUsage, CrewPriority, FsEntry, LimitAlternative, UsageSnapshot, ChatImageInput, Incident, IncidentStatus, LinearIssue, LinearSettings, OnCallState, ResourceSnapshot, Severity, SlackConnection, LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion, OnCallBulkOp,
   AgentEvent,
   ChatItem,
   JiraIssue,
@@ -41,7 +41,7 @@ export interface SinfonieInvoke {
   'settings:update': (patch: Partial<Settings>) => Settings
 
   'spaces:create': (name: string) => Space
-  'spaces:update': (id: string, patch: Partial<Pick<Space, 'name' | 'color' | 'claudeAccountId' | 'model' | 'permissionMode' | 'workspacesRoot' | 'browserSensitiveOrigins' | 'githubOwners' | 'exposeLinearMcp' | 'oncall' | 'budgetMode' | 'leanMode' | 'gcp' | 'exposeGcpMcp' | 'mcpServers' | 'exposeJiraMcp' | 'strictMcp' | 'agents' | 'useCrew' | 'engine'>>) => Space
+  'spaces:update': (id: string, patch: Partial<Pick<Space, 'name' | 'color' | 'claudeAccountId' | 'model' | 'permissionMode' | 'workspacesRoot' | 'browserSensitiveOrigins' | 'githubOwners' | 'exposeLinearMcp' | 'oncall' | 'budgetMode' | 'leanMode' | 'gcp' | 'exposeGcpMcp' | 'mcpServers' | 'exposeJiraMcp' | 'strictMcp' | 'agents' | 'useCrew' | 'engine' | 'agentMode'>>) => Space
   /** MCP servers found in Claude Code's own config (~/.claude.json), for importing. */
   'mcp:importable': () => McpServerSpec[]
   'spaces:delete': (id: string) => void
@@ -78,7 +78,13 @@ export interface SinfonieInvoke {
   'git:status': (workspaceId: string) => RepoGitStatus[]
   // ---- files (confined to the workspace) ----
   'fs:list': (workspaceId: string, dir: string, showHidden?: boolean) => FsEntry[]
-  'fs:read': (workspaceId: string, path: string) => { text: string; truncated: boolean; binary: boolean; size: number }
+  'fs:read': (workspaceId: string, path: string) => { text: string; truncated: boolean; binary: boolean; size: number; hash: string }
+  /** Saves an edit; refused when the file changed on disk since `expectedHash` was read. */
+  'fs:write': (workspaceId: string, path: string, text: string, expectedHash?: string) => { hash: string }
+  /** The committed version of a file (HEAD), or null when it is untracked. */
+  'git:show': (workspaceId: string, repoId: string, path: string) => string | null
+  'completions:suggest': (req: CompletionRequest) => string
+  'completions:cancel': (workspaceId: string) => void
   'fs:reveal': (workspaceId: string, path: string) => void
   'fs:open': (workspaceId: string, path: string) => void
   'git:diff': (workspaceId: string, repoId: string, path?: string) => string
@@ -241,7 +247,16 @@ export interface SinfonieInvoke {
   'notes:update': (workspaceId: string, id: string, patch: Partial<Pick<Note, 'text' | 'done' | 'kind'>>) => Note[]
   'notes:remove': (workspaceId: string, id: string) => Note[]
 
-  'terminal:create': (workspaceId: string, repoId: string) => string
+  /** A shell in the repo's worktree, or at the workspace root when repoId is null. */
+  'terminal:create': (workspaceId: string, repoId: string | null, cols?: number, rows?: number, agent?: Engine) => string
+  /** Engines whose interactive CLI can be opened in a workspace terminal (a signed-in account exists). */
+  'terminal:clis': () => Engine[]
+  // ---- CLI mode: the real claude in the Chat tab, session shared with the chat ----
+  'cli:status': (workspaceId: string) => CliStatus
+  'cli:start': (workspaceId: string, opts?: { prompt?: string; fresh?: boolean; cols?: number; rows?: number }) => CliStatus
+  'cli:stop': (workspaceId: string) => CliStatus
+  'cli:type': (workspaceId: string, text: string) => void
+  'workspaces:setAgentMode': (workspaceId: string, mode: AgentMode) => Workspace
   'terminal:write': (terminalId: string, data: string) => void
   'terminal:resize': (terminalId: string, cols: number, rows: number) => void
   'terminal:dispose': (terminalId: string) => void

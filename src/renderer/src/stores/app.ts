@@ -1,9 +1,9 @@
 import { create } from 'zustand'
-import type { Label, Repo, Settings, Space, StoreData, Workspace } from '@shared/types'
+import type { Engine, Label, Repo, Settings, Space, StoreData, Workspace } from '@shared/types'
 import { api } from '@/lib/api'
 
-export type Tab = 'chat' | 'changes' | 'prs' | 'terminal' | 'run' | 'browser' | 'files' | 'data'
-export type AppPage = 'general' | 'spaces' | 'repos' | 'providers' | 'accounts' | 'logins' | 'crew' | 'resources' | 'usage' | 'oncall' | 'mcp' | 'jira' | 'linear' | 'slack' | 'gcp' | 'feedback' | 'phone' | 'plan' | 'about'
+export type Tab = 'chat' | 'code' | 'prs' | 'terminal' | 'run' | 'browser' | 'data'
+export type AppPage = 'general' | 'spaces' | 'repos' | 'providers' | 'accounts' | 'logins' | 'crew' | 'resources' | 'usage' | 'oncall' | 'mcp' | 'jira' | 'linear' | 'slack' | 'gcp' | 'integrations' | 'feedback' | 'phone' | 'plan' | 'about'
 export type SpacePage = 'general' | 'repos' | 'crew' | 'oncall' | 'mcp' | 'jira' | 'linear' | 'slack' | 'gcp' | 'databases' | 'github'
 export type SettingsTarget = { scope: 'app'; page: AppPage } | { scope: 'space'; spaceId: string; page: SpacePage }
 
@@ -65,6 +65,12 @@ interface AppState {
   setView: (v: 'workspace' | 'reviews' | 'oncall') => void
   setTab: (t: Tab) => void
   setShowNewWorkspace: (v: boolean, spaceId?: string) => void
+  /** What the New workspace dialog starts from when opened from an incident or a ticket: a name and the first message. */
+  newWorkspaceSeed: { name: string; draft: string } | null
+  setNewWorkspaceSeed: (seed: { name: string; draft: string } | null) => void
+  /** A shell or agent CLI the Terminal tab should open as soon as it shows (from the workspace menu). */
+  pendingShell: { workspaceId: string; repoId?: string | null; agent?: Engine } | null
+  setPendingShell: (p: { workspaceId: string; repoId?: string | null; agent?: Engine } | null) => void
   /** Kept for older call sites: opens Application → General. */
   setShowSettings: (v: boolean) => void
   setShowArchived: (v: boolean) => void
@@ -124,8 +130,15 @@ export const useApp = create<AppState>((set, get) => ({
     set({ activeSpaceId: id, newWorkspaceSpaceId: id })
     // Land inside the space: keep the selection if it belongs there, else the most recent
     // conversation of that space, else the empty page. Never leave another space's chat on screen.
-    const { workspaces, spaces, selectedId, view } = get()
+    const { workspaces, spaces, selectedId, view, settings } = get()
     if (view === 'reviews') return
+    if (view === 'oncall') {
+      // On call is per space: leave the view when the new space does not watch Slack.
+      const sp = spaces.find((s) => s.id === id)
+      const watches = sp ? Boolean(sp.oncall?.channels?.length) : Boolean(settings.oncall?.channels?.length)
+      if (watches) return
+      get().setView('workspace')
+    }
     const spaceOf = (w: Workspace): string => (w.spaceId && spaces.some((s) => s.id === w.spaceId) ? w.spaceId : '')
     const current = workspaces.find((w) => w.id === selectedId)
     if (current && spaceOf(current) === id) return
@@ -196,6 +209,10 @@ export const useApp = create<AppState>((set, get) => ({
     set({ view })
   },
   setTab: (tab) => set({ tab }),
+  newWorkspaceSeed: null,
+  setNewWorkspaceSeed: (newWorkspaceSeed) => set({ newWorkspaceSeed }),
+  pendingShell: null,
+  setPendingShell: (pendingShell) => set({ pendingShell }),
   setShowNewWorkspace: (v, spaceId) => {
     if (spaceId !== undefined) {
       localStorage.setItem('orchestra.lastSpace', spaceId)

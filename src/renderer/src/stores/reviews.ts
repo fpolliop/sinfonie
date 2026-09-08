@@ -35,6 +35,12 @@ interface ReviewsState {
   prs: ReviewPr[]
   runs: Record<string, ReviewRun>
   selectedKey: string | null
+  /** PR keys ticked in the list for a bulk action, in the order they were ticked. */
+  checked: string[]
+  /** Bulk review: PRs waiting for a free slot, and the keys this batch started that are still busy. */
+  batchQueue: ReviewPr[]
+  batchRunning: string[]
+  batchAccountId: string
   /** Runs that finished (review, fix round or iteration) while not on screen; cleared when opened. */
   unseen: Record<string, true>
   loadingOrgs: boolean
@@ -49,9 +55,23 @@ interface ReviewsState {
   setSortDir: (d: SortDir) => void
   refreshPrs: () => Promise<void>
   select: (key: string | null) => void
+  toggleChecked: (key: string, on?: boolean) => void
+  setChecked: (keys: string[]) => void
+  clearChecked: () => void
+  /** Start (or restart) one review; resolves as soon as the main process accepted it. */
+  startReview: (pr: ReviewPr, accountId: string) => Promise<ReviewRun>
+  /** Queue reviews for every PR that is not already busy; at most MAX_BATCH_CONCURRENCY run at once. */
+  startBatch: (prs: ReviewPr[], accountId: string) => void
+  pumpBatch: () => void
   markSeen: (key: string) => void
   subscribe: () => void
 }
+
+/** Bulk reviews in flight at the same time, counting reviews started by hand. */
+export const MAX_BATCH_CONCURRENCY = 3
+
+/** Busy means a review pass, a fix round or an iteration is in flight. */
+export const isRunBusy = (r?: ReviewRun): boolean => Boolean(r && (r.status === 'preparing' || r.status === 'running' || r.status === 'fixing' || r.iteration?.status === 'running'))
 
 export const keyOf = (pr: ReviewPr): string => `${pr.nameWithOwner}#${pr.number}`
 
@@ -75,6 +95,10 @@ export const useReviews = create<ReviewsState>((set, get) => ({
   prs: [],
   runs: {},
   selectedKey: null,
+  checked: [],
+  batchQueue: [],
+  batchRunning: [],
+  batchAccountId: '',
   unseen: {},
   loadingOrgs: false,
   loadingPrs: false,
@@ -108,7 +132,7 @@ export const useReviews = create<ReviewsState>((set, get) => ({
       }
       if (owners.length === 0) owners = get().orgs
     }
-    set({ owners, repos, prs: [] })
+    set({ owners, repos, prs: [], checked: [] })
     await get().refreshPrs()
   },
   setMode: (mode) => {
@@ -134,7 +158,12 @@ export const useReviews = create<ReviewsState>((set, get) => ({
     set({ loadingPrs: true, error: undefined })
     try {
       const prs = await api.invoke('reviews:list', owners, mode, repos)
-      set({ prs, loadingPrs: false })
+      set((s) => {
+        // Ticked PRs that left the list (merged, closed) drop out of the selection.
+        const present = new Set(prs.map(keyOf))
+        const checked = s.checked.filter((k) => present.has(k))
+        return { prs, loadingPrs: false, checked: checked.length === s.checked.length ? s.checked : checked }
+      })
     } catch (err) {
       set({ loadingPrs: false, error: err instanceof Error ? err.message : String(err) })
     }
@@ -146,6 +175,59 @@ export const useReviews = create<ReviewsState>((set, get) => ({
       delete unseen[selectedKey]
       return { selectedKey, unseen }
     }),
+  toggleChecked: (key, on) =>
+    set((s) => {
+      const has = s.checked.includes(key)
+      const want = on ?? !has
+      if (want === has) return {}
+      return { checked: want ? [...s.checked, key] : s.checked.filter((k) => k !== key) }
+    }),
+  setChecked: (keys) => set({ checked: Array.from(new Set(keys)) }),
+  clearChecked: () => set((s) => (s.checked.length ? { checked: [] } : {})),
+  startReview: async (pr, accountId) => {
+    const run = await api.invoke('reviews:start', pr, accountId)
+    // The 'review:changed' event usually lands first; never overwrite a run that already moved on.
+    set((s) => (isRunBusy(s.runs[run.key]) ? {} : { runs: { ...s.runs, [run.key]: run } }))
+    return run
+  },
+  startBatch: (prs, accountId) => {
+    set((s) => {
+      const queued = new Set([...s.batchQueue.map(keyOf), ...s.batchRunning])
+      const fresh = prs.filter((p) => {
+        const k = keyOf(p)
+        if (queued.has(k) || isRunBusy(s.runs[k])) return false
+        queued.add(k)
+        return true
+      })
+      return { batchQueue: [...s.batchQueue, ...fresh], batchAccountId: accountId, error: undefined }
+    })
+    get().pumpBatch()
+  },
+  pumpBatch: () => {
+    const s = get()
+    if (s.batchQueue.length === 0) return
+    const busy = new Set(s.batchRunning)
+    for (const [k, r] of Object.entries(s.runs)) if (isRunBusy(r)) busy.add(k)
+    const queue = [...s.batchQueue]
+    const running = [...s.batchRunning]
+    const starts: ReviewPr[] = []
+    while (queue.length > 0 && busy.size < MAX_BATCH_CONCURRENCY) {
+      const pr = queue.shift()!
+      const k = keyOf(pr)
+      if (busy.has(k)) continue
+      busy.add(k)
+      running.push(k)
+      starts.push(pr)
+    }
+    if (starts.length === 0 && queue.length === s.batchQueue.length) return
+    set({ batchQueue: queue, batchRunning: running })
+    for (const pr of starts) {
+      void s.startReview(pr, s.batchAccountId).catch((err) => {
+        set((st) => ({ batchRunning: st.batchRunning.filter((k) => k !== keyOf(pr)), error: err instanceof Error ? err.message : String(err) }))
+        get().pumpBatch()
+      })
+    }
+  },
   markSeen: (key) =>
     set((s) => {
       if (!s.unseen[key]) return {}
@@ -156,18 +238,23 @@ export const useReviews = create<ReviewsState>((set, get) => ({
   subscribe: () => {
     if (subscribed) return
     subscribed = true
-    api.on('review:changed', (run) =>
+    api.on('review:changed', (run) => {
+      let freed = false
       set((s) => {
         const prev = s.runs[run.key]
-        const wasBusy = (r?: ReviewRun): boolean => Boolean(r && (r.status === 'preparing' || r.status === 'running' || r.status === 'fixing' || r.iteration?.status === 'running'))
-        const finished = wasBusy(prev) && !wasBusy(run)
+        const finished = isRunBusy(prev) && !isRunBusy(run)
+        const inBatch = s.batchRunning.includes(run.key) && !isRunBusy(run)
+        freed = finished || inBatch
         // Finished while the user was elsewhere: flag it until they open it.
         const onScreen = useAppView() === 'reviews' && s.selectedKey === run.key && document.hasFocus()
-        return { runs: { ...s.runs, [run.key]: run }, ...(finished && !onScreen ? { unseen: { ...s.unseen, [run.key]: true as const } } : {}) }
+        return {
+          runs: { ...s.runs, [run.key]: run },
+          ...(inBatch ? { batchRunning: s.batchRunning.filter((k) => k !== run.key) } : {}),
+          ...(finished && !onScreen ? { unseen: { ...s.unseen, [run.key]: true as const } } : {})
+        }
       })
-    )
+      // A slot opened up (this batch's or a manual review's): start the next queued PR.
+      if (freed) get().pumpBatch()
+    })
   }
 }))
-
-/** Busy means a review pass, a fix round or an iteration is in flight. */
-export const isRunBusy = (r?: ReviewRun): boolean => Boolean(r && (r.status === 'preparing' || r.status === 'running' || r.status === 'fixing' || r.iteration?.status === 'running'))

@@ -215,7 +215,7 @@
   <div class="wrap">
     <a class="logo" href="#"><img class="mark" src="/assets/logo.svg" width="28" height="28" alt="">Sinfonie</a>
     <div class="links">
-      <a href="#features">Features</a><a href="#how">How it works</a><a href="#crew">Crew</a><a href="#faq">FAQ</a><a href="#feedback">Feedback</a>
+      <a href="#features">Features</a><a href="#how">How it works</a><a href="#crew">Crew</a><a href="#teams">Teams</a><a href="/pricing">Pricing</a><a href="#faq">FAQ</a>
     </div>
     <div class="right">
       <a class="btn ghost sm" href="https://github.com/fpolliop/sinfonie-releases/releases">Release notes</a>
@@ -278,7 +278,7 @@
     <div class="sec-head reveal">
       <span class="eyebrow">Built for the way you actually work</span>
       <h2>Isolated workspaces, every repo a feature touches.</h2>
-      <p>Worktrees, chat, diffs, terminals, files, a browser and a database viewer, all per workspace. Spaces to keep clients apart, a crew of models and a lean mode to keep tokens down, a review cockpit for the pull requests waiting on you, and an on-call agent that triages Slack alerts and drafts the fix.</p>
+      <p>Worktrees, chat, diffs, terminals with the vendor CLIs, files, a browser and a database viewer, all per workspace. Spaces to keep clients apart, a crew of models and a lean mode to keep tokens down, a review cockpit for the pull requests waiting on you, and an on-call agent that triages Slack alerts and drafts the fix.</p>
     </div>
     <div class="grid">
       <div class="card reveal"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg></div><h3>Multi-repo workspaces</h3><p>One name, one branch, a worktree in each repo, side by side in one folder. Created, run and archived together, with a warning if anything is uncommitted or unpushed.</p></div>
@@ -292,6 +292,25 @@
       <div class="card reveal"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg></div><h3>Usage and lean mode</h3><p>See your subscription windows and where the tokens went. A preflight card warns before a task that will not fit. Budget and lean modes run one Sonnet agent with trimmed tools and capped turns, per workspace, space or app.</p></div>
       <div class="card reveal"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 9h20"/><circle cx="6" cy="6.5" r=".5"/><circle cx="9" cy="6.5" r=".5"/></svg></div><h3>Browser and files</h3><p>An embedded browser the agent can drive: check localhost, read docs, operate consoles you are signed into, with sensitive sites always asking first. A files tab shows every worktree with git status.</p></div>
       <div class="card reveal"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m8 6-6 6 6 6"/><path d="m16 6 6 6-6 6"/></svg></div><h3>Scriptable workspaces</h3><p>A <code>sinfonie.json</code> per repo runs your setup, dev server and cleanup with a dedicated port block per workspace. Fork, resume and queue messages like the CLI. Errors show in the chat, never silently.</p></div>
+      <div class="card reveal"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m6 9 3 3-3 3"/><path d="M12 15h6"/></svg></div><h3>Terminals and the vendor CLIs</h3><p>Several shells per workspace, in any worktree or at the root, with links, find, and the environment your scripts expect. One click opens Claude Code, Codex, Gemini CLI or Grok interactively inside the worktree, on the account the workspace uses, with the sibling repos added.</p></div>
+      <div class="card reveal"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/></svg></div><h3>Phone companion</h3><p>Pair your iPhone or Android. Continue a conversation from the sofa, get notified when an agent needs an answer or a permission, and reply from the notification. End-to-end encrypted; the relay never sees a message.</p></div>
+      <div class="card reveal"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/><path d="M19 3v4"/><path d="M17 5h4"/></svg></div><h3>Every vendor, several accounts</h3><p>Anthropic, OpenAI, Google and xAI logins side by side, more than one per vendor for work and personal. Spaces and workspaces pick the account; usage windows and spend show per account.</p></div>
+      <div class="card reveal"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z"/><path d="M9 13h6"/><path d="M9 17h6"/></svg></div><h3>Small things done right</h3><p>Images in chat, notes the orchestrator shares, labels, fork and resume, compact conversations with a real context window view, split diffs, syntax-coloured files, updates that install when you are idle.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="teams">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="eyebrow">For teams</span>
+      <h2>Shared spaces, per seat.</h2>
+      <p>A space is a set of repositories with its crew, integrations, on-call channels and defaults. Write it to a file the team commits, and every member imports the same setup, cloning what they are missing. Accounts, tokens and local folders never leave anyone's Mac.</p>
+    </div>
+    <div class="grid">
+      <div class="card reveal"><h3>Free, then a trial</h3><p>The core app is free forever: unlimited single-repo workspaces, one space of two repos. Sign in with GitHub or Google and the first 14 days are Pro, no card.</p></div>
+      <div class="card reveal"><h3>Pro</h3><p>Unlimited spaces and repositories, several accounts per vendor, the crew, the review cockpit, Jira, Linear and the on-call agent. $15 a month or $120 a year.</p></div>
+      <div class="card reveal"><h3>Team</h3><p>Everything in Pro plus shared space definitions, invites, roles and central billing. $30 per seat a month or $300 a year. <a href="/pricing" style="color:var(--accent)">See pricing</a>.</p></div>
     </div>
   </div>
 </section>

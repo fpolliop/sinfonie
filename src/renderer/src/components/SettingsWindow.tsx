@@ -30,26 +30,35 @@ import { ACP_ENGINES, VENDORS } from '@shared/types'
  * applies to the whole application from what belongs to one space; every page
  * says which of the two it is, and space pages say what they override.
  */
-const APP_PAGES: { id: AppPage; label: string; icon: React.ReactNode; desc: string; group?: string }[] = [
-  { id: 'general', label: 'General', icon: <SettingsIcon size={14} />, desc: 'Defaults every space starts from: engine, models, permission mode, folders, ports.' },
-  { id: 'spaces', label: 'Spaces', icon: <Layers size={14} />, desc: 'Create and remove spaces. Each space has its own pages below.' },
-  { id: 'repos', label: 'Repositories', icon: <FolderGit2 size={14} />, desc: 'Every git repository the app knows, and which space each belongs to.' },
-  { id: 'providers', label: 'Model providers', icon: <Server size={14} />, desc: 'API keys and local servers for the native engine. Shared by all spaces.' },
-  { id: 'accounts', label: 'Accounts', icon: <UserCircle2 size={14} />, desc: 'Logins for Anthropic, OpenAI, Google and xAI agents. Several per vendor; spaces and workspaces pick one.' },
-  { id: 'crew', label: 'Default crew', icon: <Users size={14} />, desc: 'The subagents a space gets unless it defines its own crew.' },
-  { id: 'resources', label: 'Resources', icon: <Gauge size={14} />, desc: 'Memory per session, subagent and session limits, and what happens under pressure.' },
-  { id: 'usage', label: 'Usage', icon: <Activity size={14} />, desc: 'Subscription windows per account, spend per day, and where it went.' },
-  { id: 'oncall', label: 'On call', icon: <Siren size={14} />, desc: 'Slack channels to watch, the triage agent, and how it drafts replies.' },
-  { id: 'jira', label: 'Jira', icon: <Ticket size={14} />, desc: 'The fallback Jira connection for spaces without their own.', group: 'Integrations' },
-  { id: 'linear', label: 'Linear', icon: <CircleDot size={14} />, desc: 'The fallback Linear connection for spaces without their own.', group: 'Integrations' },
-  { id: 'slack', label: 'Slack', icon: <Hash size={14} />, desc: 'Your Slack sign-in, used by the on-call agent and available to sessions.', group: 'Integrations' },
-  { id: 'gcp', label: 'Google Cloud', icon: <Cloud size={14} />, desc: 'Your gcloud login and default project: read-only logs, Cloud Run and Error Reporting for sessions and the on-call agent.', group: 'Integrations' },
-  { id: 'mcp', label: 'MCP servers', icon: <Plug size={14} />, desc: 'MCP servers available in every space.', group: 'Integrations' },
-  { id: 'feedback', label: 'Feedback & diagnostics', icon: <MessageSquarePlus size={14} />, desc: 'Send feedback, review captured errors, control crash reports.' },
-  { id: 'phone', label: 'Phone', icon: <Smartphone size={14} />, desc: 'Pair a phone to continue conversations and get notified when an agent needs you.' },
-  { id: 'plan', label: 'Plan', icon: <Gem size={14} />, desc: 'Your Sinfonie account and plan. Agent subscriptions stay with their vendors.' },
-  { id: 'about', label: 'About & updates', icon: <Info size={14} />, desc: 'Version, links, and update checks.' }
+/** The app-level pages, grouped as the rail shows them. The single Integrations page carries its own tabs. */
+const APP_PAGES: { id: AppPage; label: string; icon: React.ReactNode; desc: string; group: string }[] = [
+  { id: 'general', label: 'General', icon: <SettingsIcon size={14} />, desc: 'Defaults every space starts from: engine, models, permission mode, folders, ports.', group: 'Workspace' },
+  { id: 'spaces', label: 'Spaces', icon: <Layers size={14} />, desc: 'Create and remove spaces. Each space has its own pages below.', group: 'Workspace' },
+  { id: 'repos', label: 'Repositories', icon: <FolderGit2 size={14} />, desc: 'Every repository the app knows, and which space each belongs to.', group: 'Workspace' },
+  { id: 'accounts', label: 'Accounts', icon: <UserCircle2 size={14} />, desc: 'Logins for Anthropic, OpenAI, Google and xAI agents. Several per vendor; spaces and workspaces pick one.', group: 'Agents' },
+  { id: 'providers', label: 'Model providers', icon: <Server size={14} />, desc: 'API keys and local servers for the native engine. Shared by all spaces.', group: 'Agents' },
+  { id: 'crew', label: 'Default crew', icon: <Users size={14} />, desc: 'The subagents a space gets unless it defines its own crew.', group: 'Agents' },
+  { id: 'resources', label: 'Resources', icon: <Gauge size={14} />, desc: 'Memory per session, subagent and session limits, and what happens under pressure.', group: 'Agents' },
+  { id: 'usage', label: 'Usage', icon: <Activity size={14} />, desc: 'Subscription windows per account, spend per day, and where it went.', group: 'Agents' },
+  { id: 'integrations', label: 'Integrations', icon: <Plug size={14} />, desc: 'Jira, Linear, Slack, Google Cloud and MCP servers for every space. Spaces can connect their own on their pages.', group: 'Connect' },
+  { id: 'oncall', label: 'On call', icon: <Siren size={14} />, desc: 'Slack channels to watch, the triage agent, and how it drafts replies.', group: 'Connect' },
+  { id: 'phone', label: 'Phone', icon: <Smartphone size={14} />, desc: 'Pair a phone to continue conversations and get notified when an agent needs you.', group: 'Connect' },
+  { id: 'plan', label: 'Plan', icon: <Gem size={14} />, desc: 'Your Sinfonie account and plan. Agent subscriptions stay with their vendors.', group: 'Account' },
+  { id: 'feedback', label: 'Feedback & diagnostics', icon: <MessageSquarePlus size={14} />, desc: 'Send feedback, review captured errors, control crash reports.', group: 'Account' },
+  { id: 'about', label: 'About & updates', icon: <Info size={14} />, desc: 'Version, links, and update checks.', group: 'Account' }
 ]
+/** The tabs inside the Integrations page. The old page ids (jira, linear, …) still open the page on that tab. */
+type IntegrationTab = 'jira' | 'linear' | 'slack' | 'gcp' | 'mcp'
+const INTEGRATION_TABS: { id: IntegrationTab; label: string; icon: React.ReactNode; desc: string }[] = [
+  { id: 'jira', label: 'Jira', icon: <Ticket size={14} />, desc: 'The fallback Jira connection for spaces without their own.' },
+  { id: 'linear', label: 'Linear', icon: <CircleDot size={14} />, desc: 'The fallback Linear connection for spaces without their own.' },
+  { id: 'slack', label: 'Slack', icon: <Hash size={14} />, desc: 'Your Slack sign-in, used by the on-call agent and available to sessions.' },
+  { id: 'gcp', label: 'Google Cloud', icon: <Cloud size={14} />, desc: 'Your gcloud login and default project: read-only logs, Cloud Run and Error Reporting for sessions and the on-call agent.' },
+  { id: 'mcp', label: 'MCP servers', icon: <Plug size={14} />, desc: 'MCP servers available in every space.' }
+]
+const INTEGRATION_IDS: string[] = INTEGRATION_TABS.map((t) => t.id)
+/** Which rail entry a page id belongs to: integration tabs fold into Integrations, the legacy logins page into Accounts. */
+const railFor = (id: AppPage): AppPage => (INTEGRATION_IDS.includes(id) ? 'integrations' : id === 'logins' ? 'accounts' : id)
 const SPACE_PAGES: { id: SpacePage; label: string; icon: React.ReactNode; desc: string; overrides?: AppPage; group?: string }[] = [
   { id: 'general', label: 'General', icon: <SettingsIcon size={14} />, desc: 'Name, colour, and this space’s engine, model, permission mode, folder and account.', overrides: 'general' },
   { id: 'repos', label: 'Repositories', icon: <FolderGit2 size={14} />, desc: 'Repositories this space owns. New workspaces here offer these.', overrides: 'repos' },
@@ -85,18 +94,16 @@ export function SettingsWindow({ target, onClose }: { target: SettingsTarget; on
     if (target.scope === 'space' && !space) openSettings({ scope: 'app', page: 'spaces' })
   }, [target, space, openSettings])
 
-  const page = target.scope === 'app' ? APP_PAGES.find((p) => p.id === target.page)! : SPACE_PAGES.find((p) => p.id === target.page)!
+  const page = target.scope === 'app' ? APP_PAGES.find((p) => p.id === railFor(target.page))! : SPACE_PAGES.find((p) => p.id === target.page)!
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 no-drag" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="flex h-[84vh] w-[980px] max-w-[95vw] overflow-hidden rounded-xl border border-border bg-panel shadow-2xl">
         {/* rail */}
         <nav className="flex w-[232px] shrink-0 flex-col overflow-auto border-r border-border bg-bg/60 p-2">
-          <div className="px-2 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted">Application</div>
           {APP_PAGES.map((p, i) => (
             <React.Fragment key={p.id}>
-              {p.group && APP_PAGES[i - 1]?.group !== p.group && <div className="mt-3 px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-muted">{p.group}</div>}
-              {!p.group && APP_PAGES[i - 1]?.group && <div className="mt-3 px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-muted">Help</div>}
-              <NavItem active={target.scope === 'app' && target.page === p.id} icon={p.icon} label={p.label} onClick={() => openSettings({ scope: 'app', page: p.id })} />
+              {APP_PAGES[i - 1]?.group !== p.group && <div className={clsx('px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-muted', i === 0 ? 'pt-2' : 'mt-3')}>{p.group}</div>}
+              <NavItem active={target.scope === 'app' && railFor(target.page) === p.id} icon={p.icon} label={p.label} onClick={() => openSettings({ scope: 'app', page: p.id })} />
             </React.Fragment>
           ))}
           <div className="mt-3 flex items-center px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-muted">
@@ -188,7 +195,7 @@ function useGo(): (fn: () => Promise<unknown>) => Promise<void> {
 // ---------------- application pages ----------------
 
 function AppPageView({ page }: { page: AppPage }): React.JSX.Element {
-  const { settings, setFeedbackDialog } = useApp()
+  const { settings, openSettings } = useApp()
   const go = useGo()
   const update = (patch: Partial<typeof settings>): Promise<unknown> => api.invoke('settings:update', patch)
   switch (page) {
@@ -211,6 +218,8 @@ function AppPageView({ page }: { page: AppPage }): React.JSX.Element {
           {ACP_ENGINES.some((e) => e.id === settings.engine) && (
             <p className="mb-3 text-[11px] text-muted">The default model for this engine is chosen under Accounts.</p>
           )}
+          {(settings.engine ?? 'claude-code') === 'claude-code' && (
+            <>
           <label className="mb-3 flex items-start gap-2 text-[13px]">
             <input type="checkbox" className="mt-0.5" checked={Boolean(settings.budgetMode)} onChange={(e) => go(() => update({ budgetMode: e.target.checked }))} />
             <span>
@@ -225,6 +234,18 @@ function AppPageView({ page }: { page: AppPage }): React.JSX.Element {
               <span className="block text-[11px] text-muted">The fewest tokens that still get the job done: one Sonnet agent with no crew or subagents, no browser, notes or web tools, shell output cut to the last lines, 25 tool calls per message before it stops and reports, reviews capped at 30 turns and one fix round. Overrides Budget mode. Spaces can override it.</span>
             </span>
           </label>
+            </>
+          )}
+          <Field label="Inline suggestions in the editor" hint="Ghost text while you type in the Code tab, written by a small fast model from Model providers (a local model works). Tab accepts, Esc dismisses. The sparkle button in the editor toggles it too.">
+            <div className="flex items-center gap-2">
+              <label className="flex shrink-0 items-center gap-2 text-[13px]">
+                <input type="checkbox" checked={Boolean(settings.completions?.enabled)} onChange={(e) => go(() => update({ completions: { ...(settings.completions ?? {}), enabled: e.target.checked } }))} /> On
+              </label>
+              <div className="min-w-0 flex-1">
+                <NativeModelSelect value={settings.completions?.model ?? ''} onChange={(model) => go(() => update({ completions: { enabled: settings.completions?.enabled ?? true, model } }))} />
+              </div>
+            </div>
+          </Field>
           <Field label="Permission mode" hint="Each chat can still switch its own mode from the composer or with Shift+Tab.">
             <select className={inputCls} value={settings.permissionMode} onChange={(e) => go(() => update({ permissionMode: e.target.value as typeof settings.permissionMode }))}>
               {PERMISSION_MODES.map((m) => (
@@ -284,6 +305,38 @@ function AppPageView({ page }: { page: AppPage }): React.JSX.Element {
           }}
         />
       )
+    case 'integrations':
+    case 'jira':
+    case 'linear':
+    case 'slack':
+    case 'gcp':
+    case 'mcp': {
+      const tab: IntegrationTab = INTEGRATION_IDS.includes(page) ? (page as IntegrationTab) : 'jira'
+      return (
+        <div>
+          <div className="mb-4 flex items-center gap-1 rounded-lg bg-bg/60 p-1">
+            {INTEGRATION_TABS.map((t) => (
+              <button key={t.id} onClick={() => openSettings({ scope: 'app', page: t.id })} title={t.desc} className={clsx('flex h-[26px] items-center gap-1.5 rounded-md px-2.5 text-[12px] font-medium', tab === t.id ? 'bg-accent/15 text-accent' : 'text-muted hover:bg-panel-2 hover:text-text')}>
+                {t.icon}
+                {t.label}
+              </button>
+            ))}
+          </div>
+          <IntegrationBody tab={tab} />
+        </div>
+      )
+    }
+    default:
+      return <AppPageTail page={page} />
+  }
+}
+
+/** One integration's section, the same components the old separate pages showed. */
+function IntegrationBody({ tab }: { tab: IntegrationTab }): React.JSX.Element {
+  const { settings } = useApp()
+  const go = useGo()
+  const update = (patch: Partial<typeof settings>): Promise<unknown> => api.invoke('settings:update', patch)
+  switch (tab) {
     case 'mcp':
       return <McpSection title="MCP servers for every space" intro="Available in all workspaces. Add space-specific servers on a space’s MCP page." servers={settings.mcpServers ?? []} onChange={(mcpServers) => go(() => update({ mcpServers }))} strict={{ value: Boolean(settings.strictMcp), onToggle: (v) => go(() => update({ strictMcp: v })) }} />
     case 'jira':
@@ -299,6 +352,14 @@ function AppPageView({ page }: { page: AppPage }): React.JSX.Element {
           <p className="text-[11px] text-muted">The on-call agent uses this sign-in to watch channels and send the replies you approve. Set up channels under Application → On call.</p>
         </div>
       )
+    default:
+      return <div />
+  }
+}
+
+function AppPageTail({ page }: { page: AppPage }): React.JSX.Element {
+  const { setFeedbackDialog } = useApp()
+  switch (page) {
     case 'feedback':
       return (
         <div className="max-w-[640px]">
@@ -312,6 +373,8 @@ function AppPageView({ page }: { page: AppPage }): React.JSX.Element {
       )
     case 'about':
       return <AboutPage />
+    default:
+      return <div />
   }
 }
 
@@ -498,6 +561,14 @@ function SpacePageView({ space, page }: { space: Space; page: SpacePage }): Reac
             <Field label="Engine" hint="Claude Code uses your Claude login; Sinfonie native runs any provider from Model providers.">
               <EngineSelect value={space.engine ?? ''} allowDefault onChange={(e) => go(() => upd({ engine: (e || undefined) as never }))} />
             </Field>
+            {engine === 'claude-code' && (
+              <Field label="New workspaces open in" hint="Chat drives Claude through the SDK with Sinfonie's cards and crew; CLI runs Claude Code's own terminal UI on the same session. Each workspace can switch at any time.">
+                <select className={inputCls} value={space.agentMode ?? 'chat'} onChange={(e) => go(() => upd({ agentMode: e.target.value as 'chat' | 'cli' }))}>
+                  <option value="chat">Chat</option>
+                  <option value="cli">Claude Code CLI</option>
+                </select>
+              </Field>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <Field label="Model" hint={engine === 'native' ? 'Orchestrator model as provider/model.' : ACP_ENGINES.some((e) => e.id === engine) ? 'From the agent’s own model list (see Agent logins).' : 'Orchestrator model for chats in this space.'}>
                 {engine === 'native' ? (

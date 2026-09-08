@@ -170,7 +170,7 @@ function toSdkMcp(spec: McpServerSpec): NonNullable<Options['mcpServers']>[strin
 }
 
 /** App-level servers, then the space's, then the space's Jira login as the Atlassian MCP. */
-async function mcpServersFor(ws: Workspace, onWarning?: (text: string) => void): Promise<Record<string, NonNullable<Options['mcpServers']>[string]>> {
+export async function mcpServersFor(ws: Workspace, onWarning?: (text: string) => void): Promise<Record<string, NonNullable<Options['mcpServers']>[string]>> {
   const { settings, spaces } = getStore().get()
   const space = spaces.find((s) => s.id === ws.spaceId)
   const out: Record<string, NonNullable<Options['mcpServers']>[string]> = {}
@@ -814,8 +814,13 @@ export function restartAfterTurn(workspaceId: string): boolean {
   return true
 }
 
+/** Other runtimes that can be busy for a workspace (the CLI mode registers itself). */
+const extraBusy: ((workspaceId: string) => boolean)[] = []
+export function addBusySource(fn: (workspaceId: string) => boolean): void {
+  extraBusy.push(fn)
+}
 export function isBusy(workspaceId: string): boolean {
-  return (sessions.get(workspaceId)?.busy ?? false) || native.isBusy(workspaceId) || acp.isBusy(workspaceId)
+  return (sessions.get(workspaceId)?.busy ?? false) || native.isBusy(workspaceId) || acp.isBusy(workspaceId) || extraBusy.some((f) => f(workspaceId))
 }
 
 export async function interrupt(workspaceId: string): Promise<void> {

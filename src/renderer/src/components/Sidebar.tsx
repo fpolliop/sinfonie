@@ -402,11 +402,17 @@ function ReviewBadges(): React.JSX.Element | null {
   )
 }
 
-/** On call entry: shows how many incidents wait for you. */
-function OnCallButton({ active, onClick }: { active: boolean; onClick: () => void }): React.JSX.Element {
+/** On call entry for the active space: only when that space watches Slack (or has incidents), with its open count. */
+function OnCallButton({ active, onClick }: { active: boolean; onClick: () => void }): React.JSX.Element | null {
   const state = useOnCall((s) => s.state)
+  const activeSpaceId = useApp((s) => s.activeSpaceId)
+  const space = useApp((s) => s.spaces.find((x) => x.id === activeSpaceId))
+  const appConfigured = useApp((s) => Boolean(s.settings.oncall?.channels?.length))
   useEffect(() => subscribeOnCall(), [])
-  const open = state?.incidents.filter((i) => i.status === 'new' || i.status === 'open').length ?? 0
+  const mine = state?.incidents.filter((i) => i.spaceId === activeSpaceId) ?? []
+  const configured = activeSpaceId ? Boolean(space?.oncall?.channels?.length) || state?.activeSpaces.includes(activeSpaceId) === true : appConfigured || state?.activeSpaces.includes('') === true
+  if (!configured && mine.length === 0) return null
+  const open = mine.filter((i) => i.status === 'new' || i.status === 'open').length
   return (
     <button data-tour="oncall" onClick={onClick} className={clsx('mb-2 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] font-medium', active ? 'bg-panel-2' : 'hover:bg-panel-2/60')}>
       <Siren size={14} className={state?.running ? 'text-accent' : 'text-muted'} /> On call

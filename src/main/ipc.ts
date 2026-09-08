@@ -22,6 +22,8 @@ import * as git from './services/git'
 import * as workspaces from './services/workspaces'
 import * as agent from './services/agent'
 import * as terminal from './services/terminal'
+import * as agentCli from './services/agent-cli'
+import * as cliSession from './services/cli-session'
 import { clearTranscript, flushAllTranscripts, getTranscript, markInterrupted, recordEvent } from './services/transcripts'
 import { runScript, stopScript, workspaceEnv } from './services/scripts'
 import { repoPrStatus } from './services/github'
@@ -47,6 +49,7 @@ import * as browserHttp from './services/browser/http'
 import * as workspaceTools from './services/workspace-tools'
 import { saveImages } from './services/images'
 import * as files from './services/files'
+import * as completions from './services/completions'
 import * as slack from './services/slack'
 import * as oncall from './services/oncall/service'
 import * as gcp from './services/gcp'
@@ -548,7 +551,13 @@ export function registerIpc(): void {
     return resources.submit(id, text, refs)
   }
   handle('agent:send', (id, text, images) => sendMessage(id, text, images))
-  remote.setBridge({ send: (id, text) => sendMessage(id, text), interrupt: (id) => agent.interrupt(id), permission: (r) => interaction.answerPermission(r), question: (r) => interaction.answerQuestion(r) })
+  remote.setBridge({
+    // In CLI mode the phone types into the terminal; otherwise the SDK session takes the message.
+    send: async (id, text) => (cliSession.isRunning(id) ? cliSession.type(id, text) : sendMessage(id, text)),
+    interrupt: async (id) => (cliSession.isRunning(id) ? cliSession.interrupt(id) : agent.interrupt(id)),
+    permission: (r) => interaction.answerPermission(r),
+    question: (r) => interaction.answerQuestion(r)
+  })
   // ---- phone companion ----
   handle('remote:status', () => remote.status())
   handle('remote:pair', () => remote.pair())
@@ -682,6 +691,15 @@ export function registerIpc(): void {
   // ---- files ----
   handle('fs:list', (id, dir, hidden) => files.list(id, dir, hidden))
   handle('fs:read', (id, p) => files.read(id, p))
+  handle('fs:write', (id, p, text, expected) => files.write(id, p, text, expected))
+  handle('git:show', async (id, repoId, p) => {
+    const ws = workspaces.getWorkspace(id)
+    const wr = ws.repos.find((r) => r.repoId === repoId)
+    if (!wr) throw new Error('Repo not in workspace')
+    return git.showHead(wr.worktreePath, p)
+  })
+  handle('completions:suggest', (req) => completions.suggest(req))
+  handle('completions:cancel', (id) => completions.cancel(id))
   handle('fs:reveal', (id, p) => files.reveal(id, p))
   handle('fs:open', (id, p) => files.open(id, p))
 
@@ -792,17 +810,39 @@ export function registerIpc(): void {
   handle('agent:setMode', (id, mode) => agent.setMode(id, mode))
 
   // ---- terminal ----
-  handle('terminal:create', (id, repoId) => {
+  handle('terminal:create', (id, repoId, cols, rows, agent) => {
     const ws = workspaces.getWorkspace(id)
-    const wr = ws.repos.find((r) => r.repoId === repoId)
-    if (!wr) throw new Error('Repo not in workspace')
-    const repo = workspaces.getRepo(repoId)
+    // No repo: a shell at the workspace root, where every worktree sits side by side.
+    const wr = repoId ? ws.repos.find((r) => r.repoId === repoId) : undefined
+    if (repoId && !wr) throw new Error('Repo not in workspace')
+    const repo = workspaces.getRepo(wr?.repoId ?? ws.primaryRepoId)
+    const cwd = wr?.worktreePath ?? ws.rootPath
+    // An agent CLI instead of a plain shell: the vendor's own interactive program, on the workspace's account.
+    const launch = agent ? agentCli.cliLaunch(agent, ws, cwd) : null
     return terminal.createTerminal(
-      wr.worktreePath,
-      workspaceEnv(ws, repo, wr.worktreePath),
+      cwd,
+      { ...workspaceEnv(ws, repo, cwd), ...(launch?.env ?? {}) },
       (terminalId, data) => send('terminal:data', { terminalId, data }),
-      (terminalId, exitCode) => send('terminal:exit', { terminalId, exitCode })
+      (terminalId, exitCode) => send('terminal:exit', { terminalId, exitCode }),
+      launch?.command,
+      cols && rows ? { cols, rows } : undefined
     )
+  })
+  handle('terminal:clis', () => agentCli.availableClis())
+  // ---- CLI mode ----
+  cliSession.setEmitter(emitAgent)
+  cliSession.setTerminalEmitters(
+    (terminalId, data) => send('terminal:data', { terminalId, data }),
+    (terminalId, exitCode) => send('terminal:exit', { terminalId, exitCode })
+  )
+  handle('cli:status', (id) => cliSession.status(id))
+  handle('cli:start', (id, opts) => cliSession.start(id, opts))
+  handle('cli:stop', (id) => cliSession.stop(id))
+  handle('cli:type', (id, text) => cliSession.type(id, text))
+  handle('workspaces:setAgentMode', (id, mode) => {
+    // Leaving CLI mode ends the CLI so the chat can resume the same session.
+    if (mode === 'chat') cliSession.stop(id)
+    return workspaces.patchWorkspace(id, { agentMode: mode })
   })
   handle('terminal:write', (tid, data) => terminal.writeTerminal(tid, data))
   handle('terminal:resize', (tid, cols, rows) => terminal.resizeTerminal(tid, cols, rows))
@@ -815,6 +855,8 @@ export function registerIpc(): void {
     resources.stop()
     flushAllTranscripts()
     agent.closeAllSessions()
+    cliSession.stopAll()
+    cliSession.stopHookServer()
     terminal.disposeAllTerminals()
   })
   // keep runScript referenced for the archive path's typing

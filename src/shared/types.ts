@@ -260,6 +260,8 @@ export interface Space {
   leanMode?: boolean
   /** Which runtime drives chats in this space. Absent = app default. */
   engine?: Engine
+  /** Default for new workspaces: chat (SDK) or the CLI. */
+  agentMode?: AgentMode
   /** Per-space overrides; absent means the app default from Settings. */
   model?: string
   permissionMode?: PermissionMode
@@ -390,6 +392,8 @@ export interface Workspace {
   linearStatusAt?: string
   /** Engine override for this workspace (set when the user continued elsewhere after a rate limit). */
   engine?: Engine
+  /** How the agent is driven in this workspace: the chat (SDK) or the vendor's CLI in a terminal. Absent = the space default, then chat. */
+  agentMode?: AgentMode
   /** Cost profile for this workspace only; undefined inherits the space, then the app. */
   costMode?: CostMode
   stage: WorkspaceStage
@@ -554,6 +558,8 @@ export interface Settings {
   turnBudgetUsd?: number
   /** Sinfonie account and plan, as last confirmed by sinfonie.dev. The session token itself lives in secrets. */
   cloud?: CloudState
+  /** Inline suggestions in the Files editor: on/off and the "<providerId>/<modelId>" that writes them. */
+  completions?: CompletionSettings
   /** The phone companion: pairing state and what to be notified about. The pairing key lives in secrets. */
   remote?: RemoteSettings
 }
@@ -609,6 +615,18 @@ export type RemoteFromPhone =
   | { type: 'interrupt'; workspaceId: string }
   | { type: 'permission'; requestId: string; decision: PermissionResponse['decision'] }
   | { type: 'question'; requestId: string; answers: Record<string, string>; response?: string }
+
+export interface CompletionSettings {
+  enabled: boolean
+  model?: string
+}
+export interface CompletionRequest {
+  workspaceId: string
+  path: string
+  language?: string
+  prefix: string
+  suffix: string
+}
 
 // ---------- plans ----------
 
@@ -1052,6 +1070,14 @@ export interface ChatTurnResult {
   errorText?: string
   /** Running cost of the session split by model, from the SDK's modelUsage. */
   byModel?: { model: string; costUsd: number; outputTokens: number }[]
+}
+
+/** Chat drives the agent through the SDK; CLI runs the vendor's own program in a terminal, transcript mirrored. */
+export type AgentMode = 'chat' | 'cli'
+export interface CliStatus {
+  running: boolean
+  terminalId: string | null
+  sessionId: string | null
 }
 
 /** Events the agent service emits to the renderer. Kept deliberately small. */
