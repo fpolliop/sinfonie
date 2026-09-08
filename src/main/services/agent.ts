@@ -814,8 +814,13 @@ export function restartAfterTurn(workspaceId: string): boolean {
   return true
 }
 
+/** Other runtimes that can be busy for a workspace (the CLI mode registers itself). */
+const extraBusy: ((workspaceId: string) => boolean)[] = []
+export function addBusySource(fn: (workspaceId: string) => boolean): void {
+  extraBusy.push(fn)
+}
 export function isBusy(workspaceId: string): boolean {
-  return (sessions.get(workspaceId)?.busy ?? false) || native.isBusy(workspaceId) || acp.isBusy(workspaceId)
+  return (sessions.get(workspaceId)?.busy ?? false) || native.isBusy(workspaceId) || acp.isBusy(workspaceId) || extraBusy.some((f) => f(workspaceId))
 }
 
 export async function interrupt(workspaceId: string): Promise<void> {

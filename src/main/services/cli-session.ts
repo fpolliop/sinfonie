@@ -8,9 +8,14 @@
  * chat transcript, the phone, cost tracking and context size all keep working while the CLI runs.
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'fs'
+import { createServer, type IncomingMessage, type Server } from 'http'
+import type { AddressInfo } from 'net'
 import { homedir } from 'os'
 import { join } from 'path'
 import { app } from 'electron'
+import { nanoid } from 'nanoid'
+import * as interaction from './interaction'
+import * as remote from './remote'
 import { getStore } from '../store'
 import * as terminal from './terminal'
 import * as agent from './agent'
@@ -44,8 +49,13 @@ interface Live {
   openItem: string | null
   busy: boolean
   timer: NodeJS.Timeout
+  /** Secret in the hook URL, so only this session's hooks reach us. */
+  hookToken: string
+  /** In-flight permission asks, so a stopped CLI does not leave cards behind. */
+  aborts: Set<AbortController>
 }
 const live = new Map<string, Live>()
+agent.addBusySource((id) => live.get(id)?.busy ?? false)
 
 const q = (s: string): string => `'${s.replace(/'/g, `'\\''`)}'`
 /** Claude keys its session folder by the working directory, with every / and . turned into -. */
@@ -102,6 +112,14 @@ export async function start(workspaceId: string, opts: { prompt?: string; fresh?
     writeFileSync(file, JSON.stringify({ mcpServers: external }))
     args.push('--mcp-config', q(file))
   }
+  // Hooks: Claude calls back into Sinfonie before tools run (permission cards, phone), on stop, on notifications.
+  const hookToken = nanoid(24)
+  const port = await hookPort()
+  const hook = (event: string, timeout: number): object => ({ hooks: [{ type: 'command', command: `curl -sS -m ${timeout} -X POST --data-binary @- 'http://127.0.0.1:${port}/hook/${workspaceId}/${hookToken}/${event}'`, timeout }] })
+  const settingsFile = join(app.getPath('userData'), 'cli', `${workspaceId}.settings.json`)
+  mkdirSync(join(app.getPath('userData'), 'cli'), { recursive: true })
+  writeFileSync(settingsFile, JSON.stringify({ hooks: { PreToolUse: [hook('PreToolUse', 3600)], UserPromptSubmit: [hook('UserPromptSubmit', 10)], Stop: [hook('Stop', 10)], Notification: [hook('Notification', 10)] } }))
+  args.push('--settings', q(settingsFile))
   const resumeId = !opts.fresh && ws.sessionId ? ws.sessionId : null
   if (resumeId) args.push('--resume', q(resumeId))
   // The prompt goes first: --add-dir takes a list, and a trailing positional would be read as a directory.
@@ -120,7 +138,7 @@ export async function start(workspaceId: string, opts: { prompt?: string; fresh?
     command,
     opts.cols && opts.rows ? { cols: opts.cols, rows: opts.rows } : undefined
   )
-  const l: Live = { workspaceId, terminalId, cwd, projectDir, startedAt, sessionId: resumeId, file: resumeId ? join(projectDir, `${resumeId}.jsonl`) : null, offset: 0, seen: new Set(), openItem: null, busy: Boolean(opts.prompt), timer: setInterval(() => poll(l), 700) }
+  const l: Live = { workspaceId, terminalId, cwd, projectDir, startedAt, sessionId: resumeId, file: resumeId ? join(projectDir, `${resumeId}.jsonl`) : null, offset: 0, seen: new Set(), openItem: null, busy: Boolean(opts.prompt), timer: setInterval(() => poll(l), 700), hookToken, aborts: new Set() }
   // Resuming: skip what the chat already has; only lines the CLI appends from now on are replayed.
   if (l.file && existsSync(l.file)) l.offset = statSync(l.file).size
   live.set(workspaceId, l)
@@ -141,6 +159,7 @@ export function stop(workspaceId: string): CliStatus {
   if (!l) return status(workspaceId)
   clearInterval(l.timer)
   poll(l)
+  for (const a of l.aborts) a.abort()
   terminal.disposeTerminal(l.terminalId)
   live.delete(workspaceId)
   if (l.openItem) emit({ type: 'assistant_end', workspaceId, itemId: l.openItem })
@@ -289,4 +308,121 @@ export function type(workspaceId: string, text: string): void {
   const l = live.get(workspaceId)
   if (!l) throw new Error('The CLI is not running in this workspace.')
   terminal.writeTerminal(l.terminalId, text.replace(/\r?\n/g, '\r') + '\r')
+}
+
+/** Esc interrupts the CLI's current turn, as at the keyboard. */
+export function interrupt(workspaceId: string): void {
+  const l = live.get(workspaceId)
+  if (l) terminal.writeTerminal(l.terminalId, '\x1b')
+}
+export function isRunning(workspaceId: string): boolean {
+  return live.has(workspaceId)
+}
+
+// ---------- hooks: Claude Code calls back before tools run, on stop, on notifications ----------
+
+let hookServer: Server | null = null
+let hookPortNumber = 0
+async function hookPort(): Promise<number> {
+  if (hookServer) return hookPortNumber
+  hookServer = createServer((req, res) => {
+    void handleHook(req)
+      .then((body) => {
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(body ? JSON.stringify(body) : '{}')
+      })
+      .catch((err) => {
+        res.writeHead(403)
+        res.end(String(err))
+      })
+  })
+  await new Promise<void>((resolve) => hookServer!.listen(0, '127.0.0.1', resolve))
+  hookPortNumber = (hookServer.address() as AddressInfo).port
+  return hookPortNumber
+}
+export function stopHookServer(): void {
+  hookServer?.close()
+  hookServer = null
+}
+
+/** Tools the CLI runs without asking in every mode; no card for these. */
+const READ_ONLY = new Set(['Read', 'Glob', 'Grep', 'LS', 'WebFetch', 'WebSearch', 'TodoWrite', 'TodoRead', 'Task', 'NotebookRead', 'BashOutput', 'KillShell', 'AskUserQuestion', 'EnterPlanMode', 'ExitPlanMode', 'Skill', 'ToolSearch', 'Agent'])
+const EDITS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
+
+interface HookInput {
+  session_id?: string
+  hook_event_name?: string
+  tool_name?: string
+  tool_input?: Record<string, unknown>
+  permission_mode?: string
+  notification_type?: string
+  message?: string
+  title?: string
+  stop_hook_active?: boolean
+}
+
+async function handleHook(req: IncomingMessage): Promise<object | null> {
+  const m = /^\/hook\/([^/]+)\/([^/]+)\/([^/?]+)/.exec(req.url ?? '')
+  if (!m) throw new Error('no such hook')
+  const [, workspaceId, token, event] = m
+  const l = live.get(workspaceId)
+  if (!l || l.hookToken !== token) throw new Error('unknown session')
+  const chunks: Buffer[] = []
+  for await (const c of req) chunks.push(c as Buffer)
+  let input: HookInput = {}
+  try {
+    input = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}') as HookInput
+  } catch {
+    input = {}
+  }
+  switch (event) {
+    case 'UserPromptSubmit':
+      l.busy = true
+      emit({ type: 'status', workspaceId, busy: true })
+      return null
+    case 'Stop':
+      if (l.openItem) {
+        emit({ type: 'assistant_end', workspaceId, itemId: l.openItem })
+        l.openItem = null
+      }
+      l.busy = false
+      emit({ type: 'status', workspaceId, busy: false })
+      return null
+    case 'Notification':
+      // The CLI asks in its own UI (a tool the hook let through, or a question): the phone should know.
+      if (input.notification_type === 'permission_prompt') remote.notifyFromCli(workspaceId, 'permission', 'Claude Code is asking', input.message ?? 'Permission needed in the terminal')
+      else if (input.notification_type === 'idle_prompt') {
+        l.busy = false
+        emit({ type: 'status', workspaceId, busy: false })
+      }
+      return null
+    case 'PreToolUse':
+      return preToolUse(l, input)
+    default:
+      return null
+  }
+}
+
+/**
+ * Before a tool runs. Sinfonie asks only where the CLI itself would: never for read-only tools,
+ * not for edits under acceptEdits, never under plan or bypass. The card shows in the app and on the
+ * phone; the answer goes back as the hook's decision. Anything else is left to the CLI's own rules.
+ */
+async function preToolUse(l: Live, input: HookInput): Promise<object | null> {
+  const tool = input.tool_name ?? ''
+  const ws = getWorkspace(l.workspaceId)
+  const { settings, spaces } = getStore().get()
+  const mode = ws.permissionMode ?? spaces.find((s) => s.id === ws.spaceId)?.permissionMode ?? settings.permissionMode
+  if (!tool || READ_ONLY.has(tool) || tool.startsWith('mcp__')) return null
+  if (mode === 'plan' || mode === 'bypassPermissions' || mode === 'auto') return null
+  if (mode === 'acceptEdits' && EDITS.has(tool)) return null
+  const abort = new AbortController()
+  l.aborts.add(abort)
+  try {
+    const r = await interaction.askPermission({ workspaceId: l.workspaceId, toolName: tool, input: input.tool_input ?? {}, canAlwaysAllow: false }, abort.signal)
+    const allow = r.decision === 'allow' || r.decision === 'always'
+    return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: allow ? 'allow' : 'deny', permissionDecisionReason: allow ? 'Approved in Sinfonie' : (r.message ?? 'Denied in Sinfonie') } }
+  } finally {
+    l.aborts.delete(abort)
+  }
 }

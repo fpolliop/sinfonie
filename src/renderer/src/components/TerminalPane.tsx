@@ -348,6 +348,7 @@ export function CliView({ workspaceId, prompt, onPromptConsumed, onBackToChat }:
   }, [])
   const key = `cli:${workspaceId}`
   const ready = ws?.status === 'ready'
+  const [gen, setGen] = useState(0)
   // Spawn in an effect, not during render, and only while the workspace is still in CLI mode.
   useEffect(() => {
     if (!ready || shells.has(key)) return
@@ -369,12 +370,12 @@ export function CliView({ workspaceId, prompt, onPromptConsumed, onBackToChat }:
     shells.set(key, shell)
     notify()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, workspaceId, key])
+  }, [ready, workspaceId, key, gen])
   const shell = shells.get(key)
   const [finding, setFinding] = useState(false)
   const restart = (): void => {
     closeShell(key)
-    void api.invoke('cli:stop', workspaceId).finally(() => tick((n) => n + 1))
+    void api.invoke('cli:stop', workspaceId).finally(() => setGen((g) => g + 1))
   }
   if (!ws) return <div />
   if (!ready) return <div className="p-4 text-[12px] text-muted">The CLI opens once the workspace is ready.</div>

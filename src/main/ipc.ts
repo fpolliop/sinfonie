@@ -550,7 +550,13 @@ export function registerIpc(): void {
     return resources.submit(id, text, refs)
   }
   handle('agent:send', (id, text, images) => sendMessage(id, text, images))
-  remote.setBridge({ send: (id, text) => sendMessage(id, text), interrupt: (id) => agent.interrupt(id), permission: (r) => interaction.answerPermission(r), question: (r) => interaction.answerQuestion(r) })
+  remote.setBridge({
+    // In CLI mode the phone types into the terminal; otherwise the SDK session takes the message.
+    send: async (id, text) => (cliSession.isRunning(id) ? cliSession.type(id, text) : sendMessage(id, text)),
+    interrupt: async (id) => (cliSession.isRunning(id) ? cliSession.interrupt(id) : agent.interrupt(id)),
+    permission: (r) => interaction.answerPermission(r),
+    question: (r) => interaction.answerQuestion(r)
+  })
   // ---- phone companion ----
   handle('remote:status', () => remote.status())
   handle('remote:pair', () => remote.pair())
@@ -840,6 +846,7 @@ export function registerIpc(): void {
     flushAllTranscripts()
     agent.closeAllSessions()
     cliSession.stopAll()
+    cliSession.stopHookServer()
     terminal.disposeAllTerminals()
   })
   // keep runScript referenced for the archive path's typing

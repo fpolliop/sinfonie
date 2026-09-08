@@ -389,6 +389,10 @@ export function onStoreChanged(): void {
 
 // ---------- push ----------
 /** Asks the relay to push, but only when nobody has touched the Mac for the configured time. */
+/** A notification the CLI mode raises (Claude Code's own permission prompt, or an idle prompt). */
+export function notifyFromCli(workspaceId: string, kind: 'permission' | 'finished', title: string, body: string): void {
+  notify(kind, workspaceId, title, body)
+}
 function notify(kind: 'permission' | 'question' | 'finished' | 'error', workspaceId: string, title: string, body: string, requestId?: string): void {
   if (!connected) return
   const awayMinutes = settings().awayMinutes ?? 1
