@@ -166,15 +166,26 @@ async function checkout(pr: ReviewPr, key: string, emit: Emit): Promise<{ dir: s
   const meta = JSON.parse(await gh(['pr', 'view', String(pr.number), '--repo', pr.nameWithOwner, '--json', 'baseRefName,headRefName,isCrossRepository,headRepositoryOwner,headRepository'])) as { baseRefName: string; headRefName: string; isCrossRepository?: boolean; headRepositoryOwner?: { login: string }; headRepository?: { name: string } }
   const headRepo = meta.headRepositoryOwner && meta.headRepository ? `${meta.headRepositoryOwner.login}/${meta.headRepository.name}` : pr.nameWithOwner
   update(key, { phase: 'Fetching PR', baseRefName: meta.baseRefName, headRefName: meta.headRefName, headRepo, isFork: Boolean(meta.isCrossRepository) }, emit)
-  if (existsSync(dir)) rmSync(dir, { recursive: true, force: true })
   mkdirSync(reviewsRoot(), { recursive: true })
   const local = await findLocalRepo(pr.nameWithOwner)
   if (local) {
     const g = git(local)
+    // A previous review of this PR may have left the path registered as a worktree (with or without
+    // its folder). Unregister it first, or `worktree add` refuses with "missing but already registered".
+    await g.raw(['worktree', 'remove', '--force', dir]).catch(() => undefined)
+    if (existsSync(dir)) rmSync(dir, { recursive: true, force: true })
+    await g.raw(['worktree', 'prune']).catch(() => undefined)
     await g.fetch(['origin', `pull/${pr.number}/head:refs/sinfonie/pr-${pr.number}`, '--force'])
     await g.fetch(['origin', meta.baseRefName])
-    await g.raw(['worktree', 'add', '--detach', dir, `refs/sinfonie/pr-${pr.number}`])
+    try {
+      await g.raw(['worktree', 'add', '--detach', dir, `refs/sinfonie/pr-${pr.number}`])
+    } catch (err) {
+      // Still registered somewhere (e.g. a locked entry): take the path over rather than failing the review.
+      if (!/already registered|already exists/i.test(err instanceof Error ? err.message : String(err))) throw err
+      await g.raw(['worktree', 'add', '--force', '--detach', dir, `refs/sinfonie/pr-${pr.number}`])
+    }
   } else {
+    if (existsSync(dir)) rmSync(dir, { recursive: true, force: true })
     update(key, { phase: 'Cloning repository (shallow)' }, emit)
     await gh(['repo', 'clone', pr.nameWithOwner, dir, '--', '--depth', '1', '--branch', meta.baseRefName])
     const g = git(dir)
