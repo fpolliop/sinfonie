@@ -22,6 +22,7 @@ import * as git from './services/git'
 import * as workspaces from './services/workspaces'
 import * as agent from './services/agent'
 import * as terminal from './services/terminal'
+import * as agentCli from './services/agent-cli'
 import { clearTranscript, flushAllTranscripts, getTranscript, markInterrupted, recordEvent } from './services/transcripts'
 import { runScript, stopScript, workspaceEnv } from './services/scripts'
 import { repoPrStatus } from './services/github'
@@ -792,22 +793,25 @@ export function registerIpc(): void {
   handle('agent:setMode', (id, mode) => agent.setMode(id, mode))
 
   // ---- terminal ----
-  handle('terminal:create', (id, repoId, cols, rows) => {
+  handle('terminal:create', (id, repoId, cols, rows, agent) => {
     const ws = workspaces.getWorkspace(id)
     // No repo: a shell at the workspace root, where every worktree sits side by side.
     const wr = repoId ? ws.repos.find((r) => r.repoId === repoId) : undefined
     if (repoId && !wr) throw new Error('Repo not in workspace')
     const repo = workspaces.getRepo(wr?.repoId ?? ws.primaryRepoId)
     const cwd = wr?.worktreePath ?? ws.rootPath
+    // An agent CLI instead of a plain shell: the vendor's own interactive program, on the workspace's account.
+    const launch = agent ? agentCli.cliLaunch(agent, ws, cwd) : null
     return terminal.createTerminal(
       cwd,
-      workspaceEnv(ws, repo, cwd),
+      { ...workspaceEnv(ws, repo, cwd), ...(launch?.env ?? {}) },
       (terminalId, data) => send('terminal:data', { terminalId, data }),
       (terminalId, exitCode) => send('terminal:exit', { terminalId, exitCode }),
-      undefined,
+      launch?.command,
       cols && rows ? { cols, rows } : undefined
     )
   })
+  handle('terminal:clis', () => agentCli.availableClis())
   handle('terminal:write', (tid, data) => terminal.writeTerminal(tid, data))
   handle('terminal:resize', (tid, cols, rows) => terminal.resizeTerminal(tid, cols, rows))
   handle('terminal:dispose', (tid) => terminal.disposeTerminal(tid))

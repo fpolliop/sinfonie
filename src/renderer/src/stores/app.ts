@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Label, Repo, Settings, Space, StoreData, Workspace } from '@shared/types'
+import type { Engine, Label, Repo, Settings, Space, StoreData, Workspace } from '@shared/types'
 import { api } from '@/lib/api'
 
 export type Tab = 'chat' | 'changes' | 'prs' | 'terminal' | 'run' | 'browser' | 'files' | 'data'
@@ -68,6 +68,9 @@ interface AppState {
   /** What the New workspace dialog starts from when opened from an incident or a ticket: a name and the first message. */
   newWorkspaceSeed: { name: string; draft: string } | null
   setNewWorkspaceSeed: (seed: { name: string; draft: string } | null) => void
+  /** A shell or agent CLI the Terminal tab should open as soon as it shows (from the workspace menu). */
+  pendingShell: { workspaceId: string; repoId?: string | null; agent?: Engine } | null
+  setPendingShell: (p: { workspaceId: string; repoId?: string | null; agent?: Engine } | null) => void
   /** Kept for older call sites: opens Application → General. */
   setShowSettings: (v: boolean) => void
   setShowArchived: (v: boolean) => void
@@ -201,6 +204,8 @@ export const useApp = create<AppState>((set, get) => ({
   setTab: (tab) => set({ tab }),
   newWorkspaceSeed: null,
   setNewWorkspaceSeed: (newWorkspaceSeed) => set({ newWorkspaceSeed }),
+  pendingShell: null,
+  setPendingShell: (pendingShell) => set({ pendingShell }),
   setShowNewWorkspace: (v, spaceId) => {
     if (spaceId !== undefined) {
       localStorage.setItem('orchestra.lastSpace', spaceId)

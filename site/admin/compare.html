@@ -35,7 +35,7 @@
 <header><img src="/assets/logo.svg" alt=""><b>Sinfonie admin</b><nav><a href="/admin/">Queue</a><a href="/admin/stats">Stats</a><a class="on" href="/admin/compare">Competitors</a><a href="/admin/plans">Plans</a></nav></header>
 <main>
   <h2>Feature matrix</h2>
-  <p class="lead">Private working notes. Cells marked with a hollow dot are unverified and worth checking before quoting anywhere. Last reviewed 2026-09-04.</p>
+  <p class="lead">Private working notes. Cells marked with a hollow dot are unverified and worth checking before quoting anywhere. Last reviewed 2026-09-08 (Orca and Superset added after a beta tester's feedback).</p>
   <div class="legend"><span class="v yes"><i></i> yes</span><span class="v partial"><i></i> partial</span><span class="v no"><i></i> no</span><span class="v unk"><i></i> unverified</span></div>
   <div class="wrap"><table id="m"></table></div>
 
@@ -47,7 +47,9 @@
       <li><b>Provider-agnostic with a subscription path.</b> Claude login through Claude Code, or any API including local models through the native engine. Conductor does GPT/Grok/Claude; Cursor is multi-model in the editor; neither runs local models.</li>
       <li><b>Spaces.</b> Repos, Jira, GitHub orgs, MCP servers, accounts and model defaults per client or job. Nobody else separates work contexts this way.</li>
       <li><b>Review cockpit across the org.</b> PRs waiting on you from every repo, AI review, approve findings one by one, one GitHub review posted. Conductor reviews the workspace's own diff; Cursor's is in-editor.</li>
-      <li><b>Jira-first.</b> Start from a ticket, name and branch derived, status shown, Atlassian MCP with the same login. Conductor integrates Linear and GitHub issues.</li>
+      <li><b>Jira-first.</b> Start from a ticket, name and branch derived, status shown, Atlassian MCP with the same login. Conductor integrates Linear and GitHub issues; Orca has Jira too.</li>
+      <li><b>Both ways to run an agent.</b> The chat with the crew, review cockpit and phone hand-offs, or the vendor's own CLI interactive in the Terminal tab on the same account and permission mode. Orca and Superset only do the second.</li>
+      <li><b>On call.</b> Slack incidents triaged by an agent, with a draft PR or a workspace seeded from the thread. Nobody else has an incident path.</li>
     </ul></div>
     <div class="card lose"><h3>Where they are ahead</h3><ul>
       <li><b>Conductor</b>: Cloud computers (agents keep running off your Mac), multiplayer, Stacks for stacked PRs, workspace from issue, port forwarding, a year of polish and a team behind it. Signed, notarized builds.</li>
@@ -55,42 +57,54 @@
       <li><b>Codex app</b>: cloud sandbox with parallel dispatch and PRs coming back; strong on "hand it off and forget".</li>
       <li><b>Claude Code</b>: the harness itself: skills, hooks, memory, agent teams. We inherit these only on the Claude Code engine, not on native.</li>
       <li><b>OpenCode</b>: open source, 75+ providers, terminal-native, community. Our native engine is younger and closed.</li>
-      <li><b>Everyone</b>: Windows and Linux. We are macOS Apple Silicon only, unsigned.</li>
+      <li><b>Orca</b> (free, MIT, Stably AI, YC): terminal with WebGL and infinite splits, a VS Code editor with drag-to-agent, Design Mode (Chromium per worktree, element picker, draw on screenshots, iOS simulator), diff annotations that feed back to the agent, GitHub + Linear + Jira boards in-app, SSH worktrees on remote machines, account switcher with live usage meters, cron automations, mobile app, voice dictation, an Orca CLI, Windows and Linux. 27 agents out of the box. The beta tester's point: it runs the real CLI, no wrapper.</li>
+      <li><b>Superset</b> (free, source-available, 13.9k stars): terminal tabs and splits with persistent sessions, port detection and preview per worktree, scheduled automations, remote workspaces on your own machines with wake commands, a CLI, a TypeScript SDK and an MCP server to drive it, command palette, remappable shortcuts, 24+ agents. Pro at $20/mo adds remote and Linear.</li>
+      <li><b>Everyone</b>: Windows and Linux. We are macOS Apple Silicon only.</li>
     </ul></div>
     <div class="card verify"><h3>To verify before quoting</h3><ul>
       <li>Conductor's current multi-repo behaviour after 0.25.6: still one worktree per workspace with <code>/add-dir</code> linking, or a true multi-repo workspace now? The changelog lists "Multi-repo support within single workspaces".</li>
       <li>Conductor: Jira integration (Linear and GitHub issues are confirmed), local model support, pricing after the free period.</li>
       <li>Cursor: subagent support and worktree-parallel agents in the current release; PR review product ("BugBot") scope and price.</li>
       <li>Codex app: multi-repo, local models, MCP config.</li>
-      <li>Vibe Kanban / Crystal / Nimbalyst / Orca: which are alive, pricing, multi-repo.</li>
+      <li>Vibe Kanban's company shut down in April 2026 (project continues as community open source); Crystal / Nimbalyst: alive? pricing, multi-repo.</li>
+      <li>Orca: is the "agent-to-agent orchestration with task handoff" a crew (models per role) or a queue between sessions? MCP configuration. Whether the iOS simulator needs Xcode.</li>
+      <li>Superset: what the MCP server exposes; whether Linear is the only tracker; Windows date.</li>
     </ul></div>
   </div>
   <div class="note">Edit <code>site/admin/compare.html</code> in the repo to update; data lives in the DATA array at the bottom of the file.</div>
 </main>
 <script>
-var TOOLS = ['Sinfonie','Conductor','Cursor','Claude Code','Codex app','OpenCode','Vibe Kanban','Crystal']
+var TOOLS = ['Sinfonie','Conductor','Cursor','Claude Code','Codex app','OpenCode','Vibe Kanban','Crystal','Orca','Superset']
 var Y='yes',P='partial',N='no',U='?'
 // [feature, ...one cell per tool]; a cell is a value or [value, note]
 var DATA = [
-  ['Isolated worktree per workspace', Y, Y, [P,'worktrees for parallel agents, editor-centric'], [P,'--worktree flag'], [P,'cloud sandbox per task'], [P,'sessions, worktree via config'], Y, Y],
-  ['Multi-repo workspace (one branch, N worktrees)', [Y,'core model'], [P,'link separate workspaces via /add-dir (0.25.6)'], N, [P,'--add-dir extra directories'], N, N, N, N],
-  ['Spaces / per-client contexts', [Y,'repos, Jira, orgs, MCP, accounts, defaults'], N, N, N, N, N, N, N],
-  ['Crew: subagents with different models per role', [Y,'per-member model, effort, tools; live activity'], [U,'single model per session'], [U,'subagents unverified'], [Y,'agents with model per definition'], N, [Y,'agents with own model'], N, N],
-  ['Model providers', [Y,'Claude login; Anthropic/OpenAI/Gemini/DeepSeek/any OpenAI-compatible'], [Y,'Claude, GPT-5.x, Grok; Bedrock/Vertex/custom'], [Y,'multi-model in editor'], [N,'Claude only'], [N,'OpenAI only'], [Y,'75+ providers'], [P,'Claude Code and Codex executors'], [N,'Claude Code']],
-  ['Local / open-weight models', [Y,'Ollama, LM Studio, any /v1'], [U], [N], N, N, Y, N, N],
-  ['Claude subscription login (no API key)', Y, Y, [N,'API billing via Cursor'], Y, N, [P,'own gateway; consumer sub blocked Jan 2026'], Y, Y],
-  ['Review cockpit: org-wide PR queue + AI review + post review', [Y], [P,'reviews the workspace diff with custom review models'], [P,'BugBot on PRs'], [P,'/review in CLI'], [P,'cloud review'], N, N, N],
-  ['GitHub: PR status, checks, review threads, address comments', Y, [Y,'PR create/edit/checkout, CI status, Stacks'], P, P, [Y,'PRs from cloud'], P, P, P],
-  ['Jira integration', [Y,'ticket → workspace, status, Atlassian MCP via OAuth'], [U,'Linear + GitHub issues confirmed'], N, [P,'via Atlassian MCP'], N, [P,'via MCP'], N, N],
-  ['MCP servers per context', [Y,'per space and app-wide, import from Claude Code'], Y, Y, Y, U, Y, U, U],
-  ['Per-repo scripts + port block per workspace', [Y,'sinfonie.json'], [Y,'conductor.json, port forwarding'], N, N, N, N, [P,'setup scripts'], [P,'run scripts']],
-  ['Fork / resume conversations', [Y,'workspace fork with session, resume any session'], [Y,'fork workspaces'], [P,'checkpoints'], Y, U, Y, N, N],
-  ['Cost visibility per model', Y, U, [P,'usage dashboard'], [P,'/cost'], N, Y, N, N],
-  ['Cloud / background execution', N, [Y,'Conductor Cloud, background tasks'], [Y,'cloud agents'], [P,'Claude Code on the web'], [Y,'core model'], N, N, N],
-  ['Multiplayer', N, [P,'early access'], N, N, N, N, N, N],
-  ['Platforms', [P,'macOS arm64, unsigned'], [P,'macOS'], Y, Y, [P,'macOS, Windows'], Y, Y, Y],
-  ['Open source', N, N, N, N, [P,'CLI is open'], Y, Y, Y],
-  ['Price', [P,'free beta, unsigned'], [U,'free tier; paid plans'], [Y,'$20+/mo'], [Y,'subscription'], [Y,'ChatGPT plans'], [Y,'free'], [Y,'free'], [Y,'free']],
+  ['Isolated worktree per workspace', Y, Y, [P,'worktrees for parallel agents, editor-centric'], [P,'--worktree flag'], [P,'cloud sandbox per task'], [P,'sessions, worktree via config'], Y, Y, [Y,'parallel worktrees'], [Y,'worktree per agent']],
+  ['Multi-repo workspace (one branch, N worktrees)', [Y,'core model'], [P,'link separate workspaces via /add-dir (0.25.6)'], N, [P,'--add-dir extra directories'], N, N, N, N, N, N],
+  ['Spaces / per-client contexts', [Y,'repos, Jira, orgs, MCP, accounts, defaults'], N, N, N, N, N, N, N, N, [P,'organizations: remote hosts and members']],
+  ['Crew: subagents with different models per role', [Y,'per-member model, effort, tools; live activity'], [U,'single model per session'], [U,'subagents unverified'], [Y,'agents with model per definition'], N, [Y,'agents with own model'], N, N, [P,'agent-to-agent handoff'], N],
+  ['Model providers', [Y,'Claude login; Anthropic/OpenAI/Gemini/DeepSeek/any OpenAI-compatible'], [Y,'Claude, GPT-5.x, Grok; Bedrock/Vertex/custom'], [Y,'multi-model in editor'], [N,'Claude only'], [N,'OpenAI only'], [Y,'75+ providers'], [P,'Claude Code and Codex executors'], [N,'Claude Code'], [Y,'27 CLI agents: Claude Code, Codex, Gemini, Grok, Cursor, Copilot, OpenCode, Cline…'], [Y,'24+ CLI agents, any terminal agent']],
+  ['Local / open-weight models', [Y,'Ollama, LM Studio, any /v1'], [U], [N], N, N, Y, N, N, [P,'through OpenCode/Cline CLIs'], [P,'through OpenCode']],
+  ['Claude subscription login (no API key)', Y, Y, [N,'API billing via Cursor'], Y, N, [P,'own gateway; consumer sub blocked Jan 2026'], Y, Y, [Y,'runs the claude CLI itself; account switcher'], [Y,'never proxies model calls']],
+  ['Review cockpit: org-wide PR queue + AI review + post review', [Y], [P,'reviews the workspace diff with custom review models'], [P,'BugBot on PRs'], [P,'/review in CLI'], [P,'cloud review'], N, N, N, [P,'annotate diff lines, comments feed back to the agent; PRs in-app'], [P,'diff viewer with inline comments']],
+  ['GitHub: PR status, checks, review threads, address comments', Y, [Y,'PR create/edit/checkout, CI status, Stacks'], P, P, [Y,'PRs from cloud'], P, P, P, [Y,'PRs, issues, project boards in-app'], [P,'commit and push from the diff']],
+  ['Jira integration', [Y,'ticket → workspace, status, Atlassian MCP via OAuth'], [U,'Linear + GitHub issues confirmed'], N, [P,'via Atlassian MCP'], N, [P,'via MCP'], N, N, [Y,'GitHub Issues, Linear, Jira'], [P,'Linear on Pro']],
+  ['MCP servers per context', [Y,'per space and app-wide, import from Claude Code'], Y, Y, Y, U, Y, U, U, U, [P,'Superset itself is an MCP server agents can drive']],
+  ['Per-repo scripts + port block per workspace', [Y,'sinfonie.json'], [Y,'conductor.json, port forwarding'], N, N, N, N, [P,'setup scripts'], [P,'run scripts'], [P,'SSH port forwarding'], [Y,'port detection per workspace, preview per worktree']],
+  ['Fork / resume conversations', [Y,'workspace fork with session, resume any session'], [Y,'fork workspaces'], [P,'checkpoints'], Y, U, Y, N, N, [P,'persistent scrollback'], [Y,'sessions survive restarts']],
+  ['Cost visibility per model', Y, U, [P,'usage dashboard'], [P,'/cost'], N, Y, N, N, [Y,'live usage meters for Claude and Codex'], N],
+  ['Cloud / background execution', N, [Y,'Conductor Cloud, background tasks'], [Y,'cloud agents'], [P,'Claude Code on the web'], [Y,'core model'], N, N, N, [Y,'SSH worktrees on remote machines, auto-reconnect'], [Y,'remote workspaces on your own machines, wake commands']],
+  ['Multiplayer', N, [P,'early access'], N, N, N, N, N, N, N, [P,'org members share remote hosts']],
+  ['Platforms', [P,'macOS arm64, unsigned'], [P,'macOS'], Y, Y, [P,'macOS, Windows'], Y, Y, Y, [Y,'macOS (arm64 + Intel), Windows, Linux, iOS, Android'], [P,'macOS; Windows and iOS announced']],
+  ['Open source', N, N, N, N, [P,'CLI is open'], Y, Y, Y, [Y,'MIT'], [P,'source-available, Elastic 2.0']],
+  ['Runs the vendor CLI itself (no harness in between)', [Y,'Agent CLI in the Terminal tab; chats use the Agent SDK'], [P,'own harness; terminal available'], N, Y, [P,'app wraps the CLI'], Y, [P,'spawns CLIs headless'], [P,'spawns claude'], [Y,'the whole model'], [Y,'the whole model']],
+  ['Terminal: splits, persistence', [P,'tabs, root shell, find, links; no splits'], [P,'terminal per workspace'], Y, N, N, Y, N, N, [Y,'WebGL, infinite splits, persistent scrollback'], [Y,'tabs, splits, presets, sessions survive restarts']],
+  ['Built-in editor', [P,'read-only viewer with syntax colours'], [P,'diff and file view'], [Y,'it is the editor'], N, [P,'diff view'], N, N, N, [Y,'VS Code editor, drag files to agents'], N],
+  ['Browser / design tools for the agent', [Y,'agent-drivable browser per workspace'], N, [Y,'browser tool'], N, N, N, N, N, [Y,'Chromium per worktree, element picker, draw on screenshot, iOS simulator'], [P,'browser pane for the dev server']],
+  ['Scheduled agent runs (automations)', [P,'on-call agent only'], [P,'background tasks'], N, [P,'Routines on the web'], N, N, N, N, [Y,'cron-style automations'], [Y,'triage overnight, weekly changelog, dependency bumps']],
+  ['Mobile companion', [Y,'phone app and web fallback'], [P,'coming soon'], N, [P,'Claude app'], [P,'ChatGPT app'], N, N, N, [Y,'iOS and Android'], [P,'phone through remote access; iOS app announced']],
+  ['CLI / SDK / MCP to drive the app itself', N, [Y,'Conductor API on Pro'], N, N, N, N, N, N, [Y,'Orca CLI'], [Y,'CLI, TypeScript SDK, MCP server']],
+  ['Voice dictation', N, N, N, N, N, N, N, N, [Y,'on-device models'], N],
+  ['Price', [P,'free beta, unsigned'], [U,'free tier; paid plans'], [Y,'$20+/mo'], [Y,'subscription'], [Y,'ChatGPT plans'], [Y,'free'], [Y,'free'], [Y,'free'], [Y,'free'], [Y,'free; Pro $20/mo for remote workspaces and Linear']],
 ]
 var t = document.getElementById('m')
 t.innerHTML = '<thead><tr><th>Feature</th>' + TOOLS.map(function(n,i){ return '<th class="'+(i===0?'us':'')+'">'+n+'</th>' }).join('') + '</tr></thead><tbody>' +

@@ -242,7 +242,9 @@ export interface SinfonieInvoke {
   'notes:remove': (workspaceId: string, id: string) => Note[]
 
   /** A shell in the repo's worktree, or at the workspace root when repoId is null. */
-  'terminal:create': (workspaceId: string, repoId: string | null, cols?: number, rows?: number) => string
+  'terminal:create': (workspaceId: string, repoId: string | null, cols?: number, rows?: number, agent?: Engine) => string
+  /** Engines whose interactive CLI can be opened in a workspace terminal (a signed-in account exists). */
+  'terminal:clis': () => Engine[]
   'terminal:write': (terminalId: string, data: string) => void
   'terminal:resize': (terminalId: string, cols: number, rows: number) => void
   'terminal:dispose': (terminalId: string) => void

@@ -8,6 +8,9 @@ import { ChevronDown, ExternalLink, Plus, Search, X } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { Button } from './ui'
+import { ACP_ENGINES, type Engine } from '@shared/types'
+
+const CLI_LABELS: Record<string, string> = { 'claude-code': 'Claude Code', ...Object.fromEntries(ACP_ENGINES.map((e) => [e.id, e.label.replace(/ \(.*\)$/, '')])) }
 
 /**
  * Shells for a workspace. Each shell is an xterm instance plus a pty in the main process; both
@@ -21,12 +24,16 @@ interface Shell {
   workspaceId: string
   /** null: the workspace root, where all worktrees sit side by side. */
   repoId: string | null
+  /** Set when the pty runs a vendor CLI (claude, codex, …) instead of a plain shell. */
+  agent?: Engine
   label: string
   container: HTMLDivElement
   term: Terminal
   fit: FitAddon
   search: SearchAddon
   terminalId: string | null
+  /** xterm's open() ran (it must run exactly once, in a visible element). */
+  opened: boolean
   exited: boolean
   unsub: () => void
 }
@@ -40,7 +47,7 @@ function shellsOf(workspaceId: string): Shell[] {
   return [...shells.values()].filter((s) => s.workspaceId === workspaceId)
 }
 
-function spawnShell(workspaceId: string, repoId: string | null, label: string): Shell {
+function spawnShell(workspaceId: string, repoId: string | null, label: string, agent?: Engine): Shell {
   const container = document.createElement('div')
   container.className = 'h-full w-full'
   const term = new Terminal({
@@ -76,7 +83,7 @@ function spawnShell(workspaceId: string, repoId: string | null, label: string): 
     return true
   })
   const id = `sh${++counter}`
-  const shell: Shell = { id, workspaceId, repoId, label, container, term, fit, search, terminalId: null, exited: false, unsub: () => undefined }
+  const shell: Shell = { id, workspaceId, repoId, agent, label, container, term, fit, search, terminalId: null, opened: false, exited: false, unsub: () => undefined }
   shells.set(id, shell)
   term.onData((d) => {
     if (shell.exited) return closeShell(id)
@@ -91,7 +98,7 @@ function spawnShell(workspaceId: string, repoId: string | null, label: string): 
 async function ensurePty(shell: Shell): Promise<void> {
   if (shell.terminalId || shell.exited) return
   shell.terminalId = 'starting'
-  const terminalId = await api.invoke('terminal:create', shell.workspaceId, shell.repoId, shell.term.cols, shell.term.rows).catch((err) => {
+  const terminalId = await api.invoke('terminal:create', shell.workspaceId, shell.repoId, shell.term.cols, shell.term.rows, shell.agent).catch((err) => {
     shell.terminalId = null
     shell.term.write(`\r\n\x1b[31m${err instanceof Error ? err.message : String(err)}\x1b[0m\r\n`)
     return null
@@ -141,17 +148,31 @@ export function TerminalPane({ workspaceId, visible }: { workspaceId: string; vi
   const ready = ws?.status === 'ready'
   const active = list.find((s) => s.id === activeId) ?? list[list.length - 1] ?? null
 
+  const [clis, setClis] = useState<Engine[]>([])
+  useEffect(() => {
+    if (menu) void api.invoke('terminal:clis').then(setClis).catch(() => setClis([]))
+  }, [menu])
   const open = useCallback(
-    async (repoId: string | null) => {
+    async (repoId: string | null, agent?: Engine) => {
       if (!ws) return
-      const name = repoId ? (ws.repos.find((r) => r.repoId === repoId)?.repoName ?? 'shell') : ws.name
-      const n = shellsOf(workspaceId).filter((s) => s.repoId === repoId).length
-      const s = spawnShell(workspaceId, repoId, n ? `${name} ${n + 1}` : name)
+      const repoName = repoId ? (ws.repos.find((r) => r.repoId === repoId)?.repoName ?? 'shell') : ws.name
+      const name = agent ? `${CLI_LABELS[agent] ?? agent} · ${repoName}` : repoName
+      const n = shellsOf(workspaceId).filter((s) => s.repoId === repoId && s.agent === agent).length
+      const s = spawnShell(workspaceId, repoId, n ? `${name} ${n + 1}` : name, agent)
       setActiveId(s.id)
       setMenu(false)
     },
     [ws, workspaceId]
   )
+  // Another part of the app asked for a CLI here (the workspace menu): open it once the pane is up.
+  const pendingShell = useApp((s) => s.pendingShell)
+  const setPendingShell = useApp((s) => s.setPendingShell)
+  useEffect(() => {
+    if (!pendingShell || pendingShell.workspaceId !== workspaceId || !ready) return
+    setPendingShell(null)
+    void open(pendingShell.repoId ?? ws?.primaryRepoId ?? null, pendingShell.agent)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingShell, ready])
   // First visit: one shell in the primary repo, so the tab is never empty (guarded: effects can run twice).
   useEffect(() => {
     if (!visible || !ready || !ws || shellsOf(workspaceId).length > 0 || opening.has(workspaceId)) return
@@ -176,21 +197,34 @@ export function TerminalPane({ workspaceId, visible }: { workspaceId: string; vi
           </div>
         ))}
         <div className="relative">
-          <Button size="sm" variant="ghost" onClick={() => (ws.repos.length > 1 ? setMenu((m) => !m) : void open(ws.primaryRepoId))} title="New shell">
+          <Button size="sm" variant="ghost" onClick={() => setMenu((m) => !m)} title="New shell or agent CLI">
             <Plus size={13} />
-            {ws.repos.length > 1 && <ChevronDown size={11} />}
+            <ChevronDown size={11} />
           </Button>
           {menu && (
-            <div className="absolute left-0 top-full z-20 mt-1 min-w-[180px] rounded-md border border-border bg-panel p-1 shadow-xl">
+            <div className="absolute left-0 top-full z-20 mt-1 min-w-[220px] rounded-md border border-border bg-panel p-1 shadow-xl" onMouseLeave={() => setMenu(false)}>
+              <div className="px-2 pb-0.5 pt-1 text-[10px] font-semibold uppercase tracking-wide text-muted">Shell</div>
               {ws.repos.map((r) => (
                 <button key={r.repoId} onClick={() => void open(r.repoId)} className="block w-full rounded px-2 py-1 text-left text-[12px] hover:bg-panel-2">
                   {r.repoName}
                 </button>
               ))}
-              <div className="my-1 border-t border-border" />
               <button onClick={() => void open(null)} className="block w-full rounded px-2 py-1 text-left text-[12px] hover:bg-panel-2">
                 Workspace root
               </button>
+              <div className="my-1 border-t border-border" />
+              <div className="px-2 pb-0.5 pt-1 text-[10px] font-semibold uppercase tracking-wide text-muted" title="The vendor's own CLI, interactive, on this workspace's account. No harness in between.">
+                Agent CLI
+              </div>
+              {clis.length === 0 && <div className="px-2 py-1 text-[11px] text-muted">Sign in to a vendor under Settings → Accounts.</div>}
+              {clis.map((e) =>
+                ws.repos.map((r) => (
+                  <button key={`${e}:${r.repoId}`} onClick={() => void open(r.repoId, e)} className="block w-full rounded px-2 py-1 text-left text-[12px] hover:bg-panel-2" title={e === 'claude-code' && ws.repos.length > 1 ? 'Runs claude in this worktree with the other worktrees added (--add-dir)' : undefined}>
+                    {CLI_LABELS[e] ?? e}
+                    {ws.repos.length > 1 && <span className="text-muted"> · {r.repoName}</span>}
+                  </button>
+                ))
+              )}
             </div>
           )}
         </div>
@@ -217,17 +251,19 @@ function Mount({ shell, visible, onFind }: { shell: Shell; visible: boolean; onF
     const host = ref.current
     if (!host) return
     host.appendChild(shell.container)
-    let opened = shell.term.element !== undefined
     const settle = (): void => {
       if (!visible || host.clientWidth === 0) return
-      if (!opened) {
+      if (!shell.opened) {
         shell.term.open(shell.container)
-        opened = true
+        shell.opened = true
       }
       shell.fit.fit()
       void ensurePty(shell)
       shell.term.focus()
     }
+    // Layout exists once the effect runs, so settle now; rAF and ResizeObserver are paused while the
+    // window is occluded, so they alone would leave the pane blank until the window is uncovered.
+    settle()
     const raf = requestAnimationFrame(settle)
     const ro = new ResizeObserver(() => settle())
     ro.observe(host)

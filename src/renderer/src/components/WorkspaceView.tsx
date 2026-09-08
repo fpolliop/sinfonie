@@ -189,6 +189,15 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
               <MenuItem icon={<Code2 size={14} />} label="Open in VS Code" onClick={() => run(() => api.invoke('workspaces:openIn', ws.id, 'vscode'))} />
               <MenuItem icon={<Code2 size={14} />} label="Open in Cursor" onClick={() => run(() => api.invoke('workspaces:openIn', ws.id, 'cursor'))} />
               <MenuItem icon={<TerminalSquare size={14} />} label="Open in Terminal" onClick={() => run(() => api.invoke('workspaces:openIn', ws.id, 'terminal'))} />
+              <MenuItem
+                icon={<TerminalSquare size={14} />}
+                label="Claude Code CLI in Terminal tab"
+                onClick={() => {
+                  useApp.getState().setPendingShell({ workspaceId: ws.id, repoId: ws.primaryRepoId, agent: 'claude-code' })
+                  setTab('terminal')
+                }}
+                disabled={ws.status !== 'ready'}
+              />
               <div className="my-1 border-t border-border" />
               <MenuItem icon={<Folder size={14} />} label="Manage repositories…" onClick={() => setReposDlg(true)} disabled={ws.status !== 'ready'} />
               <MenuItem icon={<Pencil size={14} />} label="Rename workspace" onClick={() => setEditingTitle(true)} />
