@@ -792,16 +792,20 @@ export function registerIpc(): void {
   handle('agent:setMode', (id, mode) => agent.setMode(id, mode))
 
   // ---- terminal ----
-  handle('terminal:create', (id, repoId) => {
+  handle('terminal:create', (id, repoId, cols, rows) => {
     const ws = workspaces.getWorkspace(id)
-    const wr = ws.repos.find((r) => r.repoId === repoId)
-    if (!wr) throw new Error('Repo not in workspace')
-    const repo = workspaces.getRepo(repoId)
+    // No repo: a shell at the workspace root, where every worktree sits side by side.
+    const wr = repoId ? ws.repos.find((r) => r.repoId === repoId) : undefined
+    if (repoId && !wr) throw new Error('Repo not in workspace')
+    const repo = workspaces.getRepo(wr?.repoId ?? ws.primaryRepoId)
+    const cwd = wr?.worktreePath ?? ws.rootPath
     return terminal.createTerminal(
-      wr.worktreePath,
-      workspaceEnv(ws, repo, wr.worktreePath),
+      cwd,
+      workspaceEnv(ws, repo, cwd),
       (terminalId, data) => send('terminal:data', { terminalId, data }),
-      (terminalId, exitCode) => send('terminal:exit', { terminalId, exitCode })
+      (terminalId, exitCode) => send('terminal:exit', { terminalId, exitCode }),
+      undefined,
+      cols && rows ? { cols, rows } : undefined
     )
   })
   handle('terminal:write', (tid, data) => terminal.writeTerminal(tid, data))

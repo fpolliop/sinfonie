@@ -241,7 +241,8 @@ export interface SinfonieInvoke {
   'notes:update': (workspaceId: string, id: string, patch: Partial<Pick<Note, 'text' | 'done' | 'kind'>>) => Note[]
   'notes:remove': (workspaceId: string, id: string) => Note[]
 
-  'terminal:create': (workspaceId: string, repoId: string) => string
+  /** A shell in the repo's worktree, or at the workspace root when repoId is null. */
+  'terminal:create': (workspaceId: string, repoId: string | null, cols?: number, rows?: number) => string
   'terminal:write': (terminalId: string, data: string) => void
   'terminal:resize': (terminalId: string, cols: number, rows: number) => void
   'terminal:dispose': (terminalId: string) => void

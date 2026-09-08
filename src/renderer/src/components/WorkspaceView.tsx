@@ -235,7 +235,7 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
         <div className={clsx('h-full', tab !== 'changes' && 'hidden')}>{tab === 'changes' && <ChangesPane workspaceId={ws.id} />}</div>
         <div className={clsx('h-full', tab !== 'prs' && 'hidden')}>{tab === 'prs' && <PrsPane workspaceId={ws.id} />}</div>
         <div className={clsx('h-full', tab !== 'terminal' && 'hidden')}>
-          <TerminalPane workspaceId={ws.id} visible={tab === 'terminal'} />
+          {tab === 'terminal' && <TerminalPane workspaceId={ws.id} visible />}
         </div>
         <div className={clsx('h-full', tab !== 'run' && 'hidden')}>
           <RunPane workspaceId={ws.id} />
