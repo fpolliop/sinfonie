@@ -12,7 +12,6 @@ import { useGithub } from '@/stores/github'
 import { useApp, type Tab } from '@/stores/app'
 import { api } from '@/lib/api'
 import { ChatPane } from './ChatPane'
-import { ChangesPane } from './ChangesPane'
 import { TerminalPane } from './TerminalPane'
 import { RunPane } from './RunPane'
 import { PrsPane } from './PrsPane'
@@ -223,9 +222,8 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
         <div className={clsx('h-full', tab !== 'chat' && 'hidden')}>
           <ChatPane workspaceId={ws.id} />
         </div>
-        <div className={clsx('h-full', tab !== 'files' && 'hidden')}>{tab === 'files' && <FilesPane workspaceId={ws.id} />}</div>
+        <div className={clsx('h-full', tab !== 'code' && 'hidden')}>{tab === 'code' && <FilesPane workspaceId={ws.id} />}</div>
         <div className={clsx('h-full', tab !== 'data' && 'hidden')}>{tab === 'data' && <DataPane workspaceId={ws.id} />}</div>
-        <div className={clsx('h-full', tab !== 'changes' && 'hidden')}>{tab === 'changes' && <ChangesPane workspaceId={ws.id} />}</div>
         <div className={clsx('h-full', tab !== 'prs' && 'hidden')}>{tab === 'prs' && <PrsPane workspaceId={ws.id} />}</div>
         <div className={clsx('h-full', tab !== 'terminal' && 'hidden')}>
           {tab === 'terminal' && <TerminalPane workspaceId={ws.id} visible />}

@@ -236,6 +236,16 @@ function AppPageView({ page }: { page: AppPage }): React.JSX.Element {
           </label>
             </>
           )}
+          <Field label="Inline suggestions in the editor" hint="Ghost text while you type in the Code tab, written by a small fast model from Model providers (a local model works). Tab accepts, Esc dismisses. The sparkle button in the editor toggles it too.">
+            <div className="flex items-center gap-2">
+              <label className="flex shrink-0 items-center gap-2 text-[13px]">
+                <input type="checkbox" checked={Boolean(settings.completions?.enabled)} onChange={(e) => go(() => update({ completions: { ...(settings.completions ?? {}), enabled: e.target.checked } }))} /> On
+              </label>
+              <div className="min-w-0 flex-1">
+                <NativeModelSelect value={settings.completions?.model ?? ''} onChange={(model) => go(() => update({ completions: { enabled: settings.completions?.enabled ?? true, model } }))} />
+              </div>
+            </div>
+          </Field>
           <Field label="Permission mode" hint="Each chat can still switch its own mode from the composer or with Shift+Tab.">
             <select className={inputCls} value={settings.permissionMode} onChange={(e) => go(() => update({ permissionMode: e.target.value as typeof settings.permissionMode }))}>
               {PERMISSION_MODES.map((m) => (

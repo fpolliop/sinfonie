@@ -49,6 +49,7 @@ import * as browserHttp from './services/browser/http'
 import * as workspaceTools from './services/workspace-tools'
 import { saveImages } from './services/images'
 import * as files from './services/files'
+import * as completions from './services/completions'
 import * as slack from './services/slack'
 import * as oncall from './services/oncall/service'
 import * as gcp from './services/gcp'
@@ -690,6 +691,15 @@ export function registerIpc(): void {
   // ---- files ----
   handle('fs:list', (id, dir, hidden) => files.list(id, dir, hidden))
   handle('fs:read', (id, p) => files.read(id, p))
+  handle('fs:write', (id, p, text, expected) => files.write(id, p, text, expected))
+  handle('git:show', async (id, repoId, p) => {
+    const ws = workspaces.getWorkspace(id)
+    const wr = ws.repos.find((r) => r.repoId === repoId)
+    if (!wr) throw new Error('Repo not in workspace')
+    return git.showHead(wr.worktreePath, p)
+  })
+  handle('completions:suggest', (req) => completions.suggest(req))
+  handle('completions:cancel', (id) => completions.cancel(id))
   handle('fs:reveal', (id, p) => files.reveal(id, p))
   handle('fs:open', (id, p) => files.open(id, p))
 

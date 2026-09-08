@@ -2,8 +2,9 @@
  * Read-only file browsing for the workspace Files tab, confined to the workspace's worktrees
  * (and its own folder for repository-less workspaces).
  */
-import { readdirSync, statSync, readFileSync, openSync, readSync, closeSync } from 'fs'
+import { readdirSync, statSync, readFileSync, openSync, readSync, closeSync, existsSync, writeFileSync } from 'fs'
 import { isAbsolute, join, relative, resolve } from 'path'
+import { createHash } from 'crypto'
 import { shell } from 'electron'
 import { getWorkspace } from './workspaces'
 import type { FsEntry } from '@shared/types'
@@ -42,20 +43,32 @@ export function list(workspaceId: string, dir: string, showHidden = false): FsEn
 }
 
 const MAX = 512 * 1024
-export function read(workspaceId: string, path: string): { text: string; truncated: boolean; binary: boolean; size: number } {
+const hashOf = (buf: Buffer | string): string => createHash('sha1').update(buf).digest('hex')
+export function read(workspaceId: string, path: string): { text: string; truncated: boolean; binary: boolean; size: number; hash: string } {
   const abs = confine(workspaceId, path)
   const size = statSync(abs).size
   const fd = openSync(abs, 'r')
   try {
     const head = Buffer.alloc(Math.min(8000, size))
     readSync(fd, head, 0, head.length, 0)
-    if (head.includes(0)) return { text: '', truncated: false, binary: true, size }
+    if (head.includes(0)) return { text: '', truncated: false, binary: true, size, hash: '' }
   } finally {
     closeSync(fd)
   }
   const buf = readFileSync(abs)
   const slice = buf.subarray(0, MAX)
-  return { text: slice.toString('utf8'), truncated: buf.length > MAX, binary: false, size }
+  return { text: slice.toString('utf8'), truncated: buf.length > MAX, binary: false, size, hash: hashOf(buf) }
+}
+
+/**
+ * Saves an edit from the Files tab. `expectedHash` is what the editor loaded; when the file changed
+ * underneath (an agent, another editor), the save is refused so nothing is silently overwritten.
+ */
+export function write(workspaceId: string, path: string, text: string, expectedHash?: string): { hash: string } {
+  const abs = confine(workspaceId, path)
+  if (expectedHash && existsSync(abs) && hashOf(readFileSync(abs)) !== expectedHash) throw new Error('This file changed on disk since you opened it. Reload it, then apply your edit again.')
+  writeFileSync(abs, text)
+  return { hash: hashOf(text) }
 }
 
 export function reveal(workspaceId: string, path: string): void {

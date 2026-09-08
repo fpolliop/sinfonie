@@ -1,8 +1,11 @@
 import React, { useEffect, useRef } from 'react'
 import { EditorView, drawSelection, highlightActiveLine, highlightActiveLineGutter, highlightSpecialChars, keymap, lineNumbers } from '@codemirror/view'
 import { Compartment, EditorState, type Extension } from '@codemirror/state'
-import { defaultKeymap } from '@codemirror/commands'
-import { HighlightStyle, LanguageDescription, type LanguageSupport, type TagStyle, bracketMatching, defaultHighlightStyle, foldGutter, foldKeymap, syntaxHighlighting } from '@codemirror/language'
+import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
+import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete'
+import { ghostText } from '@/lib/ghost'
+import { changeGutter, setChangeBase } from '@/lib/changeGutter'
+import { HighlightStyle, LanguageDescription, type LanguageSupport, type TagStyle, bracketMatching, defaultHighlightStyle, foldGutter, foldKeymap, indentOnInput, syntaxHighlighting } from '@codemirror/language'
 import { languages } from '@codemirror/language-data'
 
 type Tag = Exclude<TagStyle['tag'], readonly unknown[]>
@@ -72,29 +75,68 @@ const loadLanguage = (desc: LanguageDescription): Promise<LanguageSupport> => {
   return p
 }
 
-/** Read-only CodeMirror viewer: line numbers, folding, and syntax colours picked from the file name. */
-export function CodeView({ text, filename }: { text: string; filename: string }): React.JSX.Element {
+export interface CodeViewProps {
+  text: string
+  filename: string
+  /** Typing edits the document; `onChange` receives the full text after each change. */
+  editable?: boolean
+  onChange?: (text: string) => void
+  /** ⌘S. */
+  onSave?: () => void
+  /** Inline suggestions: asked with the text before and after the cursor, when `suggestionsOn`. */
+  suggest?: (prefix: string, suffix: string) => Promise<string>
+  suggestionsOn?: boolean
+  /** The committed text; when given, the gutter shows added, modified and deleted lines against it. */
+  baseText?: string | null
+}
+
+/** CodeMirror view: line numbers, folding, syntax colours from the file name; optionally editable with ghost-text suggestions and IntelliJ-style change markers. */
+export function CodeView({ text, filename, editable = false, onChange, onSave, suggest, suggestionsOn = false, baseText = null }: CodeViewProps): React.JSX.Element {
   const host = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
   const langConf = useRef(new Compartment())
+  const editConf = useRef(new Compartment())
   const langExt = useRef<Extension>([])
+  const latest = useRef({ onChange, onSave, suggest, suggestionsOn, baseText })
+  latest.current = { onChange, onSave, suggest, suggestionsOn, baseText }
+  const baseTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const refreshMarkers = (view: EditorView): void => {
+    if (baseTimer.current) clearTimeout(baseTimer.current)
+    baseTimer.current = setTimeout(() => setChangeBase(view, latest.current.baseText), 150)
+  }
 
   useEffect(() => {
     if (!host.current || viewRef.current) return
-    viewRef.current = new EditorView({
+    const view = new EditorView({
       state: EditorState.create({
         doc: text,
         extensions: [
-          EditorState.readOnly.of(true),
-          EditorView.editable.of(false),
+          editConf.current.of([EditorState.readOnly.of(!editable), EditorView.editable.of(editable)]),
           lineNumbers(),
+          changeGutter(),
           foldGutter(),
+          history(),
           highlightSpecialChars(),
           drawSelection(),
           highlightActiveLine(),
           highlightActiveLineGutter(),
           bracketMatching(),
-          keymap.of([...defaultKeymap, ...foldKeymap]),
+          closeBrackets(),
+          indentOnInput(),
+          ghostText({ fetch: (p, sfx) => latest.current.suggest?.(p, sfx) ?? Promise.resolve(''), enabled: () => Boolean(latest.current.suggestionsOn && latest.current.suggest) }),
+          keymap.of([
+            { key: 'Mod-s', run: () => (latest.current.onSave?.(), true) },
+            indentWithTab,
+            ...closeBracketsKeymap,
+            ...defaultKeymap,
+            ...historyKeymap,
+            ...foldKeymap
+          ]),
+          EditorView.updateListener.of((u) => {
+            if (!u.docChanged) return
+            latest.current.onChange?.(u.state.doc.toString())
+            refreshMarkers(u.view)
+          }),
           langConf.current.of(langExt.current),
           syntaxHighlighting(appHighlightStyle),
           theme
@@ -102,8 +144,10 @@ export function CodeView({ text, filename }: { text: string; filename: string })
       }),
       parent: host.current
     })
+    viewRef.current = view
+    setChangeBase(view, baseText)
     return () => {
-      viewRef.current?.destroy()
+      view.destroy()
       viewRef.current = null
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -113,7 +157,16 @@ export function CodeView({ text, filename }: { text: string; filename: string })
     if (!v || v.state.doc.toString() === text) return
     v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: text }, selection: { anchor: 0 } })
     v.scrollDOM.scrollTop = 0
-  }, [text])
+    setChangeBase(v, baseText)
+  }, [text]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    viewRef.current?.dispatch({ effects: editConf.current.reconfigure([EditorState.readOnly.of(!editable), EditorView.editable.of(editable)]) })
+  }, [editable])
+
+  useEffect(() => {
+    if (viewRef.current) setChangeBase(viewRef.current, baseText)
+  }, [baseText])
 
   useEffect(() => {
     const desc = LanguageDescription.matchFilename(languages, filename)
