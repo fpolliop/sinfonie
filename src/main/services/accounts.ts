@@ -132,6 +132,12 @@ export async function checkAccount(id: string): Promise<Settings> {
       a.detail = detail
       a.checkedAt = new Date().toISOString()
     }
+    // Nobody picked an engine yet and this is the first vendor that turns out to be signed in:
+    // follow it, so an OpenAI- or xAI-only user is not routed to Claude by default.
+    if (loggedIn && !d.settings.engine) {
+      const anthropicIn = d.settings.claudeAccounts.some((x) => (x.vendor ?? 'anthropic') === 'anthropic' && x.loggedIn)
+      if (!anthropicIn) d.settings.engine = VENDORS.find((v) => v.id === vendor)!.engine
+    }
   }).settings
 }
 
