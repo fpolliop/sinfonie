@@ -4,6 +4,7 @@
  * native UI, slash commands, hooks and plugins, on the same account and permission mode the workspace
  * uses for its chats. Some people prefer that to a wrapper; Orca and Superset only work this way.
  */
+import { existsSync } from 'fs'
 import { getStore } from '../store'
 import { accountForEngine, envForAccount } from './accounts'
 import { claudeBinary } from './claude-cli'
@@ -12,12 +13,16 @@ import type { Engine, Workspace } from '@shared/types'
 
 const q = (s: string): string => `'${s.replace(/'/g, `'\\''`)}'`
 
-/** Which CLIs can be opened: an engine is listed when a signed-in account exists for its vendor. */
+/**
+ * Which CLIs can be opened: an engine is listed when an account exists for its vendor that is not
+ * known to be signed out (unchecked accounts count: the CLI shows its own login screen if it must).
+ * Claude Code is always offered when the claude binary is installed, as with the default account.
+ */
 export function availableClis(): Engine[] {
   const accounts = getStore().get().settings.claudeAccounts
-  const has = (vendor: string): boolean => accounts.some((a) => (a.vendor ?? 'anthropic') === vendor && a.loggedIn)
+  const has = (vendor: string): boolean => accounts.some((a) => (a.vendor ?? 'anthropic') === vendor && a.loggedIn !== false)
   const out: Engine[] = []
-  if (has('anthropic')) out.push('claude-code')
+  if (has('anthropic') || existsSync(claudeBinary())) out.push('claude-code')
   if (has('openai')) out.push('codex')
   if (has('google') || apiKeyForKind('google')) out.push('gemini')
   if (has('xai')) out.push('grok')
