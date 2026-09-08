@@ -44,3 +44,55 @@ export function parseUnifiedDiff(raw: string): DiffFile[] {
   }
   return files
 }
+
+/** One row of the side-by-side view: a hunk/meta line spanning both sides, or an old/new pair (either side may be empty padding). */
+export interface SplitRow {
+  kind: 'pair' | 'hunk' | 'meta'
+  text?: string
+  left?: DiffLine
+  right?: DiffLine
+}
+
+/** Pairs removals with additions in order within each change block; the shorter side is padded with empty rows. */
+export function toSplitRows(file: DiffFile): SplitRow[] {
+  const rows: SplitRow[] = []
+  let dels: DiffLine[] = []
+  let adds: DiffLine[] = []
+  const flush = (): void => {
+    const n = Math.max(dels.length, adds.length)
+    for (let i = 0; i < n; i++) rows.push({ kind: 'pair', left: dels[i], right: adds[i] })
+    dels = []
+    adds = []
+  }
+  for (const l of file.lines) {
+    if (l.kind === 'del') dels.push(l)
+    else if (l.kind === 'add') adds.push(l)
+    else {
+      flush()
+      if (l.kind === 'ctx') rows.push({ kind: 'pair', left: l, right: l })
+      else rows.push({ kind: l.kind, text: l.text })
+    }
+  }
+  flush()
+  return rows
+}
+
+/** Where the changes sit in the new file: added/modified line numbers, and the new line numbers before which something was removed. */
+export function changedNewLines(file: DiffFile): { added: Set<number>; deletedBefore: Set<number> } {
+  const added = new Set<number>()
+  const deletedBefore = new Set<number>()
+  let nextNew = 1
+  for (const l of file.lines) {
+    if (l.kind === 'hunk') {
+      const m = /\+(\d+)/.exec(l.text)
+      if (m) nextNew = Number(m[1])
+    } else if (l.kind === 'add' || l.kind === 'ctx') {
+      const no = l.newNo ?? nextNew
+      if (l.kind === 'add') added.add(no)
+      nextNew = no + 1
+    } else if (l.kind === 'del') {
+      deletedBefore.add(nextNew)
+    }
+  }
+  return { added, deletedBefore }
+}

@@ -92,6 +92,7 @@
     "@codemirror/lang-json": "^6.0.2",
     "@codemirror/lang-sql": "^6.10.0",
     "@codemirror/language": "^6.12.4",
+    "@codemirror/language-data": "^6",
     "@codemirror/state": "^6.7.4",
     "@codemirror/view": "^6.43.11",
     "@google-cloud/cloud-sql-connector": "^1.12.0",

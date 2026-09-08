@@ -1,9 +1,9 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { RefreshCw, ExternalLink, Square, Trash2, Send, CheckSquare, Sparkles, ChevronRight, ArrowDownWideNarrow, ArrowUpNarrowWide, Filter } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
-import { useReviews, keyOf, STATUS_FILTERS, type StatusFilter } from '@/stores/reviews'
+import { useReviews, keyOf, isRunBusy, STATUS_FILTERS, type StatusFilter } from '@/stores/reviews'
 import { AccountPicker } from './AccountPicker'
 import { Badge, Button, Spinner, inputCls } from './ui'
 import { timeAgo } from '@/lib/format'
@@ -11,7 +11,7 @@ import type { ReviewFinding, ReviewPr, ReviewRun, ReviewSeverity, ReviewVerdict 
 
 
 export function ReviewCockpit(): React.JSX.Element {
-  const { owners, repos: spaceRepos, mode, prs, runs, selectedKey, loadingOrgs, loadingPrs, error, init, useSpace, setMode, refreshPrs, select, repoFilter, statusFilter, sortDir, setRepoFilter, setStatusFilter, setSortDir } = useReviews()
+  const { owners, repos: spaceRepos, mode, prs, runs, selectedKey, loadingOrgs, loadingPrs, error, init, useSpace, setMode, refreshPrs, select, repoFilter, statusFilter, sortDir, setRepoFilter, setStatusFilter, setSortDir, checked, batchQueue, batchRunning, toggleChecked, setChecked, clearChecked, startReview, startBatch } = useReviews()
   const defaultAccount = useApp((s) => s.settings.defaultClaudeAccountId)
   const spaces = useApp((s) => s.spaces)
   const activeSpaceId = useApp((s) => s.activeSpaceId)
@@ -89,12 +89,60 @@ export function ReviewCockpit(): React.JSX.Element {
 
   const start = async (pr: ReviewPr): Promise<void> => {
     try {
-      await api.invoke('reviews:start', pr, accountId)
+      await startReview(pr, accountId)
       select(keyOf(pr))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
   }
+
+  // ---- multi-select for bulk reviews ----
+  // Keys in display order (grouped by repository), so Shift+click ranges follow what the eye sees.
+  const visibleKeys = useMemo(() => grouped.flatMap(([, list]) => list.map(keyOf)), [grouped])
+  const checkedSet = useMemo(() => new Set(checked), [checked])
+  const checkedVisible = useMemo(() => visibleKeys.filter((k) => checkedSet.has(k)), [visibleKeys, checkedSet])
+  const anyChecked = checked.length > 0
+  const allVisibleChecked = visibleKeys.length > 0 && checkedVisible.length === visibleKeys.length
+  const selectAllRef = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    if (selectAllRef.current) selectAllRef.current.indeterminate = checkedVisible.length > 0 && !allVisibleChecked
+  }, [checkedVisible.length, allVisibleChecked])
+  const anchorRef = useRef<string | null>(null)
+  const onCheck = (k: string, shift: boolean): void => {
+    const anchor = anchorRef.current
+    const from = anchor ? visibleKeys.indexOf(anchor) : -1
+    const to = visibleKeys.indexOf(k)
+    if (shift && anchor && from >= 0 && to >= 0) {
+      // Shift+click applies the anchor's state to the whole range.
+      const range = visibleKeys.slice(Math.min(from, to), Math.max(from, to) + 1)
+      setChecked(checkedSet.has(anchor) ? [...checked, ...range] : checked.filter((c) => !range.includes(c)))
+    } else {
+      toggleChecked(k)
+    }
+    anchorRef.current = k
+  }
+  const selectAllVisible = (): void => setChecked([...checked, ...visibleKeys])
+  const toggleAllVisible = (): void => (allVisibleChecked ? setChecked(checked.filter((c) => !visibleKeys.includes(c))) : selectAllVisible())
+  const inFlight = batchQueue.length + batchRunning.length
+  // What "Review N PRs" would launch: ticked PRs that are neither busy nor already queued.
+  const queuedKeys = useMemo(() => new Set([...batchQueue.map(keyOf), ...batchRunning]), [batchQueue, batchRunning])
+  const startable = useMemo(() => prs.filter((p) => checkedSet.has(keyOf(p)) && !isRunBusy(runs[keyOf(p)]) && !queuedKeys.has(keyOf(p))), [prs, checkedSet, runs, queuedKeys])
+  const onListKeyDown = (e: React.KeyboardEvent): void => {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a') {
+      e.preventDefault()
+      selectAllVisible()
+    }
+  }
+  // Esc clears the selection from anywhere on the page, unless the user is typing.
+  useEffect(() => {
+    if (!anyChecked) return
+    const onKey = (e: KeyboardEvent): void => {
+      const tag = (e.target as HTMLElement | null)?.tagName
+      if (e.key === 'Escape' && tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT') clearChecked()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [anyChecked, clearChecked])
 
   return (
     <div className="flex h-full flex-col">
@@ -159,56 +207,110 @@ export function ReviewCockpit(): React.JSX.Element {
         )}
       </div>
       <div className="flex min-h-0 flex-1">
-        <aside className="w-[360px] shrink-0 overflow-auto border-r border-border">
-          {loadingPrs && prs.length === 0 && <div className="p-4 text-[12px] text-muted">Loading pull requests…</div>}
-          {!loadingPrs && prs.length === 0 && (
-            <div className="p-4 text-[12px] text-muted">
-              {spaceRepos.length === 0 && owners.length === 0 ? 'This space has no GitHub repositories yet. Add repositories to it, or pick owners in the space settings.' : mode === 'requested' ? 'No pull requests in this space are waiting for your review. Switch to "All open" to see everything.' : 'No open pull requests in this space.'}
-            </div>
-          )}
-          {!loadingPrs && prs.length > 0 && filtered.length === 0 && repos.length === 0 && <div className="p-4 text-[12px] text-muted">Nothing matches the current filters.</div>}
-          {grouped.map(([repo, list]) => (
-            <div key={repo}>
-              <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-panel px-3 py-1.5 text-[11px] font-medium uppercase tracking-wide text-muted" title={repo}>
-                {repo.split('/')[1]} <span className="normal-case text-muted/70">{list.length}</span>
-                {spaceRepos.includes(repo) && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-accent/60" title="Registered in this space" />}
-              </div>
-              {list.length === 0 && <div className="px-3 py-1.5 text-[11px] text-muted/70">{mode === 'requested' ? 'nothing waiting on you' : 'no open pull requests'}</div>}
-              {list.map((pr) => {
-                const k = keyOf(pr)
-                const run = runs[k]
-                return (
-                  <button key={k} onClick={() => select(k)} className={clsx('flex w-full flex-col gap-0.5 border-b border-border px-3 py-2 text-left', selectedKey === k ? 'bg-panel-2' : 'hover:bg-panel')}>
-                    <div className="flex items-center gap-2">
-                      <span className="truncate text-[13px] font-medium">{pr.title}</span>
-                      <span className="ml-auto shrink-0">
-                        <RunBadge run={run} />
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2 text-[11px] text-muted">
-                      #{pr.number} · {pr.author} · {timeAgo(pr.updatedAt)}
-                      {pr.isDraft && <Badge>draft</Badge>}
-                    </div>
-                  </button>
-                )
-              })}
-            </div>
-          ))}
-          {Object.values(runs).filter((r) => !prs.some((p) => keyOf(p) === r.key)).length > 0 && (
-            <div>
-              <div className="sticky top-0 z-10 border-b border-border bg-panel px-3 py-1.5 text-[11px] font-medium uppercase tracking-wide text-muted">Earlier reviews</div>
-              {Object.values(runs)
-                .filter((r) => !prs.some((p) => keyOf(p) === r.key))
-                .map((r) => (
-                  <button key={r.key} onClick={() => select(r.key)} className={clsx('flex w-full items-center gap-2 border-b border-border px-3 py-2 text-left', selectedKey === r.key ? 'bg-panel-2' : 'hover:bg-panel')}>
-                    <span className="truncate text-[12px]">{r.pr.title}</span>
-                    <span className="ml-auto shrink-0">
-                      <RunBadge run={r} />
+        <aside className="flex w-[360px] shrink-0 flex-col border-r border-border outline-none" tabIndex={-1} onKeyDown={onListKeyDown}>
+          {(visibleKeys.length > 0 || anyChecked || inFlight > 0) && (
+            <div className={clsx('flex h-[34px] shrink-0 items-center gap-2 border-b border-border px-3 text-[12px]', anyChecked || inFlight > 0 ? 'bg-panel-2' : 'bg-panel')}>
+              <input
+                ref={selectAllRef}
+                type="checkbox"
+                className="accent-accent"
+                checked={allVisibleChecked}
+                disabled={visibleKeys.length === 0}
+                onChange={toggleAllVisible}
+                title={allVisibleChecked ? 'Deselect the visible pull requests' : 'Select all visible pull requests (⌘A)'}
+                aria-label="Select all visible pull requests"
+              />
+              {anyChecked || inFlight > 0 ? (
+                <>
+                  <span className="font-medium">{checked.length} selected</span>
+                  {inFlight > 0 && (
+                    <span className="inline-flex items-center gap-1 text-[11px] text-muted" title={`${batchRunning.length} running, ${batchQueue.length} waiting for a free slot`}>
+                      <Spinner /> {batchRunning.length} running{batchQueue.length > 0 ? ` · ${batchQueue.length} queued` : ''}
                     </span>
-                  </button>
-                ))}
+                  )}
+                  <span className="ml-auto" />
+                  {anyChecked && (
+                    <Button size="sm" variant="primary" disabled={startable.length === 0} onClick={() => startBatch(startable, accountId)} title={startable.length === 0 ? 'Every selected pull request is already being reviewed' : `Run an AI review on ${startable.length} pull request${startable.length === 1 ? '' : 's'}, up to 3 at a time`}>
+                      <Sparkles size={12} /> Review {checked.length === 1 ? 'PR' : `${checked.length} PRs`}
+                    </Button>
+                  )}
+                  {anyChecked && (
+                    <Button size="sm" variant="ghost" onClick={clearChecked} title="Clear the selection (Esc)">
+                      Clear
+                    </Button>
+                  )}
+                </>
+              ) : (
+                <span className="text-muted">
+                  {visibleKeys.length} pull request{visibleKeys.length === 1 ? '' : 's'}
+                </span>
+              )}
             </div>
           )}
+          <div className="min-h-0 flex-1 overflow-auto">
+            {loadingPrs && prs.length === 0 && <div className="p-4 text-[12px] text-muted">Loading pull requests…</div>}
+            {!loadingPrs && prs.length === 0 && (
+              <div className="p-4 text-[12px] text-muted">
+                {spaceRepos.length === 0 && owners.length === 0 ? 'This space has no GitHub repositories yet. Add repositories to it, or pick owners in the space settings.' : mode === 'requested' ? 'No pull requests in this space are waiting for your review. Switch to "All open" to see everything.' : 'No open pull requests in this space.'}
+              </div>
+            )}
+            {!loadingPrs && prs.length > 0 && filtered.length === 0 && repos.length === 0 && <div className="p-4 text-[12px] text-muted">Nothing matches the current filters.</div>}
+            {grouped.map(([repo, list]) => (
+              <div key={repo}>
+                <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-panel px-3 py-1.5 text-[11px] font-medium uppercase tracking-wide text-muted" title={repo}>
+                  {repo.split('/')[1]} <span className="normal-case text-muted/70">{list.length}</span>
+                  {spaceRepos.includes(repo) && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-accent/60" title="Registered in this space" />}
+                </div>
+                {list.length === 0 && <div className="px-3 py-1.5 text-[11px] text-muted/70">{mode === 'requested' ? 'nothing waiting on you' : 'no open pull requests'}</div>}
+                {list.map((pr) => {
+                  const k = keyOf(pr)
+                  const run = runs[k]
+                  const isChecked = checkedSet.has(k)
+                  return (
+                    <div key={k} className={clsx('group flex items-stretch border-b border-border', selectedKey === k ? 'bg-panel-2' : isChecked ? 'bg-accent/5' : 'hover:bg-panel')}>
+                      <label className="flex shrink-0 cursor-pointer items-center pl-3" title={isChecked ? 'Deselect' : 'Select for a bulk review (Shift+click for a range)'}>
+                        <input
+                          type="checkbox"
+                          className={clsx('accent-accent', !anyChecked && 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100')}
+                          checked={isChecked}
+                          onChange={() => undefined}
+                          onClick={(e) => onCheck(k, e.shiftKey)}
+                          aria-label={`Select ${pr.title}`}
+                        />
+                      </label>
+                      <button onClick={() => select(k)} className="flex min-w-0 flex-1 flex-col gap-0.5 px-3 py-2 text-left">
+                        <div className="flex items-center gap-2">
+                          <span className="truncate text-[13px] font-medium">{pr.title}</span>
+                          <span className="ml-auto shrink-0">
+                            <RunBadge run={run} />
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 text-[11px] text-muted">
+                          #{pr.number} · {pr.author} · {timeAgo(pr.updatedAt)}
+                          {pr.isDraft && <Badge>draft</Badge>}
+                        </div>
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            ))}
+            {Object.values(runs).filter((r) => !prs.some((p) => keyOf(p) === r.key)).length > 0 && (
+              <div>
+                <div className="sticky top-0 z-10 border-b border-border bg-panel px-3 py-1.5 text-[11px] font-medium uppercase tracking-wide text-muted">Earlier reviews</div>
+                {Object.values(runs)
+                  .filter((r) => !prs.some((p) => keyOf(p) === r.key))
+                  .map((r) => (
+                    <button key={r.key} onClick={() => select(r.key)} className={clsx('flex w-full items-center gap-2 border-b border-border px-3 py-2 text-left', selectedKey === r.key ? 'bg-panel-2' : 'hover:bg-panel')}>
+                      <span className="truncate text-[12px]">{r.pr.title}</span>
+                      <span className="ml-auto shrink-0">
+                        <RunBadge run={r} />
+                      </span>
+                    </button>
+                  ))}
+              </div>
+            )}
+          </div>
         </aside>
         <div className="min-w-0 flex-1 overflow-auto">
           {!selectedPr ? (
