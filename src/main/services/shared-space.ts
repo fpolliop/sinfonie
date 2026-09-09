@@ -15,7 +15,7 @@ import * as cloud from './cloud'
 import { SPACE_FILE, SPACE_COLORS } from '@shared/types'
 import type { Repo, SharedRepo, SharedSpaceSettings, Space, SpaceDefinition, SpaceImportPreview, SpaceImportResolution } from '@shared/types'
 
-const SHARED_KEYS = ['engine', 'model', 'permissionMode', 'useCrew', 'agents', 'budgetMode', 'leanMode', 'strictMcp', 'githubOwners', 'browserSensitiveOrigins', 'exposeGcpMcp', 'exposeJiraMcp', 'exposeLinearMcp'] as const
+const SHARED_KEYS = ['engine', 'model', 'permissionMode', 'useCrew', 'agents', 'budgetMode', 'leanMode', 'strictMcp', 'githubOwners', 'browserSensitiveOrigins', 'exposeGcpMcp', 'exposeJiraMcp', 'exposeLinearMcp', 'guided'] as const
 
 /** github.com/org/repo, however the remote was written (https, ssh, with or without .git). */
 export function normalizeRemote(remote: string): string {
@@ -48,7 +48,7 @@ export async function definitionFor(spaceId: string): Promise<SpaceDefinition> {
   for (const r of getStore().get().repos.filter((x) => x.spaceId === spaceId)) {
     const remote = await remoteOf(r.path)
     if (!remote) throw new Error(`${r.name} has no git remote, so a teammate could not fetch it. Push it somewhere first.`)
-    repos.push({ remote, name: r.name, defaultBranch: r.defaultBranch })
+    repos.push({ remote, name: r.name, defaultBranch: r.defaultBranch, ...(r.displayName ? { displayName: r.displayName } : {}), ...(r.description ? { description: r.description } : {}) })
   }
   const settings: SharedSpaceSettings = {}
   for (const k of SHARED_KEYS) if (s[k] !== undefined) (settings as Record<string, unknown>)[k] = s[k]
@@ -116,17 +116,21 @@ export async function previewImport(file: string): Promise<SpaceImportPreview> {
   }
 }
 
-export async function ensureRepo(path: string, spaceId: string, name: string): Promise<Repo> {
+export async function ensureRepo(path: string, spaceId: string, name: string, meta?: { displayName?: string; description?: string }): Promise<Repo> {
   const existing = getStore().get().repos.find((r) => r.path === path)
   if (existing) {
     getStore().update((d) => {
       const r = d.repos.find((x) => x.id === existing.id)
-      if (r) r.spaceId = spaceId
+      if (r) {
+        r.spaceId = spaceId
+        if (meta?.displayName !== undefined) r.displayName = meta.displayName || undefined
+        if (meta?.description !== undefined) r.description = meta.description || undefined
+      }
     })
-    return existing
+    return getStore().get().repos.find((r) => r.id === existing.id) ?? existing
   }
   if (!(await gitSvc.isGitRepo(path))) throw new Error(`${path} is not the root of a git repository.`)
-  const repo: Repo = { id: nanoid(8), name: name || basename(path), path, defaultBranch: await gitSvc.detectDefaultBranch(path), config: gitSvc.readConductorConfig(path), addedAt: new Date().toISOString(), spaceId }
+  const repo: Repo = { id: nanoid(8), name: name || basename(path), path, defaultBranch: await gitSvc.detectDefaultBranch(path), config: gitSvc.readConductorConfig(path), addedAt: new Date().toISOString(), spaceId, ...(meta?.displayName ? { displayName: meta.displayName } : {}), ...(meta?.description ? { description: meta.description } : {}) }
   getStore().update((d) => d.repos.push(repo))
   return repo
 }
@@ -160,21 +164,25 @@ export async function importSpace(file: string, resolutions: SpaceImportResoluti
     const color = def.color && SPACE_COLORS.includes(def.color) ? def.color : SPACE_COLORS[getStore().get().spaces.length % SPACE_COLORS.length]
     getStore().update((d) => d.spaces.push({ id: spaceId as string, name: def.name, color, createdAt: new Date().toISOString() }))
   }
+  const metaOf = (remote: string): { displayName?: string; description?: string } => {
+    const d = def.repos.find((x) => normalizeRemote(x.remote) === normalizeRemote(remote))
+    return { displayName: d?.displayName, description: d?.description }
+  }
   for (const r of preview.repos) {
     if (r.match) {
-      await ensureRepo(r.match.path, spaceId, r.name)
+      await ensureRepo(r.match.path, spaceId, r.name, metaOf(r.remote))
       continue
     }
     const res = byRemote.get(normalizeRemote(r.remote))
     if (res?.path) {
-      await ensureRepo(res.path, spaceId, r.name)
+      await ensureRepo(res.path, spaceId, r.name, metaOf(r.remote))
     } else if (res?.cloneInto) {
       const dest = join(res.cloneInto, r.name)
       if (existsSync(dest)) throw new Error(`${dest} already exists. Pick that folder as the checkout instead of cloning.`)
       onProgress?.(`Cloning ${r.name}…`)
       mkdirSync(dirname(dest), { recursive: true })
       await simpleGit().clone(r.remote, dest)
-      await ensureRepo(dest, spaceId, r.name)
+      await ensureRepo(dest, spaceId, r.name, metaOf(r.remote))
     } else if (!opts.skipMissing) {
       throw new Error(`Say where ${r.name} is, or where to clone it.`)
     }

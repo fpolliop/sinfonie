@@ -1,5 +1,5 @@
 import { simpleGit, type SimpleGit } from 'simple-git'
-import { existsSync, readFileSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import type { ConductorConfig, GitFileStatus } from '@shared/types'
 
@@ -41,6 +41,35 @@ export function readConductorConfig(repoPath: string): ConductorConfig | null {
     console.error(`Invalid ${file} in ${repoPath}`, err)
     return null
   }
+}
+
+/**
+ * Writes sinfonie.json for a repo, merging the patch into whatever is there (or conductor.json's content).
+ * Empty strings clear a script or the preview URL. Returns the config as re-read from disk.
+ */
+export function writeConductorConfig(
+  repoPath: string,
+  patch: { scripts?: Partial<NonNullable<ConductorConfig['scripts']>>; preview?: string; runScriptMode?: ConductorConfig['runScriptMode'] }
+): ConductorConfig {
+  const current = readConductorConfig(repoPath) ?? {}
+  const next: ConductorConfig = { ...current }
+  if (patch.scripts) {
+    const scripts: Record<string, unknown> = { ...(current.scripts ?? {}) }
+    for (const [k, v] of Object.entries(patch.scripts)) {
+      if (v === undefined) continue
+      if (v === '') delete scripts[k]
+      else scripts[k] = v
+    }
+    if (Object.keys(scripts).length) next.scripts = scripts as ConductorConfig['scripts']
+    else delete next.scripts
+  }
+  if (patch.preview !== undefined) {
+    if (patch.preview === '') delete next.preview
+    else next.preview = patch.preview
+  }
+  if (patch.runScriptMode !== undefined) next.runScriptMode = patch.runScriptMode
+  writeFileSync(join(repoPath, 'sinfonie.json'), JSON.stringify(next, null, 2) + '\n')
+  return next
 }
 
 export async function listBranches(repoPath: string): Promise<string[]> {

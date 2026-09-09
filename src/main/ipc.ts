@@ -307,6 +307,36 @@ export function registerIpc(): void {
     if (!out) throw new Error('Unknown repo')
     return out
   })
+  handle('repos:setMeta', (repoId, meta) => {
+    let out: Repo | undefined
+    let spaceId: string | undefined
+    getStore().update((d) => {
+      const r = d.repos.find((x) => x.id === repoId)
+      if (r) {
+        if (meta.displayName !== undefined) r.displayName = meta.displayName.trim() || undefined
+        if (meta.description !== undefined) r.description = meta.description.trim() || undefined
+        out = r
+        spaceId = r.spaceId
+      }
+    })
+    if (!out) throw new Error('Unknown repo')
+    if (spaceId) orgSpaces.pushSoon(spaceId)
+    return out
+  })
+  handle('repos:writeConfig', (repoId, patch) => {
+    const repo = getStore().get().repos.find((x) => x.id === repoId)
+    if (!repo) throw new Error('Unknown repo')
+    git.writeConductorConfig(repo.path, patch)
+    let out: Repo | undefined
+    getStore().update((d) => {
+      const r = d.repos.find((x) => x.id === repoId)
+      if (r) {
+        r.config = git.readConductorConfig(r.path)
+        out = r
+      }
+    })
+    return out ?? repo
+  })
 
   // ---- workspaces ----
   handle('workspaces:create', (input) => workspaces.createWorkspace(input, emitScript))

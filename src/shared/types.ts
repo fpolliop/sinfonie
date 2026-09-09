@@ -4,12 +4,19 @@ export interface ConductorScripts {
   setup?: string
   run?: string
   archive?: string
+  /** Build, tests and lint. Run before a guided task is sent for review; a non-zero exit blocks the send. */
+  check?: string
 }
 
 /** sinfonie.json per repository (conductor.json is read as a fallback). */
 export interface ConductorConfig {
   scripts?: ConductorScripts
   runScriptMode?: 'concurrent' | 'sequential'
+  /**
+   * Where this app serves once its run script is up, so guided mode knows what to open in Preview.
+   * ${PORT} expands to the workspace's SINFONIE_PORT. Example: "http://localhost:${PORT}/".
+   */
+  preview?: string
 }
 
 /** An MCP server Claude can use in workspaces of a space (or everywhere, when set at app level). */
@@ -274,6 +281,28 @@ export interface Space {
   orgId?: string
   /** Set when the space is shared inside its organisation and synced from the server. */
   orgSpace?: { id: string; version: number; syncedAt: string; updatedBy?: string; repos?: SharedRepo[] }
+  /** What guided-mode members of this space get: who reviews, how the assistant should behave, what it may do. */
+  guided?: GuidedSpace
+}
+
+/** The tech lead's setup for guided-mode members of a space. Travels with the shared definition. */
+export interface GuidedSpace {
+  /** GitHub logins requested as reviewers on every pull request from a guided task. */
+  reviewers?: string[]
+  /** Appended to the assistant's system prompt for guided tasks: product vocabulary, what to avoid, where things live. */
+  instructions?: string
+  /** Overrides the shipped guardrail policy for guided tasks in this space. */
+  guardrails?: GuardrailPolicy
+}
+
+/** What the assistant may and may not do in a guided task. A person never sees a permission prompt; this decides. */
+export interface GuardrailPolicy {
+  /** Extra shell-command prefixes to allow without asking (on top of the shipped safe set). */
+  allow?: string[]
+  /** Shell-command prefixes to always refuse, explained to the person in words. */
+  deny?: string[]
+  /** Branch names that must never be pushed to (on top of the repo's default branch). */
+  protectedBranches?: string[]
 }
 
 // ---------- shared spaces ----------
@@ -294,9 +323,13 @@ export interface SharedRepo {
   remote: string
   name: string
   defaultBranch: string
+  /** Friendly name a guided user sees instead of the repo slug, e.g. "Shop". */
+  displayName?: string
+  /** One line telling the assistant what this app is, so it can pick the right apps for a task. */
+  description?: string
 }
 /** The keys of a Space that are shared; everything about accounts, secrets and local paths stays personal. */
-export type SharedSpaceSettings = Pick<Space, 'engine' | 'model' | 'permissionMode' | 'useCrew' | 'agents' | 'budgetMode' | 'leanMode' | 'strictMcp' | 'githubOwners' | 'browserSensitiveOrigins' | 'exposeGcpMcp' | 'exposeJiraMcp' | 'exposeLinearMcp'> & {
+export type SharedSpaceSettings = Pick<Space, 'engine' | 'model' | 'permissionMode' | 'useCrew' | 'agents' | 'budgetMode' | 'leanMode' | 'strictMcp' | 'githubOwners' | 'browserSensitiveOrigins' | 'exposeGcpMcp' | 'exposeJiraMcp' | 'exposeLinearMcp' | 'guided'> & {
   mcpServers?: McpServerSpec[]
   jira?: Pick<JiraSettings, 'siteUrl' | 'defaultJql'>
   linear?: Pick<LinearSettings, 'defaultQuery'>
@@ -341,6 +374,10 @@ export interface Repo {
   defaultBranch: string
   config: ConductorConfig | null
   addedAt: string
+  /** Friendly name shown to guided users instead of the repo slug. From the shared definition, or set locally. */
+  displayName?: string
+  /** One line telling the assistant what this app is. From the shared definition, or set locally. */
+  description?: string
 }
 
 export interface WorkspaceRepo {
