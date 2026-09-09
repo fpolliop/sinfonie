@@ -293,6 +293,8 @@ export interface GuidedSpace {
   instructions?: string
   /** Overrides the shipped guardrail policy for guided tasks in this space. */
   guardrails?: GuardrailPolicy
+  /** Slack channel (name or id) where a guided user's "Ask a teammate" message is posted. */
+  askChannel?: string
 }
 
 /** What the assistant may and may not do in a guided task. A person never sees a permission prompt; this decides. */

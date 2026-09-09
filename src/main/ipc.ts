@@ -51,6 +51,7 @@ import * as workspaceTools from './services/workspace-tools'
 import { saveImages } from './services/images'
 import * as files from './services/files'
 import * as completions from './services/completions'
+import * as plan from './services/plan'
 import * as slack from './services/slack'
 import * as oncall from './services/oncall/service'
 import * as gcp from './services/gcp'
@@ -108,6 +109,7 @@ export function registerIpc(): void {
     send('agent:promptResolved', { requestId: id })
   })
   remote.setStatusEmitter((s) => send('remote:status', s))
+  agent.setGuidedChangedEmitter((e) => send('guided:changed', e))
   getStore().subscribe(() => send('store:changed', getStore().public()))
   workspaceTools.setScriptEmitter(emitScript)
 
@@ -379,6 +381,19 @@ export function registerIpc(): void {
     else spawn('open', ['-a', 'Terminal', ws.rootPath], { detached: true }).unref()
   })
   handle('workspaces:runScript', (id, kind) => workspaces.runWorkspaceScript(id, kind, emitScript))
+  handle('guided:plan', (spaceId, description) => plan.planTask(spaceId, description))
+  handle('guided:askTeammate', async (workspaceId, message) => {
+    const ws = workspaces.getWorkspace(workspaceId)
+    const space = getStore().get().spaces.find((s) => s.id === ws.spaceId)
+    const channel = space?.guided?.askChannel
+    if (!channel) throw new Error('Nobody to ask yet: whoever set up Sinfonie for your team needs to pick a Slack channel for questions (space settings, Guided mode).')
+    const connId = slack.connectionForSpace(ws.spaceId)
+    const who = getStore().get().settings.cloud?.account?.user
+    const header = `:wave: *${who?.name || who?.login || 'A teammate'}* needs a hand on the task *${ws.name}*:`
+    const ts = await slack.post(connId, channel, `${header}\n${message.trim()}`)
+    const url = await slack.permalink(connId, channel, ts).catch(() => undefined)
+    return { ok: true as const, url }
+  })
   handle('workspaces:check', async (id) => {
     const ws = workspaces.getWorkspace(id)
     const out: { repoId: string; name: string; ran: boolean; ok: boolean; output: string }[] = []

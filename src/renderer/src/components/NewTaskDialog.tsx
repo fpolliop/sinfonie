@@ -41,22 +41,36 @@ export function NewTaskDialog({ onClose }: { onClose: () => void }): React.JSX.E
   const [jira, setJira] = useState<WorkspaceJira | null>(null)
   const [linear, setLinear] = useState<WorkspaceLinear | null>(null)
   const [busy, setBusy] = useState(false)
+  // Let the assistant pick the apps from the description by default when there is more than one; the person
+  // can switch to choosing them by hand.
+  const [autoApps, setAutoApps] = useState(true)
   const jiraConn = jiraConnectionFor(space)
   const jiraReady = jiraConn ? true : settings.jira.connected || Boolean(settings.jira.siteUrl && settings.jira.email && settings.jira.hasToken)
   const linearConn = linearConnectionFor(space)
   const linearReady = linearConn ? true : Boolean(settings.linear?.connected)
   const chosen = repos.filter((r) => !off.has(r.id))
-  const canStart = text.trim().length > 0 && chosen.length > 0 && !busy
+  const auto = autoApps && repos.length > 1
+  const canStart = text.trim().length > 0 && (auto ? repos.length > 0 : chosen.length > 0) && !busy
 
   const submit = async (): Promise<void> => {
     if (!canStart) return
     setBusy(true)
     try {
-      const name = jira ? `${jira.key.toLowerCase()}-${slugFor(jira.summary)}`.slice(0, 48) : linear ? `${linear.identifier.toLowerCase()}-${slugFor(linear.title)}`.slice(0, 48) : slugFor(text)
+      // The assistant chooses the apps and a friendly name from the description, unless a ticket or a manual
+      // pick already settled it.
+      let picked = chosen
+      let planned = ''
+      if (auto && !jira && !linear) {
+        const p = await api.invoke('guided:plan', spaceId, text.trim())
+        const byPlan = repos.filter((r) => p.repoIds.includes(r.id))
+        picked = byPlan.length ? byPlan : repos
+        planned = p.name
+      }
+      const name = jira ? `${jira.key.toLowerCase()}-${slugFor(jira.summary)}`.slice(0, 48) : linear ? `${linear.identifier.toLowerCase()}-${slugFor(linear.title)}`.slice(0, 48) : planned || slugFor(text)
       const ws = await api.invoke('workspaces:create', {
         name,
-        repos: chosen.map((r) => ({ repoId: r.id, baseBranch: r.defaultBranch })),
-        primaryRepoId: chosen[0].id,
+        repos: picked.map((r) => ({ repoId: r.id, baseBranch: r.defaultBranch })),
+        primaryRepoId: picked[0].id,
         ...(jira ? { jira } : {}),
         ...(linear ? { linear } : {}),
         claudeAccountId: space?.claudeAccountId ?? settings.defaultClaudeAccountId,
@@ -133,34 +147,45 @@ export function NewTaskDialog({ onClose }: { onClose: () => void }): React.JSX.E
           </select>
         </div>
       )}
-      <div className="mb-1 text-[12px] font-medium text-muted">Apps this touches</div>
+      <div className="mb-1 flex items-center gap-2 text-[12px] font-medium text-muted">
+        Apps this touches
+        {repos.length > 1 && (
+          <button className="ml-auto text-[11px] font-normal text-accent hover:underline" onClick={() => setAutoApps((v) => !v)}>
+            {auto ? 'Choose them myself' : 'Let the assistant choose'}
+          </button>
+        )}
+      </div>
       {repos.length === 0 ? (
         <div className="mb-4 rounded-md border border-border p-3 text-[12px] text-muted">Your team's apps are still being set up. Try again in a minute, or ask whoever set up Sinfonie for your team.</div>
+      ) : auto ? (
+        <div className="mb-4 rounded-md border border-dashed border-border p-3 text-[12px] text-muted">The assistant picks the right apps from what you describe, out of {repos.map((r) => r.name).join(', ')}. It only changes what the task needs.</div>
       ) : (
-        <div className="mb-4 flex flex-wrap gap-1.5">
-          {repos.map((r) => {
-            const on = !off.has(r.id)
-            return (
-              <button
-                key={r.id}
-                onClick={() =>
-                  setOff((s) => {
-                    const n = new Set(s)
-                    if (n.has(r.id)) n.delete(r.id)
-                    else n.add(r.id)
-                    return n
-                  })
-                }
-                className={clsx('rounded-full border px-2.5 py-1 text-[12px]', on ? 'border-accent/50 bg-accent/10 text-text' : 'border-border text-muted')}
-                title={on ? 'Included. Click to leave it out.' : 'Left out. Click to include it.'}
-              >
-                {r.name}
-              </button>
-            )
-          })}
-        </div>
+        <>
+          <div className="mb-1 flex flex-wrap gap-1.5">
+            {repos.map((r) => {
+              const on = !off.has(r.id)
+              return (
+                <button
+                  key={r.id}
+                  onClick={() =>
+                    setOff((s) => {
+                      const n = new Set(s)
+                      if (n.has(r.id)) n.delete(r.id)
+                      else n.add(r.id)
+                      return n
+                    })
+                  }
+                  className={clsx('rounded-full border px-2.5 py-1 text-[12px]', on ? 'border-accent/50 bg-accent/10 text-text' : 'border-border text-muted')}
+                  title={on ? 'Included. Click to leave it out.' : 'Left out. Click to include it.'}
+                >
+                  {r.name}
+                </button>
+              )
+            })}
+          </div>
+          <p className="mb-4 text-[11px] text-muted">The assistant only changes what the task needs.</p>
+        </>
       )}
-      <p className="mb-4 text-[11px] text-muted">Not sure which apps? Leave them all in; the assistant only changes what the task needs.</p>
       <div className="flex justify-end gap-2">
         <Button onClick={onClose}>Cancel</Button>
         <Button variant="primary" disabled={!canStart} onClick={() => void submit()}>
