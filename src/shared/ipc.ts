@@ -302,6 +302,11 @@ export interface SinfonieInvoke {
   'terminal:dispose': (terminalId: string) => void
   // ---- usage ----
   'usage:get': () => UsageSnapshot
+  // ---- keep awake (caffeinate) ----
+  /** Whether the manual keep-awake blocker is on. */
+  'power:get': () => boolean
+  /** Turn the keep-awake blocker on or off (or toggle when no argument); returns the new state. */
+  'power:set': (on?: boolean) => boolean
   'usage:resolveLimit': (workspaceId: string, itemId: string, choice: LimitAlternative) => void
   // ---- on call ----
   'oncall:state': () => OnCallState
@@ -377,6 +382,8 @@ export interface SinfonieEvents {
   'browser:state': BrowserState
   'oncall:changed': OnCallState
   'usage:changed': UsageSnapshot
+  /** The keep-awake blocker changed, so every button stays in sync. */
+  'power:changed': boolean
   /** A sign-in link to show the user (Open in browser / Copy link). */
   'ui:authLink': AuthLink
   /** That sign-in finished; close the dialog. */
