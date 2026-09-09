@@ -158,14 +158,16 @@ const GUIDED_FEATURES = [
 
 function Welcome(): React.JSX.Element {
   const [active, setActive] = useState(0)
+  const [paused, setPaused] = useState(false)
   const mode = useApp((s) => s.settings.mode ?? 'expert')
   const setError = useApp((s) => s.setError)
   const guided = mode === 'guided'
+  // Cycle the expert showcase until the user points at a card, then hold on their choice.
   useEffect(() => {
-    if (guided) return
+    if (guided || paused) return
     const t = setInterval(() => setActive((a) => (a + 1) % FEATURES.length), 4000)
     return () => clearInterval(t)
-  }, [guided])
+  }, [guided, paused])
   const choose = (m: AppMode): void => {
     api.invoke('settings:update', { mode: m }).catch((err) => setError(err instanceof Error ? err.message : String(err)))
   }
@@ -201,16 +203,23 @@ function Welcome(): React.JSX.Element {
           ))}
         </div>
       ) : (
-        <div className="mt-8 grid grid-cols-3 gap-3 text-left">
-          {FEATURES.map((f, i) => (
-            <div key={f.title} onMouseEnter={() => setActive(i)} className={clsx('flex flex-col rounded-xl border p-4 transition-all duration-300', i === active ? 'border-accent/60 bg-panel shadow-[0_10px_40px_rgba(91,124,255,.12)]' : 'border-border bg-panel/40')}>
-              <div className="flex h-[92px] items-center justify-center">{f.art}</div>
-              <div className="mt-3 flex items-center gap-2 text-[13px] font-semibold">
-                <span className="text-accent">{f.icon}</span> {f.title}
+        <div className="mx-auto mt-6 max-w-[680px] rounded-xl border border-border bg-panel/40 p-4 text-left">
+          <div className="flex items-center gap-5">
+            <div className="flex h-[96px] w-[260px] shrink-0 items-center justify-center overflow-hidden">{FEATURES[active].art}</div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 text-[13px] font-semibold">
+                <span className="text-accent">{FEATURES[active].icon}</span> {FEATURES[active].title}
               </div>
-              <p className="mt-1 text-[12px] leading-relaxed text-muted">{f.text}</p>
+              <p className="mt-1 text-[12px] leading-relaxed text-muted">{FEATURES[active].text}</p>
             </div>
-          ))}
+          </div>
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {FEATURES.map((f, i) => (
+              <button key={f.title} onClick={() => (setPaused(true), setActive(i))} onMouseEnter={() => (setPaused(true), setActive(i))} className={clsx('flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition-colors', i === active ? 'border-accent/60 bg-accent/10 text-text' : 'border-border text-muted hover:text-text')}>
+                {f.icon} {f.title}
+              </button>
+            ))}
+          </div>
         </div>
       )}
     </div>
