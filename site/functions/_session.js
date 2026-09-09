@@ -55,6 +55,14 @@ export async function completeSignIn(env, request, state, identity) {
   const { provider, providerId, login, name, email, avatarUrl } = identity
   const col = provider === 'google' ? 'google_id' : 'github_id'
   let row = await env.DB.prepare(`SELECT id FROM users WHERE ${col} = ?1`).bind(providerId).first()
+  // "Add an email": the app registered this state for a signed-in user, so the identity attaches to that account.
+  const link = await env.DB.prepare('SELECT code FROM oauth_codes WHERE state = ?1').bind(`link:${state}`).first()
+  if (link) {
+    await env.DB.prepare('DELETE FROM oauth_codes WHERE state = ?1').bind(`link:${state}`).run()
+    if (row && row.id !== link.code) throw new Error('That login already belongs to another Sinfonie account.')
+    row = { id: link.code }
+  }
+  if (!row && email) row = await env.DB.prepare('SELECT user_id AS id FROM user_emails WHERE email = lower(?1)').bind(email).first()
   if (!row && email) row = await env.DB.prepare('SELECT id FROM users WHERE lower(email) = lower(?1)').bind(email).first()
   const userId = row?.id || newId()
   if (row) {
@@ -69,6 +77,7 @@ export async function completeSignIn(env, request, state, identity) {
       .bind(userId, providerId, login, name || null, email || null, avatarUrl || null, trialUntil ? st.trialPlan : null, trialUntil)
       .run()
   }
+  if (email) await env.DB.prepare('INSERT OR IGNORE INTO user_emails (email, user_id, provider) VALUES (lower(?1), ?2, ?3)').bind(email, userId, provider).run()
   const token = randomToken(32)
   await env.DB.batch([
     env.DB.prepare('INSERT INTO sessions (token_hash, user_id, user_agent) VALUES (?1, ?2, ?3)').bind(await sha256(token), userId, (request.headers.get('User-Agent') || '').slice(0, 200)),
@@ -76,6 +85,30 @@ export async function completeSignIn(env, request, state, identity) {
   ])
   return userId
 }
+
+/** All verified emails of a user (backfilling the primary one for accounts from before the table existed). */
+export async function emailsOf(env, user) {
+  let { results } = await env.DB.prepare('SELECT email, provider FROM user_emails WHERE user_id = ?1 ORDER BY created_at').bind(user.id).all()
+  if (!results.length && user.email) {
+    await env.DB.prepare('INSERT OR IGNORE INTO user_emails (email, user_id, provider) VALUES (lower(?1), ?2, NULL)').bind(user.email, user.id).run()
+    results = [{ email: user.email.toLowerCase(), provider: null }]
+  }
+  return results.map((r) => ({ email: r.email, provider: r.provider || undefined, primary: user.email ? r.email === user.email.toLowerCase() : false }))
+}
+
+/** A URL-safe unique slug for an organisation. */
+export async function uniqueSlug(env, name) {
+  const base = String(name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'org'
+  for (let i = 0; i < 20; i++) {
+    const slug = i ? `${base}-${i + 1}` : base
+    const hit = await env.DB.prepare('SELECT 1 FROM orgs WHERE slug = ?1').bind(slug).first()
+    if (!hit) return slug
+  }
+  return `${base}-${randomToken(3).toLowerCase()}`
+}
+
+/** Free organisations may share one space; paying ones any number. */
+export const FREE_ORG_SPACES = 1
 
 export function bearer(request) {
   return (request.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '').trim()
@@ -118,13 +151,15 @@ export async function accountFor(user, env) {
   const orgs = memberships.map((o) => {
     const orgPlan = o.plan_override === 'team' || subscriptionLive(o) ? 'team' : 'free'
     if (orgPlan === 'team') plan = best(plan, 'team')
-    return { id: o.id, name: o.name, role: o.role, plan: orgPlan, seats: o.seats }
+    return { id: o.id, name: o.name, slug: o.slug || undefined, role: o.role, plan: orgPlan, seats: o.seats }
   })
+  const emails = await emailsOf(env, user)
   const subscription = user.paddle_subscription_id
     ? { status: user.subscription_status, period: user.subscription_period || undefined, renewsAt: user.subscription_renews_at || undefined, endsAt: user.subscription_ends_at || undefined }
     : undefined
   return {
     user: { id: user.id, login: user.login, name: user.name || undefined, email: user.email || undefined, avatarUrl: user.avatar_url || undefined },
+    emails,
     orgs,
     plan,
     subscription,

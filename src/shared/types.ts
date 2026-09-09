@@ -270,6 +270,10 @@ export interface Space {
   browserSensitiveOrigins?: string[]
   /** Set when this space follows a sinfonie.space.json shared with a team. */
   shared?: SharedSpaceLink
+  /** The organisation this space belongs to; absent means personal. */
+  orgId?: string
+  /** Set when the space is shared inside its organisation and synced from the server. */
+  orgSpace?: { id: string; version: number; syncedAt: string; updatedBy?: string; repos?: SharedRepo[] }
 }
 
 // ---------- shared spaces ----------
@@ -560,6 +564,8 @@ export interface Settings {
   cloud?: CloudState
   /** Inline suggestions in the Files editor: on/off and the "<providerId>/<modelId>" that writes them. */
   completions?: CompletionSettings
+  /** Organisation spaces this Mac stopped syncing; the sync leaves them alone until shared again. */
+  ignoredOrgSpaces?: string[]
   /** The phone companion: pairing state and what to be notified about. The pairing key lives in secrets. */
   remote?: RemoteSettings
 }
@@ -661,9 +667,63 @@ export interface CloudUser {
 export interface CloudOrg {
   id: string
   name: string
+  slug?: string
   role: 'admin' | 'member'
   plan: Plan
   seats: number
+}
+export interface CloudEmail {
+  email: string
+  provider?: string
+  primary: boolean
+}
+export interface CloudDomain {
+  domain: string
+  verified: boolean
+  /** The TXT value to publish at _sinfonie.<domain>; admins only, until verified. */
+  token?: string
+}
+export interface CloudJoinRequest {
+  userId: string
+  login: string
+  name?: string
+  email?: string
+  avatarUrl?: string
+  at: string
+}
+/** An organisation that verified a domain of one of the user's emails and could be joined. */
+export interface DiscoveredOrg {
+  id: string
+  name: string
+  slug?: string
+  domain: string
+  domainJoin: 'open' | 'approval' | 'off'
+  requested: boolean
+  denied: boolean
+}
+/** A teammate's workspace inside a shared space: names, branches, stage and times only. */
+export interface TeammateWorkspace {
+  id: string
+  workspaceId: string
+  user: CloudUser
+  name: string
+  slug: string
+  stage?: WorkspaceStage
+  status?: string
+  repos: { name: string; branch: string }[]
+  ticket?: string
+  lastActivityAt?: string
+  updatedAt: string
+}
+/** A space shared inside an organisation, as the server stores it. */
+export interface OrgSpace {
+  id: string
+  orgId: string
+  name: string
+  definition: SpaceDefinition
+  version: number
+  updatedBy?: string
+  updatedAt: string
 }
 export interface CloudMember {
   id: string
@@ -680,11 +740,17 @@ export interface CloudInvite {
   createdAt: string
   url: string
 }
-/** A team as /api/orgs describes it: members for everyone, open invites for admins. */
+/** An organisation as /api/orgs describes it: members and domains for everyone, invites and join requests for admins. */
 export interface CloudOrgDetail extends CloudOrg {
   subscription?: CloudSubscription
+  domainJoin: 'open' | 'approval' | 'off'
+  domains: CloudDomain[]
+  sharedSpaces: number
+  /** null: unlimited (Team plan). */
+  sharedSpaceLimit: number | null
   members: CloudMember[]
   invites: CloudInvite[]
+  requests: CloudJoinRequest[]
 }
 export interface CloudSubscription {
   /** Paddle status: active, trialing, past_due, paused, canceled. */
@@ -697,6 +763,7 @@ export interface CloudSubscription {
 /** What sinfonie.dev says about the signed-in user. */
 export interface CloudAccount {
   user: CloudUser
+  emails?: CloudEmail[]
   orgs: CloudOrg[]
   plan: Plan
   subscription?: CloudSubscription
@@ -890,6 +957,8 @@ export interface WorkspaceJira {
 
 export interface CreateWorkspaceInput {
   name: string
+  /** Use exactly this branch (and folder) name instead of deriving one from the name. */
+  branch?: string
   repos: { repoId: string; baseBranch: string }[]
   primaryRepoId?: string
   jira?: WorkspaceJira

@@ -85,6 +85,19 @@ export async function createWorktree(
   const branchExists = (await g.branchLocal()).all.includes(branch)
   if (branchExists) {
     await g.raw(['worktree', 'add', worktreePath, branch])
+    return
+  }
+  // A teammate may have pushed this branch already: start from theirs and track it.
+  let remoteBranch = false
+  try {
+    await g.fetch(['origin', branch])
+    await g.revparse(['--verify', `origin/${branch}`])
+    remoteBranch = true
+  } catch {
+    /* not on origin */
+  }
+  if (remoteBranch) {
+    await g.raw(['worktree', 'add', '--track', '-b', branch, worktreePath, `origin/${branch}`])
   } else {
     await g.raw(['worktree', 'add', '-b', branch, worktreePath, startPoint])
   }

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import clsx from 'clsx'
 import { Plus, RefreshCw, Trash2, FolderGit2, Settings as SettingsIcon, Layers, Server, UserCircle2, Users, Plug, Ticket, GitPullRequest, MessageSquarePlus, Info, FolderTree, ChevronRight, Gauge, Siren, CircleDot, Hash, Activity, Cloud, Sparkles, Database, Gem, FileJson, Smartphone } from 'lucide-react'
 import { GcpSection } from './GcpSection'
@@ -380,6 +380,12 @@ function AppPageTail({ page }: { page: AppPage }): React.JSX.Element {
 
 function SpacesPage(): React.JSX.Element {
   const { spaces, workspaces, repos, openSettings } = useApp()
+  const cloudOrgs = useApp((s) => s.settings.cloud?.account?.orgs)
+  const orgsOf = useMemo(() => {
+    const known = new Map((cloudOrgs ?? []).map((o) => [o.id, o.name]))
+    for (const s of spaces) if (s.orgId && !known.has(s.orgId)) known.set(s.orgId, 'Organisation')
+    return [...known].map(([id, name]) => ({ id, name }))
+  }, [cloudOrgs, spaces])
   const go = useGo()
   const [name, setName] = useState('')
   const [importing, setImporting] = useState(false)
@@ -404,13 +410,20 @@ function SpacesPage(): React.JSX.Element {
       </div>
       {importing && <ImportSpaceDialog onClose={() => setImporting(false)} />}
       <div className="flex flex-col gap-1.5">
-        {spaces.map((s) => {
+        {[...orgsOf, { id: '', name: 'Personal' }].map((owner) => {
+          const list = spaces.filter((s) => (s.orgId ?? '') === owner.id)
+          if (!list.length && owner.id) return null
+          return (
+            <React.Fragment key={owner.id || 'personal'}>
+              {(orgsOf.length > 0 || spaces.some((s) => s.orgId)) && <div className="mt-2 px-1 text-[11px] font-semibold uppercase tracking-wide text-muted">{owner.name}</div>}
+              {list.map((s) => {
           const nWs = workspaces.filter((w) => w.spaceId === s.id && w.status !== 'archived').length
           const nRepos = repos.filter((r) => r.spaceId === s.id).length
           return (
             <div key={s.id} className="flex items-center gap-3 rounded-lg border border-border px-3 py-2">
               <span className="h-3 w-3 shrink-0 rounded-full" style={{ background: s.color }} />
               <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{s.name}</span>
+              {s.orgSpace && <Badge tone="accent">shared</Badge>}
               <span className="shrink-0 text-[11px] text-muted">
                 {nWs} workspace{nWs === 1 ? '' : 's'} · {nRepos} repo{nRepos === 1 ? '' : 's'}
               </span>
@@ -421,6 +434,9 @@ function SpacesPage(): React.JSX.Element {
                 <Trash2 size={13} />
               </button>
             </div>
+          )
+              })}
+            </React.Fragment>
           )
         })}
         {spaces.length === 0 && <div className="rounded-md border border-dashed border-border p-3 text-center text-[12px] text-muted">No spaces yet. Spaces group workspaces and repositories, e.g. Personal, Work, Client.</div>}

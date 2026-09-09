@@ -1,4 +1,4 @@
-import type { AgentMode, AuthLink, CompletionRequest, BillingPeriod, CliStatus, CloudOrgDetail, CloudState, Plan, RemoteSettings, RemoteStatus, SpaceDefinition, SpaceImportPreview, SpaceImportResolution, BrowserState, ContextUsage, CrewPriority, FsEntry, LimitAlternative, UsageSnapshot, ChatImageInput, Incident, IncidentStatus, LinearIssue, LinearSettings, OnCallState, ResourceSnapshot, Severity, SlackConnection, LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion, OnCallBulkOp,
+import type { AgentMode, AuthLink, CompletionRequest, DiscoveredOrg, SharedRepo, TeammateWorkspace, BillingPeriod, CliStatus, CloudOrgDetail, CloudState, Plan, RemoteSettings, RemoteStatus, SpaceDefinition, SpaceImportPreview, SpaceImportResolution, BrowserState, ContextUsage, CrewPriority, FsEntry, LimitAlternative, UsageSnapshot, ChatImageInput, Incident, IncidentStatus, LinearIssue, LinearSettings, OnCallState, ResourceSnapshot, Severity, SlackConnection, LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion, OnCallBulkOp,
   AgentEvent,
   ChatItem,
   JiraIssue,
@@ -121,8 +121,35 @@ export interface SinfonieInvoke {
   'cloud:removeMember': (orgId: string, userId: string) => CloudOrgDetail
   'cloud:renameOrg': (orgId: string, name: string) => CloudOrgDetail
   'cloud:leaveOrg': (orgId: string) => void
+  'cloud:deleteOrg': (orgId: string) => void
   'cloud:acceptInvite': (codeOrUrl: string) => CloudOrgDetail
   'cloud:redeem': (code: string) => CloudState
+  // ---- organisations ----
+  /** Sign in with another provider to add its email to this account. */
+  'cloud:addEmail': (provider: 'github' | 'google') => void
+  'cloud:removeEmail': (email: string) => CloudState
+  'cloud:createOrg': (name: string) => CloudOrgDetail
+  'cloud:setDomainJoin': (orgId: string, policy: 'open' | 'approval' | 'off') => CloudOrgDetail
+  'cloud:addDomain': (orgId: string, domain: string) => { verified: boolean; domain: string; token?: string; record?: string; found?: string[]; org: CloudOrgDetail }
+  'cloud:verifyDomain': (orgId: string, domain: string) => { verified: boolean; domain: string; token?: string; record?: string; found?: string[]; org: CloudOrgDetail }
+  'cloud:removeDomain': (orgId: string, domain: string) => CloudOrgDetail
+  'cloud:discover': () => DiscoveredOrg[]
+  'cloud:joinOrg': (orgId: string) => { joined: boolean; requested?: boolean }
+  'cloud:decideRequest': (orgId: string, userId: string, action: 'approve' | 'deny') => CloudOrgDetail
+  /** Share a space in an organisation (or push its latest definition when already shared). */
+  'orgSpaces:publish': (spaceId: string, orgId: string) => Space
+  /** Stop sharing: the space stays, becomes personal. Admins may also delete the server copy. */
+  'orgSpaces:unshare': (spaceId: string, deleteRemote?: boolean) => Space
+  /** Pull every organisation's shared spaces; returns the spaces created or updated. */
+  'orgSpaces:sync': () => { created: string[]; updated: string[]; missingRepos: { spaceId: string; remotes: string[] }[] }
+  /** Repositories of a shared space that are not on this Mac yet. */
+  'orgSpaces:missing': (spaceId: string) => SharedRepo[]
+  /** Locate or clone missing repositories of a shared space. */
+  'orgSpaces:resolve': (spaceId: string, resolutions: SpaceImportResolution[]) => Space
+  /** What teammates are working on in this shared space. */
+  'orgSpaces:teammates': (spaceId: string) => TeammateWorkspace[]
+  /** Open a teammate's workspace here: same name and branches, checked out from origin when pushed. */
+  'orgSpaces:openTeammate': (spaceId: string, remote: TeammateWorkspace) => Workspace
   // ---- phone companion ----
   'remote:status': () => RemoteStatus
   'remote:pair': () => { url: string; qrSvg: string }

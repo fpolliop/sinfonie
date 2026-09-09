@@ -70,7 +70,12 @@ export function patchWorkspace(id: string, patch: Partial<Workspace>): Workspace
 export async function createWorkspace(input: CreateWorkspaceInput, emit: Emit): Promise<Workspace> {
   const { settings, spaces } = getStore().get()
   const space = spaces.find((s) => s.id === input.spaceId)
-  const slug = uniqueSlug(slugify(input.name))
+  // A fixed branch (a teammate's) must be used as is; a fresh one is made unique.
+  let slug: string
+  if (input.branch) {
+    slug = input.branch
+    if (getStore().get().workspaces.some((w) => w.slug === slug && w.status !== 'archived')) throw new Error(`You already have a workspace on ${slug}.`)
+  } else slug = uniqueSlug(slugify(input.name))
   const rootPath = join(space?.workspacesRoot || settings.workspacesRoot, slug)
   const repos = input.repos.map((r) => getRepo(r.repoId))
   const primaryRepoId = input.primaryRepoId ?? input.repos[0]?.repoId ?? ''

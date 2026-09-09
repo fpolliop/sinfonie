@@ -160,3 +160,68 @@ ALTER TABLE coupons ADD COLUMN disabled INTEGER NOT NULL DEFAULT 0;
 -- The cardless trial every new account gets, separate from coupon grants (plan_override).
 ALTER TABLE users ADD COLUMN trial_plan TEXT;
 ALTER TABLE users ADD COLUMN trial_until TEXT;
+
+-- ---------- organisations ----------
+-- Several verified emails per account; the primary is what users.email holds.
+CREATE TABLE IF NOT EXISTS user_emails (
+  email TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  provider TEXT,
+  verified INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS user_emails_user ON user_emails (user_id);
+-- Organisations grow a slug and a domain-join policy: open (anyone with a verified email on a verified domain joins), approval (an admin approves), off.
+ALTER TABLE orgs ADD COLUMN slug TEXT;
+ALTER TABLE orgs ADD COLUMN domain_join TEXT NOT NULL DEFAULT 'approval';
+CREATE UNIQUE INDEX IF NOT EXISTS orgs_slug ON orgs (slug);
+-- Domains an organisation claims; verified through a DNS TXT record on _sinfonie.<domain>.
+CREATE TABLE IF NOT EXISTS org_domains (
+  domain TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  token TEXT NOT NULL,
+  verified_at TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS org_domains_org ON org_domains (org_id);
+-- People who asked to join through a domain that requires approval.
+CREATE TABLE IF NOT EXISTS org_join_requests (
+  org_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  decided_by TEXT,
+  decided_at TEXT,
+  PRIMARY KEY (org_id, user_id)
+);
+-- Spaces shared inside an organisation: the definition every member syncs, versioned for last-write-wins.
+CREATE TABLE IF NOT EXISTS org_spaces (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  definition TEXT NOT NULL,
+  version INTEGER NOT NULL DEFAULT 1,
+  updated_by TEXT,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS org_spaces_org ON org_spaces (org_id);
+
+-- What each member is working on inside a shared space: names, branches, stages, times. Never chat content.
+CREATE TABLE IF NOT EXISTS org_workspaces (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  org_space_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  workspace_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  slug TEXT NOT NULL,
+  stage TEXT,
+  status TEXT,
+  repos TEXT NOT NULL,
+  ticket TEXT,
+  last_activity_at TEXT,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS org_workspaces_space ON org_workspaces (org_space_id);
+CREATE INDEX IF NOT EXISTS org_workspaces_user ON org_workspaces (user_id);

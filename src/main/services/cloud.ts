@@ -12,7 +12,7 @@ import { randomBytes } from 'crypto'
 import { getStore } from '../store'
 import { presentAuthLink, authDone } from './auth-link'
 import { PLAN_LIMITS, PLAN_LABELS, PLAN_FEATURES } from '@shared/types'
-import type { BillingPeriod, CloudAccount, CloudOrgDetail, CloudState, Plan, PlanFeature, PlanLimits, Vendor } from '@shared/types'
+import type { BillingPeriod, CloudAccount, CloudOrgDetail, CloudState, DiscoveredOrg, Plan, PlanFeature, PlanLimits, Vendor } from '@shared/types'
 
 export const CLOUD_URL = process.env.SINFONIE_CLOUD_URL ?? 'https://sinfonie.dev'
 const GRACE_MS = 14 * 24 * 3600_000
@@ -75,12 +75,20 @@ async function call<T>(path: string, init: RequestInit = {}, token = sessionToke
   return body as T
 }
 
+/** Something to run after every successful refresh (the organisation-space sync registers here). */
+let afterRefresh: (() => void) | null = null
+export function onRefreshed(fn: () => void): void {
+  afterRefresh = fn
+}
+
 /** Re-asks the server who we are. A network failure keeps the cached answer; a 401 signs out. */
 export async function refresh(): Promise<CloudState> {
   if (!sessionToken()) return state()
   try {
     const account = await call<CloudAccount>('/api/me')
-    return patchState({ account, checkedAt: new Date().toISOString(), error: undefined })
+    const out = patchState({ account, checkedAt: new Date().toISOString(), error: undefined })
+    afterRefresh?.()
+    return out
   } catch (err) {
     if (err instanceof CloudError && err.status === 401) {
       writeSessionToken(undefined)
@@ -176,6 +184,11 @@ export async function renameOrg(orgId: string, name: string): Promise<CloudOrgDe
   needSession()
   return call<CloudOrgDetail>(`/api/orgs/${encodeURIComponent(orgId)}`, jsonInit('PATCH', { name }))
 }
+export async function deleteOrg(orgId: string): Promise<void> {
+  needSession()
+  await call(`/api/orgs/${encodeURIComponent(orgId)}?delete=1`, { method: 'DELETE' })
+  await refresh()
+}
 export async function leaveOrg(orgId: string): Promise<void> {
   needSession()
   await call(`/api/orgs/${encodeURIComponent(orgId)}`, { method: 'DELETE' })
@@ -210,6 +223,79 @@ export async function redeem(codeOrUrl: string): Promise<CloudState> {
   const account = await call<CloudAccount>('/api/coupons/redeem', jsonInit('POST', { code }))
   return patchState({ account, checkedAt: new Date().toISOString(), error: undefined })
 }
+
+// ---------- emails and organisations ----------
+/** Adds an email by signing in with another provider; the server attaches that identity to this account. */
+export async function addEmail(provider: SignInProvider): Promise<void> {
+  needSession()
+  stopPolling()
+  const st = randomBytes(24).toString('base64url')
+  await call('/api/me/link', jsonInit('POST', { state: st }))
+  pendingState = st
+  const until = Date.now() + 5 * 60_000
+  pollTimer = setInterval(() => {
+    if (Date.now() > until || pendingState !== st) return stopPolling()
+    void fetch(`${CLOUD_URL}/oauth/poll?state=${encodeURIComponent(st)}`, { signal: AbortSignal.timeout(10_000) })
+      .then((r) => r.json() as Promise<{ token?: string }>)
+      .then(async (j) => {
+        if (!j.token || pendingState !== st) return
+        stopPolling()
+        // Same account, fresh session: keep it and refresh, so the new email shows up.
+        await finishSignIn(j.token)
+      })
+      .catch(() => undefined)
+  }, 2000)
+  presentAuthLink('cloud', '', `${CLOUD_URL}/oauth/${provider}/start?state=${encodeURIComponent(st)}`, provider === 'google' ? 'Google' : 'GitHub')
+}
+export async function removeEmail(email: string): Promise<CloudState> {
+  needSession()
+  await call(`/api/me/link?email=${encodeURIComponent(email)}`, { method: 'DELETE' })
+  return refresh()
+}
+export async function createOrg(name: string): Promise<CloudOrgDetail> {
+  needSession()
+  const org = await call<CloudOrgDetail>('/api/orgs', jsonInit('POST', { name }))
+  await refresh()
+  return org
+}
+export async function setDomainJoin(orgId: string, policy: 'open' | 'approval' | 'off'): Promise<CloudOrgDetail> {
+  needSession()
+  return call<CloudOrgDetail>(`/api/orgs/${encodeURIComponent(orgId)}`, jsonInit('PATCH', { domainJoin: policy }))
+}
+type DomainResult = { verified: boolean; domain: string; token?: string; record?: string; found?: string[]; org: CloudOrgDetail }
+export async function addDomain(orgId: string, domain: string): Promise<DomainResult> {
+  needSession()
+  return call<DomainResult>(`/api/orgs/${encodeURIComponent(orgId)}/domains`, jsonInit('POST', { domain }))
+}
+export async function verifyDomain(orgId: string, domain: string): Promise<DomainResult> {
+  needSession()
+  return call<DomainResult>(`/api/orgs/${encodeURIComponent(orgId)}/domains`, jsonInit('POST', { domain, verify: 1 }))
+}
+export async function removeDomain(orgId: string, domain: string): Promise<CloudOrgDetail> {
+  needSession()
+  return call<CloudOrgDetail>(`/api/orgs/${encodeURIComponent(orgId)}/domains?domain=${encodeURIComponent(domain)}`, { method: 'DELETE' })
+}
+export async function discover(): Promise<DiscoveredOrg[]> {
+  needSession()
+  return (await call<{ orgs: DiscoveredOrg[] }>('/api/orgs/discover')).orgs
+}
+export async function joinOrg(orgId: string): Promise<{ joined: boolean; requested?: boolean }> {
+  needSession()
+  const out = await call<{ joined: boolean; requested?: boolean }>(`/api/orgs/${encodeURIComponent(orgId)}/join`, { method: 'POST' })
+  if (out.joined) await refresh()
+  return out
+}
+export async function decideRequest(orgId: string, userId: string, action: 'approve' | 'deny'): Promise<CloudOrgDetail> {
+  needSession()
+  return call<CloudOrgDetail>(`/api/orgs/${encodeURIComponent(orgId)}/requests`, jsonInit('POST', { userId, action }))
+}
+/** Raw access for the organisation-space sync service. */
+export async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  needSession()
+  return call<T>(path, init)
+}
+export const hasSession = (): boolean => Boolean(sessionToken())
+export { jsonInit }
 
 // ---------- entitlements ----------
 const DEV_PLAN = (['free', 'pro', 'team'] as const).find((p) => p === process.env.SINFONIE_PLAN)
