@@ -1,4 +1,4 @@
-/** PATCH /api/orgs/:id {name?, domainJoin?}: rename or set the domain-join policy (admin). DELETE: leave the team (any member; the last admin cannot leave). */
+/** PATCH /api/orgs/:id {name?, domainJoin?, defaultMode?}: rename or set the domain-join policy (admin). DELETE: leave the team (any member; the last admin cannot leave). */
 import { currentUser, subscriptionLive, json, error } from '../../../_session.js'
 import { orgView } from '../index.js'
 
@@ -24,6 +24,10 @@ export async function onRequestPatch({ request, env, params }) {
   if (['open', 'approval', 'off'].includes(b.domainJoin)) {
     await env.DB.prepare('UPDATE orgs SET domain_join = ?2 WHERE id = ?1').bind(org.id, b.domainJoin).run()
     patch.domain_join = b.domainJoin
+  }
+  if (['guided', 'expert'].includes(b.defaultMode)) {
+    await env.DB.prepare('UPDATE orgs SET default_mode = ?2 WHERE id = ?1').bind(org.id, b.defaultMode).run()
+    patch.default_mode = b.defaultMode
   }
   return json(await orgView(env, patch, org.role))
 }

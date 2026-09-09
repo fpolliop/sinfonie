@@ -12,7 +12,7 @@ import { randomBytes } from 'crypto'
 import { getStore } from '../store'
 import { presentAuthLink, authDone } from './auth-link'
 import { PLAN_LIMITS, PLAN_LABELS, PLAN_FEATURES } from '@shared/types'
-import type { BillingPeriod, CloudAccount, CloudOrgDetail, CloudState, DiscoveredOrg, Plan, PlanFeature, PlanLimits, Vendor } from '@shared/types'
+import type { AppMode, BillingPeriod, CloudAccount, CloudOrgDetail, CloudState, DiscoveredOrg, Plan, PlanFeature, PlanLimits, Vendor } from '@shared/types'
 
 export const CLOUD_URL = process.env.SINFONIE_CLOUD_URL ?? 'https://sinfonie.dev'
 const GRACE_MS = 14 * 24 * 3600_000
@@ -81,12 +81,25 @@ export function onRefreshed(fn: () => void): void {
   afterRefresh = fn
 }
 
+/**
+ * A person who never chose a mode takes the default of an organisation they belong to. Their own choice, once
+ * made (onboarding or Settings), is never overridden.
+ */
+function applyOrgDefaultMode(account: CloudAccount): void {
+  if (getStore().get().settings.mode) return
+  if (!account.orgs.some((o) => o.defaultMode === 'guided')) return
+  getStore().update((d) => {
+    d.settings.mode = 'guided'
+  })
+}
+
 /** Re-asks the server who we are. A network failure keeps the cached answer; a 401 signs out. */
 export async function refresh(): Promise<CloudState> {
   if (!sessionToken()) return state()
   try {
     const account = await call<CloudAccount>('/api/me')
     const out = patchState({ account, checkedAt: new Date().toISOString(), error: undefined })
+    applyOrgDefaultMode(account)
     afterRefresh?.()
     return out
   } catch (err) {
@@ -261,6 +274,12 @@ export async function createOrg(name: string): Promise<CloudOrgDetail> {
 export async function setDomainJoin(orgId: string, policy: 'open' | 'approval' | 'off'): Promise<CloudOrgDetail> {
   needSession()
   return call<CloudOrgDetail>(`/api/orgs/${encodeURIComponent(orgId)}`, jsonInit('PATCH', { domainJoin: policy }))
+}
+export async function setOrgDefaultMode(orgId: string, mode: AppMode): Promise<CloudOrgDetail> {
+  needSession()
+  const org = await call<CloudOrgDetail>(`/api/orgs/${encodeURIComponent(orgId)}`, jsonInit('PATCH', { defaultMode: mode }))
+  await refresh()
+  return org
 }
 type DomainResult = { verified: boolean; domain: string; token?: string; record?: string; found?: string[]; org: CloudOrgDetail }
 export async function addDomain(orgId: string, domain: string): Promise<DomainResult> {

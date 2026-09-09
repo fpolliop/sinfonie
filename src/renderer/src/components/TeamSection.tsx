@@ -6,6 +6,7 @@ import { useApp } from '@/stores/app'
 import { Badge, Button, inputCls } from './ui'
 import { InlineRename } from './InlineRename'
 import type { CloudEmail, CloudOrgDetail, DiscoveredOrg } from '@shared/types'
+import { useGuided } from '@/lib/guided'
 
 /**
  * Settings → Plan → Emails and Organisations. One account, several verified emails; organisations
@@ -18,6 +19,7 @@ export function TeamSection({ signedIn }: { signedIn: boolean }): React.JSX.Elem
   const pendingInvite = useApp((s) => s.pendingInvite)
   const setPendingInvite = useApp((s) => s.setPendingInvite)
   const [orgs, setOrgs] = useState<CloudOrgDetail[] | null>(null)
+  const guided = useGuided()
   const [discovered, setDiscovered] = useState<DiscoveredOrg[]>([])
   const [busy, setBusy] = useState<string | null>(null)
   const [code, setCode] = useState('')
@@ -209,6 +211,16 @@ export function TeamSection({ signedIn }: { signedIn: boolean }): React.JSX.Elem
                   </li>
                 ))}
               </ul>
+              {admin && (
+                <div className="mt-2 flex items-center gap-2 border-t border-border pt-2 text-[11px] text-muted">
+                  <span>New members start in</span>
+                  <select className="rounded border border-border bg-bg px-1 py-0.5 text-[11px]" value={org.defaultMode ?? 'expert'} disabled={busy === `mode:${org.id}`} onChange={(e) => void run(`mode:${org.id}`, () => api.invoke('cloud:setOrgDefaultMode', org.id, e.target.value as 'guided' | 'expert'))}>
+                    <option value="expert">expert mode (they write code)</option>
+                    <option value="guided">guided mode (they build with AI, no code shown)</option>
+                  </select>
+                  <span title="Applies the first time a member signs in on a Mac that has no mode yet. Their own choice in Settings wins afterwards.">?</span>
+                </div>
+              )}
               {admin && org.requests.length > 0 && (
                 <div className="mt-2 border-t border-border pt-2">
                   <div className="mb-1 text-[11px] text-muted">Asking to join through a verified domain</div>
@@ -309,7 +321,7 @@ export function TeamSection({ signedIn }: { signedIn: boolean }): React.JSX.Elem
             </div>
           )
         })}
-        {signedIn && (
+        {signedIn && !guided && (
           <div className="mb-2 flex items-center gap-2">
             <input className={inputCls} placeholder="New organisation, e.g. Lumepic" value={newOrg} onChange={(e) => setNewOrg(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && newOrg.trim() && void run('create', () => api.invoke('cloud:createOrg', newOrg).then((o) => (setNewOrg(''), o)))} />
             <Button disabled={!newOrg.trim() || busy === 'create'} onClick={() => void run('create', () => api.invoke('cloud:createOrg', newOrg).then((o) => (setNewOrg(''), o)))}>

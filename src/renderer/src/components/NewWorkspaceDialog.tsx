@@ -248,7 +248,7 @@ export function NewWorkspaceDialog({ onClose }: { onClose: () => void }): React.
   )
 }
 
-function IssuePicker<T>({ label, enabled, selected, search, view, onSelect, onConfigure }: { label: string; enabled: boolean; selected: { key: string; title: string; url: string } | null; search: (q: string) => Promise<T[]>; view: (i: T) => { key: string; title: string; meta: string; url: string }; onSelect: (i: T | null) => void; onConfigure: () => void }): React.JSX.Element {
+export function IssuePicker<T>({ label, enabled, selected, search, view, onSelect, onConfigure }: { label: string; enabled: boolean; selected: { key: string; title: string; url: string } | null; search: (q: string) => Promise<T[]>; view: (i: T) => { key: string; title: string; meta: string; url: string }; onSelect: (i: T | null) => void; onConfigure: () => void }): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<T[]>([])

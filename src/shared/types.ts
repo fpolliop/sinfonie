@@ -410,6 +410,8 @@ export interface Workspace {
 }
 
 /** Same modes as the Claude Code CLI (Shift+Tab cycles them there and here). */
+export type AppMode = 'guided' | 'expert'
+
 export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'auto' | 'bypassPermissions'
 
 export const PERMISSION_MODES: { id: PermissionMode; label: string; hint: string }[] = [
@@ -546,6 +548,12 @@ export interface Settings {
   /** Random id for the usage ping; never tied to an account. */
   installId?: string
   installFirstSeen?: string
+  /**
+   * How the app presents itself. Guided mode is for people who build with AI without writing code: tasks
+   * instead of workspaces, two tabs, no commands, plain words. Unset means expert; an organisation can set the
+   * default for members on their first sign-in.
+   */
+  mode?: AppMode
   /** First-run setup, tour and getting-started checklist state. */
   onboarding?: { setupDoneAt?: string; tourDoneAt?: string; checklistDismissedAt?: string }
   resources?: ResourceSettings
@@ -671,6 +679,8 @@ export interface CloudOrg {
   role: 'admin' | 'member'
   plan: Plan
   seats: number
+  /** How members start on their first sign-in; their own setting wins afterwards. */
+  defaultMode?: AppMode
 }
 export interface CloudEmail {
   email: string

@@ -22,11 +22,14 @@ import { FilesPane } from './FilesPane'
 import { DataPane } from './DataPane'
 import { WorkspaceTabs } from './WorkspaceTabs'
 import { useBrowser } from '@/stores/browser'
+import { useGuided } from '@/lib/guided'
+import { SendForReviewButton, ReviewStatusLine } from './SendForReview'
 
 
 export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.JSX.Element {
   const ws = useApp((s) => s.workspaces.find((w) => w.id === workspaceId))
   const { tab, setTab, setError } = useApp()
+  const guided = useGuided()
   const browserBusy = useBrowser((s) => s.states[workspaceId]?.agentBusy ?? false)
   // An agent started a burst of browsing: bring the pane forward so the user sees it happen.
   useEffect(() => api.on('browser:agentActive', ({ workspaceId: id }) => id === workspaceId && useApp.getState().tab !== 'browser' && setTab('browser')), [workspaceId, setTab])
@@ -111,13 +114,13 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
                 {ws.name}
               </h1>
             )}
-            {ws.status === 'creating' && <Badge tone="warn">creating</Badge>}
-            {ws.status === 'error' && <Badge tone="danger">error</Badge>}
-            {ws.status === 'archived' && <Badge>archived</Badge>}
+            {ws.status === 'creating' && <Badge tone="warn">{guided ? 'getting ready' : 'creating'}</Badge>}
+            {ws.status === 'error' && <Badge tone="danger">{guided ? 'something went wrong' : 'error'}</Badge>}
+            {ws.status === 'archived' && <Badge>{guided ? 'finished' : 'archived'}</Badge>}
             <div className="ml-1 flex shrink-0 items-center gap-1.5">
               <StagePicker stage={ws.stage} disabled={ws.status === 'archived'} onChange={(stage) => run(() => api.invoke('workspaces:setStage', ws.id, stage))} />
-              <SpacePicker pill value={ws.spaceId ?? ''} onChange={(id) => run(() => api.invoke('workspaces:setSpace', ws.id, id || null))} />
-              <LabelPicker ws={ws} />
+              {!guided && <SpacePicker pill value={ws.spaceId ?? ''} onChange={(id) => run(() => api.invoke('workspaces:setSpace', ws.id, id || null))} />}
+              {!guided && <LabelPicker ws={ws} />}
             </div>
             {ws.repos.length > 0 && (
               <>
@@ -126,6 +129,14 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
                   {ws.repos.map((r) => {
                     const pr = prs?.find((p) => p.repoId === r.repoId)?.pr
                     const open = prs?.find((p) => p.repoId === r.repoId)?.threads.filter((t) => !t.isResolved).length ?? 0
+                    if (guided) {
+                      return (
+                        <span key={r.repoId} className={clsx(chipCls, 'min-w-0 shrink border border-border bg-panel text-muted')} title={pr ? pr.title : r.repoName}>
+                          <span className="truncate">{r.repoName}</span>
+                          {pr && <span className={clsx('h-1.5 w-1.5 shrink-0 rounded-full', pr.state === 'MERGED' ? 'bg-accent' : pr.state === 'CLOSED' ? 'bg-danger' : pr.reviewDecision === 'CHANGES_REQUESTED' || open > 0 ? 'bg-warn' : 'bg-ok')} />}
+                        </span>
+                      )
+                    }
                     return (
                       <button
                         key={r.repoId}
@@ -144,10 +155,16 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
             )}
           </div>
           <div className="flex min-w-0 items-center gap-1.5 text-[11px] leading-none text-muted">
-            <GitBranch size={11} className="shrink-0" />
-            <span className="truncate">{ws.repos[0]?.branch ?? `${ws.slug} · no repositories yet`}</span>
-            <span className="opacity-50">·</span>
-            <span className="shrink-0">port {ws.port}</span>
+            {guided ? (
+              <ReviewStatusLine workspaceId={ws.id} />
+            ) : (
+              <>
+                <GitBranch size={11} className="shrink-0" />
+                <span className="truncate">{ws.repos[0]?.branch ?? `${ws.slug} · no repositories yet`}</span>
+                <span className="opacity-50">·</span>
+                <span className="shrink-0">port {ws.port}</span>
+              </>
+            )}
             {ws.jira && (
               <span className="no-drag inline-flex items-center gap-1.5">
                 <span className="opacity-50">·</span>
@@ -178,11 +195,26 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
             )}
           </div>
         </div>
+        {guided && <SendForReviewButton ws={ws} />}
         <div className="no-drag relative">
           <button className="rounded-md p-1.5 text-muted hover:bg-panel-2 hover:text-text" onClick={() => setMenu(!menu)}>
             <MoreHorizontal size={16} />
           </button>
-          {menu && (
+          {menu && guided && (
+            <div className="absolute right-0 top-8 z-20 w-56 rounded-lg border border-border bg-panel p-1 shadow-xl" onMouseLeave={() => setMenu(false)}>
+              <MenuItem icon={<Pencil size={14} />} label="Rename task" onClick={() => setEditingTitle(true)} />
+              <div className="my-1 border-t border-border" />
+              {ws.status !== 'archived' ? (
+                <>
+                  <MenuItem icon={<Archive size={14} />} label="Finish task…" onClick={() => setArchiveDlg('archive')} />
+                  <MenuItem icon={<Trash2 size={14} />} label="Delete task…" onClick={() => setArchiveDlg('delete')} danger />
+                </>
+              ) : (
+                <MenuItem icon={<Trash2 size={14} />} label="Remove from list" onClick={() => run(() => api.invoke('workspaces:delete', ws.id))} danger />
+              )}
+            </div>
+          )}
+          {menu && !guided && (
             <div className="absolute right-0 top-8 z-20 w-56 rounded-lg border border-border bg-panel p-1 shadow-xl" onMouseLeave={() => setMenu(false)}>
               <MenuItem icon={<Folder size={14} />} label="Reveal in Finder" onClick={() => run(() => api.invoke('workspaces:openIn', ws.id, 'finder'))} />
               <MenuItem icon={<Code2 size={14} />} label="Open in VS Code" onClick={() => run(() => api.invoke('workspaces:openIn', ws.id, 'vscode'))} />
@@ -236,7 +268,7 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
         </div>
       </div>
 
-      {archiveDlg && <ArchiveDialog workspaceId={ws.id} name={ws.name} mode={archiveDlg} onClose={() => setArchiveDlg(null)} />}
+      {archiveDlg && <ArchiveDialog workspaceId={ws.id} name={ws.name} mode={archiveDlg} guided={guided} onClose={() => setArchiveDlg(null)} />}
       {reposDlg && <ManageReposDialog workspaceId={ws.id} onClose={() => setReposDlg(false)} />}
       {moveDlg && (
         <Dialog title="Move to space" onClose={() => setMoveDlg(false)} width={380}>
@@ -262,7 +294,7 @@ function MenuItem({ icon, label, onClick, danger, disabled }: { icon: React.Reac
   )
 }
 
-function ArchiveDialog({ workspaceId, name, mode, onClose }: { workspaceId: string; name: string; mode: 'archive' | 'delete'; onClose: () => void }): React.JSX.Element {
+function ArchiveDialog({ workspaceId, name, mode, onClose, guided }: { workspaceId: string; name: string; mode: 'archive' | 'delete'; onClose: () => void; guided?: boolean }): React.JSX.Element {
   const [deleteBranches, setDeleteBranches] = useState(mode === 'delete')
   const [busy, setBusy] = useState(false)
   const [safety, setSafety] = useState<RepoSafety[] | null>(null)
@@ -292,16 +324,20 @@ function ArchiveDialog({ workspaceId, name, mode, onClose }: { workspaceId: stri
     }
   }
   return (
-    <Dialog title={`${mode === 'delete' ? 'Delete' : 'Archive'} "${name}"`} onClose={onClose} width={480}>
+    <Dialog title={`${mode === 'delete' ? 'Delete' : guided ? 'Finish' : 'Archive'} "${name}"`} onClose={onClose} width={480}>
       <p className="mb-3 text-muted">
-        {mode === 'delete'
-          ? 'Removes every worktree and the workspace folder from disk, runs each repo\'s archive script first, and forgets the workspace and its chat.'
-          : 'Removes every worktree and the workspace folder from disk and runs each repo\'s archive script first. The workspace stays in the archived list with its chat.'}
+        {guided
+          ? mode === 'delete'
+            ? 'Removes this task and its conversation. Anything already sent for review stays with the team.'
+            : 'Puts this task away. Its conversation stays in the Finished list, and anything already sent for review stays with the team.'
+          : mode === 'delete'
+            ? 'Removes every worktree and the workspace folder from disk, runs each repo\'s archive script first, and forgets the workspace and its chat.'
+            : 'Removes every worktree and the workspace folder from disk and runs each repo\'s archive script first. The workspace stays in the archived list with its chat.'}
       </p>
 
       <div className="mb-3 rounded-lg border border-border">
         <div className="border-b border-border px-3 py-1.5 text-[11px] font-medium uppercase tracking-wide text-muted">What would be lost</div>
-        {safety === null && <div className="px-3 py-2 text-[12px] text-muted">Checking worktrees…</div>}
+        {safety === null && <div className="px-3 py-2 text-[12px] text-muted">{guided ? 'Checking…' : 'Checking worktrees…'}</div>}
         {safety?.map((r) => {
           const bad = r.uncommitted > 0 || r.unpushed > 0 || r.error
           return (
@@ -312,8 +348,12 @@ function ArchiveDialog({ workspaceId, name, mode, onClose }: { workspaceId: stri
                 {r.error
                   ? r.error
                   : bad
-                    ? [r.uncommitted > 0 && `${r.uncommitted} uncommitted file${r.uncommitted === 1 ? '' : 's'}`, r.unpushed > 0 && `${r.unpushed} commit${r.unpushed === 1 ? '' : 's'} not pushed${r.hasUpstream ? '' : ' (branch never pushed)'}`].filter(Boolean).join(' · ')
-                    : 'clean and pushed'}
+                    ? guided
+                      ? 'changes not sent for review'
+                      : [r.uncommitted > 0 && `${r.uncommitted} uncommitted file${r.uncommitted === 1 ? '' : 's'}`, r.unpushed > 0 && `${r.unpushed} commit${r.unpushed === 1 ? '' : 's'} not pushed${r.hasUpstream ? '' : ' (branch never pushed)'}`].filter(Boolean).join(' · ')
+                    : guided
+                      ? 'nothing unsent'
+                      : 'clean and pushed'}
               </span>
             </div>
           )
@@ -324,18 +364,28 @@ function ArchiveDialog({ workspaceId, name, mode, onClose }: { workspaceId: stri
         <label className="mb-3 flex items-start gap-2 rounded-md border border-warn/40 bg-warn/10 p-3 text-[12px]">
           <input type="checkbox" className="mt-0.5" checked={ack} onChange={(e) => setAck(e.target.checked)} />
           <span>
-            I understand the changes listed above will be <strong>permanently lost</strong>. Commit and push first if you want to keep them.
+            {guided ? (
+              <>
+                I understand the changes I have not sent for review will be <strong>permanently lost</strong>. Send them for review first if you want to keep them.
+              </>
+            ) : (
+              <>
+                I understand the changes listed above will be <strong>permanently lost</strong>. Commit and push first if you want to keep them.
+              </>
+            )}
           </span>
         </label>
       )}
 
-      <label className="mb-4 flex items-center gap-2 text-[13px]">
-        <input type="checkbox" checked={deleteBranches} onChange={(e) => setDeleteBranches(e.target.checked)} /> Also delete the local branches
-      </label>
+      {!guided && (
+        <label className="mb-4 flex items-center gap-2 text-[13px]">
+          <input type="checkbox" checked={deleteBranches} onChange={(e) => setDeleteBranches(e.target.checked)} /> Also delete the local branches
+        </label>
+      )}
       <div className="flex justify-end gap-2">
         <Button onClick={onClose}>Cancel</Button>
         <Button variant="danger" onClick={submit} disabled={busy || safety === null || (hasRisk && !ack)}>
-          {busy ? (mode === 'delete' ? 'Deleting…' : 'Archiving…') : mode === 'delete' ? 'Delete workspace' : 'Archive'}
+          {busy ? (mode === 'delete' ? 'Deleting…' : guided ? 'Finishing…' : 'Archiving…') : mode === 'delete' ? (guided ? 'Delete task' : 'Delete workspace') : guided ? 'Finish' : 'Archive'}
         </Button>
       </div>
     </Dialog>

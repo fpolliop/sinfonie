@@ -3,6 +3,7 @@ import clsx from 'clsx'
 import { ArrowLeft, ArrowRight, RotateCw, Plus, X, Globe, Pause, Play, ExternalLink, ShieldAlert, Download } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
+import { useGuided } from '@/lib/guided'
 import { useBrowser, subscribeBrowser, loadBrowserState } from '@/stores/browser'
 import type { PermissionRequest } from '@shared/types'
 
@@ -11,6 +12,7 @@ import type { PermissionRequest } from '@shared/types'
  * so this component owns the chrome (tabs, address bar, agent controls) and reports its bounds.
  */
 export function BrowserPane({ workspaceId, visible }: { workspaceId: string; visible: boolean }): React.JSX.Element {
+  const guided = useGuided()
   const state = useBrowser((s) => s.states[workspaceId])
   const ws = useApp((s) => s.workspaces.find((w) => w.id === workspaceId))
   const engine = useApp((s) => s.settings.engine ?? 'claude-code')
@@ -97,10 +99,10 @@ export function BrowserPane({ workspaceId, visible }: { workspaceId: string; vis
         )}
         {state?.paused ? (
           <button className="inline-flex shrink-0 items-center gap-1 rounded-full border border-warn/50 bg-warn/10 px-2 py-0.5 text-[11px] text-warn hover:bg-warn/20" title="Agent actions are waiting. Click to hand control back." onClick={() => void api.invoke('browser:setPaused', workspaceId, false)}>
-            <Play size={11} /> You have control · resume agent
+            <Play size={11} /> {guided ? 'You have the preview · give it back' : 'You have control · resume agent'}
           </button>
         ) : (
-          <button className="shrink-0 rounded-md p-1 text-muted hover:bg-panel-2 hover:text-text" title="Pause agent control: its next browser action waits until you resume (e.g. to sign in yourself)" onClick={() => void api.invoke('browser:setPaused', workspaceId, true)}>
+          <button className="shrink-0 rounded-md p-1 text-muted hover:bg-panel-2 hover:text-text" title={guided ? 'Take over the preview, for example to sign in yourself; the assistant waits until you give it back' : 'Pause agent control: its next browser action waits until you resume (e.g. to sign in yourself)'} onClick={() => void api.invoke('browser:setPaused', workspaceId, true)}>
             <Pause size={13} />
           </button>
         )}
@@ -175,7 +177,7 @@ export function BrowserPane({ workspaceId, visible }: { workspaceId: string; vis
                 New tab
               </button>
             </div>
-            <div className="max-w-[460px] text-center text-[11px]">Logins persist per space. Actions on infrastructure consoles ask you first; use Pause to take over, for example to sign in.</div>
+            <div className="max-w-[460px] text-center text-[11px]">{guided ? 'This is your app, running on your Mac with your changes. Nobody else sees it until you send for review. Sign-ins are remembered.' : 'Logins persist per space. Actions on infrastructure consoles ask you first; use Pause to take over, for example to sign in.'}</div>
           </div>
         )}
       </div>

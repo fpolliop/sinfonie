@@ -7,7 +7,8 @@ import { api } from '@/lib/api'
 import { useApp, type SettingsTarget, type AppPage, type SpacePage } from '@/stores/app'
 import { Badge, Button, Field, inputCls } from './ui'
 import { shortPath } from '@/lib/format'
-import { PERMISSION_MODES, SPACE_COLORS, SPACE_FILE, jiraConnectionFor, linearConnectionFor, type Space } from '@shared/types'
+import { PERMISSION_MODES, SPACE_COLORS, SPACE_FILE, jiraConnectionFor, linearConnectionFor, type AppMode, type Space } from '@shared/types'
+import { useGuided } from '@/lib/guided'
 import { JiraSection } from './JiraSection'
 import { LinearSection } from './LinearSection'
 import { SlackConnectionCard } from './SlackConnectionCard'
@@ -32,6 +33,7 @@ import { ACP_ENGINES, VENDORS } from '@shared/types'
  */
 /** The app-level pages, grouped as the rail shows them. The single Integrations page carries its own tabs. */
 const APP_PAGES: { id: AppPage; label: string; icon: React.ReactNode; desc: string; group: string }[] = [
+  { id: 'preferences', label: 'Preferences', icon: <SettingsIcon size={14} />, desc: 'How Sinfonie presents itself to you.', group: 'You' },
   { id: 'general', label: 'General', icon: <SettingsIcon size={14} />, desc: 'Defaults every space starts from: engine, models, permission mode, folders, ports.', group: 'Workspace' },
   { id: 'spaces', label: 'Spaces', icon: <Layers size={14} />, desc: 'Create and remove spaces. Each space has its own pages below.', group: 'Workspace' },
   { id: 'repos', label: 'Repositories', icon: <FolderGit2 size={14} />, desc: 'Every repository the app knows, and which space each belongs to.', group: 'Workspace' },
@@ -57,6 +59,14 @@ const INTEGRATION_TABS: { id: IntegrationTab; label: string; icon: React.ReactNo
   { id: 'mcp', label: 'MCP servers', icon: <Plug size={14} />, desc: 'MCP servers available in every space.' }
 ]
 const INTEGRATION_IDS: string[] = INTEGRATION_TABS.map((t) => t.id)
+/** Guided mode's rail: the person's own things. Everything about the team's apps is set up by the tech lead in expert mode. */
+const GUIDED_PAGES: { id: AppPage; label: string; icon: React.ReactNode; desc: string; group: string }[] = [
+  { id: 'preferences', label: 'Preferences', icon: <SettingsIcon size={14} />, desc: 'How Sinfonie presents itself to you.', group: 'You' },
+  { id: 'accounts', label: 'Claude sign-in', icon: <UserCircle2 size={14} />, desc: 'The Claude account the assistant runs on.', group: 'You' },
+  { id: 'plan', label: 'Account & team', icon: <Gem size={14} />, desc: 'Your Sinfonie account, your emails and the teams you are in.', group: 'You' },
+  { id: 'feedback', label: 'Feedback', icon: <MessageSquarePlus size={14} />, desc: 'Tell us what works and what does not.', group: 'You' },
+  { id: 'about', label: 'About & updates', icon: <Info size={14} />, desc: 'Version, links, and update checks.', group: 'You' }
+]
 /** Which rail entry a page id belongs to: integration tabs fold into Integrations, the legacy logins page into Accounts. */
 const railFor = (id: AppPage): AppPage => (INTEGRATION_IDS.includes(id) ? 'integrations' : id === 'logins' ? 'accounts' : id)
 const SPACE_PAGES: { id: SpacePage; label: string; icon: React.ReactNode; desc: string; overrides?: AppPage; group?: string }[] = [
@@ -76,7 +86,13 @@ const SPACE_PAGES: { id: SpacePage; label: string; icon: React.ReactNode; desc: 
 export function SettingsWindow({ target, onClose }: { target: SettingsTarget; onClose: () => void }): React.JSX.Element {
   const { spaces, openSettings } = useApp()
   const setAssistantOpen = useApp((st) => st.setAssistantOpen)
+  const guided = useGuided()
   const space = target.scope === 'space' ? spaces.find((s) => s.id === target.spaceId) : undefined
+  // Guided mode shows five pages; anything else the app tries to open lands on Preferences.
+  useEffect(() => {
+    if (!guided) return
+    if (target.scope !== 'app' || !GUIDED_PAGES.some((p) => p.id === railFor(target.page))) openSettings({ scope: 'app', page: 'preferences' })
+  }, [guided, target, openSettings])
   // Hide any workspace browser page while settings are up, so this overlay stays clickable.
   useEffect(() => {
     void api.invoke('browser:suspend', true)
@@ -94,18 +110,20 @@ export function SettingsWindow({ target, onClose }: { target: SettingsTarget; on
     if (target.scope === 'space' && !space) openSettings({ scope: 'app', page: 'spaces' })
   }, [target, space, openSettings])
 
-  const page = target.scope === 'app' ? APP_PAGES.find((p) => p.id === railFor(target.page))! : SPACE_PAGES.find((p) => p.id === target.page)!
+  const pages = guided ? GUIDED_PAGES : APP_PAGES
+  const page = (target.scope === 'app' ? pages.find((p) => p.id === railFor(target.page)) ?? APP_PAGES.find((p) => p.id === railFor(target.page)) : SPACE_PAGES.find((p) => p.id === target.page)) ?? APP_PAGES[0]
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 no-drag" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="flex h-[84vh] w-[980px] max-w-[95vw] overflow-hidden rounded-xl border border-border bg-panel shadow-2xl">
         {/* rail */}
         <nav className="flex w-[232px] shrink-0 flex-col overflow-auto border-r border-border bg-bg/60 p-2">
-          {APP_PAGES.map((p, i) => (
+          {pages.map((p, i) => (
             <React.Fragment key={p.id}>
-              {APP_PAGES[i - 1]?.group !== p.group && <div className={clsx('px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-muted', i === 0 ? 'pt-2' : 'mt-3')}>{p.group}</div>}
+              {pages[i - 1]?.group !== p.group && <div className={clsx('px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-muted', i === 0 ? 'pt-2' : 'mt-3')}>{p.group}</div>}
               <NavItem active={target.scope === 'app' && railFor(target.page) === p.id} icon={p.icon} label={p.label} onClick={() => openSettings({ scope: 'app', page: p.id })} />
             </React.Fragment>
           ))}
+          {!guided && (
           <div className="mt-3 flex items-center px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-muted">
             Spaces
             <button className="ml-auto rounded p-0.5 hover:bg-panel-2 hover:text-text" title="Ask the setup assistant (⇧⌘A)" onClick={() => setAssistantOpen(true)}>
@@ -115,8 +133,9 @@ export function SettingsWindow({ target, onClose }: { target: SettingsTarget; on
               <Plus size={12} />
             </button>
           </div>
-          {spaces.length === 0 && <div className="px-2 py-1 text-[11px] text-muted">No spaces yet.</div>}
-          {spaces.map((s) => {
+          )}
+          {!guided && spaces.length === 0 && <div className="px-2 py-1 text-[11px] text-muted">No spaces yet.</div>}
+          {!guided && spaces.map((s) => {
             const open = target.scope === 'space' && target.spaceId === s.id
             return (
               <div key={s.id}>
@@ -171,6 +190,41 @@ export function SettingsWindow({ target, onClose }: { target: SettingsTarget; on
   )
 }
 
+/** The mode switch lives here for guided users; expert users find the same control at the top of General. */
+function ModeField(): React.JSX.Element {
+  const mode = useApp((s) => s.settings.mode ?? 'expert')
+  const go = useGo()
+  const pick = (m: AppMode): void => void go(() => api.invoke('settings:update', { mode: m }))
+  return (
+    <Field label="How you work" hint="Guided mode is for people who build with AI without writing code: tasks, a chat and a preview, no code or commands. Expert mode is the whole toolbox. Switch any time; nothing is lost either way.">
+      <div className="flex flex-col gap-1.5">
+        {(
+          [
+            { id: 'expert', title: 'I write code', text: 'Repositories, branches, terminals, diffs, pull requests.' },
+            { id: 'guided', title: 'I build with AI, I don’t write code', text: 'Describe what you want, watch the preview, send it for review.' }
+          ] as { id: AppMode; title: string; text: string }[]
+        ).map((o) => (
+          <label key={o.id} className={clsx('flex cursor-pointer items-start gap-2 rounded-md border px-3 py-2', mode === o.id ? 'border-accent bg-accent/5' : 'border-border hover:border-accent/50')}>
+            <input type="radio" className="mt-1" checked={mode === o.id} onChange={() => pick(o.id)} />
+            <span>
+              <span className="block text-[13px] font-medium">{o.title}</span>
+              <span className="block text-[11px] text-muted">{o.text}</span>
+            </span>
+          </label>
+        ))}
+      </div>
+    </Field>
+  )
+}
+
+function PreferencesPage(): React.JSX.Element {
+  return (
+    <div className="max-w-[560px]">
+      <ModeField />
+    </div>
+  )
+}
+
 function NavItem({ active, icon, label, onClick, small, chevron }: { active: boolean; icon: React.ReactNode; label: string; onClick: () => void; small?: boolean; chevron?: boolean }): React.JSX.Element {
   return (
     <button onClick={onClick} className={clsx('flex w-full items-center gap-2 rounded-md px-2 text-left', small ? 'py-1 text-[12px]' : 'py-1.5 text-[13px]', active ? 'bg-panel-2 text-text' : 'text-muted hover:bg-panel-2/60 hover:text-text')}>
@@ -199,9 +253,12 @@ function AppPageView({ page }: { page: AppPage }): React.JSX.Element {
   const go = useGo()
   const update = (patch: Partial<typeof settings>): Promise<unknown> => api.invoke('settings:update', patch)
   switch (page) {
+    case 'preferences':
+      return <PreferencesPage />
     case 'general':
       return (
         <div className="max-w-[640px]">
+          <ModeField />
           <Field label="Engine" hint="Which runtime drives chats. Spaces can override it.">
             <EngineSelect value={settings.engine ?? 'claude-code'} onChange={(engine) => go(() => update({ engine: engine as typeof settings.engine }))} />
           </Field>

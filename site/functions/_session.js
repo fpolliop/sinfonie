@@ -151,7 +151,7 @@ export async function accountFor(user, env) {
   const orgs = memberships.map((o) => {
     const orgPlan = o.plan_override === 'team' || subscriptionLive(o) ? 'team' : 'free'
     if (orgPlan === 'team') plan = best(plan, 'team')
-    return { id: o.id, name: o.name, slug: o.slug || undefined, role: o.role, plan: orgPlan, seats: o.seats }
+    return { id: o.id, name: o.name, slug: o.slug || undefined, role: o.role, plan: orgPlan, seats: o.seats, defaultMode: o.default_mode === 'guided' ? 'guided' : 'expert' }
   })
   const emails = await emailsOf(env, user)
   const subscription = user.paddle_subscription_id

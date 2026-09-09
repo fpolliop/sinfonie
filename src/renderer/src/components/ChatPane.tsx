@@ -17,6 +17,7 @@ import { useApp } from '@/stores/app'
 import { useResources, subscribeResources } from '@/stores/resources'
 import { Markdown } from '@/lib/markdown'
 import { Button, Spinner } from './ui'
+import { useGuided, words } from '@/lib/guided'
 import type { ChatBlock, ChatItem, ChatToolBlock } from '@shared/types'
 
 /** Right panel state: closed, the activity overview, or one delegation's detail. */
@@ -52,7 +53,9 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
   const draft = useChat((s) => s.chats[workspaceId]?.draft ?? '')
   const setDraft = useChat((s) => s.setDraft)
   const load = useChat((s) => s.load)
-  const mode: AgentMode = ws?.agentMode ?? spaceMode ?? 'chat'
+  const guided = useGuided()
+  // Guided mode has no terminal UI: the chat is the only face of the assistant.
+  const mode: AgentMode = guided ? 'chat' : ws?.agentMode ?? spaceMode ?? 'chat'
   const claude = (ws?.engine ?? useApp.getState().spaces.find((sp) => sp.id === ws?.spaceId)?.engine ?? useApp.getState().settings.engine ?? 'claude-code') === 'claude-code'
   const switchTo = (next: AgentMode): void => {
     if (next === mode) return
@@ -69,7 +72,7 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
   }
   return (
     <div className="flex h-full flex-col">
-      {claude && (
+      {claude && !guided && (
         <div className="flex h-[30px] shrink-0 items-center gap-2 border-b border-border px-3">
           <span className="text-[11px] text-muted">{mode === 'cli' ? 'The real Claude Code, on this conversation. Permissions, cost and the phone keep working.' : 'Agent'}</span>
           <div className="ml-auto flex rounded-md border border-border p-0.5 text-[11px]">
@@ -89,6 +92,7 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
 }
 
 function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Element {
+  const guided = useGuided()
   const chat = useChat((s) => s.chats[workspaceId])
   const allQuestions = useChat((s) => s.questions)
   // Filter outside the selector: a selector that returns a fresh array re-renders forever.
@@ -256,7 +260,7 @@ function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Elem
             </div>
           )}
           {chat?.limit && <LimitCard workspaceId={workspaceId} ev={chat.limit} />}
-          <CrewBar items={items} busy={busy} model={chat?.model ?? settingsModel} crewNames={crewNames} />
+          {!guided && <CrewBar items={items} busy={busy} model={chat?.model ?? settingsModel} crewNames={crewNames} />}
           <div
             className="rounded-xl border border-border bg-panel focus-within:border-accent"
             onDragOver={(e) => {
@@ -311,7 +315,7 @@ function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Elem
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault()
                   onSubmit()
-                } else if (e.key === 'Tab' && e.shiftKey) {
+                } else if (e.key === 'Tab' && e.shiftKey && !guided) {
                   e.preventDefault()
                   cycleMode()
                 }
@@ -319,19 +323,20 @@ function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Elem
               rows={3}
               ref={taRef}
               style={taHeight ? { height: taHeight } : undefined}
-              placeholder={disabled ? 'Workspace is not ready' : busy ? 'Type to queue a message for when this turn ends… (Enter to queue)' : 'Describe the change across your repos… (Enter to send, Shift+Enter for newline, paste or drop images)'}
+              placeholder={disabled ? (guided ? 'The task is getting ready…' : 'Workspace is not ready') : busy ? (guided ? 'Type the next thing; it goes when the assistant is done (Enter)' : 'Type to queue a message for when this turn ends… (Enter to queue)') : words(guided).composerPlaceholder}
               className="block min-h-[64px] max-h-[60vh] w-full resize-none bg-transparent pt-3 pl-3 pr-8 text-[13px] outline-none placeholder:text-muted"
             />
             </div>
             <div className="flex min-w-0 flex-wrap items-center gap-2 px-2 pb-2">
-              <ModePicker mode={mode} onChange={changeMode} />
-              <SessionPill workspaceId={workspaceId} spaceId={ws?.spaceId} engineLabel={engineLabel} budgetMode={budgetMode} leanMode={leanMode} costMode={costMode} costModeSource={costModeSource} model={chat?.model ?? settingsModel} contextTokens={chat?.contextTokens} contextWindow={chat?.contextWindow} cacheRead={chat?.contextCacheRead} history={chat?.contextHistory} result={chat?.lastResult} busy={busy} onNewSession={() => void reset(workspaceId)} />
+              {!guided && <ModePicker mode={mode} onChange={changeMode} />}
+              {guided && <StartOver busy={busy} disabled={disabled} long={Boolean(chat?.contextTokens && chat?.contextWindow && chat.contextTokens / chat.contextWindow > 0.6)} onNew={() => void reset(workspaceId)} />}
+              {!guided && <SessionPill workspaceId={workspaceId} spaceId={ws?.spaceId} engineLabel={engineLabel} budgetMode={budgetMode} leanMode={leanMode} costMode={costMode} costModeSource={costModeSource} model={chat?.model ?? settingsModel} contextTokens={chat?.contextTokens} contextWindow={chat?.contextWindow} cacheRead={chat?.contextCacheRead} history={chat?.contextHistory} result={chat?.lastResult} busy={busy} onNewSession={() => void reset(workspaceId)} />}
               <span className="ml-auto" />
               <Button size="sm" variant="ghost" title="Attach images (or paste / drop them into the message)" onClick={() => fileInput.current?.click()} disabled={disabled}>
                 <Paperclip size={13} />
               </Button>
-              <NotesButton workspaceId={workspaceId} />
-              <SessionMenu busy={busy} disabled={disabled} onFork={() => setForkDlg(true)} onResume={() => setResumeDlg(true)} onNew={() => void reset(workspaceId)} />
+              {!guided && <NotesButton workspaceId={workspaceId} />}
+              {!guided && <SessionMenu busy={busy} disabled={disabled} onFork={() => setForkDlg(true)} onResume={() => setResumeDlg(true)} onNew={() => void reset(workspaceId)} />}
               {busy ? (
                 <>
                   <Button size="sm" onClick={onSubmit} disabled={!canSend} title="Deliver when the current turn ends">
@@ -351,8 +356,18 @@ function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Elem
         </div>
       </div>
     </div>
-    <SubagentPanel items={items} model={chat?.model ?? settingsModel} workspaceId={workspaceId} />
+    {!guided && <SubagentPanel items={items} model={chat?.model ?? settingsModel} workspaceId={workspaceId} />}
     </div>
+  )
+}
+
+/** Guided mode's only session control: a fresh conversation when the current one has grown long. */
+function StartOver({ busy, disabled, long, onNew }: { busy: boolean; disabled: boolean; long: boolean; onNew: () => void }): React.JSX.Element | null {
+  if (!long) return null
+  return (
+    <Button size="sm" variant="ghost" disabled={busy || disabled} onClick={onNew} title="This conversation has grown long, which makes the assistant slower and costlier. Starting over keeps your changes and forgets the chat.">
+      Start over
+    </Button>
   )
 }
 
@@ -412,9 +427,12 @@ function Message({ item }: { item: ChatItem }): React.JSX.Element {
 }
 
 function Block({ block }: { block: ChatBlock }): React.JSX.Element | null {
+  const guided = useGuided()
   if (block.type === 'text') return block.text.trim() ? <Markdown text={block.text} /> : null
-  if (block.type === 'thinking') return block.text.trim() ? <Collapsible label="Thinking" muted body={block.text} /> : null
   if (block.type === 'image') return <ChatImage image={block.image} />
+  // A guided user reads what the assistant says, not how it thinks or which commands it ran.
+  if (guided) return null
+  if (block.type === 'thinking') return block.text.trim() ? <Collapsible label="Thinking" muted body={block.text} /> : null
   return <ToolCall block={block} />
 }
 

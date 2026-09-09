@@ -225,3 +225,6 @@ CREATE TABLE IF NOT EXISTS org_workspaces (
 );
 CREATE INDEX IF NOT EXISTS org_workspaces_space ON org_workspaces (org_space_id);
 CREATE INDEX IF NOT EXISTS org_workspaces_user ON org_workspaces (user_id);
+
+-- How members experience the app on their first sign-in: guided (build with AI, no code) or expert. Their own setting wins afterwards.
+ALTER TABLE orgs ADD COLUMN default_mode TEXT NOT NULL DEFAULT 'expert';

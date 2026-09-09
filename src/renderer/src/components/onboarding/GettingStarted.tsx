@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { CheckCircle2, Circle, X } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
+import { useGuided } from '@/lib/guided'
 
 /** Eight things a new install does, ticked from real state. Lives on the empty page until dismissed or done. */
 export function GettingStarted(): React.JSX.Element | null {
@@ -18,8 +19,15 @@ export function GettingStarted(): React.JSX.Element | null {
       .then((h) => setAssisted(h.items.length > 0))
       .catch(() => undefined)
   }, [])
+  const guided = useGuided()
   if (settings.onboarding?.checklistDismissedAt) return null
-  const items = [
+  const orgs = settings.cloud?.account?.orgs ?? []
+  const items = guided ? [
+    { done: settings.claudeAccounts.some((a) => a.loggedIn), text: 'Sign in to Claude', go: () => openSettings({ scope: 'app', page: 'accounts' }) },
+    { done: orgs.length > 0, text: 'Join your team', go: () => openSettings({ scope: 'app', page: 'plan' }) },
+    { done: workspaces.length > 0, text: 'Start a task', go: () => setShowNewWorkspace(true) },
+    { done: workspaces.some((w) => w.stage === 'in-review' || w.stage === 'done'), text: 'Send one for review', go: () => workspaces[0] && useApp.getState().select(workspaces[0].id) }
+  ] : [
     { done: settings.claudeAccounts.some((a) => a.loggedIn), text: 'Sign in to an agent', go: () => openSettings({ scope: 'app', page: 'accounts' }) },
     { done: spaces.length > 0, text: 'Create a space', go: () => openSettings({ scope: 'app', page: 'spaces' }) },
     { done: repos.length > 0, text: 'Add repositories to it', go: () => (spaces[0] ? openSettings({ scope: 'space', spaceId: spaces[0].id, page: 'repos' }) : openSettings({ scope: 'app', page: 'repos' })) },
@@ -53,9 +61,11 @@ export function GettingStarted(): React.JSX.Element | null {
           </button>
         ))}
       </div>
-      <button className="mt-2 text-[12px] text-accent hover:underline" onClick={() => setOnboarding('tour')}>
-        Take the tour
-      </button>
+      {!guided && (
+        <button className="mt-2 text-[12px] text-accent hover:underline" onClick={() => setOnboarding('tour')}>
+          Take the tour
+        </button>
+      )}
     </div>
   )
 }

@@ -20,6 +20,7 @@ export async function orgView(env, org, role) {
     plan,
     seats: org.seats,
     domainJoin: org.domain_join || 'approval',
+    defaultMode: org.default_mode === 'guided' ? 'guided' : 'expert',
     domains: domains.map((d) => ({ domain: d.domain, verified: Boolean(d.verified_at), ...(role === 'admin' && !d.verified_at ? { token: d.token } : {}) })),
     sharedSpaces: Number(spaces?.n || 0),
     sharedSpaceLimit: plan === 'team' ? null : FREE_ORG_SPACES,
