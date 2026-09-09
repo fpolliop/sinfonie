@@ -255,6 +255,16 @@ export async function commitAll(worktreePath: string, message: string): Promise<
   return r.commit
 }
 
+/** Commits everything in a worktree only if it is dirty, for guided-mode checkpoints. Returns the SHA, or null. */
+export async function checkpoint(worktreePath: string, message: string): Promise<string | null> {
+  const g = git(worktreePath)
+  const s = await g.status()
+  if (s.isClean()) return null
+  await g.add(['-A'])
+  const r = await g.commit(message)
+  return r.commit || null
+}
+
 export async function push(worktreePath: string): Promise<string> {
   const g = git(worktreePath)
   const branch = (await g.revparse(['--abbrev-ref', 'HEAD'])).trim()

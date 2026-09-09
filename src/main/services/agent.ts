@@ -27,6 +27,7 @@ import { join } from 'path'
 import { getStore } from '../store'
 import { effectivePermissionMode } from './permission-mode'
 import { getWorkspace, patchWorkspace } from './workspaces'
+import { checkpoint } from './git'
 import { accountEnv } from './accounts'
 import * as jira from './jira'
 import * as linear from './linear'
@@ -731,6 +732,15 @@ async function pump(session: Session, emit: EmitEvent): Promise<void> {
             }
           })
           emit({ type: 'status', workspaceId, busy: false })
+          // Guided mode: checkpoint whatever the assistant changed this turn, so "changes not sent for review"
+          // is honest and nothing is lost between turns (partial or interrupted work included). Never pushed;
+          // Send for review does that.
+          if (getStore().get().settings.mode === 'guided') {
+            const wsNow = getWorkspace(workspaceId)
+            void Promise.all(
+              wsNow.repos.map((r) => checkpoint(r.worktreePath, `Checkpoint: ${wsNow.name}`).catch((err) => logError('guided.checkpoint', err, { workspaceId })))
+            )
+          }
           getStore().update((d) => {
             const w = d.workspaces.find((x) => x.id === workspaceId)
             if (w) w.lastMessageAt = new Date().toISOString()
