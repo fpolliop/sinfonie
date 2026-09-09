@@ -74,7 +74,8 @@ function spawnShell(workspaceId: string, repoId: string | null, label: string, a
   const raw = (data: string): void => {
     if (shell.terminalId) void api.invoke('terminal:write', shell.terminalId, data)
   }
-  // macOS habits: ⌘C copies the selection, ⌘V pastes, ⌘K clears; everything else goes to the shell.
+  // macOS habits: ⌘C copies the selection, ⌘K clears. ⌘V is left to xterm's own paste (see the paste
+  // listener below), so text pastes exactly once.
   // ⌘↩ and ⇧↩ send a line feed, which agent CLIs (Claude Code, Codex) take as "new line, don't send";
   // ⌥↩ already reaches them as Meta+Enter. Plain ↩ stays the carriage return that submits.
   term.attachCustomKeyEventHandler((e) => {
@@ -88,21 +89,28 @@ function spawnShell(workspaceId: string, repoId: string | null, label: string, a
       void navigator.clipboard.writeText(term.getSelection())
       return false
     }
-    if (e.key === 'v') {
-      // An image on the clipboard cannot travel as text: hand the paste to the CLI as ⌃V, which Claude Code
-      // and Codex answer by reading the clipboard themselves and attaching the picture.
-      void api.invoke('clipboard:hasImage').then((image) => {
-        if (image) return raw('\x16')
-        return navigator.clipboard.readText().then((t) => t && term.paste(t))
-      })
-      return false
-    }
     if (e.key === 'k') {
       term.clear()
       return false
     }
     return true
   })
+  // Paste: xterm pastes text on its own. An image cannot travel as text, so when the clipboard holds one we
+  // stop xterm's paste and send ⌃V instead, which Claude Code and Codex answer by reading the image
+  // themselves. Handled at the paste event so text is never pasted twice.
+  container.addEventListener(
+    'paste',
+    (e) => {
+      const items = e.clipboardData?.items
+      const hasImage = items ? Array.from(items).some((it) => it.kind === 'file' && it.type.startsWith('image/')) : false
+      if (hasImage) {
+        e.preventDefault()
+        e.stopPropagation()
+        raw('\x16')
+      }
+    },
+    true
+  )
   // Files dropped on the terminal arrive as their paths, escaped the way Finder drops them into Terminal.app,
   // so an image or a document can be attached to a CLI prompt by dragging it in.
   container.addEventListener('dragover', (e) => {
