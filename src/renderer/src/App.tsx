@@ -10,6 +10,8 @@ import type { AuthLink } from '@shared/types'
 import { useOnCall } from './stores/oncall'
 import { useReviews } from './stores/reviews'
 import { NewWorkspaceDialog } from './components/NewWorkspaceDialog'
+import { NewTaskDialog } from './components/NewTaskDialog'
+import { useGuided } from '@/lib/guided'
 import { SettingsWindow } from './components/SettingsWindow'
 import { PermissionPrompt } from './components/PermissionPrompt'
 import { BranchRenamePrompt } from './components/BranchRenamePrompt'
@@ -102,6 +104,7 @@ export default function App(): React.JSX.Element {
     return () => window.removeEventListener('keydown', onKey)
   }, [setShowNewWorkspace, setShowSettings, stepSpace, setActiveSpace, setFeedbackDialog, setAssistantOpen])
 
+  const guided = useGuided()
   if (!loaded) return <div className="flex h-full items-center justify-center text-muted">Loading…</div>
 
   return (
@@ -110,7 +113,7 @@ export default function App(): React.JSX.Element {
       <main className="flex min-w-0 flex-1 flex-col">
         {view === 'reviews' ? <ReviewCockpit /> : view === 'oncall' ? <OnCallView /> : selectedId ? <WorkspaceView key={selectedId} workspaceId={selectedId} /> : <EmptyState />}
       </main>
-      {showNewWorkspace && <NewWorkspaceDialog onClose={() => setShowNewWorkspace(false)} />}
+      {showNewWorkspace && (guided ? <NewTaskDialog onClose={() => setShowNewWorkspace(false)} /> : <NewWorkspaceDialog onClose={() => setShowNewWorkspace(false)} />)}
       {settingsTarget && <SettingsWindow target={settingsTarget} onClose={closeSettings} />}
       {feedbackDialog && <FeedbackDialog tab={feedbackDialog} onClose={() => setFeedbackDialog(null)} />}
       {assistantOpen && <AssistantPane onClose={() => setAssistantOpen(false)} />}

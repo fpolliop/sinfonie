@@ -3,7 +3,7 @@ import type { Engine, Label, Repo, Settings, Space, StoreData, Workspace } from 
 import { api } from '@/lib/api'
 
 export type Tab = 'chat' | 'code' | 'prs' | 'terminal' | 'run' | 'browser' | 'data'
-export type AppPage = 'general' | 'spaces' | 'repos' | 'providers' | 'accounts' | 'logins' | 'crew' | 'resources' | 'usage' | 'oncall' | 'mcp' | 'jira' | 'linear' | 'slack' | 'gcp' | 'integrations' | 'feedback' | 'phone' | 'plan' | 'about'
+export type AppPage = 'preferences' | 'general' | 'spaces' | 'repos' | 'providers' | 'accounts' | 'logins' | 'crew' | 'resources' | 'usage' | 'oncall' | 'mcp' | 'jira' | 'linear' | 'slack' | 'gcp' | 'integrations' | 'feedback' | 'phone' | 'plan' | 'about'
 export type SpacePage = 'general' | 'repos' | 'crew' | 'oncall' | 'mcp' | 'jira' | 'linear' | 'slack' | 'gcp' | 'databases' | 'github'
 export type SettingsTarget = { scope: 'app'; page: AppPage } | { scope: 'space'; spaceId: string; page: SpacePage }
 

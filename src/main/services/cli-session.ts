@@ -17,6 +17,7 @@ import { nanoid } from 'nanoid'
 import * as interaction from './interaction'
 import * as remote from './remote'
 import { getStore } from '../store'
+import { effectivePermissionMode } from './permission-mode'
 import * as terminal from './terminal'
 import * as agent from './agent'
 import * as usage from './usage'
@@ -90,7 +91,7 @@ export async function start(workspaceId: string, opts: { prompt?: string; fresh?
 
   const args: string[] = []
   for (const r of ws.repos) if (r.worktreePath !== cwd) args.push('--add-dir', q(r.worktreePath))
-  const mode = ws.permissionMode ?? space?.permissionMode ?? settings.permissionMode
+  const mode = effectivePermissionMode(ws, space, settings)
   if (mode === 'acceptEdits' || mode === 'plan' || mode === 'bypassPermissions') args.push('--permission-mode', mode)
   const model = space?.model ?? settings.model
   if (model) args.push('--model', q(model))
@@ -412,7 +413,7 @@ async function preToolUse(l: Live, input: HookInput): Promise<object | null> {
   const tool = input.tool_name ?? ''
   const ws = getWorkspace(l.workspaceId)
   const { settings, spaces } = getStore().get()
-  const mode = ws.permissionMode ?? spaces.find((s) => s.id === ws.spaceId)?.permissionMode ?? settings.permissionMode
+  const mode = effectivePermissionMode(ws, spaces.find((s) => s.id === ws.spaceId), settings)
   if (!tool || READ_ONLY.has(tool) || tool.startsWith('mcp__')) return null
   if (mode === 'plan' || mode === 'bypassPermissions' || mode === 'auto') return null
   if (mode === 'acceptEdits' && EDITS.has(tool)) return null

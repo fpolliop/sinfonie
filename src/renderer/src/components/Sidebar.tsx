@@ -15,8 +15,9 @@ import { api } from '@/lib/api'
 import { renameWorkspace } from '@/lib/rename'
 import { Spinner } from './ui'
 import { ContextMenu, type MenuEntry } from './ContextMenu'
+import { useGuided, stageLabel as guidedStageLabel, words } from '@/lib/guided'
 import { InlineRename } from './InlineRename'
-import { STAGE_DOT, stageLabel } from './StagePicker'
+import { STAGE_DOT } from './StagePicker'
 import type { UpdateInfo, Workspace } from '@shared/types'
 
 const DEFAULT_SIDEBAR_WIDTH = 260
@@ -25,6 +26,8 @@ const clampSidebar = (w: number): number => Math.min(520, Math.max(200, Math.rou
 export function Sidebar(): React.JSX.Element {
   const { workspaces, spaces, labels, labelFilter, toggleLabelFilter, clearLabelFilter, selectedId, select, setShowNewWorkspace, setShowSettings, showArchived, setShowArchived, view, setView, setError, activeSpaceId, setActiveSpace, stepSpace, sidebarView, sidebarDateDir, collapsedStages, setSidebarView, setSidebarDateDir, toggleStage } = useApp()
   const chats = useChat((s) => s.chats)
+  const guided = useGuided()
+  const t = words(guided)
   const [spaceMenu, setSpaceMenu] = useState<{ x: number; y: number; id: string } | null>(null)
   const [renaming, setRenaming] = useState<string | null>(null)
   const openSettings = useApp((s) => s.openSettings)
@@ -65,7 +68,7 @@ export function Sidebar(): React.JSX.Element {
   )
   const currentId = ids.includes(activeSpaceId) ? activeSpaceId : ids[0] ?? ''
   const current = spaces.find((s) => s.id === currentId)
-  const currentName = current?.name ?? (spaces.length ? 'Other' : 'Workspaces')
+  const currentName = current?.name ?? (spaces.length ? 'Other' : guided ? 'Tasks' : 'Workspaces')
   const currentColor = current?.color ?? '#8b93a1'
   const spaceLabels = labelsFor(labels, currentId || undefined)
   const selectedLabels = (labelFilter[currentId] ?? []).filter((id) => spaceLabels.some((l) => l.id === id))
@@ -96,31 +99,33 @@ export function Sidebar(): React.JSX.Element {
     <aside className="relative flex shrink-0 flex-col border-r border-border bg-panel" style={{ width: sidebarWidth }} onWheel={onWheel}>
       <div onMouseDown={startResize} onDoubleClick={() => setSidebarWidth(DEFAULT_SIDEBAR_WIDTH)} className="absolute right-0 top-0 z-10 h-full w-1 cursor-col-resize hover:bg-accent/40 active:bg-accent/60" title="Drag to resize · double-click to reset" />
       <div className="drag flex h-[52px] items-center justify-end gap-1 pl-[80px] pr-2">
-        <button data-tour="new-workspace" className="no-drag rounded-md p-1.5 text-muted hover:bg-panel-2 hover:text-text" title="New workspace (⇧⌘N)" onClick={() => setShowNewWorkspace(true, currentId)}>
+        <button data-tour="new-workspace" className="no-drag rounded-md p-1.5 text-muted hover:bg-panel-2 hover:text-text" title={`${t.newWorkspace} (⇧⌘N)`} onClick={() => setShowNewWorkspace(true, currentId)}>
           <Plus size={16} />
         </button>
-        <AssistantButton />
+        {!guided && <AssistantButton />}
         <FeedbackButton />
         <button data-tour="settings" className="no-drag rounded-md p-1.5 text-muted hover:bg-panel-2 hover:text-text" title="Settings (⌘,)" onClick={() => setShowSettings(true)}>
           <Settings size={16} />
         </button>
       </div>
-      <div className="px-2">
-        <button data-tour="reviews" onClick={() => setView('reviews')} className={clsx('mb-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] font-medium', view === 'reviews' ? 'bg-panel-2' : 'hover:bg-panel-2/60')}>
-          <GitPullRequest size={14} className="text-accent" /> Review cockpit
-          <ReviewBadges />
-        </button>
-        <OnCallButton active={view === 'oncall'} onClick={() => setView('oncall')} />
-      </div>
+      {!guided && (
+        <div className="px-2">
+          <button data-tour="reviews" onClick={() => setView('reviews')} className={clsx('mb-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] font-medium', view === 'reviews' ? 'bg-panel-2' : 'hover:bg-panel-2/60')}>
+            <GitPullRequest size={14} className="text-accent" /> Review cockpit
+            <ReviewBadges />
+          </button>
+          <OnCallButton active={view === 'oncall'} onClick={() => setView('oncall')} />
+        </div>
+      )}
       <div key={currentId} className="space-enter flex-1 overflow-auto px-2 pb-2">
         <div
           className="group flex h-8 items-center gap-2 px-2"
           onContextMenu={(e) => {
-            if (!currentId) return
+            if (!currentId || guided) return
             e.preventDefault()
             setSpaceMenu({ x: e.clientX, y: e.clientY, id: currentId })
           }}
-          onDoubleClick={() => currentId && setRenaming(currentId)}
+          onDoubleClick={() => currentId && !guided && setRenaming(currentId)}
         >
           <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: currentColor }} />
           {renaming === currentId && currentId ? (
@@ -137,12 +142,13 @@ export function Sidebar(): React.JSX.Element {
           )}
           <span className="text-[12px] text-muted">{inSpace.length}</span>
           <OwnerChip spaceId={currentId} />
-          {currentId && (
+          {currentId && !guided && (
             <button className="ml-auto rounded p-1 text-muted opacity-0 hover:bg-panel-2 hover:text-text group-hover:opacity-100" title="Space settings" onClick={() => setSpaceSettings(currentId)}>
               <Settings size={13} />
             </button>
           )}
         </div>
+        {!guided && (
         <div className="mb-2 flex items-center gap-1 px-2">
           <div className="flex rounded-md bg-bg p-0.5 text-[11px]">
             <button onClick={() => setSidebarView('status')} className={clsx('rounded px-2 py-0.5', sidebarView === 'status' ? 'bg-panel-2 text-text' : 'text-muted hover:text-text')}>
@@ -165,7 +171,8 @@ export function Sidebar(): React.JSX.Element {
             </button>
           )}
         </div>
-        {showFilter && spaceLabels.length > 0 && (
+        )}
+        {!guided && showFilter && spaceLabels.length > 0 && (
           <div className="mb-2 flex flex-wrap items-center gap-1 rounded-md border border-border bg-bg p-2">
             {spaceLabels.map((l) => {
               const on = selectedLabels.includes(l.id)
@@ -182,7 +189,7 @@ export function Sidebar(): React.JSX.Element {
             )}
           </div>
         )}
-        {sidebarView === 'status'
+        {sidebarView === 'status' || guided
           ? WORKSPACE_STAGES.filter((st) => items.some((w) => w.stage === st.id)).map((st) => {
               const group = items.filter((w) => w.stage === st.id)
               const collapsed = Boolean(collapsedStages[st.id])
@@ -191,7 +198,7 @@ export function Sidebar(): React.JSX.Element {
                   <button onClick={() => toggleStage(st.id)} className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted hover:text-text">
                     <ChevronRight size={11} className={clsx('shrink-0 transition-transform', !collapsed && 'rotate-90')} />
                     <span className={clsx('h-1.5 w-1.5 shrink-0 rounded-full', STAGE_DOT[st.id])} />
-                    {st.label}
+                    {guidedStageLabel(st.id, guided)}
                     <span className="normal-case text-muted/60">{group.length}</span>
                   </button>
                   {!collapsed && group.map((w) => row(w, true))}
@@ -202,7 +209,7 @@ export function Sidebar(): React.JSX.Element {
         {items.length === 0 && inSpace.length > 0 && <div className="px-2 py-3 text-[12px] text-muted">No workspaces match the selected labels.</div>}
         {inSpace.length === 0 && (
           <div className="px-2 py-3 text-[12px] text-muted">
-            No workspaces in {currentName} yet.{' '}
+            No {t.workspaces} in {currentName} yet.{' '}
             <button className="text-accent hover:underline" onClick={() => setShowNewWorkspace(true, currentId)}>
               Create one
             </button>
@@ -211,17 +218,17 @@ export function Sidebar(): React.JSX.Element {
         {archived.length > 0 && (
           <>
             <button className="mt-3 flex w-full items-center gap-1.5 px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted hover:text-text" onClick={() => setShowArchived(!showArchived)}>
-              <Archive size={12} /> Archived ({archived.length}) {showArchived ? '▾' : '▸'}
+              <Archive size={12} /> {guided ? 'Finished' : 'Archived'} ({archived.length}) {showArchived ? '▾' : '▸'}
             </button>
             {showArchived && archived.map((w) => row(w, false))}
           </>
         )}
-        <Teammates spaceId={currentId} />
+        <Teammates spaceId={currentId} guided={guided} />
       </div>
       <UpdateBanner />
-      <UsageBadge onOpen={() => openSettings({ scope: 'app', page: 'usage' })} />
-      <MemoryGauge onOpen={() => openSettings({ scope: 'app', page: 'resources' })} />
-      <SpaceDots ids={ids} currentId={currentId} onPick={setActiveSpace} onAdd={() => openSettings({ scope: 'app', page: 'spaces' })} />
+      <UsageBadge onOpen={() => (guided ? undefined : openSettings({ scope: 'app', page: 'usage' }))} />
+      {!guided && <MemoryGauge onOpen={() => openSettings({ scope: 'app', page: 'resources' })} />}
+      <SpaceDots ids={ids} currentId={currentId} onPick={setActiveSpace} onAdd={guided ? undefined : () => openSettings({ scope: 'app', page: 'spaces' })} />
       {spaceMenu && (
         <ContextMenu
           x={spaceMenu.x}
@@ -466,7 +473,7 @@ function OwnerChip({ spaceId }: { spaceId: string }): React.JSX.Element | null {
  * What teammates are working on in a shared space: their live workspaces with branch, stage and
  * time. "Open here" recreates one on this Mac on the same branch, checked out from origin when pushed.
  */
-function Teammates({ spaceId }: { spaceId: string }): React.JSX.Element | null {
+function Teammates({ spaceId, guided }: { spaceId: string; guided?: boolean }): React.JSX.Element | null {
   const space = useApp((s) => s.spaces.find((x) => x.id === spaceId))
   const select = useApp((s) => s.select)
   const setError = useApp((s) => s.setError)
@@ -509,7 +516,7 @@ function Teammates({ spaceId }: { spaceId: string }): React.JSX.Element | null {
       <button className="flex w-full items-center gap-1.5 px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted hover:text-text" onClick={() => setOpen(!open)}>
         <Users2 size={12} /> Teammates ({list.length}) {open ? '▾' : '▸'}
       </button>
-      {open && list.length === 0 && <div className="px-2 py-1 text-[12px] text-muted">Nobody else has a workspace in this space right now.</div>}
+      {open && list.length === 0 && <div className="px-2 py-1 text-[12px] text-muted">Nobody else is working on something here right now.</div>}
       {open &&
         [...byUser.entries()].map(([uid, items]) => (
           <div key={uid} className="mb-1">
@@ -522,15 +529,17 @@ function Teammates({ spaceId }: { spaceId: string }): React.JSX.Element | null {
                 <div className="min-w-0 flex-1">
                   <div className="truncate">{w.name}</div>
                   <div className="truncate text-[10px] text-muted">
-                    {w.stage ? WORKSPACE_STAGES.find((st) => st.id === w.stage)?.label ?? w.stage : ''}
+                    {w.stage ? guidedStageLabel(w.stage, Boolean(guided)) : ''}
                     {w.stage ? ' · ' : ''}
-                    {w.repos.length} repo{w.repos.length === 1 ? '' : 's'}
+                    {guided ? w.repos.map((r) => r.name).join(', ') : `${w.repos.length} repo${w.repos.length === 1 ? '' : 's'}`}
                     {w.lastActivityAt ? ` · ${timeAgo(w.lastActivityAt)}` : ''}
                   </div>
                 </div>
-                <button className="rounded px-1.5 py-0.5 text-[11px] text-accent opacity-0 hover:bg-panel-2 group-hover:opacity-100 disabled:opacity-40" disabled={busy === w.id} onClick={() => void openHere(w)} title="Create the same workspace here, on their branch">
-                  {busy === w.id ? '…' : 'Open here'}
-                </button>
+                {!guided && (
+                  <button className="rounded px-1.5 py-0.5 text-[11px] text-accent opacity-0 hover:bg-panel-2 group-hover:opacity-100 disabled:opacity-40" disabled={busy === w.id} onClick={() => void openHere(w)} title="Create the same workspace here, on their branch">
+                    {busy === w.id ? '…' : 'Open here'}
+                  </button>
+                )}
               </div>
             ))}
           </div>
@@ -540,7 +549,7 @@ function Teammates({ spaceId }: { spaceId: string }): React.JSX.Element | null {
 }
 
 /** Arc-style dot bar: one dot per space, the current one stretched into a pill with its name. */
-function SpaceDots({ ids, currentId, onPick, onAdd }: { ids: string[]; currentId: string; onPick: (id: string) => void; onAdd: () => void }): React.JSX.Element {
+function SpaceDots({ ids, currentId, onPick, onAdd }: { ids: string[]; currentId: string; onPick: (id: string) => void; onAdd?: () => void }): React.JSX.Element {
   const spaces = useApp((s) => s.spaces)
   const orgs = useApp((s) => s.settings.cloud?.account?.orgs)
   return (
@@ -562,9 +571,11 @@ function SpaceDots({ ids, currentId, onPick, onAdd }: { ids: string[]; currentId
           </button>
         )
       })}
-      <button onClick={onAdd} className="ml-auto rounded-full p-1 text-muted hover:bg-panel-2 hover:text-text" title="New space">
-        <Plus size={12} />
-      </button>
+      {onAdd && (
+        <button onClick={onAdd} className="ml-auto rounded-full p-1 text-muted hover:bg-panel-2 hover:text-text" title="New space">
+          <Plus size={12} />
+        </button>
+      )}
     </div>
   )
 }
@@ -576,10 +587,32 @@ function WorkspaceRow({ ws, grouped, selected, busy, done, onClick }: { ws: Work
   const [editing, setEditing] = useState(false)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const { setError, setShowArchived } = useApp()
+  const guided = useGuided()
   const run = (fn: () => Promise<unknown>): void => {
     fn().catch((err) => setError(err instanceof Error ? err.message : String(err)))
   }
-  const entries: MenuEntry[] = [
+  const finishing: MenuEntry[] = ws.status === 'archived'
+    ? [{ label: 'Remove from list', icon: <Trash2 size={14} />, danger: true, onClick: () => run(() => api.invoke('workspaces:delete', ws.id)) }]
+    : [
+        {
+          label: guided ? 'Finish…' : 'Archive…',
+          icon: <Archive size={14} />,
+          onClick: () => {
+            onClick()
+            window.dispatchEvent(new CustomEvent('sinfonie:archive', { detail: { id: ws.id, mode: 'archive' } }))
+          }
+        },
+        {
+          label: 'Delete…',
+          icon: <Trash2 size={14} />,
+          danger: true,
+          onClick: () => {
+            onClick()
+            window.dispatchEvent(new CustomEvent('sinfonie:archive', { detail: { id: ws.id, mode: 'delete' } }))
+          }
+        }
+      ]
+  const entries: MenuEntry[] = guided ? [{ label: 'Rename…', icon: <Pencil size={14} />, onClick: () => setEditing(true) }, { separator: true }, ...finishing] : [
     { label: 'Rename…', icon: <Pencil size={14} />, onClick: () => setEditing(true) },
     { label: 'Move to space…', icon: <Layers size={14} />, onClick: () => window.dispatchEvent(new CustomEvent('sinfonie:moveSpace', { detail: ws.id })) },
     { separator: true },
@@ -588,27 +621,7 @@ function WorkspaceRow({ ws, grouped, selected, busy, done, onClick }: { ws: Work
     { label: 'Open in Cursor', icon: <Code2 size={14} />, onClick: () => run(() => api.invoke('workspaces:openIn', ws.id, 'cursor')), disabled: ws.status === 'archived' },
     { label: 'Open in Terminal', icon: <TerminalSquare size={14} />, onClick: () => run(() => api.invoke('workspaces:openIn', ws.id, 'terminal')), disabled: ws.status === 'archived' },
     { separator: true },
-    ...(ws.status === 'archived'
-      ? [{ label: 'Remove from list', icon: <Trash2 size={14} />, danger: true, onClick: () => run(() => api.invoke('workspaces:delete', ws.id)) }]
-      : [
-          {
-            label: 'Archive…',
-            icon: <Archive size={14} />,
-            onClick: () => {
-              onClick()
-              window.dispatchEvent(new CustomEvent('sinfonie:archive', { detail: { id: ws.id, mode: 'archive' } }))
-            }
-          },
-          {
-            label: 'Delete…',
-            icon: <Trash2 size={14} />,
-            danger: true,
-            onClick: () => {
-              onClick()
-              window.dispatchEvent(new CustomEvent('sinfonie:archive', { detail: { id: ws.id, mode: 'delete' } }))
-            }
-          }
-        ])
+    ...finishing
   ]
   void setShowArchived
   return (
@@ -627,7 +640,7 @@ function WorkspaceRow({ ws, grouped, selected, busy, done, onClick }: { ws: Work
         className={clsx('group/row mb-0.5 flex w-full cursor-default flex-col gap-0.5 rounded-md px-2 py-1.5 text-left transition-colors', selected ? 'bg-panel-2' : 'hover:bg-panel-2/60', ws.status === 'archived' && 'opacity-60')}
       >
         <div className="flex items-center gap-2">
-          {!grouped && <span className={clsx('h-1.5 w-1.5 shrink-0 rounded-full', STAGE_DOT[ws.stage])} title={stageLabel(ws.stage)} />}
+          {!grouped && <span className={clsx('h-1.5 w-1.5 shrink-0 rounded-full', STAGE_DOT[ws.stage])} title={guidedStageLabel(ws.stage, guided)} />}
           {editing ? (
             <InlineRename
               value={ws.name}
@@ -638,12 +651,12 @@ function WorkspaceRow({ ws, grouped, selected, busy, done, onClick }: { ws: Work
               onCancel={() => setEditing(false)}
             />
           ) : (
-            <span className="truncate text-[13px] font-medium" title={`${ws.name}\nbranch: ${branch}`}>
+            <span className="truncate text-[13px] font-medium" title={guided ? ws.name : `${ws.name}\nbranch: ${branch}`}>
               {ws.name}
             </span>
           )}
           <span className="ml-auto shrink-0">
-            {busy || ws.status === 'creating' || ws.status === 'archiving' ? <Spinner /> : ws.status === 'error' ? <span className="inline-block h-2 w-2 rounded-full bg-danger" title={ws.error} /> : done ? <span className="inline-block h-2 w-2 rounded-full bg-accent" title="Finished since you last looked" /> : null}
+            {busy || ws.status === 'creating' || ws.status === 'archiving' ? <Spinner /> : ws.status === 'error' ? <span className="inline-block h-2 w-2 rounded-full bg-danger" title={guided ? 'Something went wrong; open the task to see' : ws.error} /> : done ? <span className="inline-block h-2 w-2 rounded-full bg-accent" title={guided ? 'Ready to look at' : 'Finished since you last looked'} /> : null}
           </span>
         </div>
         <div className="flex items-center gap-1.5 text-[11px] text-muted">
@@ -657,12 +670,14 @@ function WorkspaceRow({ ws, grouped, selected, busy, done, onClick }: { ws: Work
               {ws.linear.identifier}
             </span>
           )}
-          {rowLabels.slice(0, 2).map((l) => (
-            <LabelChip key={l.id} label={l} small />
-          ))}
-          {rowLabels.length > 2 && <span>+{rowLabels.length - 2}</span>}
+          {!guided &&
+            rowLabels.slice(0, 2).map((l) => (
+              <LabelChip key={l.id} label={l} small />
+            ))}
+          {!guided && rowLabels.length > 2 && <span>+{rowLabels.length - 2}</span>}
           <span className="ml-auto shrink-0">
-            {ws.repos.length} repo{ws.repos.length === 1 ? '' : 's'} · {timeAgo(ws.lastMessageAt ?? ws.createdAt)}
+            {guided ? '' : `${ws.repos.length} repo${ws.repos.length === 1 ? '' : 's'} · `}
+            {timeAgo(ws.lastMessageAt ?? ws.createdAt)}
           </span>
         </div>
       </div>

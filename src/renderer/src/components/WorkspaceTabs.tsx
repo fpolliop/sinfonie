@@ -7,6 +7,7 @@ import { useChat } from '@/stores/chat'
 import { useGithub } from '@/stores/github'
 import { useScripts } from '@/stores/scripts'
 import { useBrowser } from '@/stores/browser'
+import { useGuided } from '@/lib/guided'
 
 /**
  * The workspace's tab strip. Tabs read as tools rather than a text list: an icon with the label,
@@ -27,6 +28,12 @@ const GROUPS: { id: Tab; label: string; icon: React.ReactNode; hint: string }[][
   ]
 ]
 const ORDER: Tab[] = GROUPS.flat().map((t) => t.id)
+/** Guided mode: talk, and look at the result. Everything else still runs underneath. */
+const GUIDED_GROUPS: typeof GROUPS = [
+  [{ id: 'chat', label: 'Chat', icon: <MessageSquare size={13} />, hint: 'Talk to the assistant' }],
+  [{ id: 'browser', label: 'Preview', icon: <Globe size={13} />, hint: 'The app, as it looks with your changes' }]
+]
+const GUIDED_ORDER: Tab[] = GUIDED_GROUPS.flat().map((t) => t.id)
 
 export function WorkspaceTabs({ workspaceId }: { workspaceId: string }): React.JSX.Element {
   const tab = useApp((s) => s.tab)
@@ -39,6 +46,13 @@ export function WorkspaceTabs({ workspaceId }: { workspaceId: string }): React.J
   const openPrs = useMemo(() => (prRepos ?? []).filter((r) => r.pr && r.pr.state === 'OPEN').length, [prRepos])
   const running = useMemo(() => Object.entries(runs).some(([k, r]) => k.startsWith(`${workspaceId}:`) && r.running), [runs, workspaceId])
   const [changed, setChanged] = useState<number | null>(null)
+  const guided = useGuided()
+  const groups = guided ? GUIDED_GROUPS : GROUPS
+  const order = guided ? GUIDED_ORDER : ORDER
+  // A tab that guided mode does not show falls back to the chat.
+  useEffect(() => {
+    if (guided && !order.includes(tab)) setTab('chat')
+  }, [guided, order, tab, setTab])
 
   // Changed-file count: cheap to ask, and it turns "did the agent touch anything?" into a glance.
   useEffect(() => {
@@ -62,14 +76,14 @@ export function WorkspaceTabs({ workspaceId }: { workspaceId: string }): React.J
     const onKey = (e: KeyboardEvent): void => {
       if (!e.metaKey || e.shiftKey || e.altKey || e.ctrlKey) return
       const n = Number(e.key)
-      if (n >= 1 && n <= ORDER.length) {
+      if (n >= 1 && n <= order.length) {
         e.preventDefault()
-        setTab(ORDER[n - 1])
+        setTab(order[n - 1])
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [setTab])
+  }, [setTab, order])
 
   const badge = (id: Tab): React.ReactNode => {
     if (id === 'chat' && agentBusy) return <Dot pulse />
@@ -82,11 +96,11 @@ export function WorkspaceTabs({ workspaceId }: { workspaceId: string }): React.J
 
   return (
     <nav className="no-drag flex h-[34px] shrink-0 items-center gap-1 border-b border-border bg-bg px-2" aria-label="Workspace tabs">
-      {GROUPS.map((group, gi) => (
+      {groups.map((group, gi) => (
         <React.Fragment key={gi}>
           {gi > 0 && <span className="mx-1 h-4 w-px bg-border" />}
           {group.map((t) => {
-            const idx = ORDER.indexOf(t.id) + 1
+            const idx = order.indexOf(t.id) + 1
             return (
               <button
                 key={t.id}

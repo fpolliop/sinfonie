@@ -1,4 +1,4 @@
-import type { AgentMode, AuthLink, CompletionRequest, DiscoveredOrg, SharedRepo, TeammateWorkspace, BillingPeriod, CliStatus, CloudOrgDetail, CloudState, Plan, RemoteSettings, RemoteStatus, SpaceDefinition, SpaceImportPreview, SpaceImportResolution, BrowserState, ContextUsage, CrewPriority, FsEntry, LimitAlternative, UsageSnapshot, ChatImageInput, Incident, IncidentStatus, LinearIssue, LinearSettings, OnCallState, ResourceSnapshot, Severity, SlackConnection, LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion, OnCallBulkOp,
+import type { AgentMode, AppMode, AuthLink, CompletionRequest, DiscoveredOrg, SharedRepo, TeammateWorkspace, BillingPeriod, CliStatus, CloudOrgDetail, CloudState, Plan, RemoteSettings, RemoteStatus, SpaceDefinition, SpaceImportPreview, SpaceImportResolution, BrowserState, ContextUsage, CrewPriority, FsEntry, LimitAlternative, UsageSnapshot, ChatImageInput, Incident, IncidentStatus, LinearIssue, LinearSettings, OnCallState, ResourceSnapshot, Severity, SlackConnection, LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion, OnCallBulkOp,
   AgentEvent,
   ChatItem,
   JiraIssue,
@@ -130,6 +130,7 @@ export interface SinfonieInvoke {
   'cloud:removeEmail': (email: string) => CloudState
   'cloud:createOrg': (name: string) => CloudOrgDetail
   'cloud:setDomainJoin': (orgId: string, policy: 'open' | 'approval' | 'off') => CloudOrgDetail
+  'cloud:setOrgDefaultMode': (orgId: string, mode: AppMode) => CloudOrgDetail
   'cloud:addDomain': (orgId: string, domain: string) => { verified: boolean; domain: string; token?: string; record?: string; found?: string[]; org: CloudOrgDetail }
   'cloud:verifyDomain': (orgId: string, domain: string) => { verified: boolean; domain: string; token?: string; record?: string; found?: string[]; org: CloudOrgDetail }
   'cloud:removeDomain': (orgId: string, domain: string) => CloudOrgDetail

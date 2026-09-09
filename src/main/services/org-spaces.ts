@@ -11,6 +11,7 @@ import { dirname, join } from 'path'
 import { simpleGit } from 'simple-git'
 import { getStore } from '../store'
 import * as cloud from './cloud'
+import { logError } from './telemetry'
 import { definitionFor, applySettings, ensureRepo, normalizeRemote, remoteOf } from './shared-space'
 import { SPACE_COLORS } from '@shared/types'
 import type { OrgSpace, SharedRepo, Space, SpaceDefinition, SpaceImportResolution, TeammateWorkspace, Workspace } from '@shared/types'
@@ -186,6 +187,14 @@ export async function sync(): Promise<{ created: string[]; updated: string[]; mi
       }
     }
   })
+  // A guided user never sees "Locate or clone": the team's apps are cloned next to the workspaces folder.
+  if (getStore().get().settings.mode === 'guided' && out.missingRepos.length) {
+    const into = join(dirname(getStore().get().settings.workspacesRoot), 'repos')
+    for (const m of out.missingRepos) {
+      await resolve(m.spaceId, m.remotes.map((remote) => ({ remote, cloneInto: into }))).catch((err) => logError('org-spaces.clone', err, { spaceId: m.spaceId }))
+    }
+    out.missingRepos = []
+  }
   return out
 }
 

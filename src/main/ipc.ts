@@ -501,6 +501,7 @@ export function registerIpc(): void {
   handle('cloud:removeEmail', (email) => cloud.removeEmail(email))
   handle('cloud:createOrg', (name) => cloud.createOrg(name))
   handle('cloud:setDomainJoin', (orgId, policy) => cloud.setDomainJoin(orgId, policy))
+  handle('cloud:setOrgDefaultMode', (orgId, mode) => cloud.setOrgDefaultMode(orgId, mode))
   handle('cloud:addDomain', (orgId, domain) => cloud.addDomain(orgId, domain))
   handle('cloud:verifyDomain', (orgId, domain) => cloud.verifyDomain(orgId, domain))
   handle('cloud:removeDomain', (orgId, domain) => cloud.removeDomain(orgId, domain))

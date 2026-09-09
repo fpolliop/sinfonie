@@ -25,6 +25,7 @@ import { app } from 'electron'
 import { appendFileSync, existsSync, mkdirSync } from 'fs'
 import { join } from 'path'
 import { getStore } from '../store'
+import { effectivePermissionMode } from './permission-mode'
 import { getWorkspace, patchWorkspace } from './workspaces'
 import { accountEnv } from './accounts'
 import * as jira from './jira'
@@ -235,7 +236,7 @@ function crewFor(ws: Workspace, emit: EmitEvent, crewCalls: Map<string, string[]
   if (all.length === 0) return { agents: {}, prompt: '' }
   let server: NonNullable<Options['mcpServers']>[string] | undefined
   if (external.length) {
-    const mode = ws.permissionMode ?? space?.permissionMode ?? settings.permissionMode
+    const mode = effectivePermissionMode(ws, space, settings)
     server = createSdkMcpServer({
       name: 'crew',
       tools: external.map((spec) =>
@@ -331,7 +332,7 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
     return r
   }
 
-  const mode = ws.permissionMode ?? space?.permissionMode ?? settings.permissionMode
+  const mode = effectivePermissionMode(ws, space, settings)
   const crewCalls = new Map<string, string[]>()
   const crew = lean ? { agents: {}, prompt: '' } : crewFor(ws, emit, crewCalls)
   if (crew.server) mcpServers = { ...mcpServers, crew: crew.server }
