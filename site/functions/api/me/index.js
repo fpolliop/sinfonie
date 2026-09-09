@@ -1,5 +1,5 @@
 /** GET: who am I and what plan am I on. DELETE: sign this session out. */
-import { currentUser, accountFor, bearer, sha256, json, error } from '../_session.js'
+import { currentUser, accountFor, bearer, sha256, json, error } from '../../_session.js'
 
 export async function onRequestGet({ request, env }) {
   const user = await currentUser(request, env)

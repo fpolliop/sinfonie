@@ -1,4 +1,4 @@
-/** PATCH /api/orgs/:id {name}: rename (admin). DELETE: leave the team (any member; the last admin cannot leave). */
+/** PATCH /api/orgs/:id {name?, domainJoin?}: rename or set the domain-join policy (admin). DELETE: leave the team (any member; the last admin cannot leave). */
 import { currentUser, json, error } from '../../../_session.js'
 import { orgView } from '../index.js'
 
@@ -14,10 +14,18 @@ export async function onRequestPatch({ request, env, params }) {
   if (!org) return error('not_found', 'No such team.', 404)
   if (org.role !== 'admin') return error('forbidden', 'Only admins can rename the team.', 403)
   const b = await request.json().catch(() => ({}))
-  const name = String(b.name || '').trim().slice(0, 80)
-  if (!name) return error('invalid_request', 'Name is required.')
-  await env.DB.prepare('UPDATE orgs SET name = ?2 WHERE id = ?1').bind(org.id, name).run()
-  return json(await orgView(env, { ...org, name }, org.role))
+  const patch = { ...org }
+  if (b.name !== undefined) {
+    const name = String(b.name || '').trim().slice(0, 80)
+    if (!name) return error('invalid_request', 'Name is required.')
+    await env.DB.prepare('UPDATE orgs SET name = ?2 WHERE id = ?1').bind(org.id, name).run()
+    patch.name = name
+  }
+  if (['open', 'approval', 'off'].includes(b.domainJoin)) {
+    await env.DB.prepare('UPDATE orgs SET domain_join = ?2 WHERE id = ?1').bind(org.id, b.domainJoin).run()
+    patch.domain_join = b.domainJoin
+  }
+  return json(await orgView(env, patch, org.role))
 }
 
 export async function onRequestDelete({ request, env, params }) {
