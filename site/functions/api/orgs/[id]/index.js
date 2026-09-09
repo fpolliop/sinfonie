@@ -1,5 +1,5 @@
 /** PATCH /api/orgs/:id {name?, domainJoin?}: rename or set the domain-join policy (admin). DELETE: leave the team (any member; the last admin cannot leave). */
-import { currentUser, json, error } from '../../../_session.js'
+import { currentUser, subscriptionLive, json, error } from '../../../_session.js'
 import { orgView } from '../index.js'
 
 export async function membership(env, orgId, userId) {
@@ -33,6 +33,20 @@ export async function onRequestDelete({ request, env, params }) {
   if (!user) return error('unauthorized', 'Sign in again.', 401)
   const org = await membership(env, params.id, user.id)
   if (!org) return error('not_found', 'No such team.', 404)
+  // ?delete=1: an admin dissolves the organisation. Refused while it has a live subscription; cancel that first.
+  if (new URL(request.url).searchParams.get('delete') === '1') {
+    if (org.role !== 'admin') return error('forbidden', 'Only admins can delete the organisation.', 403)
+    if (subscriptionLive(org)) return error('subscribed', 'Cancel the Team subscription from the billing portal before deleting the organisation.', 409)
+    await env.DB.batch([
+      env.DB.prepare('DELETE FROM org_members WHERE org_id = ?1').bind(org.id),
+      env.DB.prepare('DELETE FROM org_invites WHERE org_id = ?1').bind(org.id),
+      env.DB.prepare('DELETE FROM org_domains WHERE org_id = ?1').bind(org.id),
+      env.DB.prepare('DELETE FROM org_join_requests WHERE org_id = ?1').bind(org.id),
+      env.DB.prepare('DELETE FROM org_spaces WHERE org_id = ?1').bind(org.id),
+      env.DB.prepare('DELETE FROM orgs WHERE id = ?1').bind(org.id)
+    ])
+    return json({ ok: true, deleted: true })
+  }
   if (org.role === 'admin') {
     const admins = await env.DB.prepare("SELECT COUNT(*) AS n FROM org_members WHERE org_id = ?1 AND role = 'admin'").bind(org.id).first()
     if (Number(admins?.n) <= 1) return error('last_admin', 'You are the only admin. Make someone else admin first.', 409)

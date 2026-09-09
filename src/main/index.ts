@@ -8,6 +8,7 @@ import * as images from './services/images'
 import * as slack from './services/slack'
 import { adoptShellPath } from './services/shell-path'
 import * as cloud from './services/cloud'
+import * as orgSpaces from './services/org-spaces'
 import * as remote from './services/remote'
 import * as oncall from './services/oncall/service'
 import { installCrashHandlers, rendererConsoleError, logError, startUsagePings } from './services/telemetry'
@@ -155,6 +156,7 @@ app.whenReady().then(async () => {
   startUpdateChecks()
   startUsagePings()
   cloud.start()
+  orgSpaces.start()
   remote.start()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

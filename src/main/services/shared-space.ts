@@ -24,7 +24,7 @@ export function normalizeRemote(remote: string): string {
   r = r.replace(/\.git$/, '').replace(/\/+$/, '')
   return r.toLowerCase()
 }
-async function remoteOf(path: string): Promise<string | null> {
+export async function remoteOf(path: string): Promise<string | null> {
   try {
     const remotes = await gitSvc.git(path).getRemotes(true)
     const origin = remotes.find((x) => x.name === 'origin') ?? remotes[0]
@@ -67,7 +67,6 @@ export async function definitionFor(spaceId: string): Promise<SpaceDefinition> {
 
 /** Writes the definition into a repository of the space and remembers the link. Committing it is the user's normal flow. */
 export async function exportSpace(spaceId: string, repoId: string): Promise<{ file: string }> {
-  cloud.assertFeature('sharedSpaces')
   const repo = getStore().get().repos.find((r) => r.id === repoId && r.spaceId === spaceId)
   if (!repo) throw new Error('Pick a repository that belongs to this space.')
   const def = await definitionFor(spaceId)
@@ -117,7 +116,7 @@ export async function previewImport(file: string): Promise<SpaceImportPreview> {
   }
 }
 
-async function ensureRepo(path: string, spaceId: string, name: string): Promise<Repo> {
+export async function ensureRepo(path: string, spaceId: string, name: string): Promise<Repo> {
   const existing = getStore().get().repos.find((r) => r.path === path)
   if (existing) {
     getStore().update((d) => {
@@ -132,7 +131,7 @@ async function ensureRepo(path: string, spaceId: string, name: string): Promise<
   return repo
 }
 
-function applySettings(s: Space, settings: SharedSpaceSettings): void {
+export function applySettings(s: Space, settings: SharedSpaceSettings): void {
   const target = s as unknown as Record<string, unknown>
   for (const k of SHARED_KEYS) {
     if (settings[k] === undefined) delete target[k]
@@ -152,7 +151,6 @@ function applySettings(s: Space, settings: SharedSpaceSettings): void {
 /** Creates (or refreshes) the space from a definition file, locating or cloning each repository as resolved. */
 export async function importSpace(file: string, resolutions: SpaceImportResolution[], opts: { skipMissing?: boolean; onProgress?: (msg: string) => void } = {}): Promise<Space> {
   const onProgress = opts.onProgress
-  cloud.assertFeature('sharedSpaces')
   const preview = await previewImport(file)
   const { def, text } = parse(file)
   const byRemote = new Map(resolutions.map((r) => [normalizeRemote(r.remote), r]))

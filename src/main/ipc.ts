@@ -31,6 +31,7 @@ import * as jira from './services/jira'
 import * as linear from './services/linear'
 import * as cloud from './services/cloud'
 import * as sharedSpace from './services/shared-space'
+import * as orgSpaces from './services/org-spaces'
 import * as remote from './services/remote'
 import { setAuthLinkEmitters, authDone } from './services/auth-link'
 import * as accounts from './services/accounts'
@@ -143,6 +144,7 @@ export function registerIpc(): void {
     })
     if (!out) throw new Error('Unknown space')
     if ('oncall' in patch) oncall.reconcile()
+    orgSpaces.pushSoon(id)
     return out
   })
   handle('spaces:delete', (id) => {
@@ -191,6 +193,7 @@ export function registerIpc(): void {
       }
     })
     if (!out) throw new Error('Unknown repo')
+    if (spaceId) orgSpaces.pushSoon(spaceId)
     return out
   })
 
@@ -240,6 +243,7 @@ export function registerIpc(): void {
       ...(spaceId ? { spaceId } : {})
     }
     getStore().update((d) => d.repos.push(repo))
+    if (spaceId) orgSpaces.pushSoon(spaceId)
     return repo
   }
   handle('repos:pickAndAdd', async (spaceId) => {
@@ -490,8 +494,24 @@ export function registerIpc(): void {
   handle('cloud:removeMember', (orgId, userId) => cloud.removeMember(orgId, userId))
   handle('cloud:renameOrg', (orgId, name) => cloud.renameOrg(orgId, name))
   handle('cloud:leaveOrg', (orgId) => cloud.leaveOrg(orgId))
+  handle('cloud:deleteOrg', (orgId) => cloud.deleteOrg(orgId))
   handle('cloud:acceptInvite', (code) => cloud.acceptInvite(code))
   handle('cloud:redeem', (code) => cloud.redeem(code))
+  handle('cloud:addEmail', (provider) => cloud.addEmail(provider))
+  handle('cloud:removeEmail', (email) => cloud.removeEmail(email))
+  handle('cloud:createOrg', (name) => cloud.createOrg(name))
+  handle('cloud:setDomainJoin', (orgId, policy) => cloud.setDomainJoin(orgId, policy))
+  handle('cloud:addDomain', (orgId, domain) => cloud.addDomain(orgId, domain))
+  handle('cloud:verifyDomain', (orgId, domain) => cloud.verifyDomain(orgId, domain))
+  handle('cloud:removeDomain', (orgId, domain) => cloud.removeDomain(orgId, domain))
+  handle('cloud:discover', () => cloud.discover())
+  handle('cloud:joinOrg', (orgId) => cloud.joinOrg(orgId))
+  handle('cloud:decideRequest', (orgId, userId, action) => cloud.decideRequest(orgId, userId, action))
+  handle('orgSpaces:publish', (spaceId, orgId) => orgSpaces.publish(spaceId, orgId))
+  handle('orgSpaces:unshare', (spaceId, deleteRemote) => orgSpaces.unshare(spaceId, deleteRemote))
+  handle('orgSpaces:sync', () => orgSpaces.sync())
+  handle('orgSpaces:missing', (spaceId) => orgSpaces.missing(spaceId))
+  handle('orgSpaces:resolve', (spaceId, resolutions) => orgSpaces.resolve(spaceId, resolutions))
   // ---- shared spaces ----
   handle('shared:definition', (spaceId) => sharedSpace.definitionFor(spaceId))
   handle('shared:export', (spaceId, repoId) => sharedSpace.exportSpace(spaceId, repoId))

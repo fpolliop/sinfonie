@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react'
-import { Check, Download, FileJson, FolderOpen, Link2Off, RefreshCw, Share2, Upload } from 'lucide-react'
+import { Check, Download, FileJson, FolderOpen, Link2Off, RefreshCw, Share2, Trash2, Upload, Users2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { Badge, Button, Dialog, inputCls } from './ui'
@@ -38,6 +38,8 @@ export function SharedSpaceSection({ space }: { space: Space }): React.JSX.Eleme
   return (
     <section className="mt-5">
       <div className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-muted">Sharing</div>
+      <OrgShareCard space={space} />
+      <div className="mb-2 mt-3 text-[11px] text-muted">Or as a file the team commits:</div>
       {space.shared ? (
         <div className="rounded-lg border border-border p-3">
           <div className="flex items-center gap-2 text-[13px]">
@@ -94,6 +96,114 @@ export function SharedSpaceSection({ space }: { space: Space }): React.JSX.Eleme
     </section>
   )
 }
+
+/**
+ * Share a space inside an organisation: the definition lives on sinfonie.dev under the organisation and
+ * every member gets it. Shows the sync state, missing repositories to locate or clone, and stop-sharing.
+ */
+function OrgShareCard({ space }: { space: Space }): React.JSX.Element {
+  const account = useApp((s) => s.settings.cloud?.account)
+  const setError = useApp((s) => s.setError)
+  const workspacesRoot = useApp((s) => s.settings.workspacesRoot)
+  const orgs = account?.orgs ?? NO_ORGS
+  const [orgId, setOrgId] = useState(space.orgId ?? orgs[0]?.id ?? '')
+  const [busy, setBusy] = useState<string | null>(null)
+  const [missing, setMissing] = useState<{ remote: string; name: string }[]>([])
+  const run = async (key: string, fn: () => Promise<unknown>): Promise<void> => {
+    setBusy(key)
+    try {
+      await fn()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(null)
+    }
+  }
+  const loadMissing = useCallback(async (): Promise<void> => {
+    if (!space.orgSpace) return setMissing([])
+    setMissing(await api.invoke('orgSpaces:missing', space.id).catch(() => []))
+  }, [space.id, space.orgSpace])
+  useEffect(() => void loadMissing(), [loadMissing])
+  const org = orgs.find((o) => o.id === (space.orgId ?? orgId))
+  if (!account) {
+    return <div className="rounded-lg border border-border p-3 text-[12px] text-muted">Sign in under Plan to share this space with an organisation.</div>
+  }
+  if (space.orgSpace && org) {
+    return (
+      <div className="rounded-lg border border-accent/40 bg-accent/5 p-3">
+        <div className="flex items-center gap-2 text-[13px]">
+          <Users2 size={14} className="text-accent" />
+          <span className="font-medium">Shared in {org.name}</span>
+          <span className="text-[11px] text-muted">
+            version {space.orgSpace.version}
+            {space.orgSpace.updatedBy ? ` · by ${space.orgSpace.updatedBy}` : ''} · synced {new Date(space.orgSpace.syncedAt).toLocaleString()}
+          </span>
+          <span className="ml-auto flex items-center gap-1">
+            <Button size="sm" disabled={busy === 'sync'} onClick={() => void run('sync', () => api.invoke('orgSpaces:sync').then(loadMissing))} title="Pull the latest from the organisation">
+              <RefreshCw size={12} />
+            </Button>
+            <Button size="sm" disabled={busy === 'push'} onClick={() => void run('push', () => api.invoke('orgSpaces:publish', space.id, org.id))} title="Push this space's current settings to the organisation">
+              <Upload size={12} /> Push
+            </Button>
+            <Button size="sm" variant="ghost" disabled={busy === 'unshare'} onClick={() => void run('unshare', () => api.invoke('orgSpaces:unshare', space.id, false))} title="Stop syncing; the space stays on this Mac">
+              <Link2Off size={12} />
+            </Button>
+            {org.role === 'admin' && (
+              <Button size="sm" variant="ghost" disabled={busy === 'delete'} onClick={() => window.confirm(`Remove this shared space from ${org.name} for everyone? Members keep their local copy.`) && void run('delete', () => api.invoke('orgSpaces:unshare', space.id, true))} title="Remove it from the organisation for everyone">
+                <Trash2 size={12} />
+              </Button>
+            )}
+          </span>
+        </div>
+        {missing.length > 0 && (
+          <div className="mt-2 border-t border-border pt-2">
+            <div className="mb-1 text-[11px] text-muted">Repositories in this space that are not on this Mac yet:</div>
+            {missing.map((m) => (
+              <div key={m.remote} className="flex items-center gap-2 text-[12px]">
+                <span className="font-medium">{m.name}</span>
+                <span className="truncate text-[11px] text-muted">{m.remote}</span>
+                <span className="ml-auto flex gap-1">
+                  <Button size="sm" onClick={() => void run(`loc:${m.remote}`, async () => {
+                    const path = await api.invoke('dialog:pickFolder', 'Where is this repository checked out?')
+                    if (path) await api.invoke('orgSpaces:resolve', space.id, [{ remote: m.remote, path }]).then(loadMissing)
+                  })}>
+                    Locate…
+                  </Button>
+                  <Button size="sm" onClick={() => void run(`clone:${m.remote}`, async () => {
+                    const parent = await api.invoke('dialog:pickFolder', 'Clone into which folder?', workspacesRoot)
+                    if (parent) await api.invoke('orgSpaces:resolve', space.id, [{ remote: m.remote, cloneInto: parent }]).then(loadMissing)
+                  })}>
+                    Clone…
+                  </Button>
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+        <p className="mt-2 text-[11px] text-muted">Repositories, crew, MCP servers without keys, Jira site, Linear query, Google Cloud project, on-call channels and defaults sync to every member. Edits here push automatically; the last write wins.</p>
+      </div>
+    )
+  }
+  return (
+    <div className="rounded-lg border border-border p-3">
+      <p className="mb-2 text-[12px] text-muted">Share this space with an organisation: every member gets its repositories and setup, and edits sync both ways. Accounts, tokens and local folders never leave your Mac.</p>
+      <div className="flex items-center gap-2">
+        <select className={inputCls} value={orgId} onChange={(e) => setOrgId(e.target.value)} disabled={orgs.length === 0}>
+          {orgs.length === 0 && <option value="">Create or join an organisation under Plan first</option>}
+          {orgs.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.name}
+            </option>
+          ))}
+        </select>
+        <Button variant="primary" disabled={!orgId || busy === 'share'} onClick={() => void run('share', () => api.invoke('orgSpaces:publish', space.id, orgId))}>
+          <Users2 size={13} /> Share in organisation
+        </Button>
+      </div>
+    </div>
+  )
+}
+const NO_ORGS: { id: string; name: string; role: 'admin' | 'member'; plan: 'free' | 'pro' | 'team'; seats: number }[] = []
 
 /** Settings → Spaces → Join a shared space: pick a definition file, say where each repository is, import. */
 export function ImportSpaceDialog({ onClose }: { onClose: () => void }): React.JSX.Element {

@@ -21,7 +21,7 @@ export async function onRequestPut({ request, env, params }) {
   const def = JSON.stringify({ ...b.definition, name, orgId: org.id })
   await env.DB.prepare("UPDATE org_spaces SET name = ?2, definition = ?3, version = version + 1, updated_by = ?4, updated_at = datetime('now') WHERE id = ?1").bind(row.id, name, def, user.id).run()
   const fresh = await env.DB.prepare('SELECT * FROM org_spaces WHERE id = ?1').bind(row.id).first()
-  return json(spaceView(fresh))
+  return json({ ...spaceView(fresh), updatedBy: user.login })
 }
 
 export async function onRequestDelete({ request, env, params }) {

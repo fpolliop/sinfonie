@@ -33,5 +33,5 @@ export async function onRequestPost({ request, env, params }) {
   const def = JSON.stringify({ ...b.definition, name, orgId: org.id })
   await env.DB.prepare('INSERT INTO org_spaces (id, org_id, name, definition, version, updated_by) VALUES (?1, ?2, ?3, ?4, 1, ?5)').bind(id, org.id, name, def, user.id).run()
   const row = await env.DB.prepare('SELECT * FROM org_spaces WHERE id = ?1').bind(id).first()
-  return json(spaceView(row))
+  return json({ ...spaceView(row), updatedBy: user.login })
 }
