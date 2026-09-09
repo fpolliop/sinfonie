@@ -285,6 +285,8 @@ export interface SinfonieInvoke {
   'cli:type': (workspaceId: string, text: string) => void
   'workspaces:setAgentMode': (workspaceId: string, mode: AgentMode) => Workspace
   'terminal:write': (terminalId: string, data: string) => void
+  /** Whether the system clipboard currently holds an image (so ⌘V in a terminal can hand the paste to the CLI). */
+  'clipboard:hasImage': () => boolean
   'terminal:resize': (terminalId: string, cols: number, rows: number) => void
   'terminal:dispose': (terminalId: string) => void
   // ---- usage ----

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, ipcMain, shell } from 'electron'
 import { basename } from 'path'
 import { spawn } from 'child_process'
 import { nanoid } from 'nanoid'
@@ -867,6 +867,10 @@ export function registerIpc(): void {
     return workspaces.patchWorkspace(id, { agentMode: mode })
   })
   handle('terminal:write', (tid, data) => terminal.writeTerminal(tid, data))
+  handle('clipboard:hasImage', async () => {
+    for (const t of ['image/png', 'image/jpeg', 'image/tiff']) if (await clipboard.has(t).catch(() => false)) return true
+    return false
+  })
   handle('terminal:resize', (tid, cols, rows) => terminal.resizeTerminal(tid, cols, rows))
   handle('terminal:dispose', (tid) => terminal.disposeTerminal(tid))
 
