@@ -37,6 +37,12 @@ import type { McpServerSpec } from '@shared/types'
 type EmitEvent = (e: AgentEvent) => void
 type EmitPermission = (r: PermissionRequest) => void
 
+/** Guided mode: told which apps a turn changed, so the renderer can offer a look at the preview. */
+let emitGuidedChanged: (e: { workspaceId: string; apps: string[] }) => void = () => undefined
+export function setGuidedChangedEmitter(fn: typeof emitGuidedChanged): void {
+  emitGuidedChanged = fn
+}
+
 interface Session {
   workspaceId: string
   q: Query
@@ -738,8 +744,15 @@ async function pump(session: Session, emit: EmitEvent): Promise<void> {
           if (getStore().get().settings.mode === 'guided') {
             const wsNow = getWorkspace(workspaceId)
             void Promise.all(
-              wsNow.repos.map((r) => checkpoint(r.worktreePath, `Checkpoint: ${wsNow.name}`).catch((err) => logError('guided.checkpoint', err, { workspaceId })))
-            )
+              wsNow.repos.map(async (r) => {
+                const sha = await checkpoint(r.worktreePath, `Checkpoint: ${wsNow.name}`).catch((err) => (logError('guided.checkpoint', err, { workspaceId }), null))
+                const repo = getStore().get().repos.find((x) => x.id === r.repoId)
+                return sha ? repo?.displayName || r.repoName : null
+              })
+            ).then((changed) => {
+              const apps = changed.filter((a): a is string => Boolean(a))
+              if (apps.length) emitGuidedChanged({ workspaceId, apps })
+            })
           }
           getStore().update((d) => {
             const w = d.workspaces.find((x) => x.id === workspaceId)

@@ -18,6 +18,7 @@ import { useResources, subscribeResources } from '@/stores/resources'
 import { Markdown } from '@/lib/markdown'
 import { Button, Spinner } from './ui'
 import { useGuided, words } from '@/lib/guided'
+import { AskTeammate, AskTeammateButton } from './AskTeammate'
 import type { ChatBlock, ChatItem, ChatToolBlock } from '@shared/types'
 
 /** Right panel state: closed, the activity overview, or one delegation's detail. */
@@ -102,6 +103,15 @@ function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Elem
   useEffect(() => {
     void load(workspaceId)
   }, [workspaceId, load])
+  // Guided mode: a small "what changed" nudge after a turn touches files, with a look at the preview.
+  const setTab = useApp((s) => s.setTab)
+  const [changed, setChanged] = useState<string[] | null>(null)
+  useEffect(() => {
+    if (!guided) return
+    return api.on('guided:changed', (e) => {
+      if (e.workspaceId === workspaceId) setChanged(e.apps)
+    })
+  }, [guided, workspaceId])
   const ws = useApp((s) => s.workspaces.find((w) => w.id === workspaceId))
   const scrollRef = useRef<HTMLDivElement>(null)
   const items = chat?.items ?? []
@@ -236,7 +246,16 @@ function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Elem
               <Spinner /> Thinking…
             </div>
           )}
-          {chat?.error && <div className="rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-[12px] text-danger whitespace-pre-wrap">{chat.error}</div>}
+          {chat?.error && (
+            guided ? (
+              <div className="flex items-center gap-2 rounded-md border border-warn/30 bg-warn/10 px-3 py-2 text-[12px]">
+                <span className="min-w-0 flex-1">Something went wrong. Try asking again in different words, or ask a teammate.</span>
+                <AskTeammate workspaceId={workspaceId} prefill={`I hit a problem on this task: ${chat.error.slice(0, 300)}`} trigger={(open) => <Button size="sm" onClick={open}>Ask a teammate</Button>} />
+              </div>
+            ) : (
+              <div className="rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-[12px] text-danger whitespace-pre-wrap">{chat.error}</div>
+            )
+          )}
         </div>
       </div>
       <div className="relative border-t border-border px-4 py-3">
@@ -260,6 +279,17 @@ function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Elem
             </div>
           )}
           {chat?.limit && <LimitCard workspaceId={workspaceId} ev={chat.limit} />}
+          {guided && changed && (
+            <div className="mb-2 flex items-center gap-2 rounded-lg border border-accent/30 bg-accent/5 px-3 py-2 text-[12px]">
+              <span className="min-w-0 flex-1">Updated {changed.join(' and ')}. The preview shows it.</span>
+              <Button size="sm" variant="primary" onClick={() => { setTab('browser'); setChanged(null) }}>
+                Look
+              </Button>
+              <button className="rounded p-1 text-muted hover:text-text" title="Dismiss" onClick={() => setChanged(null)}>
+                <X size={12} />
+              </button>
+            </div>
+          )}
           {!guided && <CrewBar items={items} busy={busy} model={chat?.model ?? settingsModel} crewNames={crewNames} />}
           <div
             className="rounded-xl border border-border bg-panel focus-within:border-accent"
@@ -335,6 +365,7 @@ function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Elem
               <Button size="sm" variant="ghost" title="Attach images (or paste / drop them into the message)" onClick={() => fileInput.current?.click()} disabled={disabled}>
                 <Paperclip size={13} />
               </Button>
+              {guided && <AskTeammateButton workspaceId={workspaceId} />}
               {!guided && <NotesButton workspaceId={workspaceId} />}
               {!guided && <SessionMenu busy={busy} disabled={disabled} onFork={() => setForkDlg(true)} onResume={() => setResumeDlg(true)} onNew={() => void reset(workspaceId)} />}
               {busy ? (

@@ -86,6 +86,7 @@ export function GuidedSpaceSection({ space }: { space: Space }): React.JSX.Eleme
   const setError = useApp((s) => s.setError)
   const [reviewers, setReviewers] = useState((space.guided?.reviewers ?? []).join(', '))
   const [instructions, setInstructions] = useState(space.guided?.instructions ?? '')
+  const [askChannel, setAskChannel] = useState(space.guided?.askChannel ?? '')
   const save = (patch: Partial<NonNullable<Space['guided']>>): void => {
     const next = { ...(space.guided ?? {}), ...patch }
     api.invoke('spaces:update', space.id, { guided: next }).catch((err) => setError(err instanceof Error ? err.message : String(err)))
@@ -101,6 +102,9 @@ export function GuidedSpaceSection({ space }: { space: Space }): React.JSX.Eleme
       </Field>
       <Field label="Instructions for the assistant" hint="Added to its prompt for guided tasks: product words to use, what not to touch, where things live.">
         <textarea className={`${inputCls} min-h-[90px]`} placeholder="Call the checkout the 'basket'. Never change anything under infra/. Copy lives in src/content." value={instructions} onChange={(e) => setInstructions(e.target.value)} onBlur={() => save({ instructions: instructions.trim() || undefined })} />
+      </Field>
+      <Field label="Questions channel" hint="Slack channel where a guided user's 'Ask a teammate' goes. Needs this space's Slack connected (Integrations).">
+        <input className={inputCls} placeholder="#team-help" value={askChannel} onChange={(e) => setAskChannel(e.target.value)} onBlur={() => save({ askChannel: askChannel.trim().replace(/^#/, '') || undefined })} />
       </Field>
     </section>
   )

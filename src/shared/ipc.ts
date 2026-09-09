@@ -97,6 +97,10 @@ export interface SinfonieInvoke {
   'git:createPr': (workspaceId: string, repoId: string, title: string, body: string, reviewers?: string[]) => string
   /** Runs each repo's check script (build/tests/lint) once and reports pass or fail per app. Guided Send for review. */
   'workspaces:check': (workspaceId: string) => { repoId: string; name: string; ran: boolean; ok: boolean; output: string }[]
+  /** Guided New task: from a description and the space's apps, pick the apps to touch and a friendly task name. */
+  'guided:plan': (spaceId: string, description: string) => { repoIds: string[]; name: string }
+  /** Guided mode: post the person's question to the team's Slack channel. Returns a link, or throws with why. */
+  'guided:askTeammate': (workspaceId: string, message: string) => { ok: true; url?: string }
 
   'github:status': (workspaceId: string) => RepoPr[]
 
@@ -364,6 +368,8 @@ export interface SinfonieEvents {
   'ui:openFeedback': { tab: 'feedback' | 'errors' }
   'ui:openOnboarding': { kind: 'setup' | 'tour' }
   'notes:changed': { workspaceId: string; notes: Note[] }
+  /** Guided mode: a turn changed files in these apps, so the person can look at the preview. */
+  'guided:changed': { workspaceId: string; apps: string[] }
   /** A new error was logged; the sidebar badge updates. */
   'errors:new': ErrorEntry
   /** Memory and process sample, every few seconds. */
