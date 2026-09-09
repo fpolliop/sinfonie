@@ -59,6 +59,7 @@ import * as assistant from './services/assistant'
 import * as db from './services/db/service'
 import type { CostMode, CostModeScope } from '@shared/types'
 import * as usage from './services/usage'
+import * as power from './services/power'
 import { costModeFor } from './services/cost-mode'
 import * as limits from './services/limits'
 import type { ChatImageInput, ChatImageRef, Engine } from '@shared/types'
@@ -649,6 +650,9 @@ export function registerIpc(): void {
   handle('remote:updateSettings', (patch) => remote.updateSettings(patch))
   usage.setEmitter((s) => send('usage:changed', s))
   handle('usage:get', () => usage.snapshot())
+  power.setOnChange((on) => send('power:changed', on))
+  handle('power:get', () => power.active())
+  handle('power:set', (on) => power.set(on ?? !power.active()))
   handle('usage:resolveLimit', async (id, itemId, choice) => {
     emitAgent({ type: 'limit_resolved', workspaceId: id, itemId })
     const held = parked.get(id)

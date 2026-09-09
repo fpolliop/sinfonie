@@ -8,6 +8,7 @@ import { ChevronDown, ExternalLink, Plus, Search, X } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { Button } from './ui'
+import { CaffeineButton } from './CaffeineButton'
 import { ACP_ENGINES, type Engine } from '@shared/types'
 
 const CLI_LABELS: Record<string, string> = { 'claude-code': 'Claude Code', ...Object.fromEntries(ACP_ENGINES.map((e) => [e.id, e.label.replace(/ \(.*\)$/, '')])) }
@@ -422,6 +423,7 @@ export function CliView({ workspaceId, prompt, onPromptConsumed, onBackToChat }:
         <span className="text-muted">{ws.sessionId ? `session ${ws.sessionId.slice(0, 8)}, shared with the chat` : 'new session'}</span>
         {shell?.exited && <span className="text-warn">exited</span>}
         <span className="ml-auto flex items-center gap-1">
+          <CaffeineButton compact />
           <Button size="sm" variant="ghost" onClick={() => setFinding((f) => !f)} title="Find in output (⌘F)">
             <Search size={13} />
           </Button>

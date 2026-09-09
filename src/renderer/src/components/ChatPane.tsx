@@ -19,6 +19,7 @@ import { Markdown } from '@/lib/markdown'
 import { Button, Spinner } from './ui'
 import { useGuided, words } from '@/lib/guided'
 import { AskTeammate, AskTeammateButton } from './AskTeammate'
+import { CaffeineButton } from './CaffeineButton'
 import type { ChatBlock, ChatItem, ChatToolBlock } from '@shared/types'
 
 /** Right panel state: closed, the activity overview, or one delegation's detail. */
@@ -366,6 +367,7 @@ function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Elem
                 <Paperclip size={13} />
               </Button>
               {guided && <AskTeammateButton workspaceId={workspaceId} />}
+              <CaffeineButton compact />
               {!guided && <NotesButton workspaceId={workspaceId} />}
               {!guided && <SessionMenu busy={busy} disabled={disabled} onFork={() => setForkDlg(true)} onResume={() => setResumeDlg(true)} onNew={() => void reset(workspaceId)} />}
               {busy ? (
