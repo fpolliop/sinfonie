@@ -180,6 +180,7 @@ function OrgShareCard({ space }: { space: Space }): React.JSX.Element {
             ))}
           </div>
         )}
+        <GuidedReadiness space={space} />
         <p className="mt-2 text-[11px] text-muted">Repositories, crew, MCP servers without keys, Jira site, Linear query, Google Cloud project, on-call channels and defaults sync to every member. Edits here push automatically; the last write wins.</p>
       </div>
     )
@@ -303,5 +304,36 @@ export function ImportSpaceDialog({ onClose }: { onClose: () => void }): React.J
         </div>
       )}
     </Dialog>
+  )
+}
+
+/** A checklist telling the tech lead whether guided-mode teammates can use this shared space yet. */
+function GuidedReadiness({ space }: { space: Space }): React.JSX.Element {
+  const repos = useApp((s) => s.repos).filter((r) => r.spaceId === space.id)
+  const withRun = repos.filter((r) => r.config?.scripts?.run)
+  const withPreview = repos.filter((r) => r.config?.preview)
+  const rows: { ok: boolean; text: string }[] = [
+    { ok: repos.length > 0, text: repos.length ? `${repos.length} app${repos.length === 1 ? '' : 's'} in the space` : 'No apps in the space yet' },
+    { ok: repos.length > 0 && withRun.length === repos.length, text: withRun.length === repos.length ? 'Every app has a start command' : `${repos.length - withRun.length} app${repos.length - withRun.length === 1 ? '' : 's'} without a start command` },
+    { ok: withPreview.length > 0, text: withPreview.length ? `${withPreview.length} app${withPreview.length === 1 ? '' : 's'} with a preview URL` : 'No preview URL set (the Preview tab needs one)' },
+    { ok: (space.guided?.reviewers?.length ?? 0) > 0, text: space.guided?.reviewers?.length ? `Reviewers: ${space.guided.reviewers.join(', ')}` : 'No reviewers set (pull requests will have none)' }
+  ]
+  const ready = rows.every((r) => r.ok)
+  return (
+    <div className="mt-2 border-t border-border pt-2">
+      <div className="mb-1 flex items-center gap-1.5 text-[11px] font-medium">
+        {ready ? <Check size={12} className="text-ok" /> : <span className="h-2 w-2 rounded-full bg-warn" />}
+        {ready ? 'Ready for guided users' : 'Guided setup'}
+      </div>
+      <div className="flex flex-col gap-0.5">
+        {rows.map((r) => (
+          <div key={r.text} className="flex items-center gap-1.5 text-[11px] text-muted">
+            {r.ok ? <Check size={11} className="text-ok" /> : <span className="h-[11px] w-[11px] shrink-0 rounded-full border border-border" />}
+            <span>{r.text}</span>
+          </div>
+        ))}
+      </div>
+      <p className="mt-1 text-[10px] text-muted">Set each app’s start command, preview URL and check under its Guided setup, and the reviewers under the space’s General page.</p>
+    </div>
   )
 }

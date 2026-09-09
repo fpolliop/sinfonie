@@ -25,7 +25,7 @@ import * as terminal from './services/terminal'
 import * as agentCli from './services/agent-cli'
 import * as cliSession from './services/cli-session'
 import { clearTranscript, flushAllTranscripts, getTranscript, markInterrupted, recordEvent } from './services/transcripts'
-import { runScript, stopScript, workspaceEnv } from './services/scripts'
+import { runScript, stopScript, workspaceEnv, runCommandOnce } from './services/scripts'
 import { repoPrStatus } from './services/github'
 import * as jira from './services/jira'
 import * as linear from './services/linear'
@@ -307,6 +307,36 @@ export function registerIpc(): void {
     if (!out) throw new Error('Unknown repo')
     return out
   })
+  handle('repos:setMeta', (repoId, meta) => {
+    let out: Repo | undefined
+    let spaceId: string | undefined
+    getStore().update((d) => {
+      const r = d.repos.find((x) => x.id === repoId)
+      if (r) {
+        if (meta.displayName !== undefined) r.displayName = meta.displayName.trim() || undefined
+        if (meta.description !== undefined) r.description = meta.description.trim() || undefined
+        out = r
+        spaceId = r.spaceId
+      }
+    })
+    if (!out) throw new Error('Unknown repo')
+    if (spaceId) orgSpaces.pushSoon(spaceId)
+    return out
+  })
+  handle('repos:writeConfig', (repoId, patch) => {
+    const repo = getStore().get().repos.find((x) => x.id === repoId)
+    if (!repo) throw new Error('Unknown repo')
+    git.writeConductorConfig(repo.path, patch)
+    let out: Repo | undefined
+    getStore().update((d) => {
+      const r = d.repos.find((x) => x.id === repoId)
+      if (r) {
+        r.config = git.readConductorConfig(r.path)
+        out = r
+      }
+    })
+    return out ?? repo
+  })
 
   // ---- workspaces ----
   handle('workspaces:create', (input) => workspaces.createWorkspace(input, emitScript))
@@ -349,6 +379,21 @@ export function registerIpc(): void {
     else spawn('open', ['-a', 'Terminal', ws.rootPath], { detached: true }).unref()
   })
   handle('workspaces:runScript', (id, kind) => workspaces.runWorkspaceScript(id, kind, emitScript))
+  handle('workspaces:check', async (id) => {
+    const ws = workspaces.getWorkspace(id)
+    const out: { repoId: string; name: string; ran: boolean; ok: boolean; output: string }[] = []
+    for (const wr of ws.repos) {
+      const repo = workspaces.getRepo(wr.repoId)
+      const cmd = repo.config?.scripts?.check
+      if (!cmd) {
+        out.push({ repoId: repo.id, name: repo.displayName || repo.name, ran: false, ok: true, output: '' })
+        continue
+      }
+      const { code, output } = await runCommandOnce(ws, repo, wr.worktreePath, cmd)
+      out.push({ repoId: repo.id, name: repo.displayName || repo.name, ran: true, ok: code === 0, output })
+    }
+    return out
+  })
   handle('workspaces:stopScript', (id, kind) => {
     for (const r of workspaces.getWorkspace(id).repos) stopScript(id, r.repoId, kind)
   })
@@ -382,7 +427,7 @@ export function registerIpc(): void {
     if (!wr) throw new Error('Repo not in workspace')
     return git.push(wr.worktreePath)
   })
-  handle('git:createPr', async (id, repoId, title, body) => {
+  handle('git:createPr', async (id, repoId, title, body, reviewers) => {
     const ws = workspaces.getWorkspace(id)
     const wr = ws.repos.find((r) => r.repoId === repoId)
     if (!wr) throw new Error('Repo not in workspace')
@@ -392,8 +437,9 @@ export function registerIpc(): void {
     if (ws.linear) footer.push(`Linear: [${ws.linear.identifier}](${ws.linear.url}) ${ws.linear.title}`)
     if (siblings.length) footer.push(`Part of workspace **${ws.name}**. Related branches:\n${siblings.join('\n')}`)
     const fullBody = footer.length ? `${body}\n\n---\n${footer.join('\n\n')}` : body
+    const reviewerArgs = (reviewers ?? []).flatMap((r) => ['--reviewer', r])
     return new Promise<string>((resolve, reject) => {
-      const child = spawn('gh', ['pr', 'create', '--title', title, '--body', fullBody, '--head', wr.branch], { cwd: wr.worktreePath, env: process.env })
+      const child = spawn('gh', ['pr', 'create', '--title', title, '--body', fullBody, '--head', wr.branch, ...reviewerArgs], { cwd: wr.worktreePath, env: process.env })
       let out = ''
       child.stdout.on('data', (d) => (out += d))
       child.stderr.on('data', (d) => (out += d))

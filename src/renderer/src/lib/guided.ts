@@ -2,8 +2,22 @@
  * Guided mode: the app for people who build with AI without writing code. One setting decides it, every
  * surface asks this module, and the words come from one map so the expert vocabulary never leaks through.
  */
-import { WORKSPACE_STAGES, type WorkspaceStage } from '@shared/types'
+import { WORKSPACE_STAGES, type Workspace, type WorkspaceStage } from '@shared/types'
 import { useApp } from '@/stores/app'
+
+/**
+ * Where a workspace's app serves, for the Preview tab: the primary repo's preview URL from its sinfonie.json
+ * with ${PORT}/$PORT expanded to the workspace's port, falling back to plain localhost:port.
+ */
+export function previewUrlFor(ws: Workspace | undefined): string {
+  if (!ws) return ''
+  const repos = useApp.getState().repos
+  const primary = ws.repos.find((r) => r.repoId === ws.primaryRepoId) ?? ws.repos[0]
+  const tmpl = primary && repos.find((r) => r.id === primary.repoId)?.config?.preview
+  const base = `http://localhost:${ws.port}`
+  if (!tmpl) return base
+  return tmpl.replace(/\$\{PORT\}/g, String(ws.port)).replace(/\$PORT\b/g, String(ws.port))
+}
 
 export const useGuided = (): boolean => useApp((s) => s.settings.mode === 'guided')
 

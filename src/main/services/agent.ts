@@ -16,7 +16,7 @@ import { classifyModel } from '@shared/types'
 import { runWorker } from './crew/workers'
 import * as notes from './notes'
 import { nanoid } from 'nanoid'
-import type { AgentEvent, PermissionMode, PermissionRequest, Question, SubagentStep, Workspace } from '@shared/types'
+import type { AgentEvent, PermissionMode, PermissionRequest, Question, Space, SubagentStep, Workspace } from '@shared/types'
 import { askPermission, askQuestion } from './interaction'
 import * as native from './native/engine'
 import * as acp from './acp/engine'
@@ -27,6 +27,7 @@ import { join } from 'path'
 import { getStore } from '../store'
 import { effectivePermissionMode } from './permission-mode'
 import { getWorkspace, patchWorkspace } from './workspaces'
+import { checkpoint } from './git'
 import { accountEnv } from './accounts'
 import * as jira from './jira'
 import * as linear from './linear'
@@ -161,7 +162,45 @@ function systemPromptFor(ws: Workspace, lean = false): string {
   lines.push(workspaceTools.promptFor(ws.id))
   lines.push('Context hygiene: the user pays for every token you re-read. Prefer targeted reads over whole files, avoid echoing large outputs, and when a note tells you the window is filling, suggest compacting or a new session before a fresh task.')
   if (!lean) lines.push(`Sinfonie runs on the user's Mac next to other sessions and limits you to ${resources.resourceSettings().maxSubagentsPerSession} subagents at once; under memory pressure it refuses new ones. When a delegation is refused, the tool result says why: do that work yourself or wait for running subagents instead of retrying.`)
+  const guided = guidedPromptFor(ws)
+  if (guided) lines.push(guided)
   return lines.join('\n')
+}
+
+/**
+ * Extra guidance when the person is a guided-mode user: talk in product terms, keep the app running, fix
+ * before offering to ask a colleague, and follow the space's own instructions and guardrails.
+ */
+function guidedPromptFor(ws: Workspace): string | null {
+  if (getStore().get().settings.mode !== 'guided') return null
+  const space = getStore().get().spaces.find((s) => s.id === ws.spaceId)
+  const g = space?.guided
+  const lines = [
+    '',
+    'GUIDED MODE. The person you are talking to builds with AI and does not read code. Speak in plain, product terms: what changed and what it does, never file names, diffs, branches, commits or commands. Do not show code blocks unless they ask. Explain choices briefly.',
+    'They cannot answer questions about implementation. Make reasonable technical decisions yourself and only ask about product intent, in their words.',
+    'After a change, keep their app runnable: if you break it, fix it before replying. When something is outside what you may do here, say so in one sentence and offer to ask a teammate, rather than describing the command you would have run.',
+    'When you have made a visible change, tell them to look at the Preview.'
+  ]
+  if (g?.instructions?.trim()) lines.push(`Team instructions for this space: ${g.instructions.trim()}`)
+  if (g?.guardrails?.deny?.length) lines.push(`Never run these, even if asked: ${g.guardrails.deny.join(', ')}.`)
+  const protectedBranches = [...new Set([...ws.repos.map((r) => r.baseBranch), ...(g?.guardrails?.protectedBranches ?? [])])]
+  lines.push(`Never push to these protected branches: ${protectedBranches.join(', ')}. Work only on the task's own branch. Do not run git push yourself: changes go out when the person clicks Send for review.`)
+  return lines.join('\n')
+}
+
+/** A hard deny-list for guided tasks, enforced before the classifier so a person never has to judge a command. */
+function guidedGuardrails(ws: Workspace, space: Space | undefined): (command: string) => string | null {
+  const deny = (space?.guided?.guardrails?.deny ?? []).map((d) => d.trim().toLowerCase()).filter(Boolean)
+  return (raw: string): string | null => {
+    const cmd = raw.toLowerCase()
+    if (/\bgit\s+push\b/.test(cmd)) return 'In guided mode, changes go out through Send for review, not by pushing. Make the change; the person will send it for review.'
+    if (/\bgit\s+(reset\s+--hard|rebase|filter-branch|reflog\s+expire)\b/.test(cmd) || /\bpush\b.*--force|\+refs\//.test(cmd)) return 'That rewrites history, which is not allowed here.'
+    if (/\b(drop|truncate)\s+(table|database)\b/.test(cmd) || /\bdropdb\b/.test(cmd)) return 'Changing or dropping a database is not allowed from a task.'
+    if (/\brm\s+-rf?\s+[~/]/.test(cmd)) return 'Deleting files outside this task is not allowed.'
+    for (const d of deny) if (cmd.includes(d)) return `Your team does not allow that here (${d}).`
+    return null
+  }
 }
 
 function toSdkMcp(spec: McpServerSpec): NonNullable<Options['mcpServers']>[string] | null {
@@ -333,6 +372,7 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
   }
 
   const mode = effectivePermissionMode(ws, space, settings)
+  const guardrails = settings.mode === 'guided' ? guidedGuardrails(ws, space) : null
   const crewCalls = new Map<string, string[]>()
   const crew = lean ? { agents: {}, prompt: '' } : crewFor(ws, emit, crewCalls)
   if (crew.server) mcpServers = { ...mcpServers, crew: crew.server }
@@ -384,6 +424,22 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
                     if (lean && mode === 'bypassPermissions' && input.tool_name === 'Bash' && typeof toolInput.command === 'string') {
                       return { hookSpecificOutput: { hookEventName: 'PreToolUse' as const, permissionDecision: 'allow' as const, updatedInput: { ...toolInput, command: leanBashCommand(toolInput.command) } } }
                     }
+                    return {}
+                  }
+                ]
+              }
+            ]
+          : []),
+        ...(guardrails
+          ? [
+              {
+                matcher: 'Bash',
+                hooks: [
+                  async (raw: HookInput) => {
+                    const command = (raw as { tool_input?: { command?: unknown } }).tool_input?.command
+                    if (typeof command !== 'string') return {}
+                    const reason = guardrails(command)
+                    if (reason) return { hookSpecificOutput: { hookEventName: 'PreToolUse' as const, permissionDecision: 'deny' as const, permissionDecisionReason: reason } }
                     return {}
                   }
                 ]
@@ -676,6 +732,15 @@ async function pump(session: Session, emit: EmitEvent): Promise<void> {
             }
           })
           emit({ type: 'status', workspaceId, busy: false })
+          // Guided mode: checkpoint whatever the assistant changed this turn, so "changes not sent for review"
+          // is honest and nothing is lost between turns (partial or interrupted work included). Never pushed;
+          // Send for review does that.
+          if (getStore().get().settings.mode === 'guided') {
+            const wsNow = getWorkspace(workspaceId)
+            void Promise.all(
+              wsNow.repos.map((r) => checkpoint(r.worktreePath, `Checkpoint: ${wsNow.name}`).catch((err) => logError('guided.checkpoint', err, { workspaceId })))
+            )
+          }
           getStore().update((d) => {
             const w = d.workspaces.find((x) => x.id === workspaceId)
             if (w) w.lastMessageAt = new Date().toISOString()

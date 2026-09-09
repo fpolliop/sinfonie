@@ -74,13 +74,13 @@ export async function resolve(spaceId: string, resolutions: SpaceImportResolutio
   for (const res of resolutions) {
     const r = wanted.find((w) => normalizeRemote(w.remote) === normalizeRemote(res.remote))
     if (!r) continue
-    if (res.path) await ensureRepo(res.path, spaceId, r.name)
+    if (res.path) await ensureRepo(res.path, spaceId, r.name, { displayName: r.displayName, description: r.description })
     else if (res.cloneInto) {
       const dest = join(res.cloneInto, r.name)
       if (existsSync(dest)) throw new Error(`${dest} already exists. Pick that folder as the checkout instead of cloning.`)
       mkdirSync(dirname(dest), { recursive: true })
       await simpleGit().clone(r.remote, dest)
-      await ensureRepo(dest, spaceId, r.name)
+      await ensureRepo(dest, spaceId, r.name, { displayName: r.displayName, description: r.description })
     }
   }
   return space(spaceId)
@@ -126,7 +126,7 @@ async function applyDefinition(spaceId: string, def: SpaceDefinition): Promise<s
   const missing: string[] = []
   for (const r of def.repos) {
     const m = byRemote.get(normalizeRemote(r.remote))
-    if (m) await ensureRepo(m.path, spaceId, r.name)
+    if (m) await ensureRepo(m.path, spaceId, r.name, { displayName: r.displayName, description: r.description })
     else missing.push(r.remote)
   }
   getStore().update((d) => {

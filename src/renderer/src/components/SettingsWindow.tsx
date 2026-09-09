@@ -9,6 +9,7 @@ import { Badge, Button, Field, inputCls } from './ui'
 import { shortPath } from '@/lib/format'
 import { PERMISSION_MODES, SPACE_COLORS, SPACE_FILE, jiraConnectionFor, linearConnectionFor, type AppMode, type Space } from '@shared/types'
 import { useGuided } from '@/lib/guided'
+import { GuidedRepoSetup, GuidedSpaceSection } from './GuidedSetup'
 import { JiraSection } from './JiraSection'
 import { LinearSection } from './LinearSection'
 import { SlackConnectionCard } from './SlackConnectionCard'
@@ -710,6 +711,7 @@ function SpacePageView({ space, page }: { space: Space; page: SpacePage }): Reac
               <Trash2 size={12} /> Delete space
             </Button>
           </div>
+          <GuidedSpaceSection space={space} />
         </div>
       )
     case 'repos':
@@ -790,20 +792,23 @@ function SpaceRepos({ space }: { space: Space }): React.JSX.Element {
       {mine.length === 0 && <div className="mb-2 rounded-md border border-dashed border-border p-3 text-center text-[12px] text-muted">No repositories in this space yet.</div>}
       <div className="mb-2 flex flex-col gap-1.5">
         {mine.map((r) => (
-          <div key={r.id} className="flex items-center gap-3 rounded-lg border border-border px-3 py-2">
-            <FolderGit2 size={14} className="shrink-0 text-muted" />
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2 text-[13px] font-medium">
-                {r.name}
-                <Badge>{r.defaultBranch}</Badge>
-                {r.config?.scripts ? <Badge tone="ok">sinfonie.json</Badge> : null}
+          <div key={r.id} className="rounded-lg border border-border px-3 py-2">
+            <div className="flex items-center gap-3">
+              <FolderGit2 size={14} className="shrink-0 text-muted" />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 text-[13px] font-medium">
+                  {r.name}
+                  <Badge>{r.defaultBranch}</Badge>
+                  {r.config?.scripts ? <Badge tone="ok">sinfonie.json</Badge> : null}
+                </div>
+                <div className="truncate text-[11px] text-muted">{shortPath(r.path)}</div>
               </div>
-              <div className="truncate text-[11px] text-muted">{shortPath(r.path)}</div>
+              <span className="text-[11px] text-muted">{inUse(r.id) ? `${inUse(r.id)} workspace${inUse(r.id) === 1 ? '' : 's'}` : ''}</span>
+              <button title="Remove from this space (the repo stays in the app)" className="rounded p-1 text-muted hover:text-danger" onClick={() => go(() => api.invoke('repos:setSpace', r.id, null))}>
+                <Trash2 size={13} />
+              </button>
             </div>
-            <span className="text-[11px] text-muted">{inUse(r.id) ? `${inUse(r.id)} workspace${inUse(r.id) === 1 ? '' : 's'}` : ''}</span>
-            <button title="Remove from this space (the repo stays in the app)" className="rounded p-1 text-muted hover:text-danger" onClick={() => go(() => api.invoke('repos:setSpace', r.id, null))}>
-              <Trash2 size={13} />
-            </button>
+            <GuidedRepoSetup repo={r} />
           </div>
         ))}
       </div>

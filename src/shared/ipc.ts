@@ -41,7 +41,7 @@ export interface SinfonieInvoke {
   'settings:update': (patch: Partial<Settings>) => Settings
 
   'spaces:create': (name: string) => Space
-  'spaces:update': (id: string, patch: Partial<Pick<Space, 'name' | 'color' | 'claudeAccountId' | 'model' | 'permissionMode' | 'workspacesRoot' | 'browserSensitiveOrigins' | 'githubOwners' | 'exposeLinearMcp' | 'oncall' | 'budgetMode' | 'leanMode' | 'gcp' | 'exposeGcpMcp' | 'mcpServers' | 'exposeJiraMcp' | 'strictMcp' | 'agents' | 'useCrew' | 'engine' | 'agentMode'>>) => Space
+  'spaces:update': (id: string, patch: Partial<Pick<Space, 'name' | 'color' | 'claudeAccountId' | 'model' | 'permissionMode' | 'workspacesRoot' | 'browserSensitiveOrigins' | 'githubOwners' | 'exposeLinearMcp' | 'oncall' | 'budgetMode' | 'leanMode' | 'gcp' | 'exposeGcpMcp' | 'mcpServers' | 'exposeJiraMcp' | 'strictMcp' | 'agents' | 'useCrew' | 'engine' | 'agentMode' | 'guided'>>) => Space
   /** MCP servers found in Claude Code's own config (~/.claude.json), for importing. */
   'mcp:importable': () => McpServerSpec[]
   'spaces:delete': (id: string) => void
@@ -60,6 +60,10 @@ export interface SinfonieInvoke {
   'repos:remove': (repoId: string) => void
   'repos:branches': (repoId: string) => string[]
   'repos:reloadConfig': (repoId: string) => Repo
+  /** The friendly name and one-line description a guided user sees for this app. */
+  'repos:setMeta': (repoId: string, meta: { displayName?: string; description?: string }) => Repo
+  /** Edit the repo's sinfonie.json: run/setup/check scripts and the preview URL. Empty string clears a field. */
+  'repos:writeConfig': (repoId: string, patch: { scripts?: { setup?: string; run?: string; check?: string }; preview?: string }) => Repo
 
   'workspaces:create': (input: CreateWorkspaceInput) => Workspace
   'workspaces:archive': (workspaceId: string, opts: { deleteBranches: boolean; forget?: boolean }) => Workspace | null
@@ -90,7 +94,9 @@ export interface SinfonieInvoke {
   'git:diff': (workspaceId: string, repoId: string, path?: string) => string
   'git:commit': (workspaceId: string, repoId: string, message: string) => string
   'git:push': (workspaceId: string, repoId: string) => string
-  'git:createPr': (workspaceId: string, repoId: string, title: string, body: string) => string
+  'git:createPr': (workspaceId: string, repoId: string, title: string, body: string, reviewers?: string[]) => string
+  /** Runs each repo's check script (build/tests/lint) once and reports pass or fail per app. Guided Send for review. */
+  'workspaces:check': (workspaceId: string) => { repoId: string; name: string; ran: boolean; ok: boolean; output: string }[]
 
   'github:status': (workspaceId: string) => RepoPr[]
 
