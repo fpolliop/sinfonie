@@ -94,7 +94,9 @@ export interface SinfonieInvoke {
   'git:diff': (workspaceId: string, repoId: string, path?: string) => string
   'git:commit': (workspaceId: string, repoId: string, message: string) => string
   'git:push': (workspaceId: string, repoId: string) => string
-  'git:createPr': (workspaceId: string, repoId: string, title: string, body: string) => string
+  'git:createPr': (workspaceId: string, repoId: string, title: string, body: string, reviewers?: string[]) => string
+  /** Runs each repo's check script (build/tests/lint) once and reports pass or fail per app. Guided Send for review. */
+  'workspaces:check': (workspaceId: string) => { repoId: string; name: string; ran: boolean; ok: boolean; output: string }[]
 
   'github:status': (workspaceId: string) => RepoPr[]
 

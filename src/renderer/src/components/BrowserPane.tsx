@@ -3,9 +3,13 @@ import clsx from 'clsx'
 import { ArrowLeft, ArrowRight, RotateCw, Plus, X, Globe, Pause, Play, ExternalLink, ShieldAlert, Download } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
-import { useGuided } from '@/lib/guided'
+import { useGuided, previewUrlFor } from '@/lib/guided'
 import { useBrowser, subscribeBrowser, loadBrowserState } from '@/stores/browser'
+import { useScripts } from '@/stores/scripts'
 import type { PermissionRequest } from '@shared/types'
+
+/** Workspaces whose run script guided mode already kicked off, so switching tabs does not restart it. */
+const started = new Set<string>()
 
 /**
  * The workspace browser. The page itself is a native view the main process places over this pane,
@@ -29,6 +33,28 @@ export function BrowserPane({ workspaceId, visible }: { workspaceId: string; vis
   useEffect(() => {
     if (!editing) setAddress(active?.url && active.url !== 'about:blank' ? active.url : '')
   }, [active?.url, editing])
+
+  // Guided mode: start the app and open its preview the first time this workspace's Preview is shown.
+  const runs = useScripts((s) => s.runs)
+  useEffect(() => useScripts.getState().subscribe(), [])
+  const previewUrl = guided ? previewUrlFor(ws ?? undefined) : ''
+  useEffect(() => {
+    if (!guided || !visible || !ws || ws.status !== 'ready') return
+    if (started.has(workspaceId)) return
+    started.add(workspaceId)
+    void api.invoke('workspaces:runScript', workspaceId, 'run').catch(() => undefined)
+    // Give the server a moment to bind before the first navigation; a reload button is always there.
+    const t = setTimeout(() => void api.invoke(state?.tabs.length ? 'browser:navigate' : 'browser:open', workspaceId, previewUrl), 1500)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [guided, visible, ws?.status, workspaceId])
+  const runState = ((): 'starting' | 'running' | 'failed' | null => {
+    if (!guided || !ws) return null
+    const mine = Object.entries(runs).filter(([k]) => k.startsWith(`${workspaceId}:`) && k.endsWith(':run'))
+    if (mine.some(([, r]) => r.running)) return active?.url ? 'running' : 'starting'
+    if (mine.length && mine.every(([, r]) => (r.exitCode ?? 0) !== 0)) return 'failed'
+    return null
+  })()
 
   // Report where the page should be drawn; null while this pane is hidden.
   useLayoutEffect(() => {
@@ -145,6 +171,29 @@ export function BrowserPane({ workspaceId, visible }: { workspaceId: string; vis
           </button>
         )}
       </div>
+      {runState && (
+        <div className={clsx('flex items-center gap-2 border-b px-3 py-1 text-[11px]', runState === 'failed' ? 'border-danger/30 bg-danger/10 text-danger' : 'border-border bg-panel/40 text-muted')}>
+          {runState === 'failed' ? (
+            <>
+              <span>The app did not start. Tell the assistant in the chat and it will look at it.</span>
+              <button className="ml-auto rounded border border-border px-1.5 py-0.5 hover:bg-panel-2" onClick={() => { started.delete(workspaceId); void api.invoke('workspaces:runScript', workspaceId, 'run') }}>
+                Try again
+              </button>
+            </>
+          ) : runState === 'starting' ? (
+            <>
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" /> Starting the app…
+            </>
+          ) : (
+            <>
+              <span className="h-1.5 w-1.5 rounded-full bg-ok" /> Preview is live{active?.url ? '' : ''}. It updates as the assistant works.
+              <button className="ml-auto rounded border border-border px-1.5 py-0.5 hover:bg-panel-2" onClick={() => act('reload')}>
+                Refresh
+              </button>
+            </>
+          )}
+        </div>
+      )}
       {pending && (
         <div className="flex items-center gap-2 border-b border-warn/40 bg-warn/10 px-3 py-1.5 text-[12px]">
           <ShieldAlert size={14} className="shrink-0 text-warn" />
@@ -166,18 +215,30 @@ export function BrowserPane({ workspaceId, visible }: { workspaceId: string; vis
         {(!state || state.tabs.length === 0) && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-[13px] text-muted">
             <Globe size={28} className="opacity-40" />
-            <div>A browser for this workspace. Agents can use it too: they navigate, read pages and click by accessibility handles.</div>
+            {guided ? (
+              <div>Your app, running on your Mac with your changes.</div>
+            ) : (
+              <div>A browser for this workspace. Agents can use it too: they navigate, read pages and click by accessibility handles.</div>
+            )}
             <div className="flex gap-2">
-              {localUrl && (
-                <button className="rounded-md bg-accent-2 px-3 py-1 text-[12px] text-white hover:bg-accent" onClick={() => go(localUrl)}>
-                  Open {localUrl}
+              {guided ? (
+                <button className="rounded-md bg-accent-2 px-3 py-1 text-[12px] text-white hover:bg-accent" onClick={() => { started.add(workspaceId); void api.invoke('workspaces:runScript', workspaceId, 'run'); go(previewUrl || localUrl) }}>
+                  Open the preview
                 </button>
+              ) : (
+                <>
+                  {localUrl && (
+                    <button className="rounded-md bg-accent-2 px-3 py-1 text-[12px] text-white hover:bg-accent" onClick={() => go(localUrl)}>
+                      Open {localUrl}
+                    </button>
+                  )}
+                  <button className="rounded-md border border-border px-3 py-1 text-[12px] hover:bg-panel-2" onClick={() => act('new')}>
+                    New tab
+                  </button>
+                </>
               )}
-              <button className="rounded-md border border-border px-3 py-1 text-[12px] hover:bg-panel-2" onClick={() => act('new')}>
-                New tab
-              </button>
             </div>
-            <div className="max-w-[460px] text-center text-[11px]">{guided ? 'This is your app, running on your Mac with your changes. Nobody else sees it until you send for review. Sign-ins are remembered.' : 'Logins persist per space. Actions on infrastructure consoles ask you first; use Pause to take over, for example to sign in.'}</div>
+            <div className="max-w-[460px] text-center text-[11px]">{guided ? 'Nobody else sees it until you send for review. Sign-ins are remembered.' : 'Logins persist per space. Actions on infrastructure consoles ask you first; use Pause to take over, for example to sign in.'}</div>
           </div>
         )}
       </div>

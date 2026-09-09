@@ -71,6 +71,18 @@ export function runScript(
   })
 }
 
+/** Runs a command once to completion, capturing its output. Not tracked in the run/setup registry. */
+export function runCommandOnce(ws: Workspace, repo: Repo, worktreePath: string, command: string): Promise<{ code: number | null; output: string }> {
+  return new Promise((resolve) => {
+    let output = ''
+    const child = spawn('/bin/zsh', ['-lc', command], { cwd: worktreePath, env: workspaceEnv(ws, repo, worktreePath) })
+    child.stdout.on('data', (d: Buffer) => (output += d.toString()))
+    child.stderr.on('data', (d: Buffer) => (output += d.toString()))
+    child.on('close', (code) => resolve({ code, output: output.slice(-20_000) }))
+    child.on('error', (err) => resolve({ code: -1, output: output + `\n${err.message}` }))
+  })
+}
+
 export function stopScript(workspaceId: string, repoId: string, kind: string): void {
   const child = running.get(key(workspaceId, repoId, kind))
   if (child) {

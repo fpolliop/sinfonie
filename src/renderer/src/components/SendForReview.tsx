@@ -23,18 +23,31 @@ export function SendForReviewButton({ ws }: { ws: Workspace }): React.JSX.Elemen
   )
 }
 
-type Phase = 'idle' | 'saving' | 'sending' | 'done'
+type Phase = 'idle' | 'checking' | 'saving' | 'sending' | 'done'
 
 function SendDialog({ ws, onClose }: { ws: Workspace; onClose: () => void }): React.JSX.Element {
+  const space = useApp((s) => s.spaces.find((sp) => sp.id === ws.spaceId))
+  const reviewers = space?.guided?.reviewers ?? []
   const [title, setTitle] = useState(ws.name)
   const [note, setNote] = useState('')
   const [phase, setPhase] = useState<Phase>('idle')
   const [error, setError] = useState<string | null>(null)
+  const [checkFail, setCheckFail] = useState<{ name: string; output: string }[] | null>(null)
   const [links, setLinks] = useState<{ repo: string; url: string }[]>([])
   const refresh = useGithub((s) => s.refresh)
   const submit = async (): Promise<void> => {
     setError(null)
+    setCheckFail(null)
     try {
+      // Checks first: a failing build or test should not reach a reviewer.
+      setPhase('checking')
+      const checks = await api.invoke('workspaces:check', ws.id)
+      const failed = checks.filter((c) => c.ran && !c.ok)
+      if (failed.length) {
+        setCheckFail(failed.map((c) => ({ name: c.name, output: c.output.slice(-1500) })))
+        setPhase('idle')
+        return
+      }
       setPhase('saving')
       const safety = await api.invoke('workspaces:safety', ws.id)
       const status = await api.invoke('github:status', ws.id)
@@ -51,7 +64,7 @@ function SendDialog({ ws, onClose }: { ws: Workspace; onClose: () => void }): Re
         if (changed) await api.invoke('git:push', ws.id, r.repoId)
         if (existing) out.push({ repo: r.repoName, url: existing.url })
         else {
-          const url = await api.invoke('git:createPr', ws.id, r.repoId, title.trim() || ws.name, note.trim())
+          const url = await api.invoke('git:createPr', ws.id, r.repoId, title.trim() || ws.name, note.trim(), reviewers)
           out.push({ repo: r.repoName, url })
         }
       }
@@ -65,7 +78,8 @@ function SendDialog({ ws, onClose }: { ws: Workspace; onClose: () => void }): Re
       setError(err instanceof Error ? err.message : String(err))
     }
   }
-  const busy = phase === 'saving' || phase === 'sending'
+  const busy = phase === 'checking' || phase === 'saving' || phase === 'sending'
+  const busyText = phase === 'checking' ? 'Checking your changes…' : phase === 'saving' ? 'Saving your changes…' : 'Sending…'
   return (
     <Dialog title="Send for review" onClose={onClose} width={460}>
       {phase === 'done' ? (
@@ -90,7 +104,13 @@ function SendDialog({ ws, onClose }: { ws: Workspace; onClose: () => void }): Re
         </div>
       ) : (
         <div>
-          <p className="mb-3 text-[12px] text-muted">Your changes are saved and sent to the team for review. Give it a short title and, if you like, a note for the reviewer.</p>
+          <p className="mb-3 text-[12px] text-muted">Your changes are checked, then sent to the team for review{reviewers.length ? ` (${reviewers.join(', ')})` : ''}. Give it a short title and, if you like, a note for the reviewer.</p>
+          {checkFail && (
+            <div className="mb-3 rounded-md border border-warn/40 bg-warn/10 p-2 text-[12px]">
+              <div className="font-medium text-warn">Not ready yet: a check did not pass.</div>
+              <div className="mt-0.5 text-muted">{checkFail.map((c) => c.name).join(', ')}. Tell the assistant “the checks are failing, please fix them”, then send again.</div>
+            </div>
+          )}
           <Field label="Title">
             <input className={inputCls} value={title} onChange={(e) => setTitle(e.target.value)} disabled={busy} />
           </Field>
@@ -101,7 +121,7 @@ function SendDialog({ ws, onClose }: { ws: Workspace; onClose: () => void }): Re
           <div className="flex items-center justify-end gap-2">
             {busy && (
               <span className="mr-auto inline-flex items-center gap-1 text-[12px] text-muted">
-                <Loader2 size={12} className="animate-spin" /> {phase === 'saving' ? 'Saving your changes…' : 'Sending…'}
+                <Loader2 size={12} className="animate-spin" /> {busyText}
               </span>
             )}
             <Button onClick={onClose} disabled={busy}>
