@@ -206,3 +206,22 @@ CREATE TABLE IF NOT EXISTS org_spaces (
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS org_spaces_org ON org_spaces (org_id);
+
+-- What each member is working on inside a shared space: names, branches, stages, times. Never chat content.
+CREATE TABLE IF NOT EXISTS org_workspaces (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  org_space_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  workspace_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  slug TEXT NOT NULL,
+  stage TEXT,
+  status TEXT,
+  repos TEXT NOT NULL,
+  ticket TEXT,
+  last_activity_at TEXT,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS org_workspaces_space ON org_workspaces (org_space_id);
+CREATE INDEX IF NOT EXISTS org_workspaces_user ON org_workspaces (user_id);

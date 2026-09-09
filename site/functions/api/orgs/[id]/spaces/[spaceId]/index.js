@@ -3,9 +3,9 @@
  * one the client last saw, else 409 with the current row so the client can merge. DELETE: admins, or
  * the member who created it.
  */
-import { currentUser, json, error } from '../../../../_session.js'
-import { membership } from '../index.js'
-import { spaceView } from './index.js'
+import { currentUser, json, error } from '../../../../../_session.js'
+import { membership } from '../../index.js'
+import { spaceView } from '../index.js'
 
 export async function onRequestPut({ request, env, params }) {
   const user = await currentUser(request, env)
@@ -32,6 +32,6 @@ export async function onRequestDelete({ request, env, params }) {
   const row = await env.DB.prepare('SELECT * FROM org_spaces WHERE id = ?1 AND org_id = ?2').bind(params.spaceId, org.id).first()
   if (!row) return error('not_found', 'No such shared space.', 404)
   if (org.role !== 'admin' && row.updated_by !== user.id) return error('forbidden', 'Only admins can remove a shared space.', 403)
-  await env.DB.prepare('DELETE FROM org_spaces WHERE id = ?1').bind(row.id).run()
+  await env.DB.batch([env.DB.prepare('DELETE FROM org_workspaces WHERE org_space_id = ?1').bind(row.id), env.DB.prepare('DELETE FROM org_spaces WHERE id = ?1').bind(row.id)])
   return json({ ok: true })
 }

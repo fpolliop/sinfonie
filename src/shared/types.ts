@@ -701,6 +701,20 @@ export interface DiscoveredOrg {
   requested: boolean
   denied: boolean
 }
+/** A teammate's workspace inside a shared space: names, branches, stage and times only. */
+export interface TeammateWorkspace {
+  id: string
+  workspaceId: string
+  user: CloudUser
+  name: string
+  slug: string
+  stage?: WorkspaceStage
+  status?: string
+  repos: { name: string; branch: string }[]
+  ticket?: string
+  lastActivityAt?: string
+  updatedAt: string
+}
 /** A space shared inside an organisation, as the server stores it. */
 export interface OrgSpace {
   id: string
@@ -943,6 +957,8 @@ export interface WorkspaceJira {
 
 export interface CreateWorkspaceInput {
   name: string
+  /** Use exactly this branch (and folder) name instead of deriving one from the name. */
+  branch?: string
   repos: { repoId: string; baseBranch: string }[]
   primaryRepoId?: string
   jira?: WorkspaceJira

@@ -42,6 +42,7 @@ export async function onRequestDelete({ request, env, params }) {
       env.DB.prepare('DELETE FROM org_invites WHERE org_id = ?1').bind(org.id),
       env.DB.prepare('DELETE FROM org_domains WHERE org_id = ?1').bind(org.id),
       env.DB.prepare('DELETE FROM org_join_requests WHERE org_id = ?1').bind(org.id),
+      env.DB.prepare('DELETE FROM org_workspaces WHERE org_id = ?1').bind(org.id),
       env.DB.prepare('DELETE FROM org_spaces WHERE org_id = ?1').bind(org.id),
       env.DB.prepare('DELETE FROM orgs WHERE id = ?1').bind(org.id)
     ])

@@ -512,6 +512,8 @@ export function registerIpc(): void {
   handle('orgSpaces:sync', () => orgSpaces.sync())
   handle('orgSpaces:missing', (spaceId) => orgSpaces.missing(spaceId))
   handle('orgSpaces:resolve', (spaceId, resolutions) => orgSpaces.resolve(spaceId, resolutions))
+  handle('orgSpaces:teammates', (spaceId) => orgSpaces.teammates(spaceId))
+  handle('orgSpaces:openTeammate', (spaceId, remote) => orgSpaces.openTeammate(spaceId, remote, emitScript))
   // ---- shared spaces ----
   handle('shared:definition', (spaceId) => sharedSpace.definitionFor(spaceId))
   handle('shared:export', (spaceId, repoId) => sharedSpace.exportSpace(spaceId, repoId))

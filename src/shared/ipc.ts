@@ -1,4 +1,4 @@
-import type { AgentMode, AuthLink, CompletionRequest, DiscoveredOrg, SharedRepo, BillingPeriod, CliStatus, CloudOrgDetail, CloudState, Plan, RemoteSettings, RemoteStatus, SpaceDefinition, SpaceImportPreview, SpaceImportResolution, BrowserState, ContextUsage, CrewPriority, FsEntry, LimitAlternative, UsageSnapshot, ChatImageInput, Incident, IncidentStatus, LinearIssue, LinearSettings, OnCallState, ResourceSnapshot, Severity, SlackConnection, LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion, OnCallBulkOp,
+import type { AgentMode, AuthLink, CompletionRequest, DiscoveredOrg, SharedRepo, TeammateWorkspace, BillingPeriod, CliStatus, CloudOrgDetail, CloudState, Plan, RemoteSettings, RemoteStatus, SpaceDefinition, SpaceImportPreview, SpaceImportResolution, BrowserState, ContextUsage, CrewPriority, FsEntry, LimitAlternative, UsageSnapshot, ChatImageInput, Incident, IncidentStatus, LinearIssue, LinearSettings, OnCallState, ResourceSnapshot, Severity, SlackConnection, LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion, OnCallBulkOp,
   AgentEvent,
   ChatItem,
   JiraIssue,
@@ -146,6 +146,10 @@ export interface SinfonieInvoke {
   'orgSpaces:missing': (spaceId: string) => SharedRepo[]
   /** Locate or clone missing repositories of a shared space. */
   'orgSpaces:resolve': (spaceId: string, resolutions: SpaceImportResolution[]) => Space
+  /** What teammates are working on in this shared space. */
+  'orgSpaces:teammates': (spaceId: string) => TeammateWorkspace[]
+  /** Open a teammate's workspace here: same name and branches, checked out from origin when pushed. */
+  'orgSpaces:openTeammate': (spaceId: string, remote: TeammateWorkspace) => Workspace
   // ---- phone companion ----
   'remote:status': () => RemoteStatus
   'remote:pair': () => { url: string; qrSvg: string }

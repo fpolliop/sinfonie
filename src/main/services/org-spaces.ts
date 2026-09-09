@@ -13,7 +13,8 @@ import { getStore } from '../store'
 import * as cloud from './cloud'
 import { definitionFor, applySettings, ensureRepo, normalizeRemote, remoteOf } from './shared-space'
 import { SPACE_COLORS } from '@shared/types'
-import type { OrgSpace, SharedRepo, Space, SpaceDefinition, SpaceImportResolution } from '@shared/types'
+import type { OrgSpace, SharedRepo, Space, SpaceDefinition, SpaceImportResolution, TeammateWorkspace, Workspace } from '@shared/types'
+import * as workspaces from './workspaces'
 
 const enc = encodeURIComponent
 
@@ -188,9 +189,68 @@ export async function sync(): Promise<{ created: string[]; updated: string[]; mi
   return out
 }
 
+// ---------- presence: what I work on, what teammates work on ----------
+
+/** The rows this Mac publishes for one shared space: live workspaces, names, branches, stage, times. */
+function presenceOf(space: Space): Record<string, unknown>[] {
+  return getStore()
+    .get()
+    .workspaces.filter((w) => w.spaceId === space.id && w.status !== 'archived')
+    .map((w) => ({
+      workspaceId: w.id,
+      name: w.name,
+      slug: w.slug,
+      stage: w.stage,
+      status: w.status,
+      repos: w.repos.map((r) => ({ name: r.repoName, branch: r.branch })),
+      ticket: w.jira?.key ?? w.linear?.identifier,
+      lastActivityAt: w.lastMessageAt ?? w.createdAt
+    }))
+}
+let lastPublished = ''
+/** Push presence for every shared space, only when it changed since the last push. */
+export async function publishPresence(force = false): Promise<void> {
+  if (!cloud.hasSession()) return
+  const shared = getStore().get().spaces.filter((s) => s.orgSpace && s.orgId)
+  const payload = JSON.stringify(shared.map((s) => [s.orgSpace?.id, presenceOf(s)]))
+  if (!force && payload === lastPublished) return
+  for (const s of shared) {
+    await cloud.api(`/api/orgs/${enc(s.orgId as string)}/spaces/${enc(s.orgSpace?.id as string)}/workspaces`, cloud.jsonInit('PUT', { workspaces: presenceOf(s) })).catch(() => undefined)
+  }
+  lastPublished = payload
+}
+let presenceTimer: NodeJS.Timeout | null = null
+export function presenceSoon(): void {
+  if (presenceTimer) clearTimeout(presenceTimer)
+  presenceTimer = setTimeout(() => void publishPresence(), 5_000)
+}
+
+export async function teammates(spaceId: string): Promise<TeammateWorkspace[]> {
+  const s = space(spaceId)
+  if (!s.orgSpace || !s.orgId) return []
+  return (await cloud.api<{ workspaces: TeammateWorkspace[] }>(`/api/orgs/${enc(s.orgId)}/spaces/${enc(s.orgSpace.id)}/workspaces`)).workspaces
+}
+
+/** Recreate a teammate's workspace here: same branch in the same repositories, checked out from origin when they pushed. */
+export async function openTeammate(spaceId: string, remote: TeammateWorkspace, emit: Parameters<typeof workspaces.createWorkspace>[1]): Promise<Workspace> {
+  const s = space(spaceId)
+  const mine = getStore().get().repos.filter((r) => r.spaceId === s.id)
+  const repos = remote.repos
+    .map((rr) => {
+      const local = mine.find((r) => r.name === rr.name)
+      return local ? { repoId: local.id, baseBranch: local.defaultBranch } : null
+    })
+    .filter((x): x is { repoId: string; baseBranch: string } => Boolean(x))
+  if (!repos.length) throw new Error(`None of ${remote.user.login}'s repositories for this workspace is on this Mac yet. Locate or clone them from the space's Repositories page first.`)
+  const branch = remote.repos[0]?.branch || remote.slug
+  return workspaces.createWorkspace({ name: remote.name, branch, repos, primaryRepoId: repos[0].repoId, spaceId: s.id, claudeAccountId: s.claudeAccountId ?? getStore().get().settings.defaultClaudeAccountId }, emit)
+}
+
 let timer: NodeJS.Timeout | null = null
 export function start(): void {
   if (timer) return
-  cloud.onRefreshed(() => void sync().catch(() => undefined))
-  timer = setInterval(() => void sync().catch(() => undefined), 6 * 3600_000)
+  cloud.onRefreshed(() => void sync().then(() => publishPresence(true)).catch(() => undefined))
+  timer = setInterval(() => void sync().then(() => publishPresence()).catch(() => undefined), 6 * 3600_000)
+  setInterval(() => void publishPresence(), 5 * 60_000)
+  getStore().subscribe(() => presenceSoon())
 }

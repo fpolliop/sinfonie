@@ -1,12 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { Plus, Settings, Archive, Pencil, Folder, Code2, TerminalSquare, Trash2, GitPullRequest, Layers, ArrowDownWideNarrow, ArrowUpNarrowWide, Filter, ChevronRight, MessageSquarePlus, Siren, Activity, Sparkles } from 'lucide-react'
+import { Plus, Settings, Archive, Pencil, Folder, Code2, TerminalSquare, Trash2, GitPullRequest, Layers, ArrowDownWideNarrow, ArrowUpNarrowWide, Filter, ChevronRight, MessageSquarePlus, Siren, Activity, Sparkles, Users2 } from 'lucide-react'
 import { ERRORS_SEEN_KEY } from './FeedbackDialog'
 import { useResources, subscribeResources, gb } from '@/stores/resources'
 import { useOnCall, subscribeOnCall } from '@/stores/oncall'
 import { useUsage, subscribeUsage, windowLabel, clock } from '@/stores/usage'
 import { useReviews, isRunBusy } from '@/stores/reviews'
-import { WORKSPACE_STAGES } from '@shared/types'
+import { WORKSPACE_STAGES, type TeammateWorkspace } from '@shared/types'
 import { LabelChip, labelsFor } from './LabelPicker'
 import { useApp, spaceOrder } from '@/stores/app'
 import { useChat } from '@/stores/chat'
@@ -136,6 +136,7 @@ export function Sidebar(): React.JSX.Element {
             <span className="truncate text-[13px] font-semibold">{currentName}</span>
           )}
           <span className="text-[12px] text-muted">{inSpace.length}</span>
+          <OwnerChip spaceId={currentId} />
           {currentId && (
             <button className="ml-auto rounded p-1 text-muted opacity-0 hover:bg-panel-2 hover:text-text group-hover:opacity-100" title="Space settings" onClick={() => setSpaceSettings(currentId)}>
               <Settings size={13} />
@@ -215,6 +216,7 @@ export function Sidebar(): React.JSX.Element {
             {showArchived && archived.map((w) => row(w, false))}
           </>
         )}
+        <Teammates spaceId={currentId} />
       </div>
       <UpdateBanner />
       <UsageBadge onOpen={() => openSettings({ scope: 'app', page: 'usage' })} />
@@ -447,9 +449,100 @@ function MemoryGauge({ onOpen }: { onOpen: () => void }): React.JSX.Element | nu
   )
 }
 
+/** Who owns the space: an organisation's name when it is shared there, nothing for personal spaces. */
+function OwnerChip({ spaceId }: { spaceId: string }): React.JSX.Element | null {
+  const space = useApp((s) => s.spaces.find((x) => x.id === spaceId))
+  const orgs = useApp((s) => s.settings.cloud?.account?.orgs)
+  if (!space?.orgId) return null
+  const org = orgs?.find((o) => o.id === space.orgId)
+  return (
+    <span className="ml-1 inline-flex max-w-[110px] shrink-0 items-center gap-1 truncate rounded-full border border-accent/40 px-1.5 text-[10px] text-accent" title={`Shared in ${org?.name ?? 'an organisation'}${space.orgSpace ? `, version ${space.orgSpace.version}` : ''}`}>
+      <Users2 size={9} /> {org?.name ?? 'Organisation'}
+    </span>
+  )
+}
+
+/**
+ * What teammates are working on in a shared space: their live workspaces with branch, stage and
+ * time. "Open here" recreates one on this Mac on the same branch, checked out from origin when pushed.
+ */
+function Teammates({ spaceId }: { spaceId: string }): React.JSX.Element | null {
+  const space = useApp((s) => s.spaces.find((x) => x.id === spaceId))
+  const select = useApp((s) => s.select)
+  const setError = useApp((s) => s.setError)
+  const [list, setList] = useState<TeammateWorkspace[] | null>(null)
+  const [open, setOpen] = useState(true)
+  const [busy, setBusy] = useState<string | null>(null)
+  const shared = Boolean(space?.orgSpace)
+  useEffect(() => {
+    if (!shared) return setList(null)
+    let alive = true
+    const load = (): void => {
+      void api
+        .invoke('orgSpaces:teammates', spaceId)
+        .then((l) => alive && setList(l))
+        .catch(() => undefined)
+    }
+    load()
+    const t = setInterval(load, 60_000)
+    return () => {
+      alive = false
+      clearInterval(t)
+    }
+  }, [spaceId, shared])
+  if (!shared || !list) return null
+  const byUser = new Map<string, TeammateWorkspace[]>()
+  for (const w of list) byUser.set(w.user.id, [...(byUser.get(w.user.id) ?? []), w])
+  const openHere = async (w: TeammateWorkspace): Promise<void> => {
+    setBusy(w.id)
+    try {
+      const ws = await api.invoke('orgSpaces:openTeammate', spaceId, w)
+      select(ws.id)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(null)
+    }
+  }
+  return (
+    <div className="mt-3">
+      <button className="flex w-full items-center gap-1.5 px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted hover:text-text" onClick={() => setOpen(!open)}>
+        <Users2 size={12} /> Teammates ({list.length}) {open ? '▾' : '▸'}
+      </button>
+      {open && list.length === 0 && <div className="px-2 py-1 text-[12px] text-muted">Nobody else has a workspace in this space right now.</div>}
+      {open &&
+        [...byUser.entries()].map(([uid, items]) => (
+          <div key={uid} className="mb-1">
+            <div className="flex items-center gap-1.5 px-2 py-0.5 text-[11px] text-muted">
+              {items[0].user.avatarUrl ? <img src={items[0].user.avatarUrl} alt="" className="h-4 w-4 rounded-full" /> : <span className="h-4 w-4 rounded-full bg-panel-2" />}
+              {items[0].user.name || items[0].user.login}
+            </div>
+            {items.map((w) => (
+              <div key={w.id} className="group flex items-center gap-2 rounded-md px-2 py-1 text-[12px] hover:bg-panel-2/60" title={`${w.repos.map((r) => `${r.name} on ${r.branch}`).join(', ')}${w.ticket ? ` · ${w.ticket}` : ''}`}>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate">{w.name}</div>
+                  <div className="truncate text-[10px] text-muted">
+                    {w.stage ? WORKSPACE_STAGES.find((st) => st.id === w.stage)?.label ?? w.stage : ''}
+                    {w.stage ? ' · ' : ''}
+                    {w.repos.length} repo{w.repos.length === 1 ? '' : 's'}
+                    {w.lastActivityAt ? ` · ${timeAgo(w.lastActivityAt)}` : ''}
+                  </div>
+                </div>
+                <button className="rounded px-1.5 py-0.5 text-[11px] text-accent opacity-0 hover:bg-panel-2 group-hover:opacity-100 disabled:opacity-40" disabled={busy === w.id} onClick={() => void openHere(w)} title="Create the same workspace here, on their branch">
+                  {busy === w.id ? '…' : 'Open here'}
+                </button>
+              </div>
+            ))}
+          </div>
+        ))}
+    </div>
+  )
+}
+
 /** Arc-style dot bar: one dot per space, the current one stretched into a pill with its name. */
 function SpaceDots({ ids, currentId, onPick, onAdd }: { ids: string[]; currentId: string; onPick: (id: string) => void; onAdd: () => void }): React.JSX.Element {
   const spaces = useApp((s) => s.spaces)
+  const orgs = useApp((s) => s.settings.cloud?.account?.orgs)
   return (
     <div data-tour="spaces" className="flex h-10 shrink-0 items-center gap-1.5 border-t border-border px-3">
       {ids.map((id, i) => {
@@ -461,7 +554,7 @@ function SpaceDots({ ids, currentId, onPick, onAdd }: { ids: string[]; currentId
           <button
             key={id || '__none'}
             onClick={() => onPick(id)}
-            title={`${name} (⌃${i + 1})`}
+            title={`${name}${sp?.orgId ? ` · ${orgs?.find((o) => o.id === sp.orgId)?.name ?? 'organisation'}` : ''} (⌃${i + 1})`}
             className={clsx('flex h-5 items-center gap-1.5 rounded-full transition-all duration-200', isCurrent ? 'bg-panel-2 px-2' : 'w-2.5 justify-center hover:scale-125')}
           >
             <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: color, opacity: isCurrent ? 1 : 0.7 }} />
