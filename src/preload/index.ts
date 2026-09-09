@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { EventChannel, InvokeChannel, SinfonieEvents, SinfonieInvoke } from '@shared/ipc'
 
 type Invoke = <C extends InvokeChannel>(
@@ -15,7 +15,9 @@ const api = {
     ipcRenderer.on(channel, listener)
     return () => ipcRenderer.removeListener(channel, listener)
   }) as On,
-  platform: process.platform
+  platform: process.platform,
+  /** The filesystem path of a dropped File (File.path is gone from Electron). */
+  pathOf: (file: File): string => webUtils.getPathForFile(file)
 }
 
 export type SinfonieApi = typeof api

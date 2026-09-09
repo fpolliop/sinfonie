@@ -69,15 +69,32 @@ function spawnShell(workspaceId: string, repoId: string | null, label: string, a
   term.loadAddon(fit)
   term.loadAddon(search)
   term.loadAddon(new WebLinksAddon((_e, uri) => void api.invoke('shell:openExternal', uri)))
+  const id = `sh${++counter}`
+  const shell: Shell = { id, workspaceId, repoId, agent, label, container, term, fit, search, terminalId: null, opened: false, exited: false, unsub: () => undefined, ...extra }
+  const raw = (data: string): void => {
+    if (shell.terminalId) void api.invoke('terminal:write', shell.terminalId, data)
+  }
   // macOS habits: ⌘C copies the selection, ⌘V pastes, ⌘K clears; everything else goes to the shell.
+  // ⌘↩ and ⇧↩ send a line feed, which agent CLIs (Claude Code, Codex) take as "new line, don't send";
+  // ⌥↩ already reaches them as Meta+Enter. Plain ↩ stays the carriage return that submits.
   term.attachCustomKeyEventHandler((e) => {
+    if (e.key === 'Enter' && (e.metaKey || e.shiftKey) && !e.altKey && !e.ctrlKey) {
+      // Swallow the keypress that follows too, or xterm would add its own carriage return.
+      if (e.type === 'keydown') raw('\n')
+      return false
+    }
     if (e.type !== 'keydown' || !e.metaKey) return true
     if (e.key === 'c' && term.hasSelection()) {
       void navigator.clipboard.writeText(term.getSelection())
       return false
     }
     if (e.key === 'v') {
-      void navigator.clipboard.readText().then((t) => t && term.paste(t))
+      // An image on the clipboard cannot travel as text: hand the paste to the CLI as ⌃V, which Claude Code
+      // and Codex answer by reading the clipboard themselves and attaching the picture.
+      void api.invoke('clipboard:hasImage').then((image) => {
+        if (image) return raw('\x16')
+        return navigator.clipboard.readText().then((t) => t && term.paste(t))
+      })
       return false
     }
     if (e.key === 'k') {
@@ -86,8 +103,19 @@ function spawnShell(workspaceId: string, repoId: string | null, label: string, a
     }
     return true
   })
-  const id = `sh${++counter}`
-  const shell: Shell = { id, workspaceId, repoId, agent, label, container, term, fit, search, terminalId: null, opened: false, exited: false, unsub: () => undefined, ...extra }
+  // Files dropped on the terminal arrive as their paths, escaped the way Finder drops them into Terminal.app,
+  // so an image or a document can be attached to a CLI prompt by dragging it in.
+  container.addEventListener('dragover', (e) => {
+    if (e.dataTransfer?.types.includes('Files')) e.preventDefault()
+  })
+  container.addEventListener('drop', (e) => {
+    const files = Array.from(e.dataTransfer?.files ?? [])
+    if (!files.length) return
+    e.preventDefault()
+    const paths = files.map((f) => api.pathOf(f)).filter(Boolean)
+    if (paths.length) term.paste(paths.map((p) => p.replace(/([ '"\\()[\]{}$&;|<>*?~`!#])/g, '\\$1')).join(' ') + ' ')
+    term.focus()
+  })
   shells.set(id, shell)
   term.onData((d) => {
     if (shell.exited) return closeShell(id)
