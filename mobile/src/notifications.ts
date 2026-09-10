@@ -8,10 +8,42 @@ import * as Notifications from 'expo-notifications'
 import * as Device from 'expo-device'
 import Constants from 'expo-constants'
 import * as SecureStore from 'expo-secure-store'
-import { control, getState } from './store'
+import { control, getState, registerNotifDismiss } from './store'
 import { seal, sendUrl } from './protocol'
 
 export const PERMISSION_CATEGORY = 'sinfonie.permission'
+
+/** Remove delivered notifications for a workspace from the tray (it was opened on the Mac or here). */
+export async function dismissForWorkspace(workspaceId: string): Promise<void> {
+  try {
+    const shown = await Notifications.getPresentedNotificationsAsync()
+    await Promise.all(
+      shown
+        .filter((n) => ((n.request.content.data ?? {}) as { workspaceId?: string }).workspaceId === workspaceId)
+        .map((n) => Notifications.dismissNotificationAsync(n.request.identifier))
+    )
+  } catch {
+    /* best effort */
+  }
+}
+/** Remove the delivered notification tied to a prompt that was just answered somewhere. */
+export async function dismissForRequest(requestId: string): Promise<void> {
+  try {
+    const shown = await Notifications.getPresentedNotificationsAsync()
+    await Promise.all(
+      shown
+        .filter((n) => ((n.request.content.data ?? {}) as { requestId?: string }).requestId === requestId)
+        .map((n) => Notifications.dismissNotificationAsync(n.request.identifier))
+    )
+  } catch {
+    /* best effort */
+  }
+}
+// Let the store dismiss tray notifications when the Mac says a workspace was seen or a prompt resolved.
+registerNotifDismiss(
+  (workspaceId) => void dismissForWorkspace(workspaceId),
+  (requestId) => void dismissForRequest(requestId)
+)
 
 const BANNER_DISMISSED_KEY = 'sinfonie.pushBannerDismissed'
 

@@ -8,6 +8,7 @@ import { C, R, S, T } from '../theme'
 import { Dot, Icon, IconButton, SpaceChip } from '../ui'
 import { MessageItem, PromptCard, Typing } from '../components'
 import { loadHistory, send, sendMessage, subscribe, unsubscribe, useStore } from '../store'
+import { dismissForWorkspace } from '../notifications'
 import type { RootStack } from '../App'
 
 export function ChatScreen(): React.JSX.Element {
@@ -27,11 +28,28 @@ export function ChatScreen(): React.JSX.Element {
   const [atBottom, setAtBottom] = useState(true)
   const [slow, setSlow] = useState(false)
   const list = useRef<FlatList>(null)
+  const didInitial = useRef(false) // scrolled to the latest message for the transcript now shown
+  const contentH = useRef(0)
+  const scrollY = useRef(0)
+  const prependAnchor = useRef<{ height: number; y: number } | null>(null) // set while a history page is loading, to keep the view put
 
   useEffect(() => {
     subscribe(id)
+    void dismissForWorkspace(id) // opening it here clears its notifications from the tray too
     return () => unsubscribe(id)
   }, [id])
+  // A fresh conversation must open at the latest message. Force it to the bottom the first time the
+  // transcript lands (a few times, since message heights settle after layout), independent of atBottom.
+  useEffect(() => {
+    didInitial.current = false
+  }, [id])
+  useEffect(() => {
+    if (!items || items.length === 0 || didInitial.current) return
+    didInitial.current = true
+    setAtBottom(true)
+    const timers = [0, 80, 220, 450].map((t) => setTimeout(() => list.current?.scrollToEnd({ animated: false }), t))
+    return () => timers.forEach(clearTimeout)
+  }, [items, id])
   // The transcript arrives in reply to `subscribe`. A subscribe sent while the socket is reconnecting is
   // dropped, so re-request until it lands (and again whenever the connection comes back), and surface a
   // slow/offline hint instead of an endless "Loading…".
@@ -100,9 +118,13 @@ export function ChatScreen(): React.JSX.Element {
           keyExtractor={(it) => it.id}
           contentContainerStyle={{ paddingHorizontal: 14, paddingTop: 10, paddingBottom: 12 }}
           renderItem={({ item, index }) => <MessageItem item={item} showTime={index === (items?.length ?? 0) - 1} />}
-          onStartReached={() => loadHistory(id)}
+          onStartReached={() => {
+            if (hasMore && !loadingHistory && (items?.length ?? 0) > 0) {
+              prependAnchor.current = { height: contentH.current, y: scrollY.current }
+              loadHistory(id)
+            }
+          }}
           onStartReachedThreshold={0.4}
-          maintainVisibleContentPosition={{ minIndexForVisible: 1 }}
           ListHeaderComponent={
             items && items.length > 0 && (loadingHistory || hasMore) ? (
               <View style={{ alignItems: 'center', paddingVertical: 10, gap: 6 }}>
@@ -112,6 +134,8 @@ export function ChatScreen(): React.JSX.Element {
           }
           onScroll={(e) => {
             const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent
+            scrollY.current = contentOffset.y
+            contentH.current = contentSize.height
             setAtBottom(contentSize.height - contentOffset.y - layoutMeasurement.height < 140)
           }}
           scrollEventThrottle={100}
@@ -147,7 +171,18 @@ export function ChatScreen(): React.JSX.Element {
               ))}
             </View>
           }
-          onContentSizeChange={() => atBottom && list.current?.scrollToEnd({ animated: false })}
+          onContentSizeChange={(_w, h) => {
+            // A history page just prepended: keep the reader on the same message by adding the new height.
+            if (prependAnchor.current) {
+              const delta = h - prependAnchor.current.height
+              if (delta > 0) list.current?.scrollToOffset({ offset: prependAnchor.current.y + delta, animated: false })
+              prependAnchor.current = null
+              contentH.current = h
+              return
+            }
+            contentH.current = h
+            if (atBottom) list.current?.scrollToEnd({ animated: false })
+          }}
         />
         {!atBottom && (
           <Pressable onPress={() => { setAtBottom(true); list.current?.scrollToEnd({ animated: true }) }} style={s.toBottom}>

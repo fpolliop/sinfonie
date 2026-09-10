@@ -228,6 +228,8 @@ export function unpair(): RemoteStatus {
 
 // ---------- what phones see ----------
 const subscribed = new Set<string>()
+/** Workspaces opened on the Mac, so their phone notifications can be cleared even if the phone was offline. */
+const seenOnMac = new Map<string, number>()
 const pending = new Map<string, RemotePrompt>()
 const itemTimers = new Map<string, NodeJS.Timeout>()
 /** The last assistant item id we sent a "finished" notification for, per workspace, to avoid repeats. */
@@ -351,6 +353,11 @@ function incidentList(incidents: Incident[]): RemoteIncident[] {
 export function pushOnCall(s: OnCallState): void {
   void send({ type: 'oncall', items: incidentList(s.incidents), running: s.running })
 }
+/** The workspace was opened on the Mac: tell the phone to clear its notifications (now, and on next sync). */
+export function markSeen(workspaceId: string): void {
+  seenOnMac.set(workspaceId, Date.now())
+  void send({ type: 'notifClear', workspaceId })
+}
 function scheduleWorkspaces(): void {
   if (phones === 0 || workspacesTimer) return
   workspacesTimer = setTimeout(() => {
@@ -364,6 +371,12 @@ async function pushAll(): Promise<void> {
   await send({ type: 'workspaces', items: workspaceList() })
   await send({ type: 'spaces', items: spaceList() })
   await send({ type: 'prompts', items: [...pending.values()] })
+  // Re-clear notifications for workspaces opened on the Mac while the phone was away (pruning stale entries).
+  const cutoff = Date.now() - 12 * 60 * 60_000
+  for (const [wid, at] of seenOnMac) {
+    if (at < cutoff) seenOnMac.delete(wid)
+    else await send({ type: 'notifClear', workspaceId: wid })
+  }
   for (const id of subscribed) {
     const t = transcriptTail(id)
     await send({ type: 'transcript', workspaceId: id, items: t.items, hasMore: t.hasMore })

@@ -166,6 +166,7 @@ export interface SinfonieInvoke {
   'remote:pair': () => { url: string; qrSvg: string }
   'remote:unpair': () => RemoteStatus
   'remote:updateSettings': (patch: Partial<RemoteSettings>) => RemoteSettings
+  'remote:seen': (workspaceId: string) => void
   // ---- shared spaces (sinfonie.space.json) ----
   'shared:definition': (spaceId: string) => SpaceDefinition
   'shared:export': (spaceId: string, repoId: string) => { file: string }

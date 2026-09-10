@@ -150,6 +150,7 @@ export type ToPhone =
   | { type: 'history'; workspaceId: string; items: ChatItem[]; hasMore: boolean }
   | { type: 'item'; workspaceId: string; item: ChatItem }
   | { type: 'busy'; workspaceId: string; busy: boolean }
+  | { type: 'notifClear'; workspaceId: string }
   | { type: 'prompts'; items: RemotePrompt[] }
   | { type: 'prompt'; prompt: RemotePrompt }
   | { type: 'prompt:resolved'; requestId: string }

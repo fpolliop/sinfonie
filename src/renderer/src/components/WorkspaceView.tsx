@@ -48,6 +48,13 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
   useEffect(() => {
     if (browserDock && tab === 'browser') setTab('chat')
   }, [browserDock, tab, setTab])
+  // Opening (or refocusing on) a workspace here means you've seen it — clear its phone notifications.
+  useEffect(() => {
+    const seen = (): void => void api.invoke('remote:seen', workspaceId).catch(() => undefined)
+    seen()
+    window.addEventListener('focus', seen)
+    return () => window.removeEventListener('focus', seen)
+  }, [workspaceId])
   const [menu, setMenu] = useState(false)
   const [archiveDlg, setArchiveDlg] = useState<null | 'archive' | 'delete'>(null)
   const [jiraRefreshing, setJiraRefreshing] = useState(false)
