@@ -666,6 +666,16 @@ export function registerIpc(): void {
         console.error('remote create failed', err)
         return null
       }
+    },
+    // Pull requests across the person's spaces where they are asked to review, for the phone's review list.
+    reviews: async () => {
+      const { spaces } = getStore().get()
+      const owners = new Set<string>()
+      for (const s of spaces) for (const o of s.githubOwners ?? []) owners.add(o)
+      for (const s of spaces) for (const o of await reviews.detectOwners(s.id).catch(() => [])) owners.add(o)
+      for (const o of await reviews.detectOwners('').catch(() => [])) owners.add(o)
+      if (owners.size === 0) return []
+      return (await reviews.listPrs([...owners], 'requested').catch(() => [])).slice(0, 100)
     }
   })
   // ---- phone companion ----

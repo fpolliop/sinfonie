@@ -66,6 +66,7 @@ export function DrawerContent(props: DrawerContentComponentProps): React.JSX.Ele
 
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingVertical: S.sm }} showsVerticalScrollIndicator={false}>
         <Item icon="notifications-outline" label="Inbox" count={inboxCount} active={route.name === 'Inbox'} onPress={() => go('Inbox')} />
+        <Item icon="git-pull-request-outline" label="Reviews" active={route.name === 'Reviews'} onPress={() => go('Reviews')} />
         <Text style={s.section}>Workspaces</Text>
         <Item icon="albums-outline" label="All workspaces" count={workspaces.length} active={onWorkspaces && !params.filter && !params.space} onPress={() => go('Workspaces', { filter: undefined, space: undefined })} />
         <Item icon="hand-left-outline" label="Needs you" count={needCount} active={onWorkspaces && params.filter === 'needs'} onPress={() => go('Workspaces', { filter: 'needs', space: undefined })} />

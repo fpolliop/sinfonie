@@ -657,12 +657,23 @@ export interface RemoteSpace {
   color: string
   repoCount: number
 }
+/** A pull request the person is asked to review, for the phone's review list. */
+export interface RemoteReviewPr {
+  nameWithOwner: string
+  number: number
+  title: string
+  author: string
+  url: string
+  updatedAt: string
+  isDraft: boolean
+}
 /** Desktop → phone, inside the encrypted envelope. */
 export type RemoteToPhone =
   | { type: 'hello'; host: string; version: string }
   | { type: 'workspaces'; items: RemoteWorkspace[] }
   | { type: 'spaces'; items: RemoteSpace[] }
   | { type: 'created'; workspaceId: string }
+  | { type: 'reviews'; items: RemoteReviewPr[] }
   | { type: 'transcript'; workspaceId: string; items: ChatItem[] }
   | { type: 'item'; workspaceId: string; item: ChatItem }
   | { type: 'busy'; workspaceId: string; busy: boolean }
@@ -678,6 +689,7 @@ export type RemoteFromPhone =
   | { type: 'send'; workspaceId: string; text: string }
   | { type: 'interrupt'; workspaceId: string }
   | { type: 'create'; spaceId?: string; name?: string; text: string }
+  | { type: 'reviews' }
   | { type: 'permission'; requestId: string; decision: PermissionResponse['decision'] }
   | { type: 'question'; requestId: string; answers: Record<string, string>; response?: string }
 

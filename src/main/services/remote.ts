@@ -15,7 +15,7 @@ import QRCode from 'qrcode'
 import { getStore } from '../store'
 import { getTranscript } from './transcripts'
 import * as agent from './agent'
-import type { AgentEvent, ChatItem, PermissionRequest, PermissionResponse, QuestionRequest, QuestionResponse, RemoteFromPhone, RemotePrompt, RemoteSettings, RemoteStatus, RemoteSpace, RemoteToPhone, RemoteWorkspace } from '@shared/types'
+import type { AgentEvent, ChatItem, PermissionRequest, PermissionResponse, QuestionRequest, QuestionResponse, RemoteFromPhone, RemotePrompt, RemoteReviewPr, RemoteSettings, RemoteStatus, RemoteSpace, RemoteToPhone, RemoteWorkspace } from '@shared/types'
 
 export const RELAY_URL = process.env.SINFONIE_RELAY_URL ?? 'https://relay.sinfonie.dev'
 const PHONE_URL = process.env.SINFONIE_PHONE_URL ?? 'https://sinfonie.dev/m/'
@@ -288,6 +288,8 @@ interface Bridge {
   question: (r: QuestionResponse) => void
   /** Create a workspace in a space and send the first message; returns its id (or null on failure). */
   create: (input: { spaceId?: string; name?: string; text: string }) => Promise<string | null>
+  /** Pull requests across the person's spaces where they are asked to review. */
+  reviews: () => Promise<RemoteReviewPr[]>
 }
 let bridge: Bridge | null = null
 export function setBridge(b: Bridge): void {
@@ -320,6 +322,9 @@ async function handle(msg: RemoteFromPhone): Promise<void> {
           if (id) await send({ type: 'created', workspaceId: id })
           await pushAll()
         }
+        break
+      case 'reviews':
+        await send({ type: 'reviews', items: await bridge.reviews() })
         break
       case 'permission':
         if (pending.has(msg.requestId)) bridge.permission({ requestId: msg.requestId, decision: msg.decision === 'allow' || msg.decision === 'always' ? msg.decision : 'deny', message: msg.decision === 'deny' ? 'Denied from the phone' : undefined })

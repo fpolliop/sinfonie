@@ -17,6 +17,7 @@ import { DrawerContent } from './navigation/DrawerContent'
 import { PairScreen } from './screens/PairScreen'
 import { WorkspacesScreen } from './screens/WorkspacesScreen'
 import { InboxScreen } from './screens/InboxScreen'
+import { ReviewsScreen } from './screens/ReviewsScreen'
 import { ChatScreen } from './screens/ChatScreen'
 import { SettingsScreen } from './screens/SettingsScreen'
 import { NewConversationScreen } from './screens/NewConversationScreen'
@@ -25,6 +26,7 @@ export type WorkspaceFilter = 'needs' | 'running'
 export type DrawerParams = {
   Workspaces: { filter?: WorkspaceFilter; space?: string } | undefined
   Inbox: undefined
+  Reviews: undefined
   Settings: undefined
 }
 export type RootStack = {
@@ -45,6 +47,7 @@ function Main(): React.JSX.Element {
     >
       <Drawer.Screen name="Workspaces" component={WorkspacesScreen} />
       <Drawer.Screen name="Inbox" component={InboxScreen} />
+      <Drawer.Screen name="Reviews" component={ReviewsScreen} />
       <Drawer.Screen name="Settings" component={SettingsScreen} />
     </Drawer.Navigator>
   )
