@@ -5,7 +5,7 @@
 import { useEffect, useState } from 'react'
 import { AppState } from 'react-native'
 import * as SecureStore from 'expo-secure-store'
-import { derive, seal, unseal, wsUrl, type ChatItem, type FromPhone, type Pairing, type RemotePrompt, type RemoteSpace, type RemoteWorkspace, type ToPhone } from './protocol'
+import { derive, seal, unseal, wsUrl, type ChatItem, type FromPhone, type Pairing, type RemotePrompt, type RemoteReviewPr, type RemoteSpace, type RemoteWorkspace, type ToPhone } from './protocol'
 
 export interface State {
   pairing: Pairing | null
@@ -20,8 +20,9 @@ export interface State {
   lastError: string | null
   /** Set when the Mac confirms a phone-started conversation; the New screen navigates to it, then clears it. */
   created: string | null
+  reviews: RemoteReviewPr[]
 }
-let state: State = { pairing: null, connected: false, host: '', workspaces: [], spaces: [], prompts: [], transcripts: {}, busy: {}, lastError: null, created: null }
+let state: State = { pairing: null, connected: false, host: '', workspaces: [], spaces: [], prompts: [], transcripts: {}, busy: {}, lastError: null, created: null, reviews: [] }
 const listeners = new Set<(s: State) => void>()
 function set(patch: Partial<State> | ((s: State) => Partial<State>)): void {
   state = { ...state, ...(typeof patch === 'function' ? patch(state) : patch) }
@@ -191,6 +192,9 @@ function handle(msg: ToPhone): void {
     case 'created':
       set({ created: msg.workspaceId })
       break
+    case 'reviews':
+      set({ reviews: msg.items })
+      break
     case 'prompts':
       set({ prompts: msg.items })
       break
@@ -229,6 +233,9 @@ export function createConversation(spaceId: string | undefined, name: string | u
 }
 export function clearCreated(): void {
   set({ created: null })
+}
+export function refreshReviews(): void {
+  send({ type: 'reviews' })
 }
 export function sendMessage(workspaceId: string, text: string): void {
   send({ type: 'send', workspaceId, text })
