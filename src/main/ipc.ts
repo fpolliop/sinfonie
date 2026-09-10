@@ -675,8 +675,23 @@ export function registerIpc(): void {
       for (const s of spaces) for (const o of await reviews.detectOwners(s.id).catch(() => [])) owners.add(o)
       for (const o of await reviews.detectOwners('').catch(() => [])) owners.add(o)
       if (owners.size === 0) return []
-      return (await reviews.listPrs([...owners], 'requested').catch(() => [])).slice(0, 100)
-    }
+      const prs = (await reviews.listPrs([...owners], 'requested').catch(() => [])).slice(0, 100)
+      const tagged = await reviews.attachSpaces(prs).catch(() => prs.map((p) => ({ ...p, spaceId: undefined as string | undefined })))
+      const byId = new Map(spaces.map((s) => [s.id, s]))
+      return tagged.map(({ spaceId, ...p }) => {
+        const sp = spaceId ? byId.get(spaceId) : undefined
+        return sp ? { ...p, space: { name: sp.name, color: sp.color } } : p
+      })
+    },
+    // On-call incidents, and the actions the phone can take on them.
+    oncall: () => {
+      const s = oncall.state()
+      return { running: s.running, incidents: s.incidents }
+    },
+    oncallSetStatus: (id, status) => void oncall.setStatus(id, status),
+    oncallSetSeverity: (id, sev) => void oncall.setSeverity(id, sev),
+    oncallApprove: (id, pid) => oncall.approve(id, pid),
+    oncallDismiss: (id, pid) => void oncall.dismissProposal(id, pid)
   })
   // ---- phone companion ----
   handle('remote:status', () => remote.status())
@@ -752,7 +767,10 @@ export function registerIpc(): void {
   })
   // ---- on call ----
   oncall.setEmitters(
-    (s) => send('oncall:changed', s),
+    (s) => {
+      send('oncall:changed', s)
+      remote.pushOnCall(s)
+    },
     (incidentId) => send('ui:openOnCall', { incidentId })
   )
   handle('oncall:state', () => oncall.state())

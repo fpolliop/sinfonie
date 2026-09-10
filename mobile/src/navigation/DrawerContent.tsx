@@ -30,6 +30,7 @@ export function DrawerContent(props: DrawerContentComponentProps): React.JSX.Ele
   const host = useStore((s) => s.host)
   const workspaces = useStore((s) => s.workspaces)
   const prompts = useStore((s) => s.prompts)
+  const onCall = useStore((s) => s.onCall)
   const route = props.state.routes[props.state.index]
   const params = (route.params ?? {}) as { filter?: WorkspaceFilter; space?: string }
   const onWorkspaces = route.name === 'Workspaces'
@@ -38,6 +39,7 @@ export function DrawerContent(props: DrawerContentComponentProps): React.JSX.Ele
   const needCount = workspaces.filter((w) => w.needsInput || needs.has(w.id) || w.awaitingReply).length
   const inboxCount = prompts.length + workspaces.filter((w) => w.awaitingReply && !needs.has(w.id)).length
   const running = workspaces.filter((w) => w.busy).length
+  const onCallNeeds = onCall.filter((i) => (i.needsHuman || i.proposals.some((p) => p.status === 'proposed')) && i.status !== 'resolved' && i.status !== 'dismissed').length
   const go = (name: string, p?: object): void => {
     ;(props.navigation.navigate as unknown as (n: string, p?: object) => void)(name, p)
     props.navigation.closeDrawer()
@@ -67,6 +69,7 @@ export function DrawerContent(props: DrawerContentComponentProps): React.JSX.Ele
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingVertical: S.sm }} showsVerticalScrollIndicator={false}>
         <Item icon="notifications-outline" label="Inbox" count={inboxCount} active={route.name === 'Inbox'} onPress={() => go('Inbox')} />
         <Item icon="git-pull-request-outline" label="Reviews" active={route.name === 'Reviews'} onPress={() => go('Reviews')} />
+        <Item icon="pulse-outline" label="On call" count={onCallNeeds} active={route.name === 'OnCall'} onPress={() => go('OnCall')} />
         <Text style={s.section}>Workspaces</Text>
         <Item icon="albums-outline" label="All workspaces" count={workspaces.length} active={onWorkspaces && !params.filter && !params.space} onPress={() => go('Workspaces', { filter: undefined, space: undefined })} />
         <Item icon="hand-left-outline" label="Needs you" count={needCount} active={onWorkspaces && params.filter === 'needs'} onPress={() => go('Workspaces', { filter: 'needs', space: undefined })} />

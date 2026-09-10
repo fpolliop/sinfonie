@@ -147,6 +147,24 @@ function normalizeRemote(url: string): string {
     .toLowerCase()
 }
 
+/** Tag each PR with the space id of the registered repo whose origin matches it, when there is one. */
+export async function attachSpaces(prs: ReviewPr[]): Promise<(ReviewPr & { spaceId?: string })[]> {
+  const repos = getStore().get().repos
+  const remoteToSpace = new Map<string, string>()
+  await Promise.all(
+    repos.map(async (r) => {
+      if (!r.spaceId) return
+      try {
+        const url = await git(r.path).remote(['get-url', 'origin'])
+        if (url) remoteToSpace.set(normalizeRemote(String(url)), r.spaceId)
+      } catch {
+        /* no origin */
+      }
+    })
+  )
+  return prs.map((p) => ({ ...p, spaceId: remoteToSpace.get(p.nameWithOwner.toLowerCase()) }))
+}
+
 /** A registered repo whose origin is this GitHub repo, if any: lets us use a worktree instead of a clone. */
 async function findLocalRepo(nameWithOwner: string): Promise<string | null> {
   for (const r of getStore().get().repos) {

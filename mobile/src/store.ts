@@ -5,7 +5,7 @@
 import { useEffect, useState } from 'react'
 import { AppState } from 'react-native'
 import * as SecureStore from 'expo-secure-store'
-import { derive, seal, unseal, wsUrl, type ChatItem, type FromPhone, type Pairing, type RemotePrompt, type RemoteReviewPr, type RemoteSpace, type RemoteWorkspace, type ToPhone } from './protocol'
+import { derive, seal, unseal, wsUrl, type ChatItem, type FromPhone, type IncidentStatus, type Pairing, type RemoteIncident, type RemotePrompt, type RemoteReviewPr, type RemoteSpace, type RemoteWorkspace, type Severity, type ToPhone } from './protocol'
 
 export interface State {
   pairing: Pairing | null
@@ -21,8 +21,11 @@ export interface State {
   /** Set when the Mac confirms a phone-started conversation; the New screen navigates to it, then clears it. */
   created: string | null
   reviews: RemoteReviewPr[]
+  onCall: RemoteIncident[]
+  /** Whether the desktop's on-call watcher is polling. */
+  onCallRunning: boolean
 }
-let state: State = { pairing: null, connected: false, host: '', workspaces: [], spaces: [], prompts: [], transcripts: {}, busy: {}, lastError: null, created: null, reviews: [] }
+let state: State = { pairing: null, connected: false, host: '', workspaces: [], spaces: [], prompts: [], transcripts: {}, busy: {}, lastError: null, created: null, reviews: [], onCall: [], onCallRunning: false }
 const listeners = new Set<(s: State) => void>()
 function set(patch: Partial<State> | ((s: State) => Partial<State>)): void {
   state = { ...state, ...(typeof patch === 'function' ? patch(state) : patch) }
@@ -69,7 +72,7 @@ export async function savePairing(k: string, relay: string): Promise<Pairing> {
 export async function unpair(): Promise<void> {
   await SecureStore.deleteItemAsync(KEY)
   disconnect()
-  set({ pairing: null, workspaces: [], spaces: [], prompts: [], transcripts: {}, busy: {}, host: '', created: null })
+  set({ pairing: null, workspaces: [], spaces: [], prompts: [], transcripts: {}, busy: {}, host: '', created: null, reviews: [], onCall: [], onCallRunning: false })
 }
 
 // ---- connection ----
@@ -195,6 +198,9 @@ function handle(msg: ToPhone): void {
     case 'reviews':
       set({ reviews: msg.items })
       break
+    case 'oncall':
+      set({ onCall: msg.items, onCallRunning: msg.running })
+      break
     case 'prompts':
       set({ prompts: msg.items })
       break
@@ -236,6 +242,25 @@ export function clearCreated(): void {
 }
 export function refreshReviews(): void {
   send({ type: 'reviews' })
+}
+export function refreshOnCall(): void {
+  send({ type: 'oncall' })
+}
+export function oncallSetStatus(id: string, status: IncidentStatus): void {
+  send({ type: 'oncall:setStatus', id, status })
+  set((s) => ({ onCall: s.onCall.map((i) => (i.id === id ? { ...i, status } : i)) }))
+}
+export function oncallSetSeverity(id: string, severity: Severity): void {
+  send({ type: 'oncall:setSeverity', id, severity })
+  set((s) => ({ onCall: s.onCall.map((i) => (i.id === id ? { ...i, severity } : i)) }))
+}
+export function oncallApprove(id: string, proposalId: string): void {
+  send({ type: 'oncall:approve', id, proposalId })
+  set((s) => ({ onCall: s.onCall.map((i) => (i.id === id ? { ...i, proposals: i.proposals.map((p) => (p.id === proposalId ? { ...p, status: 'sent' as const } : p)) } : i)) }))
+}
+export function oncallDismissProposal(id: string, proposalId: string): void {
+  send({ type: 'oncall:dismissProposal', id, proposalId })
+  set((s) => ({ onCall: s.onCall.map((i) => (i.id === id ? { ...i, proposals: i.proposals.map((p) => (p.id === proposalId ? { ...p, status: 'dismissed' as const } : p)) } : i)) }))
 }
 export function sendMessage(workspaceId: string, text: string): void {
   send({ type: 'send', workspaceId, text })

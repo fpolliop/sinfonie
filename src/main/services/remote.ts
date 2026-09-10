@@ -15,7 +15,7 @@ import QRCode from 'qrcode'
 import { getStore } from '../store'
 import { getTranscript } from './transcripts'
 import * as agent from './agent'
-import type { AgentEvent, ChatItem, PermissionRequest, PermissionResponse, QuestionRequest, QuestionResponse, RemoteFromPhone, RemotePrompt, RemoteReviewPr, RemoteSettings, RemoteStatus, RemoteSpace, RemoteToPhone, RemoteWorkspace } from '@shared/types'
+import type { AgentEvent, ChatItem, Incident, IncidentStatus, OnCallState, PermissionRequest, PermissionResponse, QuestionRequest, QuestionResponse, RemoteFromPhone, RemoteIncident, RemotePrompt, RemoteReviewPr, RemoteSettings, RemoteStatus, RemoteSpace, RemoteToPhone, RemoteWorkspace, Severity } from '@shared/types'
 
 export const RELAY_URL = process.env.SINFONIE_RELAY_URL ?? 'https://relay.sinfonie.dev'
 const PHONE_URL = process.env.SINFONIE_PHONE_URL ?? 'https://sinfonie.dev/m/'
@@ -266,6 +266,40 @@ function spaceList(): RemoteSpace[] {
   const { spaces, repos } = getStore().get()
   return spaces.map((s) => ({ id: s.id, name: s.name, color: s.color, repoCount: repos.filter((r) => r.spaceId === s.id).length }))
 }
+/** Shape the on-call incidents for the phone: the newest 200, with space, trimmed thread and proposals. */
+function incidentList(incidents: Incident[]): RemoteIncident[] {
+  const { spaces } = getStore().get()
+  return [...incidents]
+    .sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''))
+    .slice(0, 200)
+    .map((i) => {
+      const sp = i.spaceId ? spaces.find((s) => s.id === i.spaceId) : undefined
+      return {
+        id: i.id,
+        space: sp ? { name: sp.name, color: sp.color } : undefined,
+        channelName: i.channelName,
+        kind: i.kind,
+        title: i.title,
+        status: i.status,
+        severity: i.severity,
+        permalink: i.permalink,
+        occurrences: i.occurrences,
+        needsHuman: i.report?.needsHuman ?? false,
+        costUsd: i.costUsd,
+        createdAt: i.createdAt,
+        updatedAt: i.updatedAt,
+        report: i.report,
+        fix: i.fix,
+        proposals: i.proposals.map((p) => ({ id: p.id, text: p.text, status: p.status })),
+        messages: i.messages.slice(-20).map((m) => ({ user: m.userName || m.user, text: m.text, at: m.ts })),
+        notes: i.notes.map((n) => ({ at: n.at, role: n.role, text: n.text }))
+      }
+    })
+}
+/** Live-push the on-call list when the desktop's incident state changes (called from the oncall emitter). */
+export function pushOnCall(s: OnCallState): void {
+  void send({ type: 'oncall', items: incidentList(s.incidents), running: s.running })
+}
 function scheduleWorkspaces(): void {
   if (phones === 0 || workspacesTimer) return
   workspacesTimer = setTimeout(() => {
@@ -292,6 +326,13 @@ interface Bridge {
   create: (input: { spaceId?: string; name?: string; text: string }) => Promise<string | null>
   /** Pull requests across the person's spaces where they are asked to review. */
   reviews: () => Promise<RemoteReviewPr[]>
+  /** On-call incidents across the person's spaces (running flag + the incidents). */
+  oncall: () => { running: boolean; incidents: Incident[] }
+  oncallSetStatus: (id: string, status: IncidentStatus) => void
+  oncallSetSeverity: (id: string, severity: Severity) => void
+  /** Send a drafted reply in its Slack thread. */
+  oncallApprove: (id: string, proposalId: string) => Promise<unknown> | unknown
+  oncallDismiss: (id: string, proposalId: string) => void
 }
 let bridge: Bridge | null = null
 export function setBridge(b: Bridge): void {
@@ -327,6 +368,23 @@ async function handle(msg: RemoteFromPhone): Promise<void> {
         break
       case 'reviews':
         await send({ type: 'reviews', items: await bridge.reviews() })
+        break
+      case 'oncall': {
+        const { running, incidents } = bridge.oncall()
+        await send({ type: 'oncall', items: incidentList(incidents), running })
+        break
+      }
+      case 'oncall:setStatus':
+        bridge.oncallSetStatus(msg.id, msg.status)
+        break
+      case 'oncall:setSeverity':
+        bridge.oncallSetSeverity(msg.id, msg.severity)
+        break
+      case 'oncall:approve':
+        await bridge.oncallApprove(msg.id, msg.proposalId)
+        break
+      case 'oncall:dismissProposal':
+        bridge.oncallDismiss(msg.id, msg.proposalId)
         break
       case 'permission':
         if (pending.has(msg.requestId)) bridge.permission({ requestId: msg.requestId, decision: msg.decision === 'allow' || msg.decision === 'always' ? msg.decision : 'deny', message: msg.decision === 'deny' ? 'Denied from the phone' : undefined })

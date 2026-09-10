@@ -18,6 +18,8 @@ import { PairScreen } from './screens/PairScreen'
 import { WorkspacesScreen } from './screens/WorkspacesScreen'
 import { InboxScreen } from './screens/InboxScreen'
 import { ReviewsScreen } from './screens/ReviewsScreen'
+import { OnCallScreen } from './screens/OnCallScreen'
+import { IncidentScreen } from './screens/IncidentScreen'
 import { ChatScreen } from './screens/ChatScreen'
 import { SettingsScreen } from './screens/SettingsScreen'
 import { NewConversationScreen } from './screens/NewConversationScreen'
@@ -27,11 +29,13 @@ export type DrawerParams = {
   Workspaces: { filter?: WorkspaceFilter; space?: string } | undefined
   Inbox: undefined
   Reviews: undefined
+  OnCall: undefined
   Settings: undefined
 }
 export type RootStack = {
   Main: undefined
   Chat: { workspaceId: string }
+  Incident: { id: string }
   NewConversation: { space?: string } | undefined
 }
 const Stack = createNativeStackNavigator<RootStack>()
@@ -48,6 +52,7 @@ function Main(): React.JSX.Element {
       <Drawer.Screen name="Workspaces" component={WorkspacesScreen} />
       <Drawer.Screen name="Inbox" component={InboxScreen} />
       <Drawer.Screen name="Reviews" component={ReviewsScreen} />
+      <Drawer.Screen name="OnCall" component={OnCallScreen} />
       <Drawer.Screen name="Settings" component={SettingsScreen} />
     </Drawer.Navigator>
   )
@@ -130,6 +135,7 @@ export default function App(): React.JSX.Element {
             <Stack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: C.bg } }}>
               <Stack.Screen name="Main" component={Main} />
               <Stack.Screen name="Chat" component={ChatScreen} />
+              <Stack.Screen name="Incident" component={IncidentScreen} />
               <Stack.Screen name="NewConversation" component={NewConversationScreen} options={{ presentation: 'modal' }} />
             </Stack.Navigator>
           </NavigationContainer>
