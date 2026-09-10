@@ -230,6 +230,8 @@ export function unpair(): RemoteStatus {
 const subscribed = new Set<string>()
 const pending = new Map<string, RemotePrompt>()
 const itemTimers = new Map<string, NodeJS.Timeout>()
+/** The last assistant item id we sent a "finished" notification for, per workspace, to avoid repeats. */
+const finishNotified = new Map<string, string>()
 let workspacesTimer: NodeJS.Timeout | null = null
 
 function workspaceList(): RemoteWorkspace[] {
@@ -347,7 +349,15 @@ export function onAgentEvent(e: AgentEvent): void {
     updatePowerBlocker()
     scheduleWorkspaces()
     if (subscribed.has(id)) void send({ type: 'busy', workspaceId: id, busy: e.busy })
-    if (!e.busy && settings().notifyFinished !== false) notify('finished', id, 'Finished', lastAssistantText(id) ?? 'The agent finished its turn.')
+    // Notify once per finished reply. A status event can repeat (reconnects, no-op turns), so key on the last
+    // assistant message; only a genuinely new reply notifies again.
+    if (!e.busy && settings().notifyFinished !== false) {
+      const last = lastAssistant(id)
+      if (last && finishNotified.get(id) !== last.id) {
+        finishNotified.set(id, last.id)
+        notify('finished', id, 'Finished', plainText(last.text))
+      }
+    }
     return
   }
   if (e.type === 'error') {
@@ -373,7 +383,8 @@ export function onAgentEvent(e: AgentEvent): void {
 function itemIdForTool(workspaceId: string, toolUseId: string): string | undefined {
   return getTranscript(workspaceId).find((i) => i.blocks.some((b) => b.type === 'tool' && b.toolUseId === toolUseId))?.id
 }
-function lastAssistantText(workspaceId: string): string | undefined {
+/** The last assistant message with visible text, and its item id (to notify each reply only once). */
+function lastAssistant(workspaceId: string): { id: string; text: string } | undefined {
   const items = getTranscript(workspaceId)
   for (let i = items.length - 1; i >= 0; i--) {
     const it = items[i]
@@ -383,9 +394,25 @@ function lastAssistantText(workspaceId: string): string | undefined {
       .map((b) => b.text)
       .join(' ')
       .trim()
-    if (text) return text.slice(0, 200)
+    if (text) return { id: it.id, text }
   }
   return undefined
+}
+/** Markdown to a readable one-line notification: no #, **, `code`, links or bullets. */
+function plainText(md: string): string {
+  const s = md
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/(\*\*|__)(.*?)\1/g, '$2')
+    .replace(/(\*|_)(.*?)\1/g, '$2')
+    .replace(/^\s*[-*+]\s+/gm, '')
+    .replace(/^\s*>\s?/gm, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return s.slice(0, 200)
 }
 export function onPermission(p: PermissionRequest): void {
   if (!pairingKey()) return
