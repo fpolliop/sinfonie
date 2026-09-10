@@ -1,6 +1,6 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { ArrowLeft, ArrowRight, RotateCw, Plus, X, Globe, Pause, Play, ExternalLink, ShieldAlert, Download } from 'lucide-react'
+import { ArrowLeft, ArrowRight, RotateCw, Plus, X, Globe, Pause, Play, ExternalLink, ShieldAlert, Download, PanelRight, PanelRightClose } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { useGuided, previewUrlFor } from '@/lib/guided'
@@ -21,6 +21,8 @@ export function BrowserPane({ workspaceId, visible }: { workspaceId: string; vis
   const ws = useApp((s) => s.workspaces.find((w) => w.id === workspaceId))
   const engine = useApp((s) => s.settings.engine ?? 'claude-code')
   const space = useApp((s) => s.spaces.find((sp) => sp.id === ws?.spaceId))
+  const dock = useApp((s) => s.browserDock)
+  const setDock = useApp((s) => s.setBrowserDock)
   const host = useRef<HTMLDivElement>(null)
   const [address, setAddress] = useState('')
   const [editing, setEditing] = useState(false)
@@ -82,7 +84,15 @@ export function BrowserPane({ workspaceId, visible }: { workspaceId: string; vis
   useEffect(
     () =>
       api.on('agent:permission', (req) => {
-        if (req.workspaceId === workspaceId && /browser/.test(req.toolName)) setPending(req)
+        if (req.workspaceId === workspaceId && /browser/.test(req.toolName)) {
+          setPending(req)
+          // Make sure this banner is on screen to be answered, even if the user stepped away from the pane:
+          // reveal the chat (which holds the dock) when docked, otherwise the standalone Browser tab.
+          const st = useApp.getState()
+          if (st.browserDock) {
+            if (st.tab !== 'chat') st.setTab('chat')
+          } else if (st.tab !== 'browser') st.setTab('browser')
+        }
       }),
     [workspaceId]
   )
@@ -123,6 +133,16 @@ export function BrowserPane({ workspaceId, visible }: { workspaceId: string; vis
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" /> {engineLabel} is browsing
           </span>
         )}
+        <button
+          className={clsx('shrink-0 rounded-md p-1 hover:bg-panel-2', dock ? 'text-accent' : 'text-muted hover:text-text')}
+          title={dock ? 'Undock: show the browser as its own tab' : `Dock beside the chat, so you can watch the ${guided ? 'preview' : 'page'} while you talk`}
+          onClick={() => {
+            setDock(!dock)
+            if (!dock) useApp.getState().setTab('chat')
+          }}
+        >
+          {dock ? <PanelRightClose size={14} /> : <PanelRight size={14} />}
+        </button>
         {state?.paused ? (
           <button className="inline-flex shrink-0 items-center gap-1 rounded-full border border-warn/50 bg-warn/10 px-2 py-0.5 text-[11px] text-warn hover:bg-warn/20" title="Agent actions are waiting. Click to hand control back." onClick={() => void api.invoke('browser:setPaused', workspaceId, false)}>
             <Play size={11} /> {guided ? 'You have the preview · give it back' : 'You have control · resume agent'}

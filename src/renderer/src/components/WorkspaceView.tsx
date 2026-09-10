@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { renameWorkspace } from '@/lib/rename'
 import { InlineRename } from './InlineRename'
 import { StagePicker } from './StagePicker'
@@ -28,11 +28,26 @@ import { SendForReviewButton, ReviewStatusLine } from './SendForReview'
 
 export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.JSX.Element {
   const ws = useApp((s) => s.workspaces.find((w) => w.id === workspaceId))
-  const { tab, setTab, setError } = useApp()
+  const { tab, setTab, setError, browserDock, browserDockRatio, setBrowserDockRatio } = useApp()
   const guided = useGuided()
   const browserBusy = useBrowser((s) => s.states[workspaceId]?.agentBusy ?? false)
-  // An agent started a burst of browsing: bring the pane forward so the user sees it happen.
-  useEffect(() => api.on('browser:agentActive', ({ workspaceId: id }) => id === workspaceId && useApp.getState().tab !== 'browser' && setTab('browser')), [workspaceId, setTab])
+  // An agent started a burst of browsing: bring the browser forward so the user sees it happen.
+  // Docked, it already sits beside the chat, so reveal that view instead of switching to the tab.
+  useEffect(
+    () =>
+      api.on('browser:agentActive', ({ workspaceId: id }) => {
+        if (id !== workspaceId) return
+        const st = useApp.getState()
+        if (st.browserDock) {
+          if (st.tab !== 'chat') setTab('chat')
+        } else if (st.tab !== 'browser') setTab('browser')
+      }),
+    [workspaceId, setTab]
+  )
+  // Docking merges the browser into the chat view; never leave the now-hidden Browser tab selected.
+  useEffect(() => {
+    if (browserDock && tab === 'browser') setTab('chat')
+  }, [browserDock, tab, setTab])
   const [menu, setMenu] = useState(false)
   const [archiveDlg, setArchiveDlg] = useState<null | 'archive' | 'delete'>(null)
   const [jiraRefreshing, setJiraRefreshing] = useState(false)
@@ -252,7 +267,11 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
 
       <div className="min-h-0 flex-1">
         <div className={clsx('h-full', tab !== 'chat' && 'hidden')}>
-          <ChatPane workspaceId={ws.id} />
+          {browserDock ? (
+            <ChatBrowserSplit workspaceId={ws.id} visible={tab === 'chat'} ratio={browserDockRatio} onRatio={setBrowserDockRatio} />
+          ) : (
+            <ChatPane workspaceId={ws.id} />
+          )}
         </div>
         <div className={clsx('h-full', tab !== 'code' && 'hidden')}>{tab === 'code' && <FilesPane workspaceId={ws.id} />}</div>
         <div className={clsx('h-full', tab !== 'data' && 'hidden')}>{tab === 'data' && <DataPane workspaceId={ws.id} />}</div>
@@ -263,8 +282,8 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
         <div className={clsx('h-full', tab !== 'run' && 'hidden')}>
           <RunPane workspaceId={ws.id} />
         </div>
-        <div className={clsx('h-full', tab !== 'browser' && 'hidden')}>
-          <BrowserPane workspaceId={ws.id} visible={tab === 'browser'} />
+        <div className={clsx('h-full', (tab !== 'browser' || browserDock) && 'hidden')}>
+          {!browserDock && <BrowserPane workspaceId={ws.id} visible={tab === 'browser'} />}
         </div>
       </div>
 
@@ -282,6 +301,43 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
         </Dialog>
       )}
       {renameDlg && <BranchDialog initial={ws.repos[0]?.branch ?? ''} onClose={() => setRenameDlg(null)} onSubmit={(v) => run(() => api.invoke('workspaces:renameBranch', ws.id, v))} />}
+    </div>
+  )
+}
+
+/** Chat on the left, the browser docked on the right, with a divider you can drag to rebalance. */
+function ChatBrowserSplit({ workspaceId, visible, ratio, onRatio }: { workspaceId: string; visible: boolean; ratio: number; onRatio: (r: number) => void }): React.JSX.Element {
+  const ref = useRef<HTMLDivElement>(null)
+  const [dragging, setDragging] = useState(false)
+  useEffect(() => {
+    if (!dragging) return
+    // The native browser page draws above the DOM and swallows pointer events; detach it while
+    // dragging so the divider tracks the cursor, then let it reattach at the new bounds on release.
+    void api.invoke('browser:suspend', true)
+    const onMove = (e: PointerEvent): void => {
+      const el = ref.current
+      if (!el) return
+      const r = el.getBoundingClientRect()
+      if (r.width > 0) onRatio(Math.min(0.8, Math.max(0.3, (e.clientX - r.left) / r.width)))
+    }
+    const onUp = (): void => setDragging(false)
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    return () => {
+      void api.invoke('browser:suspend', false)
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+    }
+  }, [dragging, onRatio])
+  return (
+    <div ref={ref} className="flex h-full">
+      <div className="h-full min-w-0" style={{ width: `${Math.round(ratio * 100)}%` }}>
+        <ChatPane workspaceId={workspaceId} />
+      </div>
+      <div onPointerDown={() => setDragging(true)} className={clsx('relative z-10 w-1 shrink-0 cursor-col-resize bg-border transition-colors hover:bg-accent/60', dragging && 'bg-accent')} title="Drag to resize" />
+      <div className="h-full min-w-0 flex-1 border-l border-border">
+        <BrowserPane workspaceId={workspaceId} visible={visible} />
+      </div>
     </div>
   )
 }

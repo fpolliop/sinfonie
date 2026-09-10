@@ -12,6 +12,13 @@ export function PermissionPrompt(): React.JSX.Element | null {
   const wsName = useApp((s) => s.workspaces.find((w) => w.id === req?.workspaceId)?.name)
   const guided = useGuided()
   const [details, setDetails] = React.useState(false)
+  // Native browser pages draw above the DOM, so an open prompt would be hidden behind them and
+  // unanswerable. Detach the browser view (ref-counted) while any request is waiting.
+  React.useEffect(() => {
+    if (!req) return
+    void api.invoke('browser:suspend', true)
+    return () => void api.invoke('browser:suspend', false)
+  }, [!req])
   if (!req) return null
   const input = req.input as Record<string, unknown>
   const summary = typeof input.command === 'string' ? input.command : typeof input.file_path === 'string' ? input.file_path : JSON.stringify(input, null, 2)
