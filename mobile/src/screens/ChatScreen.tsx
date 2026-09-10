@@ -7,7 +7,7 @@ import * as Haptics from 'expo-haptics'
 import { C, R, S, T } from '../theme'
 import { Dot, Icon, IconButton, SpaceChip } from '../ui'
 import { MessageItem, PromptCard, Typing } from '../components'
-import { send, sendMessage, subscribe, unsubscribe, useStore } from '../store'
+import { loadHistory, send, sendMessage, subscribe, unsubscribe, useStore } from '../store'
 import type { RootStack } from '../App'
 
 export function ChatScreen(): React.JSX.Element {
@@ -17,6 +17,8 @@ export function ChatScreen(): React.JSX.Element {
   const insets = useSafeAreaInsets()
   const ws = useStore((s) => s.workspaces.find((w) => w.id === id))
   const items = useStore((s) => s.transcripts[id])
+  const hasMore = useStore((s) => s.transcriptHasMore[id] ?? false)
+  const loadingHistory = useStore((s) => s.loadingHistory[id] ?? false)
   const busyFlag = useStore((s) => s.busy[id])
   const connected = useStore((s) => s.connected)
   const prompts = useStore((s) => s.prompts.filter((p) => p.request.workspaceId === id))
@@ -98,6 +100,16 @@ export function ChatScreen(): React.JSX.Element {
           keyExtractor={(it) => it.id}
           contentContainerStyle={{ paddingHorizontal: 14, paddingTop: 10, paddingBottom: 12 }}
           renderItem={({ item, index }) => <MessageItem item={item} showTime={index === (items?.length ?? 0) - 1} />}
+          onStartReached={() => loadHistory(id)}
+          onStartReachedThreshold={0.4}
+          maintainVisibleContentPosition={{ minIndexForVisible: 1 }}
+          ListHeaderComponent={
+            items && items.length > 0 && (loadingHistory || hasMore) ? (
+              <View style={{ alignItems: 'center', paddingVertical: 10, gap: 6 }}>
+                {loadingHistory ? <ActivityIndicator color={C.dim} size="small" /> : <Text style={[T.small, { color: C.dim }]}>Scroll up for earlier messages</Text>}
+              </View>
+            ) : null
+          }
           onScroll={(e) => {
             const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent
             setAtBottom(contentSize.height - contentOffset.y - layoutMeasurement.height < 140)

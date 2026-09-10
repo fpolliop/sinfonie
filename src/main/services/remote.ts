@@ -234,6 +234,57 @@ const itemTimers = new Map<string, NodeJS.Timeout>()
 const finishNotified = new Map<string, string>()
 let workspacesTimer: NodeJS.Timeout | null = null
 
+// The relay drops any frame larger than ~512 KB, so a whole transcript never reaches the phone. Send the
+// tail and let the phone page older history in; also clamp each item so no single one can blow the limit.
+const PHONE_PAGE = 50
+const PHONE_ITEM_MAX = 12_000
+const PHONE_FRAME_BUDGET = 300_000
+function phoneItem(it: ChatItem): ChatItem {
+  const clamp = (t: string): string => (t.length > PHONE_ITEM_MAX ? t.slice(0, PHONE_ITEM_MAX) + '\n… (truncated — open on your Mac to see the rest)' : t)
+  return {
+    ...it,
+    blocks: it.blocks.map((b) => {
+      if (b.type === 'text' || b.type === 'thinking') return { ...b, text: clamp(b.text) }
+      if (b.type === 'tool') {
+        const input = ((): unknown => {
+          try {
+            const s = JSON.stringify(b.input)
+            return s && s.length > PHONE_ITEM_MAX ? { truncated: clamp(s) } : b.input
+          } catch {
+            return b.input
+          }
+        })()
+        return { ...b, input, result: b.result ? clamp(b.result) : b.result }
+      }
+      return b
+    })
+  }
+}
+/** A window of items ending at `end` (exclusive), newest-biased, kept under the frame budget. */
+function pageBefore(all: ChatItem[], end: number): { items: ChatItem[]; from: number } {
+  const items: ChatItem[] = []
+  let size = 0
+  for (let i = end - 1; i >= 0; i--) {
+    const it = phoneItem(all[i])
+    const len = JSON.stringify(it).length
+    if (items.length > 0 && (items.length >= PHONE_PAGE || size + len > PHONE_FRAME_BUDGET)) break
+    items.unshift(it)
+    size += len
+  }
+  return { items, from: end - items.length }
+}
+function transcriptTail(id: string): { items: ChatItem[]; hasMore: boolean } {
+  const all = getTranscript(id)
+  const { items, from } = pageBefore(all, all.length)
+  return { items, hasMore: from > 0 }
+}
+function transcriptHistory(id: string, beforeId: string): { items: ChatItem[]; hasMore: boolean } {
+  const all = getTranscript(id)
+  const idx = all.findIndex((x) => x.id === beforeId)
+  const { items, from } = pageBefore(all, idx < 0 ? all.length : idx)
+  return { items, hasMore: from > 0 }
+}
+
 function workspaceList(): RemoteWorkspace[] {
   const { workspaces, spaces } = getStore().get()
   return workspaces
@@ -313,7 +364,10 @@ async function pushAll(): Promise<void> {
   await send({ type: 'workspaces', items: workspaceList() })
   await send({ type: 'spaces', items: spaceList() })
   await send({ type: 'prompts', items: [...pending.values()] })
-  for (const id of subscribed) await send({ type: 'transcript', workspaceId: id, items: getTranscript(id) })
+  for (const id of subscribed) {
+    const t = transcriptTail(id)
+    await send({ type: 'transcript', workspaceId: id, items: t.items, hasMore: t.hasMore })
+  }
 }
 
 // ---------- bridge to the app ----------
@@ -345,11 +399,18 @@ async function handle(msg: RemoteFromPhone): Promise<void> {
       case 'sync':
         await pushAll()
         break
-      case 'subscribe':
+      case 'subscribe': {
         subscribed.add(msg.workspaceId)
-        await send({ type: 'transcript', workspaceId: msg.workspaceId, items: getTranscript(msg.workspaceId) })
+        const t = transcriptTail(msg.workspaceId)
+        await send({ type: 'transcript', workspaceId: msg.workspaceId, items: t.items, hasMore: t.hasMore })
         await send({ type: 'busy', workspaceId: msg.workspaceId, busy: agent.isBusy(msg.workspaceId) })
         break
+      }
+      case 'history': {
+        const h = transcriptHistory(msg.workspaceId, msg.beforeId)
+        await send({ type: 'history', workspaceId: msg.workspaceId, items: h.items, hasMore: h.hasMore })
+        break
+      }
       case 'unsubscribe':
         subscribed.delete(msg.workspaceId)
         break
@@ -434,7 +495,7 @@ export function onAgentEvent(e: AgentEvent): void {
     setTimeout(() => {
       itemTimers.delete(tk)
       const item = getTranscript(id).find((i) => i.id === itemId)
-      if (item) void send({ type: 'item', workspaceId: id, item })
+      if (item) void send({ type: 'item', workspaceId: id, item: phoneItem(item) })
     }, 250)
   )
 }
