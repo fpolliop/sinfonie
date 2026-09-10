@@ -241,14 +241,19 @@ function workspaceList(): RemoteWorkspace[] {
       const items = getTranscript(w.id)
       const last = [...items].reverse().find((i) => i.role === 'assistant' && i.blocks.some((b) => b.type === 'text' && b.text.trim()))
       const lastText = last?.blocks.filter((b) => b.type === 'text').map((b) => (b as { text: string }).text).join(' ').trim().slice(0, 140)
+      const busy = agent.isBusy(w.id)
+      const needsInput = [...pending.values()].some((p) => p.request.workspaceId === w.id)
+      // "Your move": the agent spoke last and nothing is pending — so the phone's inbox can surface it.
+      const lastItem = items[items.length - 1]
       return {
         id: w.id,
         name: w.name,
         space: sp ? { name: sp.name, color: sp.color } : undefined,
         stage: w.stage,
         status: w.status,
-        busy: agent.isBusy(w.id),
-        needsInput: [...pending.values()].some((p) => p.request.workspaceId === w.id),
+        busy,
+        needsInput,
+        awaitingReply: !busy && !needsInput && lastItem?.role === 'assistant',
         lastMessageAt: w.lastMessageAt,
         lastText: lastText || undefined
       }

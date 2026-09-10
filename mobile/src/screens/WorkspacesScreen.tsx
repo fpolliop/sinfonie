@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Pressable, RefreshControl, SectionList, StyleSheet, Text, View } from 'react-native'
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native'
 import type { DrawerNavigationProp } from '@react-navigation/drawer'
@@ -7,7 +7,7 @@ import { C, S, T } from '../theme'
 import { Badge, Button, Dot, EmptyState, IconButton, SpaceChip } from '../ui'
 import { PromptCard } from '../components'
 import { send, useStore } from '../store'
-import { enablePush } from '../notifications'
+import { enablePush, pushGranted, bannerDismissed, dismissBanner } from '../notifications'
 import { relativeTime } from '../util'
 import type { DrawerParams, RootStack } from '../App'
 import type { RemoteWorkspace } from '../protocol'
@@ -22,20 +22,41 @@ export function WorkspacesScreen(): React.JSX.Element {
   const connected = useStore((s) => s.connected)
   const lastError = useStore((s) => s.lastError)
   const [refreshing, setRefreshing] = useState(false)
-  const [pushState, setPushState] = useState<'off' | 'on' | 'failed' | 'hidden'>('off')
+  // Start hidden and reveal the banner only once we've checked the real OS permission and the saved
+  // dismissal, so an already-granted or dismissed banner never flashes back after every remount.
+  const [pushState, setPushState] = useState<'off' | 'on' | 'failed' | 'hidden'>('hidden')
   const [pushMsg, setPushMsg] = useState<string | null>(null)
+  useEffect(() => {
+    let alive = true
+    void (async () => {
+      if (await pushGranted()) {
+        if (alive) setPushState('on')
+        void enablePush() // already granted: refresh the push token with the relay, no prompt
+        return
+      }
+      if (await bannerDismissed()) {
+        if (alive) setPushState('hidden')
+        return
+      }
+      if (alive) setPushState('off')
+    })()
+    return () => {
+      alive = false
+    }
+  }, [])
 
   const needs = useMemo(() => new Set(prompts.map((p) => p.request.workspaceId)), [prompts])
+  const needsYou = useCallback((w: RemoteWorkspace): boolean => w.needsInput || needs.has(w.id) || Boolean(w.awaitingReply), [needs])
   const visible = useMemo(() => {
     let list = workspaces
     if (space) list = list.filter((w) => w.space?.name === space)
-    if (filter === 'needs') list = list.filter((w) => w.needsInput || needs.has(w.id))
+    if (filter === 'needs') list = list.filter(needsYou)
     if (filter === 'running') list = list.filter((w) => w.busy)
     return list
-  }, [workspaces, filter, space, needs])
+  }, [workspaces, filter, space, needsYou])
   const sections = useMemo(() => {
     if (filter) return [{ title: '', data: visible }]
-    const need = visible.filter((w) => w.needsInput || needs.has(w.id))
+    const need = visible.filter(needsYou)
     const running = visible.filter((w) => w.busy && !need.includes(w))
     const rest = visible.filter((w) => !need.includes(w) && !running.includes(w))
     return [
@@ -43,7 +64,7 @@ export function WorkspacesScreen(): React.JSX.Element {
       { title: 'Running', data: running },
       { title: need.length || running.length ? 'Idle' : '', data: rest }
     ].filter((sec) => sec.data.length)
-  }, [visible, filter, needs])
+  }, [visible, filter, needsYou])
   const title = space ?? (filter === 'needs' ? 'Needs you' : filter === 'running' ? 'Running' : 'Workspaces')
 
   const refresh = useCallback(() => {
@@ -85,7 +106,7 @@ export function WorkspacesScreen(): React.JSX.Element {
                   <Text style={T.small}>{pushMsg ?? 'Get a push when an agent waits for you, even with the app closed.'}</Text>
                 </View>
                 <Button title="Enable" kind="primary" small onPress={() => void enablePush().then((r) => { setPushState(r.ok ? 'on' : 'failed'); setPushMsg(r.ok ? null : r.reason ?? null) })} />
-                <IconButton name="close" size={16} color={C.dim} onPress={() => setPushState('hidden')} style={{ width: 28, height: 28 }} />
+                <IconButton name="close" size={16} color={C.dim} onPress={() => { setPushState('hidden'); void dismissBanner() }} style={{ width: 28, height: 28 }} />
               </View>
             )}
             {!filter && !space && openPrompts.map((p) => <PromptCard key={p.request.requestId} prompt={p} workspaceName={workspaces.find((w) => w.id === p.request.workspaceId)?.name} />)}
@@ -99,7 +120,7 @@ export function WorkspacesScreen(): React.JSX.Element {
             body={filter ? 'Come back when an agent asks for something, or pull to refresh.' : 'Create a workspace in Sinfonie on the Mac and it appears here.'}
           />
         }
-        renderItem={({ item: w }) => <WorkspaceRow w={w} need={needs.has(w.id) || w.needsInput} onPress={() => nav.getParent<NativeStackNavigationProp<RootStack>>()?.navigate('Chat', { workspaceId: w.id })} />}
+        renderItem={({ item: w }) => <WorkspaceRow w={w} need={needsYou(w)} onPress={() => nav.getParent<NativeStackNavigationProp<RootStack>>()?.navigate('Chat', { workspaceId: w.id })} />}
       />
     </View>
   )

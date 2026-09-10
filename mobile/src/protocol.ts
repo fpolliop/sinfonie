@@ -31,6 +31,8 @@ export interface RemoteWorkspace {
   status: 'creating' | 'ready' | 'error' | 'archiving' | 'archived'
   busy: boolean
   needsInput: boolean
+  /** The agent replied and it is your move (assistant spoke last, nothing running, no open prompt). */
+  awaitingReply?: boolean
   lastMessageAt?: string
   lastText?: string
 }
