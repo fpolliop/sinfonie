@@ -5,20 +5,23 @@
 import { useEffect, useState } from 'react'
 import { AppState } from 'react-native'
 import * as SecureStore from 'expo-secure-store'
-import { derive, seal, unseal, wsUrl, type ChatItem, type FromPhone, type Pairing, type RemotePrompt, type RemoteWorkspace, type ToPhone } from './protocol'
+import { derive, seal, unseal, wsUrl, type ChatItem, type FromPhone, type Pairing, type RemotePrompt, type RemoteSpace, type RemoteWorkspace, type ToPhone } from './protocol'
 
 export interface State {
   pairing: Pairing | null
   connected: boolean
   host: string
   workspaces: RemoteWorkspace[]
+  spaces: RemoteSpace[]
   prompts: RemotePrompt[]
   /** Transcripts by workspace id, for the ones opened in this session. */
   transcripts: Record<string, ChatItem[]>
   busy: Record<string, boolean>
   lastError: string | null
+  /** Set when the Mac confirms a phone-started conversation; the New screen navigates to it, then clears it. */
+  created: string | null
 }
-let state: State = { pairing: null, connected: false, host: '', workspaces: [], prompts: [], transcripts: {}, busy: {}, lastError: null }
+let state: State = { pairing: null, connected: false, host: '', workspaces: [], spaces: [], prompts: [], transcripts: {}, busy: {}, lastError: null, created: null }
 const listeners = new Set<(s: State) => void>()
 function set(patch: Partial<State> | ((s: State) => Partial<State>)): void {
   state = { ...state, ...(typeof patch === 'function' ? patch(state) : patch) }
@@ -65,7 +68,7 @@ export async function savePairing(k: string, relay: string): Promise<Pairing> {
 export async function unpair(): Promise<void> {
   await SecureStore.deleteItemAsync(KEY)
   disconnect()
-  set({ pairing: null, workspaces: [], prompts: [], transcripts: {}, busy: {}, host: '' })
+  set({ pairing: null, workspaces: [], spaces: [], prompts: [], transcripts: {}, busy: {}, host: '', created: null })
 }
 
 // ---- connection ----
@@ -182,6 +185,12 @@ function handle(msg: ToPhone): void {
     case 'workspaces':
       set({ workspaces: msg.items })
       break
+    case 'spaces':
+      set({ spaces: msg.items })
+      break
+    case 'created':
+      set({ created: msg.workspaceId })
+      break
     case 'prompts':
       set({ prompts: msg.items })
       break
@@ -213,6 +222,14 @@ function handle(msg: ToPhone): void {
 }
 
 /** Shows the message immediately; the desktop's own copy replaces it. */
+/** Ask the Mac to start a new conversation; the reply arrives as `created`. */
+export function createConversation(spaceId: string | undefined, name: string | undefined, text: string): void {
+  set({ created: null })
+  send({ type: 'create', spaceId, name, text })
+}
+export function clearCreated(): void {
+  set({ created: null })
+}
 export function sendMessage(workspaceId: string, text: string): void {
   send({ type: 'send', workspaceId, text })
   set((s) => ({ transcripts: { ...s.transcripts, [workspaceId]: [...(s.transcripts[workspaceId] ?? []), { id: 'local-' + Date.now(), role: 'user', blocks: [{ type: 'text', text }], createdAt: new Date().toISOString() }] } }))

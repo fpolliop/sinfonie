@@ -19,6 +19,7 @@ import { WorkspacesScreen } from './screens/WorkspacesScreen'
 import { InboxScreen } from './screens/InboxScreen'
 import { ChatScreen } from './screens/ChatScreen'
 import { SettingsScreen } from './screens/SettingsScreen'
+import { NewConversationScreen } from './screens/NewConversationScreen'
 
 export type WorkspaceFilter = 'needs' | 'running'
 export type DrawerParams = {
@@ -29,6 +30,7 @@ export type DrawerParams = {
 export type RootStack = {
   Main: undefined
   Chat: { workspaceId: string }
+  NewConversation: { space?: string } | undefined
 }
 const Stack = createNativeStackNavigator<RootStack>()
 const Drawer = createDrawerNavigator<DrawerParams>()
@@ -125,6 +127,7 @@ export default function App(): React.JSX.Element {
             <Stack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: C.bg } }}>
               <Stack.Screen name="Main" component={Main} />
               <Stack.Screen name="Chat" component={ChatScreen} />
+              <Stack.Screen name="NewConversation" component={NewConversationScreen} options={{ presentation: 'modal' }} />
             </Stack.Navigator>
           </NavigationContainer>
         )}

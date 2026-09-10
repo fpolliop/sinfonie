@@ -641,7 +641,32 @@ export function registerIpc(): void {
     send: async (id, text) => (cliSession.isRunning(id) ? cliSession.type(id, text) : sendMessage(id, text)),
     interrupt: async (id) => (cliSession.isRunning(id) ? cliSession.interrupt(id) : agent.interrupt(id)),
     permission: (r) => interaction.answerPermission(r),
-    question: (r) => interaction.answerQuestion(r)
+    question: (r) => interaction.answerQuestion(r),
+    // Start a conversation from the phone: a workspace in the chosen space (its repos), then the first message.
+    create: async ({ spaceId, name, text }) => {
+      const store = getStore().get()
+      const space = spaceId ? store.spaces.find((s) => s.id === spaceId) : undefined
+      const repos = spaceId ? store.repos.filter((r) => r.spaceId === spaceId) : []
+      const words = text.trim().replace(/\s+/g, ' ').split(' ').slice(0, 6).join(' ')
+      const wsName = (name?.trim() || words || 'New task').slice(0, 60)
+      try {
+        const ws = await workspaces.createWorkspace(
+          {
+            name: wsName,
+            repos: repos.map((r) => ({ repoId: r.id, baseBranch: r.defaultBranch })),
+            ...(repos[0] ? { primaryRepoId: repos[0].id } : {}),
+            ...(space?.claudeAccountId ? { claudeAccountId: space.claudeAccountId } : {}),
+            ...(spaceId ? { spaceId } : {})
+          },
+          emitScript
+        )
+        if (ws.status === 'ready') await sendMessage(ws.id, text.trim())
+        return ws.id
+      } catch (err) {
+        console.error('remote create failed', err)
+        return null
+      }
+    }
   })
   // ---- phone companion ----
   handle('remote:status', () => remote.status())
