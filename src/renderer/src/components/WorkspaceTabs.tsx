@@ -27,13 +27,11 @@ const GROUPS: { id: Tab; label: string; icon: React.ReactNode; hint: string }[][
     { id: 'data', label: 'Data', icon: <Database size={13} />, hint: 'Databases of this space' }
   ]
 ]
-const ORDER: Tab[] = GROUPS.flat().map((t) => t.id)
 /** Guided mode: talk, and look at the result. Everything else still runs underneath. */
 const GUIDED_GROUPS: typeof GROUPS = [
   [{ id: 'chat', label: 'Chat', icon: <MessageSquare size={13} />, hint: 'Talk to the assistant' }],
   [{ id: 'browser', label: 'Preview', icon: <Globe size={13} />, hint: 'The app, as it looks with your changes' }]
 ]
-const GUIDED_ORDER: Tab[] = GUIDED_GROUPS.flat().map((t) => t.id)
 
 export function WorkspaceTabs({ workspaceId }: { workspaceId: string }): React.JSX.Element {
   const tab = useApp((s) => s.tab)
@@ -47,8 +45,10 @@ export function WorkspaceTabs({ workspaceId }: { workspaceId: string }): React.J
   const running = useMemo(() => Object.entries(runs).some(([k, r]) => k.startsWith(`${workspaceId}:`) && r.running), [runs, workspaceId])
   const [changed, setChanged] = useState<number | null>(null)
   const guided = useGuided()
-  const groups = guided ? GUIDED_GROUPS : GROUPS
-  const order = guided ? GUIDED_ORDER : ORDER
+  const dock = useApp((s) => s.browserDock)
+  // Docked, the browser rides along with the chat, so drop its standalone tab from the strip.
+  const groups = useMemo(() => (guided ? GUIDED_GROUPS : GROUPS).map((g) => g.filter((t) => !(dock && t.id === 'browser'))).filter((g) => g.length), [guided, dock])
+  const order = useMemo(() => groups.flat().map((t) => t.id), [groups])
   // A tab that guided mode does not show falls back to the chat.
   useEffect(() => {
     if (guided && !order.includes(tab)) setTab('chat')

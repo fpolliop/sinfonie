@@ -235,7 +235,7 @@ function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Elem
             </p>
           </div>
         )}
-        <div className="mx-auto flex max-w-3xl flex-col gap-4">
+        <div className="mx-auto flex max-w-4xl flex-col gap-4">
           {items.map((it) => (
             <Message key={it.id} item={it} />
           ))}
@@ -265,7 +265,7 @@ function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Elem
             ↓ {unseen ? 'New output below' : 'Jump to latest'}
           </button>
         )}
-        <div className="mx-auto max-w-3xl">
+        <div className="mx-auto max-w-4xl">
           {queue.length > 0 && (
             <div className="mb-2 flex flex-col gap-1">
               {queue.map((m) => (
@@ -371,14 +371,14 @@ function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Elem
               {!guided && <NotesButton workspaceId={workspaceId} />}
               {!guided && <SessionMenu busy={busy} disabled={disabled} onFork={() => setForkDlg(true)} onResume={() => setResumeDlg(true)} onNew={() => void reset(workspaceId)} />}
               {busy ? (
-                <>
+                <div className="flex shrink-0 items-center gap-2">
                   <Button size="sm" onClick={onSubmit} disabled={!canSend} title="Deliver when the current turn ends">
                     <Send size={12} /> Queue
                   </Button>
                   <Button size="sm" variant="danger" onClick={() => void interrupt(workspaceId)}>
                     <Square size={12} /> Stop
                   </Button>
-                </>
+                </div>
               ) : (
                 <Button size="sm" variant="primary" onClick={onSubmit} disabled={!canSend}>
                   <Send size={12} /> Send

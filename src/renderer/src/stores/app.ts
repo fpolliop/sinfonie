@@ -37,6 +37,12 @@ interface AppState {
   selectedId: string | null
   view: 'workspace' | 'reviews' | 'oncall'
   tab: Tab
+  /** Show the browser docked beside the chat in the same view, instead of only as its own tab. */
+  browserDock: boolean
+  setBrowserDock: (v: boolean) => void
+  /** Fraction of the width the chat keeps when the browser is docked beside it (0.3–0.8). */
+  browserDockRatio: number
+  setBrowserDockRatio: (r: number) => void
   showNewWorkspace: boolean
   /** The open settings page, or null when the window is closed. */
   settingsTarget: SettingsTarget | null
@@ -209,6 +215,16 @@ export const useApp = create<AppState>((set, get) => ({
     set({ view })
   },
   setTab: (tab) => set({ tab }),
+  browserDock: localStorage.getItem('orchestra.browserDock') === '1',
+  setBrowserDock: (browserDock) => {
+    localStorage.setItem('orchestra.browserDock', browserDock ? '1' : '0')
+    set({ browserDock })
+  },
+  browserDockRatio: Number(localStorage.getItem('orchestra.browserDockRatio')) || 0.55,
+  setBrowserDockRatio: (browserDockRatio) => {
+    localStorage.setItem('orchestra.browserDockRatio', String(browserDockRatio))
+    set({ browserDockRatio })
+  },
   newWorkspaceSeed: null,
   setNewWorkspaceSeed: (newWorkspaceSeed) => set({ newWorkspaceSeed }),
   pendingShell: null,
