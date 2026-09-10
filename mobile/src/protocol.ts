@@ -75,6 +75,69 @@ export interface RemoteReviewPr {
   url: string
   updatedAt: string
   isDraft: boolean
+  space?: { name: string; color: string }
+}
+// ---- on-call (incident triage) ----
+export type IncidentStatus = 'new' | 'triaging' | 'open' | 'waiting' | 'resolved' | 'dismissed'
+export type Severity = 'low' | 'medium' | 'high' | 'critical'
+export interface ProposedFix {
+  repo: string
+  summary: string
+  changes: string[]
+  risks: string
+}
+export interface TriageReport {
+  summary: string
+  severity: Severity
+  category: 'customer' | 'bug' | 'infra' | 'question' | 'noise'
+  likelyCause: string
+  evidence: string[]
+  nextSteps: string[]
+  customerReply?: string
+  needsHuman: boolean
+  confidence: 'low' | 'medium' | 'high'
+  proposedFix?: ProposedFix
+}
+export interface IncidentFix {
+  status: 'running' | 'done' | 'failed'
+  phase?: string
+  branch?: string
+  prUrl?: string
+  commit?: string
+  error?: string
+  costUsd?: number
+  startedAt: string
+  finishedAt?: string
+}
+export interface RemoteIncidentProposal {
+  id: string
+  text: string
+  status: 'proposed' | 'sent' | 'dismissed'
+}
+export interface RemoteIncidentMessage {
+  user: string
+  text: string
+  at: string
+}
+export interface RemoteIncident {
+  id: string
+  space?: { name: string; color: string }
+  channelName: string
+  kind: 'support' | 'alerts'
+  title: string
+  status: IncidentStatus
+  severity?: Severity
+  permalink?: string
+  occurrences?: number
+  needsHuman: boolean
+  costUsd: number
+  createdAt: string
+  updatedAt: string
+  report?: TriageReport
+  fix?: IncidentFix
+  proposals: RemoteIncidentProposal[]
+  messages: RemoteIncidentMessage[]
+  notes: { at: string; role: string; text: string }[]
 }
 export type ToPhone =
   | { type: 'hello'; host: string; version: string }
@@ -82,6 +145,7 @@ export type ToPhone =
   | { type: 'spaces'; items: RemoteSpace[] }
   | { type: 'created'; workspaceId: string }
   | { type: 'reviews'; items: RemoteReviewPr[] }
+  | { type: 'oncall'; items: RemoteIncident[]; running: boolean }
   | { type: 'transcript'; workspaceId: string; items: ChatItem[] }
   | { type: 'item'; workspaceId: string; item: ChatItem }
   | { type: 'busy'; workspaceId: string; busy: boolean }
@@ -97,6 +161,11 @@ export type FromPhone =
   | { type: 'interrupt'; workspaceId: string }
   | { type: 'create'; spaceId?: string; name?: string; text: string }
   | { type: 'reviews' }
+  | { type: 'oncall' }
+  | { type: 'oncall:setStatus'; id: string; status: IncidentStatus }
+  | { type: 'oncall:setSeverity'; id: string; severity: Severity }
+  | { type: 'oncall:approve'; id: string; proposalId: string }
+  | { type: 'oncall:dismissProposal'; id: string; proposalId: string }
   | { type: 'permission'; requestId: string; decision: 'allow' | 'always' | 'deny' }
   | { type: 'question'; requestId: string; answers: Record<string, string>; response?: string }
 

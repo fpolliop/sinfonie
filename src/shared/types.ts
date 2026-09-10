@@ -666,6 +666,42 @@ export interface RemoteReviewPr {
   url: string
   updatedAt: string
   isDraft: boolean
+  /** The space of the registered repo whose origin matches, when Sinfonie knows it. */
+  space?: { name: string; color: string }
+}
+/** One drafted on-call reply, shaped for the phone. */
+export interface RemoteIncidentProposal {
+  id: string
+  text: string
+  status: 'proposed' | 'sent' | 'dismissed'
+}
+/** One message in an incident's Slack thread, shaped for the phone. */
+export interface RemoteIncidentMessage {
+  user: string
+  text: string
+  at: string
+}
+/** An on-call incident, shaped for the phone's on-call list and detail. */
+export interface RemoteIncident {
+  id: string
+  space?: { name: string; color: string }
+  channelName: string
+  kind: 'support' | 'alerts'
+  title: string
+  status: IncidentStatus
+  severity?: Severity
+  permalink?: string
+  occurrences?: number
+  /** The triage decided a person is needed. */
+  needsHuman: boolean
+  costUsd: number
+  createdAt: string
+  updatedAt: string
+  report?: TriageReport
+  fix?: IncidentFix
+  proposals: RemoteIncidentProposal[]
+  messages: RemoteIncidentMessage[]
+  notes: { at: string; role: string; text: string }[]
 }
 /** Desktop → phone, inside the encrypted envelope. */
 export type RemoteToPhone =
@@ -674,6 +710,7 @@ export type RemoteToPhone =
   | { type: 'spaces'; items: RemoteSpace[] }
   | { type: 'created'; workspaceId: string }
   | { type: 'reviews'; items: RemoteReviewPr[] }
+  | { type: 'oncall'; items: RemoteIncident[]; running: boolean }
   | { type: 'transcript'; workspaceId: string; items: ChatItem[] }
   | { type: 'item'; workspaceId: string; item: ChatItem }
   | { type: 'busy'; workspaceId: string; busy: boolean }
@@ -690,6 +727,11 @@ export type RemoteFromPhone =
   | { type: 'interrupt'; workspaceId: string }
   | { type: 'create'; spaceId?: string; name?: string; text: string }
   | { type: 'reviews' }
+  | { type: 'oncall' }
+  | { type: 'oncall:setStatus'; id: string; status: IncidentStatus }
+  | { type: 'oncall:setSeverity'; id: string; severity: Severity }
+  | { type: 'oncall:approve'; id: string; proposalId: string }
+  | { type: 'oncall:dismissProposal'; id: string; proposalId: string }
   | { type: 'permission'; requestId: string; decision: PermissionResponse['decision'] }
   | { type: 'question'; requestId: string; answers: Record<string, string>; response?: string }
 
