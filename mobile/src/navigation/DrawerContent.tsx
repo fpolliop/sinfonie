@@ -35,7 +35,8 @@ export function DrawerContent(props: DrawerContentComponentProps): React.JSX.Ele
   const onWorkspaces = route.name === 'Workspaces'
   const spaces = Array.from(new Map(workspaces.filter((w) => w.space).map((w) => [w.space!.name, w.space!])).values())
   const needs = new Set(prompts.map((p) => p.request.workspaceId))
-  const needCount = workspaces.filter((w) => w.needsInput || needs.has(w.id)).length
+  const needCount = workspaces.filter((w) => w.needsInput || needs.has(w.id) || w.awaitingReply).length
+  const inboxCount = prompts.length + workspaces.filter((w) => w.awaitingReply && !needs.has(w.id)).length
   const running = workspaces.filter((w) => w.busy).length
   const go = (name: string, p?: object): void => {
     ;(props.navigation.navigate as unknown as (n: string, p?: object) => void)(name, p)
@@ -64,7 +65,7 @@ export function DrawerContent(props: DrawerContentComponentProps): React.JSX.Ele
       </Pressable>
 
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingVertical: S.sm }} showsVerticalScrollIndicator={false}>
-        <Item icon="notifications-outline" label="Inbox" count={prompts.length} active={route.name === 'Inbox'} onPress={() => go('Inbox')} />
+        <Item icon="notifications-outline" label="Inbox" count={inboxCount} active={route.name === 'Inbox'} onPress={() => go('Inbox')} />
         <Text style={s.section}>Workspaces</Text>
         <Item icon="albums-outline" label="All workspaces" count={workspaces.length} active={onWorkspaces && !params.filter && !params.space} onPress={() => go('Workspaces', { filter: undefined, space: undefined })} />
         <Item icon="hand-left-outline" label="Needs you" count={needCount} active={onWorkspaces && params.filter === 'needs'} onPress={() => go('Workspaces', { filter: 'needs', space: undefined })} />

@@ -644,6 +644,8 @@ export interface RemoteWorkspace {
   status: WorkspaceStatus
   busy: boolean
   needsInput: boolean
+  /** The agent replied and it is the user's move: last item is the assistant's, nothing running, no open prompt. */
+  awaitingReply: boolean
   lastMessageAt?: string
   lastText?: string
 }

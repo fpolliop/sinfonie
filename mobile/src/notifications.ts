@@ -7,10 +7,37 @@ import { Platform } from 'react-native'
 import * as Notifications from 'expo-notifications'
 import * as Device from 'expo-device'
 import Constants from 'expo-constants'
+import * as SecureStore from 'expo-secure-store'
 import { control, getState } from './store'
 import { seal, sendUrl } from './protocol'
 
 export const PERMISSION_CATEGORY = 'sinfonie.permission'
+
+const BANNER_DISMISSED_KEY = 'sinfonie.pushBannerDismissed'
+
+/** Whether the OS has already granted notification permission to Sinfonie. */
+export async function pushGranted(): Promise<boolean> {
+  try {
+    return (await Notifications.getPermissionsAsync()).status === 'granted'
+  } catch {
+    return false
+  }
+}
+/** Whether the person has dismissed the "enable notifications" banner (persisted across launches). */
+export async function bannerDismissed(): Promise<boolean> {
+  try {
+    return (await SecureStore.getItemAsync(BANNER_DISMISSED_KEY)) === '1'
+  } catch {
+    return false
+  }
+}
+export async function dismissBanner(): Promise<void> {
+  try {
+    await SecureStore.setItemAsync(BANNER_DISMISSED_KEY, '1')
+  } catch {
+    /* best effort */
+  }
+}
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({ shouldShowBanner: true, shouldShowList: true, shouldPlaySound: true, shouldSetBadge: false })

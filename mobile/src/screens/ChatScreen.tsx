@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { FlatList, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
+import { ActivityIndicator, FlatList, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native'
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -18,16 +18,34 @@ export function ChatScreen(): React.JSX.Element {
   const ws = useStore((s) => s.workspaces.find((w) => w.id === id))
   const items = useStore((s) => s.transcripts[id])
   const busyFlag = useStore((s) => s.busy[id])
+  const connected = useStore((s) => s.connected)
   const prompts = useStore((s) => s.prompts.filter((p) => p.request.workspaceId === id))
   const busy = busyFlag ?? ws?.busy ?? false
   const [text, setText] = useState('')
   const [atBottom, setAtBottom] = useState(true)
+  const [slow, setSlow] = useState(false)
   const list = useRef<FlatList>(null)
 
   useEffect(() => {
     subscribe(id)
     return () => unsubscribe(id)
   }, [id])
+  // The transcript arrives in reply to `subscribe`. A subscribe sent while the socket is reconnecting is
+  // dropped, so re-request until it lands (and again whenever the connection comes back), and surface a
+  // slow/offline hint instead of an endless "Loading…".
+  useEffect(() => {
+    if (items !== undefined) {
+      setSlow(false)
+      return
+    }
+    setSlow(false)
+    const retries = [1500, 4000, 8000].map((ms) => setTimeout(() => subscribe(id), ms))
+    const slowTimer = setTimeout(() => setSlow(true), 6000)
+    return () => {
+      retries.forEach(clearTimeout)
+      clearTimeout(slowTimer)
+    }
+  }, [id, items, connected])
   useEffect(() => {
     if (atBottom) {
       const t = setTimeout(() => list.current?.scrollToEnd({ animated: true }), 60)
@@ -86,10 +104,28 @@ export function ChatScreen(): React.JSX.Element {
           }}
           scrollEventThrottle={100}
           ListEmptyComponent={
-            <View style={{ alignItems: 'center', paddingTop: 60, gap: 8 }}>
-              <Icon name={items ? 'chatbubble-ellipses-outline' : 'cloud-download-outline'} size={28} color={C.dim} />
-              <Text style={T.small}>{items ? 'No messages yet. Say what you need.' : 'Loading the conversation…'}</Text>
-            </View>
+            items ? (
+              <View style={{ alignItems: 'center', paddingTop: 60, gap: 8 }}>
+                <Icon name="chatbubble-ellipses-outline" size={28} color={C.dim} />
+                <Text style={T.small}>No messages yet. Say what you need.</Text>
+              </View>
+            ) : (
+              <View style={{ alignItems: 'center', paddingTop: 60, gap: 10 }}>
+                <ActivityIndicator color={C.muted} />
+                <Text style={T.small}>Loading the conversation…</Text>
+                {slow && (
+                  <>
+                    <Text style={[T.small, { color: C.dim, textAlign: 'center', maxWidth: 260 }]}>
+                      {connected ? 'Taking longer than usual. The Mac may be busy or asleep.' : 'Offline. Reconnecting to your Mac…'}
+                    </Text>
+                    <Pressable onPress={() => subscribe(id)} style={s.retry}>
+                      <Icon name="refresh" size={14} color={C.text} />
+                      <Text style={{ color: C.text, fontSize: 13, fontWeight: '600' }}>Try again</Text>
+                    </Pressable>
+                  </>
+                )}
+              </View>
+            )
           }
           ListFooterComponent={
             <View>
@@ -125,5 +161,6 @@ const s = StyleSheet.create({
   toBottom: { position: 'absolute', right: 14, bottom: 84, flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, height: 34, borderRadius: 17, backgroundColor: C.panel2, borderWidth: 1, borderColor: C.border2 },
   composer: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: 12, paddingTop: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: C.border, backgroundColor: C.bg },
   input: { flex: 1, maxHeight: 130, minHeight: 42, borderWidth: 1, borderColor: C.border2, backgroundColor: C.panel, color: C.text, borderRadius: 21, paddingHorizontal: 15, paddingTop: 11, paddingBottom: 11, fontSize: 15 },
-  send: { width: 42, height: 42, borderRadius: 21, backgroundColor: C.accent2, alignItems: 'center', justifyContent: 'center' }
+  send: { width: 42, height: 42, borderRadius: 21, backgroundColor: C.accent2, alignItems: 'center', justifyContent: 'center' },
+  retry: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 8, borderRadius: R.pill, backgroundColor: C.panel2, borderWidth: 1, borderColor: C.border2, marginTop: 2 }
 })
