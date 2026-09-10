@@ -146,7 +146,8 @@ export type ToPhone =
   | { type: 'created'; workspaceId: string }
   | { type: 'reviews'; items: RemoteReviewPr[] }
   | { type: 'oncall'; items: RemoteIncident[]; running: boolean }
-  | { type: 'transcript'; workspaceId: string; items: ChatItem[] }
+  | { type: 'transcript'; workspaceId: string; items: ChatItem[]; hasMore: boolean }
+  | { type: 'history'; workspaceId: string; items: ChatItem[]; hasMore: boolean }
   | { type: 'item'; workspaceId: string; item: ChatItem }
   | { type: 'busy'; workspaceId: string; busy: boolean }
   | { type: 'prompts'; items: RemotePrompt[] }
@@ -157,6 +158,7 @@ export type FromPhone =
   | { type: 'sync' }
   | { type: 'subscribe'; workspaceId: string }
   | { type: 'unsubscribe'; workspaceId: string }
+  | { type: 'history'; workspaceId: string; beforeId: string }
   | { type: 'send'; workspaceId: string; text: string }
   | { type: 'interrupt'; workspaceId: string }
   | { type: 'create'; spaceId?: string; name?: string; text: string }

@@ -16,6 +16,10 @@ export interface State {
   prompts: RemotePrompt[]
   /** Transcripts by workspace id, for the ones opened in this session. */
   transcripts: Record<string, ChatItem[]>
+  /** Whether older messages exist beyond what we've loaded, per workspace. */
+  transcriptHasMore: Record<string, boolean>
+  /** A history page is in flight for this workspace. */
+  loadingHistory: Record<string, boolean>
   busy: Record<string, boolean>
   lastError: string | null
   /** Set when the Mac confirms a phone-started conversation; the New screen navigates to it, then clears it. */
@@ -25,7 +29,7 @@ export interface State {
   /** Whether the desktop's on-call watcher is polling. */
   onCallRunning: boolean
 }
-let state: State = { pairing: null, connected: false, host: '', workspaces: [], spaces: [], prompts: [], transcripts: {}, busy: {}, lastError: null, created: null, reviews: [], onCall: [], onCallRunning: false }
+let state: State = { pairing: null, connected: false, host: '', workspaces: [], spaces: [], prompts: [], transcripts: {}, transcriptHasMore: {}, loadingHistory: {}, busy: {}, lastError: null, created: null, reviews: [], onCall: [], onCallRunning: false }
 const listeners = new Set<(s: State) => void>()
 function set(patch: Partial<State> | ((s: State) => Partial<State>)): void {
   state = { ...state, ...(typeof patch === 'function' ? patch(state) : patch) }
@@ -72,7 +76,7 @@ export async function savePairing(k: string, relay: string): Promise<Pairing> {
 export async function unpair(): Promise<void> {
   await SecureStore.deleteItemAsync(KEY)
   disconnect()
-  set({ pairing: null, workspaces: [], spaces: [], prompts: [], transcripts: {}, busy: {}, host: '', created: null, reviews: [], onCall: [], onCallRunning: false })
+  set({ pairing: null, workspaces: [], spaces: [], prompts: [], transcripts: {}, transcriptHasMore: {}, loadingHistory: {}, busy: {}, host: '', created: null, reviews: [], onCall: [], onCallRunning: false })
 }
 
 // ---- connection ----
@@ -172,6 +176,14 @@ export function unsubscribe(workspaceId: string): void {
   subscribed.delete(workspaceId)
   send({ type: 'unsubscribe', workspaceId })
 }
+/** Ask for the page of messages before the oldest one loaded; the reply arrives as `history`. */
+export function loadHistory(workspaceId: string): void {
+  const items = state.transcripts[workspaceId]
+  if (!items || items.length === 0) return
+  if (!state.transcriptHasMore[workspaceId] || state.loadingHistory[workspaceId]) return
+  set((s) => ({ loadingHistory: { ...s.loadingHistory, [workspaceId]: true } }))
+  send({ type: 'history', workspaceId, beforeId: items[0].id })
+}
 
 // Reconnect when the app comes back; iOS suspends sockets in the background.
 AppState.addEventListener('change', (s) => {
@@ -211,7 +223,23 @@ function handle(msg: ToPhone): void {
       set((s) => ({ prompts: s.prompts.filter((p) => p.request.requestId !== msg.requestId) }))
       break
     case 'transcript':
-      set((s) => ({ transcripts: { ...s.transcripts, [msg.workspaceId]: msg.items } }))
+      set((s) => ({
+        transcripts: { ...s.transcripts, [msg.workspaceId]: msg.items },
+        transcriptHasMore: { ...s.transcriptHasMore, [msg.workspaceId]: msg.hasMore },
+        loadingHistory: { ...s.loadingHistory, [msg.workspaceId]: false }
+      }))
+      break
+    case 'history':
+      set((s) => {
+        const existing = s.transcripts[msg.workspaceId] ?? []
+        const seen = new Set(existing.map((x) => x.id))
+        const older = msg.items.filter((x) => !seen.has(x.id))
+        return {
+          transcripts: { ...s.transcripts, [msg.workspaceId]: [...older, ...existing] },
+          transcriptHasMore: { ...s.transcriptHasMore, [msg.workspaceId]: msg.hasMore },
+          loadingHistory: { ...s.loadingHistory, [msg.workspaceId]: false }
+        }
+      })
       break
     case 'item':
       set((s) => {
