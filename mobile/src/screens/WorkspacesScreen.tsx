@@ -3,7 +3,7 @@ import { Pressable, RefreshControl, SectionList, StyleSheet, Text, View } from '
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native'
 import type { DrawerNavigationProp } from '@react-navigation/drawer'
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack'
-import { C, S, T } from '../theme'
+import { C, R, S, T } from '../theme'
 import { Badge, Button, Dot, EmptyState, IconButton, SpaceChip } from '../ui'
 import { PromptCard } from '../components'
 import { send, useStore } from '../store'
@@ -45,6 +45,9 @@ export function WorkspacesScreen(): React.JSX.Element {
     }
   }, [])
 
+  const [stage, setStage] = useState<RemoteWorkspace['stage'] | null>(null)
+  const [sort, setSort] = useState<'recent' | 'name' | 'stage'>('recent')
+
   const needs = useMemo(() => new Set(prompts.map((p) => p.request.workspaceId)), [prompts])
   const needsYou = useCallback((w: RemoteWorkspace): boolean => w.needsInput || needs.has(w.id) || Boolean(w.awaitingReply), [needs])
   const visible = useMemo(() => {
@@ -52,10 +55,16 @@ export function WorkspacesScreen(): React.JSX.Element {
     if (space) list = list.filter((w) => w.space?.name === space)
     if (filter === 'needs') list = list.filter(needsYou)
     if (filter === 'running') list = list.filter((w) => w.busy)
+    if (stage) list = list.filter((w) => w.stage === stage)
+    if (sort === 'name') list = [...list].sort((a, b) => a.name.localeCompare(b.name))
+    else if (sort === 'stage') list = [...list].sort((a, b) => STAGE_ORDER.indexOf(a.stage) - STAGE_ORDER.indexOf(b.stage) || (b.lastMessageAt ?? '').localeCompare(a.lastMessageAt ?? ''))
     return list
-  }, [workspaces, filter, space, needsYou])
+  }, [workspaces, filter, space, needsYou, stage, sort])
+  // The Needs/Running/Idle grouping only makes sense with the default order and no stage filter; otherwise
+  // show a single sorted list.
+  const grouped = !filter && !stage && sort === 'recent'
   const sections = useMemo(() => {
-    if (filter) return [{ title: '', data: visible }]
+    if (!grouped) return [{ title: '', data: visible }]
     const need = visible.filter(needsYou)
     const running = visible.filter((w) => w.busy && !need.includes(w))
     const rest = visible.filter((w) => !need.includes(w) && !running.includes(w))
@@ -64,7 +73,7 @@ export function WorkspacesScreen(): React.JSX.Element {
       { title: 'Running', data: running },
       { title: need.length || running.length ? 'Idle' : '', data: rest }
     ].filter((sec) => sec.data.length)
-  }, [visible, filter, needsYou])
+  }, [visible, grouped, needsYou])
   const title = space ?? (filter === 'needs' ? 'Needs you' : filter === 'running' ? 'Running' : 'Workspaces')
 
   const refresh = useCallback(() => {
@@ -110,6 +119,17 @@ export function WorkspacesScreen(): React.JSX.Element {
               </View>
             )}
             {!filter && !space && openPrompts.map((p) => <PromptCard key={p.request.requestId} prompt={p} workspaceName={workspaces.find((w) => w.id === p.request.workspaceId)?.name} />)}
+            <View style={s.controls}>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, flex: 1 }}>
+                <FilterChip label="All" active={stage === null} onPress={() => setStage(null)} />
+                {STAGES.map((st) => (
+                  <FilterChip key={st.id} label={st.label} active={stage === st.id} onPress={() => setStage(stage === st.id ? null : st.id)} />
+                ))}
+              </View>
+              <Pressable onPress={() => setSort(sort === 'recent' ? 'name' : sort === 'name' ? 'stage' : 'recent')} style={s.sortBtn} hitSlop={6}>
+                <Text style={{ color: C.muted, fontSize: 12 }}>{sort === 'recent' ? 'Recent' : sort === 'name' ? 'A–Z' : 'Stage'}</Text>
+              </Pressable>
+            </View>
           </View>
         }
         renderSectionHeader={({ section }) => (section.title ? <Text style={s.sectionTitle}>{section.title}</Text> : null)}
@@ -123,6 +143,22 @@ export function WorkspacesScreen(): React.JSX.Element {
         renderItem={({ item: w }) => <WorkspaceRow w={w} need={needsYou(w)} onPress={() => nav.getParent<NativeStackNavigationProp<RootStack>>()?.navigate('Chat', { workspaceId: w.id })} />}
       />
     </View>
+  )
+}
+
+const STAGES: { id: RemoteWorkspace['stage']; label: string }[] = [
+  { id: 'todo', label: 'To do' },
+  { id: 'in-progress', label: 'Working' },
+  { id: 'in-review', label: 'Review' },
+  { id: 'done', label: 'Done' }
+]
+const STAGE_ORDER: RemoteWorkspace['stage'][] = ['todo', 'in-progress', 'in-review', 'done']
+
+function FilterChip({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }): React.JSX.Element {
+  return (
+    <Pressable onPress={onPress} style={[s.chip, active && s.chipOn]} hitSlop={4}>
+      <Text style={{ color: active ? C.accent : C.muted, fontSize: 12, fontWeight: active ? '600' : '400' }}>{label}</Text>
+    </Pressable>
   )
 }
 
@@ -159,6 +195,10 @@ const s = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: S.sm, paddingBottom: S.sm },
   notice: { flexDirection: 'row', marginHorizontal: S.md, marginBottom: S.sm, padding: 10, borderRadius: 10, backgroundColor: 'rgba(251,191,36,.08)', borderWidth: 1, borderColor: 'rgba(251,191,36,.3)' },
   banner: { flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: S.md, marginBottom: S.sm, padding: 12, borderRadius: 14, backgroundColor: C.panel, borderWidth: 1, borderColor: C.border },
+  controls: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: S.md, paddingTop: 4, paddingBottom: 6 },
+  chip: { paddingHorizontal: 11, paddingVertical: 5, borderRadius: R.pill, backgroundColor: C.panel, borderWidth: 1, borderColor: C.border2 },
+  chipOn: { backgroundColor: 'rgba(124,156,255,.14)', borderColor: 'rgba(124,156,255,.4)' },
+  sortBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: R.pill, backgroundColor: C.panel, borderWidth: 1, borderColor: C.border2 },
   sectionTitle: { ...T.caption, paddingHorizontal: S.lg, paddingTop: S.lg, paddingBottom: S.xs },
   row: { flexDirection: 'row', gap: 12, paddingHorizontal: S.lg, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.border },
   avatar: { width: 42, height: 42, borderRadius: 13, backgroundColor: C.panel, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
