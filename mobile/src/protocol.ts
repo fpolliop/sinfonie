@@ -61,9 +61,17 @@ export interface QuestionRequest {
   questions: Question[]
 }
 export type RemotePrompt = { kind: 'permission'; request: PermissionRequest } | { kind: 'question'; request: QuestionRequest }
+export interface RemoteSpace {
+  id: string
+  name: string
+  color: string
+  repoCount: number
+}
 export type ToPhone =
   | { type: 'hello'; host: string; version: string }
   | { type: 'workspaces'; items: RemoteWorkspace[] }
+  | { type: 'spaces'; items: RemoteSpace[] }
+  | { type: 'created'; workspaceId: string }
   | { type: 'transcript'; workspaceId: string; items: ChatItem[] }
   | { type: 'item'; workspaceId: string; item: ChatItem }
   | { type: 'busy'; workspaceId: string; busy: boolean }
@@ -77,6 +85,7 @@ export type FromPhone =
   | { type: 'unsubscribe'; workspaceId: string }
   | { type: 'send'; workspaceId: string; text: string }
   | { type: 'interrupt'; workspaceId: string }
+  | { type: 'create'; spaceId?: string; name?: string; text: string }
   | { type: 'permission'; requestId: string; decision: 'allow' | 'always' | 'deny' }
   | { type: 'question'; requestId: string; answers: Record<string, string>; response?: string }
 

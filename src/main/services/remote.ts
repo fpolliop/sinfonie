@@ -15,7 +15,7 @@ import QRCode from 'qrcode'
 import { getStore } from '../store'
 import { getTranscript } from './transcripts'
 import * as agent from './agent'
-import type { AgentEvent, ChatItem, PermissionRequest, PermissionResponse, QuestionRequest, QuestionResponse, RemoteFromPhone, RemotePrompt, RemoteSettings, RemoteStatus, RemoteToPhone, RemoteWorkspace } from '@shared/types'
+import type { AgentEvent, ChatItem, PermissionRequest, PermissionResponse, QuestionRequest, QuestionResponse, RemoteFromPhone, RemotePrompt, RemoteSettings, RemoteStatus, RemoteSpace, RemoteToPhone, RemoteWorkspace } from '@shared/types'
 
 export const RELAY_URL = process.env.SINFONIE_RELAY_URL ?? 'https://relay.sinfonie.dev'
 const PHONE_URL = process.env.SINFONIE_PHONE_URL ?? 'https://sinfonie.dev/m/'
@@ -260,16 +260,22 @@ function workspaceList(): RemoteWorkspace[] {
     })
     .sort((a, b) => (b.lastMessageAt ?? '').localeCompare(a.lastMessageAt ?? ''))
 }
+function spaceList(): RemoteSpace[] {
+  const { spaces, repos } = getStore().get()
+  return spaces.map((s) => ({ id: s.id, name: s.name, color: s.color, repoCount: repos.filter((r) => r.spaceId === s.id).length }))
+}
 function scheduleWorkspaces(): void {
   if (phones === 0 || workspacesTimer) return
   workspacesTimer = setTimeout(() => {
     workspacesTimer = null
     void send({ type: 'workspaces', items: workspaceList() })
+    void send({ type: 'spaces', items: spaceList() })
   }, 400)
 }
 async function pushAll(): Promise<void> {
   await send({ type: 'hello', host: hostname(), version: app.getVersion() })
   await send({ type: 'workspaces', items: workspaceList() })
+  await send({ type: 'spaces', items: spaceList() })
   await send({ type: 'prompts', items: [...pending.values()] })
   for (const id of subscribed) await send({ type: 'transcript', workspaceId: id, items: getTranscript(id) })
 }
@@ -280,6 +286,8 @@ interface Bridge {
   interrupt: (workspaceId: string) => Promise<unknown> | unknown
   permission: (r: PermissionResponse) => void
   question: (r: QuestionResponse) => void
+  /** Create a workspace in a space and send the first message; returns its id (or null on failure). */
+  create: (input: { spaceId?: string; name?: string; text: string }) => Promise<string | null>
 }
 let bridge: Bridge | null = null
 export function setBridge(b: Bridge): void {
@@ -305,6 +313,13 @@ async function handle(msg: RemoteFromPhone): Promise<void> {
         break
       case 'interrupt':
         await bridge.interrupt(msg.workspaceId)
+        break
+      case 'create':
+        if (typeof msg.text === 'string' && msg.text.trim()) {
+          const id = await bridge.create({ spaceId: msg.spaceId, name: msg.name, text: msg.text })
+          if (id) await send({ type: 'created', workspaceId: id })
+          await pushAll()
+        }
         break
       case 'permission':
         if (pending.has(msg.requestId)) bridge.permission({ requestId: msg.requestId, decision: msg.decision === 'allow' || msg.decision === 'always' ? msg.decision : 'deny', message: msg.decision === 'deny' ? 'Denied from the phone' : undefined })

@@ -650,10 +650,19 @@ export interface RemoteWorkspace {
   lastText?: string
 }
 export type RemotePrompt = { kind: 'permission'; request: PermissionRequest } | { kind: 'question'; request: QuestionRequest }
+/** A space the phone can start a new conversation in. */
+export interface RemoteSpace {
+  id: string
+  name: string
+  color: string
+  repoCount: number
+}
 /** Desktop → phone, inside the encrypted envelope. */
 export type RemoteToPhone =
   | { type: 'hello'; host: string; version: string }
   | { type: 'workspaces'; items: RemoteWorkspace[] }
+  | { type: 'spaces'; items: RemoteSpace[] }
+  | { type: 'created'; workspaceId: string }
   | { type: 'transcript'; workspaceId: string; items: ChatItem[] }
   | { type: 'item'; workspaceId: string; item: ChatItem }
   | { type: 'busy'; workspaceId: string; busy: boolean }
@@ -668,6 +677,7 @@ export type RemoteFromPhone =
   | { type: 'unsubscribe'; workspaceId: string }
   | { type: 'send'; workspaceId: string; text: string }
   | { type: 'interrupt'; workspaceId: string }
+  | { type: 'create'; spaceId?: string; name?: string; text: string }
   | { type: 'permission'; requestId: string; decision: PermissionResponse['decision'] }
   | { type: 'question'; requestId: string; answers: Record<string, string>; response?: string }
 

@@ -94,6 +94,7 @@ export function WorkspacesScreen(): React.JSX.Element {
           <Dot tone={connected ? 'on' : 'off'} size={7} />
           <Text style={T.small}>{connected ? 'Live' : 'Offline'}</Text>
         </Pressable>
+        <IconButton name="add" onPress={() => nav.getParent<NativeStackNavigationProp<RootStack>>()?.navigate('NewConversation', space ? { space } : undefined)} />
       </View>
       <SectionList
         sections={sections}
