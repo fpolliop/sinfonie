@@ -5,6 +5,7 @@ import { useScripts } from '@/stores/scripts'
 import { Sidebar } from './components/Sidebar'
 import { WorkspaceView } from './components/WorkspaceView'
 import { OnCallView } from './components/OnCallView'
+import { AgentsView } from './components/agents/AgentsView'
 import { AuthLinkDialog } from './components/AuthLinkDialog'
 import type { AuthLink } from '@shared/types'
 import { useOnCall } from './stores/oncall'
@@ -108,7 +109,7 @@ export default function App(): React.JSX.Element {
     <div className="flex h-full">
       <Sidebar />
       <main className="flex min-w-0 flex-1 flex-col">
-        {view === 'reviews' ? <ReviewCockpit /> : view === 'oncall' ? <OnCallView /> : selectedId ? <WorkspaceView key={selectedId} workspaceId={selectedId} /> : <EmptyState />}
+        {view === 'reviews' ? <ReviewCockpit /> : view === 'oncall' ? <OnCallView /> : view === 'agents' ? <AgentsView /> : selectedId ? <WorkspaceView key={selectedId} workspaceId={selectedId} /> : <EmptyState />}
       </main>
       {showNewWorkspace && <NewWorkspaceDialog onClose={() => setShowNewWorkspace(false)} />}
       {settingsTarget && <SettingsWindow target={settingsTarget} onClose={closeSettings} />}

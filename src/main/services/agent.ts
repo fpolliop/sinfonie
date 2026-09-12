@@ -25,6 +25,7 @@ import { app } from 'electron'
 import { appendFileSync, existsSync, mkdirSync } from 'fs'
 import { join } from 'path'
 import { getStore } from '../store'
+import * as library from './agents'
 import { getWorkspace, patchWorkspace } from './workspaces'
 import { accountEnv } from './accounts'
 import * as jira from './jira'
@@ -215,8 +216,7 @@ async function mcpServersFor(ws: Workspace, onWarning?: (text: string) => void):
 function crewFor(ws: Workspace, emit: EmitEvent, crewCalls: Map<string, string[]>): { agents: NonNullable<Options['agents']>; prompt: string; server?: NonNullable<Options['mcpServers']>[string] } {
   const { settings, spaces } = getStore().get()
   const space = spaces.find((s) => s.id === ws.spaceId)
-  if (space?.useCrew === false) return { agents: {}, prompt: '' }
-  const all = (space?.agents ?? settings.agents).filter((a) => a.enabled && a.name.trim())
+  const all = library.crewFor(ws.spaceId)
   const specs = all.filter((a) => classifyModel(a.model).kind === 'claude')
   const external = all.filter((a) => classifyModel(a.model).kind !== 'claude')
   const agents: NonNullable<Options['agents']> = {}

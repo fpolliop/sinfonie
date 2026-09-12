@@ -30,6 +30,7 @@ const STOPS: Stop[] = [
       if (useApp.getState().view !== 'workspace') useApp.getState().setView('workspace')
     }
   },
+  { anchor: 'agents', title: 'Agents', text: 'Your agent library. Each agent is a role with its own instructions, model and tools: the built-in explorer, implementer, tester and reviewer, plus any you create. Describe one in a sentence and Claude drafts it, try it on a workspace right there, and call one directly in any chat with @name.' },
   { anchor: 'assistant', title: 'Setup assistant', text: 'Talk to it to set things up: it interviews you about how your team works and designs a crew, adds repositories, creates spaces, connects Slack, Linear, Jira and Google Cloud, and sets cost modes. It confirms before every change. ⇧⌘A.' },
   { anchor: 'settings', title: 'Settings', text: 'Accounts for every vendor, model providers, the crew, usage, resources, and the integrations: Jira, Linear, Slack, Google Cloud, databases, MCP servers. Application-wide on the left, per space on the right. ⌘, opens it.' }
 ]

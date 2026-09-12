@@ -5,7 +5,7 @@ import { useApp } from '@/stores/app'
 
 /** Eight things a new install does, ticked from real state. Lives on the empty page until dismissed or done. */
 export function GettingStarted(): React.JSX.Element | null {
-  const { settings, spaces, repos, workspaces, openSettings, setShowNewWorkspace, setView, setOnboarding, setAssistantOpen } = useApp()
+  const { settings, spaces, repos, workspaces, agents, openSettings, setShowNewWorkspace, setView, setOnboarding, setAssistantOpen } = useApp()
   const [reviewed, setReviewed] = useState(false)
   const [assisted, setAssisted] = useState(false)
   useEffect(() => {
@@ -26,7 +26,7 @@ export function GettingStarted(): React.JSX.Element | null {
     { done: workspaces.length > 0, text: 'Create a workspace', go: () => setShowNewWorkspace(true) },
     { done: workspaces.some((w) => w.sessionId || Object.keys(w).some((k) => k.startsWith('acp:'))), text: 'Send a first message', go: () => workspaces[0] && useApp.getState().select(workspaces[0].id) },
     { done: reviewed, text: 'Run an AI review on a pull request', go: () => setView('reviews') },
-    { done: assisted || spaces.some((s) => (s.agents?.length ?? 0) > 0), text: 'Let the assistant design your crew', go: () => setAssistantOpen(true) },
+    { done: assisted || agents.some((a) => a.source !== 'builtin'), text: 'Create an agent, or let the assistant design your crew', go: () => setView('agents') },
     { done: spaces.some((s) => (s.databases?.length ?? 0) > 0 || Boolean(s.gcp?.projectId)) || Boolean(settings.gcp?.projectId), text: 'Connect a database or Google Cloud', go: () => (spaces[0] ? openSettings({ scope: 'space', spaceId: spaces[0].id, page: 'databases' }) : openSettings({ scope: 'app', page: 'gcp' })) }
   ]
   const left = items.filter((i) => !i.done).length

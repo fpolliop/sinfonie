@@ -109,11 +109,32 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
   })
   // Select stable references, derive outside the selector (a fresh array per read loops React).
   const space = useApp((s) => s.spaces.find((x) => x.id === ws?.spaceId))
-  const defaultAgents = useApp((s) => s.settings.agents)
-  const crewNames = useMemo(() => {
+  const library = useApp((s) => s.agents)
+  const crew = useMemo(() => {
     if (space?.useCrew === false || leanMode) return []
-    return (space?.agents ?? defaultAgents).filter((a) => a.enabled).map((a) => `${a.name} (${a.model})`)
-  }, [space, defaultAgents, leanMode])
+    const off = new Set(space?.crewDisabled ?? [])
+    const models = space?.crewModels ?? {}
+    return library.filter((a) => a.enabled && (!a.scope || a.scope === space?.id) && !off.has(a.id)).map((a) => (models[a.id] ? { ...a, model: models[a.id] } : a))
+  }, [space, library, leanMode])
+  const crewNames = useMemo(() => crew.map((a) => `${a.name} (${a.model})`), [crew])
+  /** Agents an @mention can reach: everything visible to the space, on or off the crew. */
+  const mentionable = useMemo(() => library.filter((a) => a.enabled && (!a.scope || a.scope === space?.id)), [library, space])
+  // "@" at the start of the message opens a picker; "@name …" sends the message straight to that agent.
+  const mentionQuery = useMemo(() => {
+    const m = /^@([A-Za-z0-9_-]*)$/.exec(draft)
+    return m ? m[1].toLowerCase() : null
+  }, [draft])
+  const mentionOptions = useMemo(() => (mentionQuery === null ? [] : mentionable.filter((a) => a.name.toLowerCase().startsWith(mentionQuery)).slice(0, 8)), [mentionQuery, mentionable])
+  const [mentionIdx, setMentionIdx] = useState(0)
+  useEffect(() => setMentionIdx(0), [mentionQuery])
+  const mentionTarget = useMemo(() => {
+    const m = /^@([A-Za-z0-9_-]+)(?:\s|$)/.exec(draft)
+    return m ? mentionable.find((a) => a.name.toLowerCase() === m[1].toLowerCase()) ?? null : null
+  }, [draft, mentionable])
+  const pickMention = (name: string): void => {
+    setDraft(workspaceId, `@${name} `)
+    taRef.current?.focus()
+  }
   const setError = useApp((s) => s.setError)
   const mode: PermissionMode = ws?.permissionMode ?? settingsMode
   const [resumeDlg, setResumeDlg] = useState(false)
@@ -236,6 +257,24 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
             )}
             <input ref={fileInput} type="file" accept="image/*" multiple className="hidden" onChange={(e) => (e.target.files?.length && void addImages(workspaceId, Array.from(e.target.files)), (e.target.value = ''))} />
             <div className="relative">
+              {mentionOptions.length > 0 && (
+                <div className="absolute bottom-full left-2 z-20 mb-1 w-[360px] overflow-hidden rounded-lg border border-border bg-panel shadow-xl">
+                  <div className="px-3 py-1.5 text-[10px] uppercase tracking-wide text-muted">Send straight to an agent</div>
+                  {mentionOptions.map((a, i) => (
+                    <button key={a.id} onMouseDown={(e) => e.preventDefault()} onClick={() => pickMention(a.name)} className={clsx('flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px]', i === mentionIdx ? 'bg-panel-2' : 'hover:bg-panel-2/60')}>
+                      <span className="w-5 text-center">{a.icon || '🤖'}</span>
+                      <span className="font-medium">@{a.name}</span>
+                      <span className="truncate text-muted">{a.description}</span>
+                      <span className="ml-auto shrink-0 font-mono text-[10px] text-muted">{a.model}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {mentionTarget && mentionOptions.length === 0 && (
+                <div className="absolute bottom-full left-2 z-20 mb-1 flex items-center gap-1.5 rounded-md border border-border bg-panel px-2 py-1 text-[11px] text-muted shadow">
+                  <span>{mentionTarget.icon || '🤖'}</span> Goes straight to <span className="font-medium text-text">{mentionTarget.name}</span> on {mentionTarget.model}, outside the orchestrator.
+                </div>
+              )}
               <div
                 className="absolute right-1.5 top-1.5 z-10 cursor-ns-resize rounded p-1 text-muted/60 hover:bg-panel-2 hover:text-text"
                 title="Drag to resize"
@@ -260,6 +299,23 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
                 }
               }}
               onKeyDown={(e) => {
+                if (mentionOptions.length > 0) {
+                  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                    e.preventDefault()
+                    setMentionIdx((i) => (i + (e.key === 'ArrowDown' ? 1 : mentionOptions.length - 1)) % mentionOptions.length)
+                    return
+                  }
+                  if (e.key === 'Enter' || e.key === 'Tab') {
+                    e.preventDefault()
+                    pickMention(mentionOptions[mentionIdx].name)
+                    return
+                  }
+                  if (e.key === 'Escape') {
+                    e.preventDefault()
+                    setDraft(workspaceId, '')
+                    return
+                  }
+                }
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault()
                   onSubmit()

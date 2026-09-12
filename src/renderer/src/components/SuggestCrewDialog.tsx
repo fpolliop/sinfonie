@@ -13,7 +13,7 @@ const EMPTY_PROVIDERS: ProviderConfig[] = []
  * Asks Claude to assign a model to the orchestrator and every crew member from all the
  * user's models, shows the proposal with reasons, and applies the ticked rows.
  */
-export function SuggestCrewDialog({ spaceId, agents, orchestrator, onApply, onClose }: { spaceId?: string; agents: AgentSpec[]; orchestrator?: { value: string; label: string }; onApply: (agents: AgentSpec[], orchestratorModel?: string) => void; onClose: () => void }): React.JSX.Element {
+export function SuggestCrewDialog({ spaceId, agents, orchestrator, onApply, onClose }: { spaceId?: string; agents: AgentSpec[]; orchestrator?: { value: string; label: string }; onApply: (changes: { id: string; model: string; effort?: AgentSpec['effort'] }[], orchestratorModel?: string) => void; onClose: () => void }): React.JSX.Element {
   const providersRaw = useApp((s) => s.settings.providers)
   const providers = providersRaw ?? EMPTY_PROVIDERS
   const [result, setResult] = useState<CrewSuggestion | null>(null)
@@ -60,11 +60,11 @@ export function SuggestCrewDialog({ spaceId, agents, orchestrator, onApply, onCl
     })
   const apply = (): void => {
     if (!result) return
-    const next = agents.map((a) => {
+    const changes = agents.flatMap((a) => {
       const s = result.agents.find((x) => x.id === a.id)
-      return s && picked.has(a.id) ? { ...a, model: s.model, ...(s.effort ? { effort: s.effort } : {}) } : a
+      return s && picked.has(a.id) && s.model !== a.model ? [{ id: a.id, model: s.model, effort: s.effort }] : []
     })
-    onApply(next, orchestrator && picked.has('orchestrator') && result.orchestrator.model !== orchestrator.value ? result.orchestrator.model : undefined)
+    onApply(changes, orchestrator && picked.has('orchestrator') && result.orchestrator.model !== orchestrator.value ? result.orchestrator.model : undefined)
     onClose()
   }
   const rows = result

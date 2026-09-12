@@ -10,6 +10,7 @@ import { Experimental_StdioMCPTransport as StdioMCPTransport } from '@ai-sdk/mcp
 import type { AgentEvent, AgentSpec, McpServerSpec, PermissionMode, SubagentStep, Workspace } from '@shared/types'
 import { parseModelRef } from '@shared/types'
 import { getStore } from '../../store'
+import * as library from '../agents'
 import { getWorkspace, patchWorkspace } from '../workspaces'
 import { buildTools, type ToolContext } from './tools'
 import { runWorker } from '../crew/workers'
@@ -246,7 +247,7 @@ async function runTurn(ws: Workspace, session: NativeSession, emit: Emit): Promi
   const ctx: ToolContext = { workspace: ws, roots: [...ws.repos.map((r) => r.worktreePath), ws.rootPath], cwd: wsCwd, signal: abort.signal }
   const builtin = buildTools(ctx)
   const lean = costModeFor(ws.spaceId, ws.id) === 'lean'
-  const crew = space?.useCrew === false || lean ? [] : (space?.agents ?? settings.agents).filter((a) => a.enabled && a.name.trim())
+  const crew = lean ? [] : library.crewFor(ws.spaceId)
   const mcp = await connectMcp(ws, session)
   const gcpOn = Boolean(gcp.gcpFor(ws.spaceId)) && (space ? space.exposeGcpMcp !== false : true)
   const tools: ToolSet = { ...builtin, ...mcp.tools, ...(lean ? {} : { ...notes.aiTools(ws.id), ...browserTools.aiTools(ws.id) }), ...(gcpOn ? gcp.aiTools(ws.spaceId) : {}), ...(ws.spaceId && space?.databases?.length ? dbTools.aiTools(ws.spaceId, ws.id) : {}), ...workspaceTools.aiTools(ws.id), ...(crew.length ? { Agent: crewTool(ws, crew, ctx, emit, mode) } : {}) }

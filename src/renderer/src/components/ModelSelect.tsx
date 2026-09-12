@@ -67,7 +67,7 @@ function useAgentProbes(): number {
  * One dropdown over every model a crew member can run on: Claude through your Claude login,
  * each API-key provider, and each signed-in vendor agent (Codex, Gemini, Grok).
  */
-export function CrewModelSelect({ value, onChange, className }: { value: string; onChange: (ref: string) => void; className?: string }): React.JSX.Element {
+export function CrewModelSelect({ value, onChange, className, allowDefault, defaultLabel }: { value: string; onChange: (ref: string) => void; className?: string; /** Offer an empty "inherit" entry first. */ allowDefault?: boolean; defaultLabel?: string }): React.JSX.Element {
   const providersRaw = useApp((s) => s.settings.providers)
   const providers = providersRaw ?? EMPTY_PROVIDERS
   useAgentProbes()
@@ -75,6 +75,7 @@ export function CrewModelSelect({ value, onChange, className }: { value: string;
   const known = new Set<string>([...KNOWN, ...providers.flatMap((p) => (p.models ?? []).map((m) => `${p.id}/${m}`)), ...agents.flatMap((a) => a.models.map((m) => `${a.id}/${m}`))])
   return (
     <select className={className ?? inputCls} value={value} onChange={(e) => onChange(e.target.value)}>
+      {allowDefault && <option value="">{defaultLabel ?? 'default'}</option>}
       {value && !known.has(value) && <option value={value}>{modelLabel(value, providers)} (custom)</option>}
       {MODEL_GROUPS.map((g) => (
         <optgroup key={g.label} label={`Claude · your Claude login · ${g.label.toLowerCase()}`}>

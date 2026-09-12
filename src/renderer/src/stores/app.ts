@@ -1,5 +1,7 @@
 import { create } from 'zustand'
-import type { Label, Repo, Settings, Space, StoreData, Workspace } from '@shared/types'
+import type { AgentSpec, Label, Repo, Settings, Space, StoreData, Workspace } from '@shared/types'
+
+export type View = 'workspace' | 'reviews' | 'oncall' | 'agents'
 import { api } from '@/lib/api'
 
 export type Tab = 'chat' | 'changes' | 'prs' | 'terminal' | 'run' | 'browser' | 'files' | 'data'
@@ -35,8 +37,11 @@ interface AppState {
   workspaces: Workspace[]
   settings: Settings
   selectedId: string | null
-  view: 'workspace' | 'reviews' | 'oncall'
+  view: View
   tab: Tab
+  /** The agent library, mirrored from main. */
+  agents: AgentSpec[]
+  setAgents: (a: AgentSpec[]) => void
   showNewWorkspace: boolean
   /** The open settings page, or null when the window is closed. */
   settingsTarget: SettingsTarget | null
@@ -62,7 +67,7 @@ interface AppState {
   load: () => Promise<void>
   applyStore: (d: StoreData) => void
   select: (id: string | null) => void
-  setView: (v: 'workspace' | 'reviews' | 'oncall') => void
+  setView: (v: View) => void
   setTab: (t: Tab) => void
   setShowNewWorkspace: (v: boolean, spaceId?: string) => void
   /** Kept for older call sites: opens Application → General. */
@@ -143,7 +148,9 @@ export const useApp = create<AppState>((set, get) => ({
   },
   workspaces: [],
   settings: { workspacesRoot: '', basePort: 55000, model: 'claude-opus-5', permissionMode: 'default', jira: { connected: false, siteUrl: '', email: '', hasToken: false, defaultJql: '' }, claudeAccounts: [{ id: 'default', name: 'Default', configDir: null }], defaultClaudeAccountId: 'default', agents: [] },
-  view: (localStorage.getItem('orchestra.view') as 'workspace' | 'reviews' | 'oncall') ?? 'workspace',
+  view: (localStorage.getItem('orchestra.view') as View) ?? 'workspace',
+  agents: [],
+  setAgents: (agents) => set({ agents }),
   selectedId: localStorage.getItem('orchestra.selected'),
   tab: 'chat',
   showNewWorkspace: false,
@@ -171,6 +178,8 @@ export const useApp = create<AppState>((set, get) => ({
     const fresh = !d.settings.onboarding?.setupDoneAt && d.workspaces.length === 0 && d.repos.length === 0 && !d.settings.claudeAccounts.some((a) => a.loggedIn)
     set({ loaded: true, ...(fresh ? { onboarding: 'setup' as const } : {}) })
     api.on('store:changed', (data) => get().applyStore(data))
+    api.invoke('agents:list').then((agents) => set({ agents })).catch(() => undefined)
+    api.on('agents:changed', (agents) => set({ agents }))
   },
   applyStore: (d) => {
     const selected = get().selectedId

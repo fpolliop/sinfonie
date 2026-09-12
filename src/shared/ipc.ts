@@ -1,4 +1,4 @@
-import type { AuthLink, BillingPeriod, CloudOrgDetail, CloudState, Plan, RemoteSettings, RemoteStatus, SpaceDefinition, SpaceImportPreview, SpaceImportResolution, BrowserState, ContextUsage, CrewPriority, FsEntry, LimitAlternative, UsageSnapshot, ChatImageInput, Incident, IncidentStatus, LinearIssue, LinearSettings, OnCallState, ResourceSnapshot, Severity, SlackConnection, LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion, OnCallBulkOp,
+import type { AgentDraft, AgentRunEvent, AgentSpec, AuthLink, BillingPeriod, CloudOrgDetail, CloudState, Plan, RemoteSettings, RemoteStatus, SpaceDefinition, SpaceImportPreview, SpaceImportResolution, BrowserState, ContextUsage, CrewPriority, FsEntry, LimitAlternative, UsageSnapshot, ChatImageInput, Incident, IncidentStatus, LinearIssue, LinearSettings, OnCallState, ResourceSnapshot, Severity, SlackConnection, LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion, OnCallBulkOp,
   AgentEvent,
   ChatItem,
   JiraIssue,
@@ -41,7 +41,7 @@ export interface SinfonieInvoke {
   'settings:update': (patch: Partial<Settings>) => Settings
 
   'spaces:create': (name: string) => Space
-  'spaces:update': (id: string, patch: Partial<Pick<Space, 'name' | 'color' | 'claudeAccountId' | 'model' | 'permissionMode' | 'workspacesRoot' | 'browserSensitiveOrigins' | 'githubOwners' | 'exposeLinearMcp' | 'oncall' | 'budgetMode' | 'leanMode' | 'gcp' | 'exposeGcpMcp' | 'mcpServers' | 'exposeJiraMcp' | 'strictMcp' | 'agents' | 'useCrew' | 'engine'>>) => Space
+  'spaces:update': (id: string, patch: Partial<Pick<Space, 'name' | 'color' | 'claudeAccountId' | 'model' | 'permissionMode' | 'workspacesRoot' | 'browserSensitiveOrigins' | 'githubOwners' | 'exposeLinearMcp' | 'oncall' | 'budgetMode' | 'leanMode' | 'gcp' | 'exposeGcpMcp' | 'mcpServers' | 'exposeJiraMcp' | 'strictMcp' | 'agents' | 'useCrew' | 'crewDisabled' | 'crewModels' | 'engine'>>) => Space
   /** MCP servers found in Claude Code's own config (~/.claude.json), for importing. */
   'mcp:importable': () => McpServerSpec[]
   'spaces:delete': (id: string) => void
@@ -195,6 +195,23 @@ export interface SinfonieInvoke {
   'crew:suggest': (spaceId?: string, priority?: CrewPriority) => CrewSuggestion
   /** Instant, rule-based suggestion for Claude Code crews; null for other engines. */
   'crew:preset': (spaceId?: string, priority?: CrewPriority) => CrewSuggestion | null
+  // ---- agent library ----
+  'agents:list': () => AgentSpec[]
+  /** Create (empty id) or update; returns the stored spec. */
+  'agents:save': (spec: AgentSpec) => AgentSpec
+  'agents:remove': (id: string) => void
+  'agents:duplicate': (id: string) => AgentSpec
+  'agents:fromTemplate': (name: string, spaceId?: string) => AgentSpec
+  'agents:resetBuiltins': () => AgentSpec[]
+  /** Draft a whole agent from a one-line description, model picked from the inventory. */
+  'agents:draft': (description: string, spaceId?: string) => AgentDraft
+  /** Run an agent once in a workspace from the editor; progress arrives on agents:run. Returns the run id. */
+  'agents:run': (agentId: string, workspaceId: string, prompt: string, override?: Partial<AgentSpec>) => string
+  'agents:cancelRun': (runId: string) => void
+  /** Import Claude Code agent files (.claude/agents/*.md) from a folder. */
+  'agents:importDir': (dir: string, spaceId?: string) => AgentSpec[]
+  /** Write one agent as a Claude Code agent file into a folder; returns the path. */
+  'agents:export': (id: string, dir: string) => string
   /** Run the agent's own authentication method (browser or terminal flow). Returns the terminal command when one must be run instead. */
   'acp:authenticate': (engine: Engine, methodId: string) => { ok: boolean; terminalCommand?: string; error?: string }
   /** A shell already running `command`, for interactive logins. */
@@ -312,6 +329,8 @@ export interface SinfonieEvents {
   'ui:openFeedback': { tab: 'feedback' | 'errors' }
   'ui:openOnboarding': { kind: 'setup' | 'tour' }
   'notes:changed': { workspaceId: string; notes: Note[] }
+  'agents:changed': AgentSpec[]
+  'agents:run': AgentRunEvent
   /** A new error was logged; the sidebar badge updates. */
   'errors:new': ErrorEntry
   /** Memory and process sample, every few seconds. */

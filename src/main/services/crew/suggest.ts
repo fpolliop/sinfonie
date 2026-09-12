@@ -2,12 +2,13 @@ import { claudeExecutableOption } from '../claude-cli'
 import * as usage from '../usage'
 import { defaultAccountId } from '../accounts'
 import { query, type Options, type SDKMessage } from '@anthropic-ai/claude-agent-sdk'
-import type { CrewPriority, AgentSpec, CrewSuggestion, Engine, ModelInventoryItem } from '@shared/types'
-import { ACP_ENGINES, CLAUDE_MODELS, PROVIDER_KINDS, classifyModel } from '@shared/types'
+import type { CrewPriority, AgentDraft, AgentSpec, CrewSuggestion, Engine, ModelInventoryItem } from '@shared/types'
+import { ACP_ENGINES, AGENT_TOOL_NAMES, CLAUDE_MODELS, PROVIDER_KINDS, classifyModel } from '@shared/types'
 import { getStore } from '../../store'
 import { accountEnv } from '../accounts'
 import { probeCache, probeCacheAt, probe } from '../acp/engine'
 import { estimateCost } from '../providers'
+import * as library from '../agents'
 
 const AGENT_SOURCE: Record<string, string> = { codex: 'Codex (ChatGPT login)', gemini: 'Gemini CLI (Google API key)', grok: 'Grok Build (grok.com login)' }
 
@@ -65,7 +66,7 @@ export async function suggest(spaceId?: string, priority: CrewPriority = 'balanc
   const { settings, spaces } = getStore().get()
   const space = spaces.find((s) => s.id === spaceId)
   const engine: Engine = space?.engine ?? settings.engine ?? 'claude-code'
-  const crew: AgentSpec[] = space?.agents ?? settings.agents
+  const crew: AgentSpec[] = library.crewFor(spaceId)
   const orchestratorNow = space?.model || (engine === 'native' ? settings.nativeModel : engine === 'claude-code' ? settings.model : (settings[`${engine}Model` as 'codexModel'] as string | undefined)) || ''
   const inv = (await inventory(true)).filter((i) => i.available)
   if (inv.length === 0) throw new Error('No usable models found. Sign in to an account or add a model provider first.')
@@ -171,7 +172,7 @@ export async function preset(spaceId: string | undefined, priority: CrewPriority
   const space = spaces.find((s) => s.id === spaceId)
   const engine: Engine = space?.engine ?? settings.engine ?? 'claude-code'
   if (engine !== 'claude-code') return null
-  const crew: AgentSpec[] = space?.agents ?? settings.agents
+  const crew: AgentSpec[] = library.crewFor(spaceId)
   const inv = await inventory(false)
   const available = new Set(inv.filter((i) => i.available).map((i) => i.ref))
   const pick = (m: string): string => (available.has(m) ? m : available.has('opus') && m === 'fable' ? 'opus' : m)
@@ -183,5 +184,99 @@ export async function preset(spaceId: string | undefined, priority: CrewPriority
       return { id: a.id, name: a.name, model: pick(p.roles[r].model), effort: p.roles[r].effort, why: p.why[r] }
     }),
     notes: priority === 'cost' ? 'Cost preset: no Opus anywhere. Pair it with Budget mode on the space for the full effect.' : priority === 'quality' ? 'Quality preset: expect several times the spend of Balanced.' : undefined
+  }
+}
+
+
+// ---------- "Describe it": draft a whole agent from one sentence ----------
+
+const DRAFT_SCHEMA = {
+  type: 'object',
+  properties: {
+    name: { type: 'string' },
+    description: { type: 'string' },
+    prompt: { type: 'string' },
+    model: { type: 'string' },
+    effort: { type: 'string', enum: ['low', 'medium', 'high', 'xhigh', 'max'] },
+    tools: { type: 'array', items: { type: 'string' } },
+    maxTurns: { type: 'integer' },
+    icon: { type: 'string' },
+    why: { type: 'string' }
+  },
+  required: ['name', 'description', 'prompt', 'model', 'why']
+}
+
+/** Turn "reviews SQL migrations for Postgres safety" into a complete agent spec, model picked from the user's inventory. */
+export async function draft(description: string, spaceId?: string): Promise<AgentDraft> {
+  const { settings } = getStore().get()
+  const inv = (await inventory(true)).filter((i) => i.available)
+  if (inv.length === 0) throw new Error('No usable models found. Sign in to an account or add a model provider first.')
+  const taken = library.visibleTo(spaceId).map((a) => a.name)
+  const prompt = [
+    'You design one subagent for Sinfonie, a multi-repo coding workspace. The user describes what the agent should do; you produce a complete definition. The orchestrator model reads the description to decide when to delegate, and the prompt is the agent\'s own system prompt.',
+    '',
+    'Rules:',
+    '- name: short kebab-case, unique, e.g. "migration-checker". Not one of: ' + (taken.join(', ') || '(none)') + '.',
+    '- description: one or two sentences, written for the orchestrator: what to send this agent and what comes back. Say "Read-only." when it must not change files.',
+    '- prompt: 3-8 sentences in the second person: how to work, what to check, what the final report must contain. Concrete, no filler.',
+    '- tools: a subset of these exact names, or omit for everything: ' + AGENT_TOOL_NAMES.map((t) => t.name).join(', ') + '. Read-only agents get no Edit, Write or bare Bash.',
+    '- model: the exact "ref" of one inventory entry. Cheap and fast (Haiku, small models) for volume work like search and running tests; strong coders (Sonnet, Codex) for implementation; the most careful (Opus, Fable) for review and judgment. Prefer subscription models over per-token API keys when quality is similar.',
+    '- effort: only for Claude models; low for volume, high for judgment. Omit otherwise.',
+    '- maxTurns: 20-40 for read-only roles, 60-80 for implementation.',
+    '- icon: one emoji.',
+    '- why: one sentence on the model choice.',
+    '',
+    `User description: ${description.trim()}`,
+    '',
+    'Inventory (ref · source · price):',
+    ...inv.map((i) => `- ${i.ref} · ${i.source} · ${i.price ?? 'price unknown'}${i.note ? ` · ${i.note}` : ''}`)
+  ].join('\n')
+  const abort = new AbortController()
+  const timer = setTimeout(() => abort.abort(), 120_000)
+  const options: Options = {
+    ...claudeExecutableOption(),
+    cwd: process.env.HOME ?? '/',
+    model: settings.model,
+    maxTurns: 3,
+    allowedTools: [],
+    canUseTool: async (tool) => ({ behavior: 'deny', message: `${tool} is not needed; answer from the description.` }),
+    abortController: abort,
+    settingSources: [],
+    outputFormat: { type: 'json_schema', schema: DRAFT_SCHEMA as unknown as Record<string, unknown> },
+    env: { ...process.env, ...accountEnv(undefined) },
+    stderr: (d) => console.error('[agent draft]', d.trimEnd())
+  }
+  let structured: unknown
+  try {
+    for await (const msg of query({ prompt, options }) as AsyncIterable<SDKMessage>) {
+      if (msg.type === 'result') {
+        try {
+          usage.recordTurn(usage.fromResult(msg, { workspaceId: '', spaceId: spaceId ?? '', accountId: defaultAccountId('anthropic') ?? 'default', kind: 'suggest' }))
+        } catch {
+          /* ledger must never break the draft */
+        }
+        if (msg.subtype === 'success') structured = msg.structured_output
+        else throw new Error(`Draft ended with ${msg.subtype}${'errors' in msg && Array.isArray(msg.errors) ? `: ${(msg.errors as string[]).join('; ')}` : ''}`)
+      }
+    }
+  } finally {
+    clearTimeout(timer)
+  }
+  const d = (structured ?? {}) as Partial<AgentDraft>
+  const known = new Set(inv.map((i) => i.ref))
+  const fix = (ref: string): string => (known.has(ref) ? ref : (inv.find((i) => i.ref.endsWith(`/${ref}`) || classifyModel(i.ref).modelId === ref)?.ref ?? inv[0].ref))
+  const validTools = new Set(AGENT_TOOL_NAMES.map((t) => t.name))
+  const tools = (d.tools ?? []).filter((t) => validTools.has(t))
+  const model = fix(d.model ?? 'sonnet')
+  return {
+    name: (d.name ?? 'new-agent').toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'new-agent',
+    description: d.description ?? description.trim(),
+    prompt: d.prompt ?? '',
+    model,
+    ...(classifyModel(model).kind === 'claude' && d.effort ? { effort: d.effort } : {}),
+    ...(tools.length ? { tools } : {}),
+    ...(d.maxTurns ? { maxTurns: Math.max(5, Math.min(200, Math.round(d.maxTurns))) } : {}),
+    ...(d.icon ? { icon: [...d.icon][0] } : {}),
+    why: d.why ?? ''
   }
 }

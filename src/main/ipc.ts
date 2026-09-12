@@ -16,7 +16,7 @@ interface RawMcp {
   args?: string[]
   env?: Record<string, string>
 }
-import { SPACE_COLORS } from '@shared/types'
+import { SPACE_COLORS, AGENT_TEMPLATES } from '@shared/types'
 import { getStore } from './store'
 import * as git from './services/git'
 import * as workspaces from './services/workspaces'
@@ -41,6 +41,8 @@ import * as providers from './services/providers'
 import * as acp from './services/acp/engine'
 import * as crewSuggest from './services/crew/suggest'
 import * as notes from './services/notes'
+import * as agentLib from './services/agents'
+import * as runs from './services/crew/runs'
 import * as resources from './services/resources'
 import * as browser from './services/browser/service'
 import * as browserHttp from './services/browser/http'
@@ -143,6 +145,7 @@ export function registerIpc(): void {
     return out
   })
   handle('spaces:delete', (id) => {
+    for (const a of agentLib.list()) if (a.scope === id) agentLib.remove(a.id)
     getStore().update((d) => {
       d.spaces = d.spaces.filter((s) => s.id !== id)
       for (const w of d.workspaces) if (w.spaceId === id) delete w.spaceId
@@ -534,6 +537,11 @@ export function registerIpc(): void {
   // Messages held back by a limit warning, until the user picks a way forward.
   const parked = new Map<string, { itemId: string; text: string; images?: ChatImageRef[] }>()
   const sendMessage = (id: string, text: string, images?: ChatImageInput[]): void | Promise<void> => {
+    // "@name …" goes straight to that agent, outside the orchestrator.
+    if (!images?.length && !agent.isBusy(id)) {
+      const mention = runs.parseMention(text, workspaces.getWorkspace(id).spaceId)
+      if (mention) return runs.invoke(id, mention.agent.id, mention.prompt, text)
+    }
     noteMessage(agent.engineFor(id))
     const refs = images?.length ? saveImages(id, images) : undefined
     if (agent.engineFor(id) === 'claude-code' && !agent.isBusy(id)) {
@@ -713,7 +721,10 @@ export function registerIpc(): void {
   handle('resources:get', () => resources.current())
   handle('resources:stopTask', (workspaceId, taskId) => agent.stopTask(workspaceId, taskId))
   handle('resources:cancelWaiting', (workspaceId) => resources.cancelWaiting(workspaceId))
-  handle('agent:interrupt', (id) => agent.interrupt(id))
+  handle('agent:interrupt', (id) => {
+    runs.interrupt(id)
+    return agent.interrupt(id)
+  })
   handle('agent:contextUsage', (id) => agent.contextUsage(id))
   handle('agent:compact', (id) => agent.compact(id, emitAgent))
   handle('agent:permission', (r) => interaction.answerPermission(r))
@@ -728,6 +739,23 @@ export function registerIpc(): void {
   handle('notes:add', (wsId, text, kind) => notes.add(wsId, text, kind, 'user'))
   handle('notes:update', (wsId, id, patch) => notes.update(wsId, id, patch))
   handle('notes:remove', (wsId, id) => notes.remove(wsId, id))
+  agentLib.setAgentsEmitter((list) => send('agents:changed', list))
+  runs.setRunEmitters((e) => send('agents:run', e), emitAgent, (id) => agent.isBusy(id))
+  handle('agents:list', () => agentLib.list())
+  handle('agents:save', (spec) => agentLib.save(spec))
+  handle('agents:remove', (id) => agentLib.remove(id))
+  handle('agents:duplicate', (id) => agentLib.duplicate(id))
+  handle('agents:fromTemplate', (name, spaceId) => {
+    const t = AGENT_TEMPLATES.find((x) => x.name === name)
+    if (!t) throw new Error(`No template ${name}`)
+    return agentLib.fromTemplate(t, spaceId)
+  })
+  handle('agents:resetBuiltins', () => agentLib.resetBuiltins())
+  handle('agents:draft', (description, spaceId) => crewSuggest.draft(description, spaceId))
+  handle('agents:run', (agentId, workspaceId, prompt, override) => runs.start(agentId, workspaceId, prompt, override))
+  handle('agents:cancelRun', (runId) => runs.cancel(runId))
+  handle('agents:importDir', (dir, spaceId) => agentLib.importDir(dir, spaceId))
+  handle('agents:export', (id, dir) => agentLib.exportTo(id, dir))
   handle('crew:inventory', () => crewSuggest.inventory())
   handle('crew:suggest', (spaceId, priority) => crewSuggest.suggest(spaceId, priority))
   handle('crew:preset', (spaceId, priority) => crewSuggest.preset(spaceId, priority))

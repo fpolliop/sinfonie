@@ -12,7 +12,7 @@ import { JiraSection } from './JiraSection'
 import { LinearSection } from './LinearSection'
 import { SlackConnectionCard } from './SlackConnectionCard'
 import { McpSection } from './McpSection'
-import { AgentsSection, DEFAULT_CREW } from './AgentsSection'
+import { CrewSection } from './CrewSection'
 import { ModelSelect } from './ModelSelect'
 import { ProvidersSection } from './ProvidersSection'
 import { EngineSelect, NativeModelSelect } from './EngineSelect'
@@ -36,7 +36,7 @@ const APP_PAGES: { id: AppPage; label: string; icon: React.ReactNode; desc: stri
   { id: 'repos', label: 'Repositories', icon: <FolderGit2 size={14} />, desc: 'Every git repository the app knows, and which space each belongs to.' },
   { id: 'providers', label: 'Model providers', icon: <Server size={14} />, desc: 'API keys and local servers for the native engine. Shared by all spaces.' },
   { id: 'accounts', label: 'Accounts', icon: <UserCircle2 size={14} />, desc: 'Logins for Anthropic, OpenAI, Google and xAI agents. Several per vendor; spaces and workspaces pick one.' },
-  { id: 'crew', label: 'Default crew', icon: <Users size={14} />, desc: 'The subagents a space gets unless it defines its own crew.' },
+  { id: 'crew', label: 'Crew', icon: <Users size={14} />, desc: 'Which agents orchestrators delegate to, and on which model. Agents are built under Agents in the sidebar.' },
   { id: 'resources', label: 'Resources', icon: <Gauge size={14} />, desc: 'Memory per session, subagent and session limits, and what happens under pressure.' },
   { id: 'usage', label: 'Usage', icon: <Activity size={14} />, desc: 'Subscription windows per account, spend per day, and where it went.' },
   { id: 'oncall', label: 'On call', icon: <Siren size={14} />, desc: 'Slack channels to watch, the triage agent, and how it drafts replies.' },
@@ -53,7 +53,7 @@ const APP_PAGES: { id: AppPage; label: string; icon: React.ReactNode; desc: stri
 const SPACE_PAGES: { id: SpacePage; label: string; icon: React.ReactNode; desc: string; overrides?: AppPage; group?: string }[] = [
   { id: 'general', label: 'General', icon: <SettingsIcon size={14} />, desc: 'Name, colour, and this space’s engine, model, permission mode, folder and account.', overrides: 'general' },
   { id: 'repos', label: 'Repositories', icon: <FolderGit2 size={14} />, desc: 'Repositories this space owns. New workspaces here offer these.', overrides: 'repos' },
-  { id: 'crew', label: 'Crew', icon: <Users size={14} />, desc: 'Subagents the orchestrator can delegate to in this space.', overrides: 'crew' },
+  { id: 'crew', label: 'Crew', icon: <Users size={14} />, desc: 'Which agents the orchestrator delegates to in this space, and on which model.', overrides: 'crew' },
   { id: 'oncall', label: 'On call', icon: <Siren size={14} />, desc: 'Slack channels this space\u2019s on-call agent watches, and how it triages.' },
   { id: 'jira', label: 'Jira', icon: <Ticket size={14} />, desc: 'This space’s Jira site and login.', overrides: 'jira', group: 'Integrations' },
   { id: 'linear', label: 'Linear', icon: <CircleDot size={14} />, desc: 'This space’s Linear login.', overrides: 'linear', group: 'Integrations' },
@@ -271,12 +271,9 @@ function AppPageView({ page }: { page: AppPage }): React.JSX.Element {
       return <OnCallSettings />
     case 'crew':
       return (
-        <AgentsSection
-          title="Default crew"
-          intro="Orchestrator = the chat model; these handle delegated subtasks on any vendor's model. Spaces inherit this list until they edit their own."
-          agents={settings.agents}
-          onChange={(agents) => go(() => update({ agents }))}
-          onResetToDefaults={() => go(() => update({ agents: DEFAULT_CREW }))}
+        <CrewSection
+          title="Crew"
+          intro="Orchestrator = the chat model; these handle delegated subtasks on any vendor's model. Every space gets the ticked agents unless it switches some off on its own Crew page. Agents themselves are created and edited under Agents in the sidebar."
           orchestrator={{
             value: (settings.engine ?? 'claude-code') === 'native' ? settings.nativeModel ?? '' : (settings.engine ?? 'claude-code') === 'claude-code' ? settings.model : ((settings[`${settings.engine}Model` as 'codexModel'] as string | undefined) ?? ''),
             label: 'app default',
@@ -572,16 +569,11 @@ function SpacePageView({ space, page }: { space: Space; page: SpacePage }): Reac
       return <SpaceRepos space={space} />
     case 'crew':
       return (
-        <AgentsSection
+        <CrewSection
           title="Crew for this space"
-          intro="Subagents the orchestrator can delegate to. Cheaper models for exploration and tests, frontier models for planning and review. Applies to sessions started after the change."
-          agents={space.agents ?? settings.agents}
-          engine={engine}
+          intro="Which library agents the orchestrator can delegate to here, and the model each runs on in this space. Cheaper models for exploration and tests, frontier models for planning and review. Applies to sessions started after the change."
           spaceId={space.id}
           orchestrator={{ value: space.model ?? '', label: 'app default', onChange: (model) => go(() => upd({ model })) }}
-          inherited={!space.agents}
-          onChange={(agents) => go(() => upd({ agents }))}
-          onResetToDefaults={() => go(() => upd({ agents: DEFAULT_CREW }))}
           useCrew={{ value: space.useCrew !== false, onToggle: (v) => go(() => upd({ useCrew: v })) }}
         />
       )

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { Plus, Settings, Archive, Pencil, Folder, Code2, TerminalSquare, Trash2, GitPullRequest, Layers, ArrowDownWideNarrow, ArrowUpNarrowWide, Filter, ChevronRight, MessageSquarePlus, Siren, Activity, Sparkles } from 'lucide-react'
+import { Plus, Settings, Archive, Pencil, Folder, Code2, TerminalSquare, Trash2, GitPullRequest, Layers, ArrowDownWideNarrow, ArrowUpNarrowWide, Filter, ChevronRight, MessageSquarePlus, Siren, Activity, Sparkles, Bot } from 'lucide-react'
 import { ERRORS_SEEN_KEY } from './FeedbackDialog'
 import { useResources, subscribeResources, gb } from '@/stores/resources'
 import { useOnCall, subscribeOnCall } from '@/stores/oncall'
@@ -111,6 +111,9 @@ export function Sidebar(): React.JSX.Element {
           <ReviewBadges />
         </button>
         <OnCallButton active={view === 'oncall'} onClick={() => setView('oncall')} />
+        <button data-tour="agents" onClick={() => setView('agents')} className={clsx('mb-2 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] font-medium', view === 'agents' ? 'bg-panel-2' : 'hover:bg-panel-2/60')}>
+          <Bot size={14} className="text-accent" /> Agents
+        </button>
       </div>
       <div key={currentId} className="space-enter flex-1 overflow-auto px-2 pb-2">
         <div

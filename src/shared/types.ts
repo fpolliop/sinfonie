@@ -50,8 +50,59 @@ export interface AgentSpec {
   disallowedTools?: string[]
   maxTurns?: number
   permissionMode?: PermissionMode
+  /** Part of the crew: orchestrators may delegate to it and it shows in @mentions. */
   enabled: boolean
+  /** An emoji shown on the card and in mentions. */
+  icon?: string
+  /** Space id when the agent belongs to one space; absent means every space. */
+  scope?: string
+  /** Where it came from: shipped with Sinfonie, made here, or imported from a .claude/agents file. */
+  source?: 'builtin' | 'user' | 'imported'
+  /** For imported agents: the markdown file it was read from. */
+  filePath?: string
+  createdAt?: string
+  updatedAt?: string
 }
+
+/** A starting point for a new agent: everything but id, scope and timestamps. */
+export type AgentTemplate = Omit<AgentSpec, 'id' | 'enabled' | 'scope' | 'source' | 'filePath' | 'createdAt' | 'updatedAt'> & { blurb: string }
+
+/** What "Describe it" returns: a proposed agent, ready to edit before saving. */
+export interface AgentDraft {
+  name: string
+  description: string
+  prompt: string
+  model: string
+  effort?: AgentSpec['effort']
+  tools?: string[]
+  maxTurns?: number
+  icon?: string
+  why: string
+}
+
+/** One step of an agent run started from the editor's "Try it" pane or an @mention. */
+export type AgentRunEvent =
+  | { runId: string; type: 'step'; step: SubagentStep; model?: string }
+  | { runId: string; type: 'done'; report: string; durationMs: number }
+  | { runId: string; type: 'error'; message: string }
+
+/** Tools Claude Code offers a subagent; the native loop maps the same names. */
+export const AGENT_TOOL_NAMES: { name: string; hint: string; readOnly: boolean }[] = [
+  { name: 'Read', hint: 'Read files', readOnly: true },
+  { name: 'Grep', hint: 'Search file contents', readOnly: true },
+  { name: 'Glob', hint: 'Find files by pattern', readOnly: true },
+  { name: 'LS', hint: 'List directories', readOnly: true },
+  { name: 'Edit', hint: 'Edit files', readOnly: false },
+  { name: 'Write', hint: 'Create and overwrite files', readOnly: false },
+  { name: 'Bash', hint: 'Run any shell command', readOnly: false },
+  { name: 'Bash(git diff:*)', hint: 'git diff only', readOnly: true },
+  { name: 'Bash(git log:*)', hint: 'git log only', readOnly: true },
+  { name: 'Bash(git show:*)', hint: 'git show only', readOnly: true },
+  { name: 'Bash(git blame:*)', hint: 'git blame only', readOnly: true },
+  { name: 'Bash(git status:*)', hint: 'git status only', readOnly: true },
+  { name: 'WebFetch', hint: 'Fetch a URL', readOnly: true },
+  { name: 'WebSearch', hint: 'Search the web', readOnly: true }
+]
 
 export const DEFAULT_CREW: AgentSpec[] = [
   {
@@ -96,6 +147,65 @@ export const DEFAULT_CREW: AgentSpec[] = [
     tools: ['Read', 'Grep', 'Glob', 'LS', 'Bash(git diff:*)', 'Bash(git log:*)', 'Bash(git show:*)'],
     maxTurns: 40,
     enabled: true
+  }
+]
+
+/** Extra archetypes offered by "New agent → From template", on top of the built-in crew. */
+export const AGENT_TEMPLATES: AgentTemplate[] = [
+  {
+    name: 'docs-writer',
+    icon: '📝',
+    blurb: 'Writes and updates documentation from the code.',
+    description: 'Writes or updates README, docs and inline comments for a change or a module, matching the existing tone. Reads the code first; edits only documentation files.',
+    prompt: 'You write documentation. Read the code you are asked to document and any existing docs, then write clear, concise prose in the same style as the surrounding documentation. Keep examples runnable. Only edit documentation files (Markdown, doc comments); never change behaviour. Finish with the list of files you touched.',
+    model: 'sonnet',
+    effort: 'medium',
+    tools: ['Read', 'Grep', 'Glob', 'LS', 'Edit', 'Write'],
+    maxTurns: 40
+  },
+  {
+    name: 'security-reviewer',
+    icon: '🛡️',
+    blurb: 'Audits a diff for security problems only.',
+    description: 'Security-focused review of a diff or a module: injection, auth and authorization gaps, secrets, unsafe deserialization, SSRF, path traversal, dependency risks. Read-only.',
+    prompt: 'You are a security reviewer. Read the diff and the code paths it touches. Report only security-relevant findings, ordered by severity, each with file and line, the attack scenario, and the fix. Say explicitly when you found nothing. Do not modify anything.',
+    model: 'opus',
+    effort: 'high',
+    tools: ['Read', 'Grep', 'Glob', 'LS', 'Bash(git diff:*)', 'Bash(git log:*)', 'Bash(git show:*)'],
+    maxTurns: 40
+  },
+  {
+    name: 'release-notes',
+    icon: '🚀',
+    blurb: 'Turns commits and PRs into release notes.',
+    description: 'Drafts release notes or a changelog entry from the git history between two refs, grouped by area, in user-facing language. Read-only.',
+    prompt: 'You write release notes. Use git log and git show between the refs you are given to understand what changed, then write notes for users, not developers: what is new, what changed, what was fixed, grouped by area, with breaking changes first. Skip internal refactors unless they matter to users. Do not modify files unless asked to write the notes into one.',
+    model: 'sonnet',
+    effort: 'medium',
+    tools: ['Read', 'Grep', 'Glob', 'Bash(git log:*)', 'Bash(git show:*)', 'Bash(git diff:*)'],
+    maxTurns: 30
+  },
+  {
+    name: 'migration-checker',
+    icon: '🗄️',
+    blurb: 'Checks database migrations for safety.',
+    description: 'Reviews database migrations for production safety: locking, backfills on large tables, missing indexes, irreversible steps, and mismatches with the ORM models. Read-only.',
+    prompt: 'You review database migrations. For each migration in the diff, check: table locks and how long they hold; backfills that should be batched; new NOT NULL columns without defaults; missing or concurrent index creation; whether the down migration is safe; whether the models and the schema agree. Report findings with file, line and the safer alternative. Do not modify anything.',
+    model: 'opus',
+    effort: 'high',
+    tools: ['Read', 'Grep', 'Glob', 'LS', 'Bash(git diff:*)'],
+    maxTurns: 30
+  },
+  {
+    name: 'debugger',
+    icon: '🐛',
+    blurb: 'Finds the root cause of a failure.',
+    description: 'Given a failing test, stack trace or bug report, finds the root cause: reproduces it, narrows it down, and explains it with evidence. Proposes the fix but does not apply it.',
+    prompt: 'You debug. Start from the failure you are given, reproduce it if you can, then narrow down the cause with targeted reads, greps and commands. Distinguish what you verified from what you suspect. Finish with the root cause, the evidence, and the minimal fix as a description or patch; do not apply it.',
+    model: 'sonnet',
+    effort: 'high',
+    tools: ['Read', 'Grep', 'Glob', 'LS', 'Bash'],
+    maxTurns: 60
   }
 ]
 
@@ -250,10 +360,14 @@ export interface Space {
   exposeLinearMcp?: boolean
   /** Ignore MCP servers from Claude Code's own config (claude.ai connectors, plugins, ~/.claude.json). Absent = app default. */
   strictMcp?: boolean
-  /** This space's crew. Absent = the app defaults in Settings. */
+  /** Pre-library crew (moved into the agent library on first start; kept for older builds). */
   agents?: AgentSpec[]
   /** Give the orchestrator its crew at all. Default on. */
   useCrew?: boolean
+  /** Library agents this space leaves out of its crew. */
+  crewDisabled?: string[]
+  /** Model overrides per agent id for this space. */
+  crewModels?: Record<string, string>
   /** Budget mode: Sonnet orchestrator, low effort, two subagents, a per-turn spend cap. Absent = app default. */
   budgetMode?: boolean
   /** Overrides the app default; undefined inherits. */
@@ -517,8 +631,10 @@ export interface Settings {
   mcpServers?: McpServerSpec[]
   /** Default for spaces: only use MCP servers configured in Sinfonie. */
   strictMcp?: boolean
-  /** Default crew for spaces without their own. */
+  /** Pre-library crew (moved into the agent library on first start; kept for older builds). */
   agents: AgentSpec[]
+  /** Set once settings.agents and every space's agents were copied into the library. */
+  agentLibraryMigratedAt?: string
   /** Default engine for spaces without their own. */
   engine?: Engine
   /** Model providers for the native engine. */
