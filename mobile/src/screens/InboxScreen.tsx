@@ -3,7 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { useNavigation } from '@react-navigation/native'
 import type { DrawerNavigationProp } from '@react-navigation/drawer'
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack'
-import { C, S, T } from '../theme'
+import { C, MAX_W, S, T } from '../theme'
 import { Dot, EmptyState, Icon, IconButton, SpaceChip } from '../ui'
 import { PromptCard } from '../components'
 import { useStore } from '../store'
@@ -27,7 +27,7 @@ export function InboxScreen(): React.JSX.Element {
         <Text style={[T.h1, { flex: 1 }]}>Inbox</Text>
         {prompts.length > 0 && <Text style={T.small}>{prompts.length} waiting</Text>}
       </View>
-      <ScrollView contentContainerStyle={{ paddingBottom: 32 }}>
+      <ScrollView contentContainerStyle={{ paddingBottom: 32, width: '100%', maxWidth: MAX_W, alignSelf: 'center' }}>
         {empty ? (
           <EmptyState icon="checkmark-done-outline" title="All clear" body="Permission prompts, questions and replies from your agents land here, and as notifications when you are away from the Mac." />
         ) : (
@@ -69,7 +69,7 @@ export function InboxScreen(): React.JSX.Element {
 
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: S.sm, paddingBottom: S.sm },
+  header: { alignSelf: 'center', width: '100%', maxWidth: MAX_W, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: S.sm, paddingBottom: S.sm },
   section: { ...T.caption, paddingHorizontal: S.lg, paddingTop: S.lg, paddingBottom: S.xs },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: S.lg, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.border }
 })

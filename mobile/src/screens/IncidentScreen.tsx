@@ -2,7 +2,7 @@ import React from 'react'
 import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native'
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack'
-import { C, R, S, T } from '../theme'
+import { C, MAX_W, R, S, T } from '../theme'
 import { Badge, Card, Icon, IconButton } from '../ui'
 import { oncallApprove, oncallDismissProposal, oncallSetSeverity, oncallSetStatus, useStore } from '../store'
 import { relativeTime } from '../util'
@@ -36,7 +36,7 @@ export function IncidentScreen(): React.JSX.Element {
   return (
     <View style={s.root}>
       <Header title={`#${inc.channelName}`} onBack={() => nav.goBack()} right={inc.permalink ? <IconButton name="open-outline" onPress={() => void Linking.openURL(inc.permalink!)} /> : undefined} />
-      <ScrollView contentContainerStyle={{ padding: S.lg, paddingBottom: 40, gap: S.md }}>
+      <ScrollView contentContainerStyle={{ padding: S.lg, paddingBottom: 40, gap: S.md, width: '100%', maxWidth: MAX_W, alignSelf: 'center' }}>
         <View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
             {inc.severity ? <Badge text={inc.severity} tone={sevTone(inc.severity)} /> : <Badge text="untriaged" tone="muted" />}
@@ -209,7 +209,7 @@ function Chip({ label, active, onPress }: { label: string; active: boolean; onPr
 
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: S.sm, paddingVertical: S.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.border },
+  header: { alignSelf: 'center', width: '100%', maxWidth: MAX_W, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: S.sm, paddingVertical: S.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.border },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   chip: { paddingHorizontal: 11, paddingVertical: 5, borderRadius: R.pill, backgroundColor: C.panel, borderWidth: 1, borderColor: C.border2 },
   chipOn: { backgroundColor: 'rgba(124,156,255,.14)', borderColor: 'rgba(124,156,255,.4)' },

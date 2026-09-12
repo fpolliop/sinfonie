@@ -4,7 +4,7 @@ import { useNavigation, useRoute, type RouteProp } from '@react-navigation/nativ
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Haptics from 'expo-haptics'
-import { C, R, S, T } from '../theme'
+import { C, MAX_W, R, S, T } from '../theme'
 import { Dot, Icon, IconButton } from '../ui'
 import { clearCreated, createConversation, useStore } from '../store'
 import type { RootStack } from '../App'
@@ -54,7 +54,7 @@ export function NewConversationScreen(): React.JSX.Element {
         </View>
       </View>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerStyle={{ padding: S.md, gap: S.md }} keyboardShouldPersistTaps="handled">
+        <ScrollView contentContainerStyle={{ padding: S.md, gap: S.md, width: '100%', maxWidth: MAX_W, alignSelf: 'center' }} keyboardShouldPersistTaps="handled">
           {spaces.length > 1 && (
             <View>
               <Text style={s.label}>Team</Text>
@@ -106,7 +106,7 @@ export function NewConversationScreen(): React.JSX.Element {
 
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: S.sm, paddingBottom: S.sm },
+  header: { alignSelf: 'center', width: '100%', maxWidth: MAX_W, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: S.sm, paddingBottom: S.sm },
   label: { ...T.caption, marginBottom: 8 },
   space: { flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 12, paddingVertical: 9, borderRadius: R.md, backgroundColor: C.panel, borderWidth: 1, borderColor: C.border2 },
   input: { minHeight: 140, borderWidth: 1, borderColor: C.border2, backgroundColor: C.panel, color: C.text, borderRadius: R.md, padding: 14, fontSize: 15, textAlignVertical: 'top' },
