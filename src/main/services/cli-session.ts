@@ -20,6 +20,7 @@ import { getStore } from '../store'
 import { effectivePermissionMode } from './permission-mode'
 import * as terminal from './terminal'
 import * as agent from './agent'
+import * as library from './agents'
 import * as usage from './usage'
 import * as limits from './limits'
 import { accountForEngine, envForAccount } from './accounts'
@@ -97,7 +98,7 @@ export async function start(workspaceId: string, opts: { prompt?: string; fresh?
   if (model) args.push('--model', q(model))
   // The crew: members on Claude models become the CLI's subagents, the same definitions the SDK gets.
   if (space?.useCrew !== false) {
-    const crew = (space?.agents ?? settings.agents).filter((a) => a.enabled && a.name.trim() && classifyModel(a.model).kind === 'claude')
+    const crew = library.crewFor(ws.spaceId).filter((a) => classifyModel(a.model).kind === 'claude')
     if (crew.length) {
       const defs = Object.fromEntries(crew.map((a) => [a.name, { description: a.description, prompt: a.prompt, model: a.model, ...(a.tools?.length ? { tools: a.tools } : {}), ...(a.disallowedTools?.length ? { disallowedTools: a.disallowedTools } : {}) }]))
       args.push('--agents', q(JSON.stringify(defs)))
