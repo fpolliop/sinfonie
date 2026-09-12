@@ -2,7 +2,7 @@ import React from 'react'
 import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native'
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack'
-import { C, MAX_W, R, S, T } from '../theme'
+import { C, MAX_W, R, S, T, pane } from '../theme'
 import { Badge, Card, Icon, IconButton } from '../ui'
 import { oncallApprove, oncallDismissProposal, oncallSetSeverity, oncallSetStatus, useStore } from '../store'
 import { relativeTime } from '../util'
@@ -36,7 +36,8 @@ export function IncidentScreen(): React.JSX.Element {
   return (
     <View style={s.root}>
       <Header title={`#${inc.channelName}`} onBack={() => nav.goBack()} right={inc.permalink ? <IconButton name="open-outline" onPress={() => void Linking.openURL(inc.permalink!)} /> : undefined} />
-      <ScrollView contentContainerStyle={{ padding: S.lg, paddingBottom: 40, gap: S.md, width: '100%', maxWidth: MAX_W, alignSelf: 'center' }}>
+      <ScrollView style={pane}
+        contentContainerStyle={{ padding: S.lg, paddingBottom: 40, gap: S.md }}>
         <View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
             {inc.severity ? <Badge text={inc.severity} tone={sevTone(inc.severity)} /> : <Badge text="untriaged" tone="muted" />}

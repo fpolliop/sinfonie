@@ -3,7 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { useNavigation } from '@react-navigation/native'
 import type { DrawerNavigationProp } from '@react-navigation/drawer'
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack'
-import { C, MAX_W, S, T } from '../theme'
+import { C, MAX_W, S, T, pane } from '../theme'
 import { Dot, EmptyState, Icon, IconButton, SpaceChip } from '../ui'
 import { PromptCard } from '../components'
 import { useStore } from '../store'
@@ -27,7 +27,8 @@ export function InboxScreen(): React.JSX.Element {
         <Text style={[T.h1, { flex: 1 }]}>Inbox</Text>
         {prompts.length > 0 && <Text style={T.small}>{prompts.length} waiting</Text>}
       </View>
-      <ScrollView contentContainerStyle={{ paddingBottom: 32, width: '100%', maxWidth: MAX_W, alignSelf: 'center' }}>
+      <ScrollView style={pane}
+        contentContainerStyle={{ paddingBottom: 32 }}>
         {empty ? (
           <EmptyState icon="checkmark-done-outline" title="All clear" body="Permission prompts, questions and replies from your agents land here, and as notifications when you are away from the Mac." />
         ) : (

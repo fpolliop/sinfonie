@@ -47,6 +47,35 @@ export function registerNotifDismiss(byWorkspace: (id: string) => void, byReques
   dismissWorkspaceNotifs = byWorkspace
   dismissRequestNotifs = byRequest
 }
+
+function sameWs(a: RemoteWorkspace, b: RemoteWorkspace): boolean {
+  return (
+    a.id === b.id &&
+    a.name === b.name &&
+    a.busy === b.busy &&
+    a.needsInput === b.needsInput &&
+    a.awaitingReply === b.awaitingReply &&
+    a.stage === b.stage &&
+    a.status === b.status &&
+    a.lastMessageAt === b.lastMessageAt &&
+    a.lastText === b.lastText &&
+    a.space?.name === b.space?.name &&
+    a.space?.color === b.space?.color
+  )
+}
+/**
+ * The Mac re-pushes the workspace list on every status ping, often unchanged. Reuse the previous array
+ * and objects when nothing changed, so the list does not re-render and lose scroll position mid-scroll.
+ * Returns the SAME array reference when there is no change at all.
+ */
+function reconcileWorkspaces(prev: RemoteWorkspace[], next: RemoteWorkspace[]): RemoteWorkspace[] {
+  if (prev.length === next.length && next.every((w, i) => sameWs(prev[i], w))) return prev
+  const byId = new Map(prev.map((w) => [w.id, w]))
+  return next.map((w) => {
+    const old = byId.get(w.id)
+    return old && sameWs(old, w) ? old : w
+  })
+}
 export function useStore<T>(select: (s: State) => T): T {
   const [v, setV] = useState(() => select(state))
   useEffect(() => {
@@ -207,9 +236,11 @@ function handle(msg: ToPhone): void {
     case 'hello':
       set({ host: msg.host })
       break
-    case 'workspaces':
-      set({ workspaces: msg.items })
+    case 'workspaces': {
+      const w = reconcileWorkspaces(state.workspaces, msg.items)
+      if (w !== state.workspaces) set({ workspaces: w })
       break
+    }
     case 'spaces':
       set({ spaces: msg.items })
       break

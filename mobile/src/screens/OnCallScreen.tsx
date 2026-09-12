@@ -3,7 +3,7 @@ import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'rea
 import { useNavigation } from '@react-navigation/native'
 import type { DrawerNavigationProp } from '@react-navigation/drawer'
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack'
-import { C, MAX_W, R, S, T } from '../theme'
+import { C, MAX_W, R, S, T, pane } from '../theme'
 import { Badge, Dot, EmptyState, Icon, IconButton } from '../ui'
 import { refreshOnCall, useStore } from '../store'
 import { relativeTime } from '../util'
@@ -80,7 +80,8 @@ export function OnCallScreen(): React.JSX.Element {
       <FlatList
         data={visible}
         keyExtractor={(i) => i.id}
-        contentContainerStyle={{ paddingBottom: 32, width: '100%', maxWidth: MAX_W, alignSelf: 'center' }}
+        style={pane}
+        contentContainerStyle={{ paddingBottom: 32 }}
         refreshControl={<RefreshControl refreshing={loading && onCall.length > 0} onRefresh={refresh} tintColor={C.muted} />}
         renderItem={({ item }) => <IncidentRow inc={item} onPress={() => nav.getParent<NativeStackNavigationProp<RootStack>>()?.navigate('Incident', { id: item.id })} />}
         ListEmptyComponent={
