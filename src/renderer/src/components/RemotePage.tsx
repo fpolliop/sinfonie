@@ -58,22 +58,22 @@ export function RemotePage(): React.JSX.Element {
       <section className="mb-5 rounded-lg border border-border p-3">
         <div className="flex items-center gap-2 text-[13px]">
           <Smartphone size={14} className="text-muted" />
-          <span className="font-medium">{status?.paired ? 'Phone paired' : 'No phone paired'}</span>
+          <span className="font-medium">{status?.paired ? 'Device paired' : 'No device paired'}</span>
           {status?.paired && <Badge tone={status.connected ? 'ok' : 'warn'}>{status.connected ? 'relay connected' : 'relay offline'}</Badge>}
-          {status?.paired && status.connected && <Badge>{status.phones} phone{status.phones === 1 ? '' : 's'} online</Badge>}
+          {status?.paired && status.connected && <Badge>{status.phones} device{status.phones === 1 ? '' : 's'} online</Badge>}
           <span className="ml-auto flex items-center gap-1">
             {status?.paired ? (
               <>
-                <Button size="sm" disabled={busy} onClick={() => void pair()}>
-                  Show QR again
+                <Button size="sm" variant="primary" disabled={busy} onClick={() => void pair()} title="Show the code again to add another device — an iPad, a second phone. They all stay in sync.">
+                  <Smartphone size={12} /> Pair another device
                 </Button>
-                <Button size="sm" variant="danger" disabled={busy} onClick={() => void unpair()} title="Forget the key; paired phones stop working">
-                  <Unlink size={12} /> Unpair
+                <Button size="sm" variant="danger" disabled={busy} onClick={() => void unpair()} title="Forget the key; every paired device stops working">
+                  <Unlink size={12} /> Unpair all
                 </Button>
               </>
             ) : (
               <Button size="sm" variant="primary" disabled={busy} onClick={() => void pair()}>
-                Pair a phone
+                Pair a device
               </Button>
             )}
           </span>
@@ -84,11 +84,12 @@ export function RemotePage(): React.JSX.Element {
             <div className="h-[220px] w-[220px] shrink-0 rounded-md bg-panel-2 p-2 [&>svg]:h-full [&>svg]:w-full" dangerouslySetInnerHTML={{ __html: pairing.qrSvg }} />
             <div className="text-[12px] text-muted">
               <ol className="list-decimal space-y-1.5 pl-4">
-                <li>Install Sinfonie on the phone (App Store or Google Play) and scan this code from its Pair screen.</li>
+                <li>Install Sinfonie on the device (App Store or Google Play) and scan this code from its Pair screen.</li>
                 <li>Or scan it with the camera: it opens sinfonie.dev/m, a web version you can add to the home screen.</li>
-                <li>Tap "Enable notifications" on the phone so it can wake you when an agent needs you.</li>
+                <li>Tap "Enable notifications" so it can wake you when an agent needs you.</li>
               </ol>
-              <p className="mt-2">The link holds the pairing key, so treat it like a password. Anyone who has it can read and reply to your workspaces. Unpair here if a phone is lost.</p>
+              <p className="mt-2">Scan the same code on every device you want — your iPhone and iPad can both be paired, and they stay in sync and both get notifications.</p>
+              <p className="mt-2">The link holds the pairing key, so treat it like a password. Anyone who has it can read and reply to your workspaces. Unpair here if a device is lost (this signs out every paired device).</p>
               <Button size="sm" className="mt-2" onClick={() => void copy()}>
                 {copied ? <Check size={12} /> : <Copy size={12} />} {copied ? 'Copied' : 'Copy link instead'}
               </Button>
