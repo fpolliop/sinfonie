@@ -3,7 +3,7 @@ import { Pressable, RefreshControl, SectionList, StyleSheet, Text, View } from '
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native'
 import type { DrawerNavigationProp } from '@react-navigation/drawer'
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack'
-import { C, MAX_W, R, S, T } from '../theme'
+import { C, MAX_W, R, S, T, pane } from '../theme'
 import { Badge, Button, Dot, EmptyState, IconButton, SpaceChip } from '../ui'
 import { PromptCard } from '../components'
 import { send, useStore } from '../store'
@@ -82,6 +82,7 @@ export function WorkspacesScreen(): React.JSX.Element {
     setTimeout(() => setRefreshing(false), 700)
   }, [])
   const openPrompts = prompts.filter((p) => !space || workspaces.find((w) => w.id === p.request.workspaceId)?.space?.name === space)
+  const openChat = useCallback((wid: string) => nav.getParent<NativeStackNavigationProp<RootStack>>()?.navigate('Chat', { workspaceId: wid }), [nav])
 
   return (
     <View style={s.root}>
@@ -101,7 +102,8 @@ export function WorkspacesScreen(): React.JSX.Element {
         keyExtractor={(w) => w.id}
         stickySectionHeadersEnabled={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={C.muted} />}
-        contentContainerStyle={{ paddingBottom: 32, width: '100%', maxWidth: MAX_W, alignSelf: 'center' }}
+        style={pane}
+        contentContainerStyle={{ paddingBottom: 32 }}
         ListHeaderComponent={
           <View>
             {lastError && (
@@ -141,7 +143,7 @@ export function WorkspacesScreen(): React.JSX.Element {
             body={filter ? 'Come back when an agent asks for something, or pull to refresh.' : 'Create a workspace in Sinfonie on the Mac and it appears here.'}
           />
         }
-        renderItem={({ item: w }) => <WorkspaceRow w={w} need={needsYou(w)} onPress={() => nav.getParent<NativeStackNavigationProp<RootStack>>()?.navigate('Chat', { workspaceId: w.id })} />}
+        renderItem={({ item: w }) => <WorkspaceRow w={w} need={needsYou(w)} onOpen={openChat} />}
       />
     </View>
   )
@@ -163,9 +165,9 @@ function FilterChip({ label, active, onPress }: { label: string; active: boolean
   )
 }
 
-function WorkspaceRow({ w, need, onPress }: { w: RemoteWorkspace; need: boolean; onPress: () => void }): React.JSX.Element {
+const WorkspaceRow = React.memo(function WorkspaceRow({ w, need, onOpen }: { w: RemoteWorkspace; need: boolean; onOpen: (id: string) => void }): React.JSX.Element {
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => [s.row, pressed && { backgroundColor: C.panel }]}>
+    <Pressable onPress={() => onOpen(w.id)} style={({ pressed }) => [s.row, pressed && { backgroundColor: C.panel }]}>
       <View style={[s.avatar, { borderColor: w.space?.color ?? C.border2 }]}>
         <Text style={{ color: w.space?.color ?? C.muted, fontWeight: '700', fontSize: 14 }}>{w.name.trim()[0]?.toUpperCase() ?? '·'}</Text>
         <View style={s.avatarDot}>
@@ -189,7 +191,7 @@ function WorkspaceRow({ w, need, onPress }: { w: RemoteWorkspace; need: boolean;
       </View>
     </Pressable>
   )
-}
+})
 
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },

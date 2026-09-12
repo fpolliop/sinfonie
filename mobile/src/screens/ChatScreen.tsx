@@ -4,7 +4,7 @@ import { useNavigation, useRoute, type RouteProp } from '@react-navigation/nativ
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Haptics from 'expo-haptics'
-import { C, MAX_W, R, S, T } from '../theme'
+import { C, MAX_W, R, S, T, pane } from '../theme'
 import { Dot, Icon, IconButton, SpaceChip } from '../ui'
 import { MessageItem, PromptCard, Typing } from '../components'
 import { loadHistory, send, sendMessage, subscribe, unsubscribe, useStore } from '../store'
@@ -116,7 +116,8 @@ export function ChatScreen(): React.JSX.Element {
           ref={list}
           data={items ?? []}
           keyExtractor={(it) => it.id}
-          contentContainerStyle={{ paddingHorizontal: 14, paddingTop: 10, paddingBottom: 12, width: '100%', maxWidth: MAX_W, alignSelf: 'center' }}
+          style={pane}
+          contentContainerStyle={{ paddingHorizontal: 14, paddingTop: 10, paddingBottom: 12 }}
           renderItem={({ item, index }) => <MessageItem item={item} showTime={index === (items?.length ?? 0) - 1} />}
           onStartReached={() => {
             if (hasMore && !loadingHistory && (items?.length ?? 0) > 0) {

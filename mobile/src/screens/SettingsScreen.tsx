@@ -4,7 +4,7 @@ import { useNavigation } from '@react-navigation/native'
 import type { DrawerNavigationProp } from '@react-navigation/drawer'
 import Constants from 'expo-constants'
 import * as Notifications from 'expo-notifications'
-import { C, MAX_W, S, T } from '../theme'
+import { C, MAX_W, S, T, pane } from '../theme'
 import { Badge, IconButton, Row, SectionHeader } from '../ui'
 import { unpair, useStore } from '../store'
 import { enablePush } from '../notifications'
@@ -29,7 +29,8 @@ export function SettingsScreen(): React.JSX.Element {
         <IconButton name="menu-outline" onPress={() => nav.openDrawer()} />
         <Text style={[T.h1, { flex: 1 }]}>Settings</Text>
       </View>
-      <ScrollView contentContainerStyle={{ paddingHorizontal: S.md, paddingBottom: 40, width: '100%', maxWidth: MAX_W, alignSelf: 'center' }}>
+      <ScrollView style={pane}
+        contentContainerStyle={{ paddingHorizontal: S.md, paddingBottom: 40 }}>
         <SectionHeader title="Mac" />
         <View style={s.group}>
           <Row icon="laptop-outline" title={host || 'Paired Mac'} subtitle={connected ? 'Connected through the relay' : 'Reconnecting…'} right={<Badge text={connected ? 'online' : 'offline'} tone={connected ? 'ok' : 'danger'} />} first />

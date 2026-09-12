@@ -4,7 +4,7 @@ import { CameraView, useCameraPermissions } from 'expo-camera'
 import { LinearGradient } from 'expo-linear-gradient'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { Button, Icon, type IoniconName } from '../ui'
-import { C, MAX_W, R, S, T, brandGradient } from '../theme'
+import { C, MAX_W, R, S, T, brandGradient, pane } from '../theme'
 import { parsePairingLink } from '../protocol'
 import { savePairing } from '../store'
 
@@ -60,7 +60,7 @@ export function PairScreen(): React.JSX.Element {
   return (
     <SafeAreaView style={s.root}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerStyle={s.body} keyboardShouldPersistTaps="handled">
+        <ScrollView style={pane} contentContainerStyle={s.body} keyboardShouldPersistTaps="handled">
           <View style={s.hero}>
             <LinearGradient colors={[...brandGradient]} start={{ x: 0, y: 1 }} end={{ x: 1, y: 0 }} style={s.heroGlow} />
             <Image source={require('../../assets/mark.png')} style={{ width: 96, height: 96 }} resizeMode="contain" />
@@ -115,7 +115,7 @@ export function PairScreen(): React.JSX.Element {
 
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
-  body: { alignSelf: 'center', width: '100%', maxWidth: MAX_W, padding: S.lg, paddingBottom: 40 },
+  body: { padding: S.lg, paddingBottom: 40 },
   hero: { alignItems: 'center', paddingVertical: S.xl, overflow: 'visible' },
   heroGlow: { position: 'absolute', top: 10, width: 140, height: 140, borderRadius: 70, opacity: 0.18, transform: [{ scale: 1.6 }] },
   card: { backgroundColor: C.panel, borderWidth: 1, borderColor: C.border, borderRadius: R.xl, padding: S.lg, gap: 12 },

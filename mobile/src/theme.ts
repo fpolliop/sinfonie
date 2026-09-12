@@ -1,4 +1,6 @@
 /** Design tokens shared by every screen: the same palette as the Mac app and sinfonie.dev. */
+import type { ViewStyle } from 'react-native'
+
 export const C = {
   bg: '#0b0d11',
   bg2: '#0f1115',
@@ -22,6 +24,12 @@ export const gradient = ['#5b7cff', '#7c9cff'] as const
 export const brandGradient = ['#7c9cff', '#a78bfa', '#f472b6'] as const
 /** Max width of the content column; on a wide screen (iPad) content centers instead of stretching. */
 export const MAX_W = 760
+/**
+ * Caps a scrollable to a centered column on wide screens. Applied to the list/scroll `style` (its frame),
+ * NOT its contentContainerStyle — alignment props on a VirtualizedList's content container corrupt its
+ * scroll metrics (jumps to top on update). No-op on phones, where the screen is narrower than MAX_W.
+ */
+export const pane: ViewStyle = { flex: 1, width: '100%', maxWidth: MAX_W, alignSelf: 'center' }
 export const R = { sm: 8, md: 12, lg: 16, xl: 22, pill: 999 }
 export const S = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 }
 export const T = {

@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { FlatList, Linking, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native'
 import { useNavigation } from '@react-navigation/native'
 import type { DrawerNavigationProp } from '@react-navigation/drawer'
-import { C, MAX_W, R, S, T } from '../theme'
+import { C, MAX_W, R, S, T, pane } from '../theme'
 import { Badge, EmptyState, Icon, IconButton } from '../ui'
 import { refreshReviews, useStore } from '../store'
 import { relativeTime } from '../util'
@@ -67,7 +67,8 @@ export function ReviewsScreen(): React.JSX.Element {
       <FlatList
         data={visible}
         keyExtractor={(p) => `${p.nameWithOwner}#${p.number}`}
-        contentContainerStyle={{ paddingBottom: 32, width: '100%', maxWidth: MAX_W, alignSelf: 'center' }}
+        style={pane}
+        contentContainerStyle={{ paddingBottom: 32 }}
         refreshControl={<RefreshControl refreshing={loading && reviews.length > 0} onRefresh={refresh} tintColor={C.muted} />}
         renderItem={({ item }) => <ReviewRow pr={item} />}
         ListEmptyComponent={
