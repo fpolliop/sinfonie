@@ -698,6 +698,7 @@ export function registerIpc(): void {
   handle('remote:pair', () => remote.pair())
   handle('remote:unpair', () => remote.unpair())
   handle('remote:updateSettings', (patch) => remote.updateSettings(patch))
+  handle('remote:seen', (workspaceId) => remote.markSeen(workspaceId))
   usage.setEmitter((s) => send('usage:changed', s))
   handle('usage:get', () => usage.snapshot())
   power.setOnChange((on) => send('power:changed', on))

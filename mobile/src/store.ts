@@ -38,6 +38,15 @@ function set(patch: Partial<State> | ((s: State) => Partial<State>)): void {
 export function getState(): State {
   return state
 }
+
+// Tray-notification dismissal is registered by notifications.ts (which owns expo-notifications), so the
+// store can trigger it without importing that module and creating a cycle.
+let dismissWorkspaceNotifs: (workspaceId: string) => void = () => {}
+let dismissRequestNotifs: (requestId: string) => void = () => {}
+export function registerNotifDismiss(byWorkspace: (id: string) => void, byRequest: (id: string) => void): void {
+  dismissWorkspaceNotifs = byWorkspace
+  dismissRequestNotifs = byRequest
+}
 export function useStore<T>(select: (s: State) => T): T {
   const [v, setV] = useState(() => select(state))
   useEffect(() => {
@@ -221,6 +230,7 @@ function handle(msg: ToPhone): void {
       break
     case 'prompt:resolved':
       set((s) => ({ prompts: s.prompts.filter((p) => p.request.requestId !== msg.requestId) }))
+      dismissRequestNotifs(msg.requestId)
       break
     case 'transcript':
       set((s) => ({
@@ -252,6 +262,9 @@ function handle(msg: ToPhone): void {
       break
     case 'busy':
       set((s) => ({ busy: { ...s.busy, [msg.workspaceId]: msg.busy } }))
+      break
+    case 'notifClear':
+      dismissWorkspaceNotifs(msg.workspaceId)
       break
     case 'error':
       set({ lastError: msg.message })
