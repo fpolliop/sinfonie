@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { FlatList, Linking, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native'
 import { useNavigation } from '@react-navigation/native'
 import type { DrawerNavigationProp } from '@react-navigation/drawer'
-import { C, R, S, T } from '../theme'
+import { C, MAX_W, R, S, T } from '../theme'
 import { Badge, EmptyState, Icon, IconButton } from '../ui'
 import { refreshReviews, useStore } from '../store'
 import { relativeTime } from '../util'
@@ -67,7 +67,7 @@ export function ReviewsScreen(): React.JSX.Element {
       <FlatList
         data={visible}
         keyExtractor={(p) => `${p.nameWithOwner}#${p.number}`}
-        contentContainerStyle={{ paddingBottom: 32 }}
+        contentContainerStyle={{ paddingBottom: 32, width: '100%', maxWidth: MAX_W, alignSelf: 'center' }}
         refreshControl={<RefreshControl refreshing={loading && reviews.length > 0} onRefresh={refresh} tintColor={C.muted} />}
         renderItem={({ item }) => <ReviewRow pr={item} />}
         ListEmptyComponent={
@@ -127,8 +127,8 @@ function Chip({ label, active, color, onPress }: { label: string; active: boolea
 
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: S.sm, paddingBottom: S.sm },
-  controls: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingHorizontal: S.md, paddingTop: 4, paddingBottom: 6 },
+  header: { alignSelf: 'center', width: '100%', maxWidth: MAX_W, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: S.sm, paddingBottom: S.sm },
+  controls: { alignSelf: 'center', width: '100%', maxWidth: MAX_W, flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingHorizontal: S.md, paddingTop: 4, paddingBottom: 6 },
   chip: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 11, paddingVertical: 5, borderRadius: R.pill, backgroundColor: C.panel, borderWidth: 1, borderColor: C.border2 },
   chipOn: { backgroundColor: 'rgba(124,156,255,.14)', borderColor: 'rgba(124,156,255,.4)' },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: S.lg, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.border },

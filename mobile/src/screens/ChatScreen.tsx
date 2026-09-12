@@ -4,7 +4,7 @@ import { useNavigation, useRoute, type RouteProp } from '@react-navigation/nativ
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Haptics from 'expo-haptics'
-import { C, R, S, T } from '../theme'
+import { C, MAX_W, R, S, T } from '../theme'
 import { Dot, Icon, IconButton, SpaceChip } from '../ui'
 import { MessageItem, PromptCard, Typing } from '../components'
 import { loadHistory, send, sendMessage, subscribe, unsubscribe, useStore } from '../store'
@@ -116,7 +116,7 @@ export function ChatScreen(): React.JSX.Element {
           ref={list}
           data={items ?? []}
           keyExtractor={(it) => it.id}
-          contentContainerStyle={{ paddingHorizontal: 14, paddingTop: 10, paddingBottom: 12 }}
+          contentContainerStyle={{ paddingHorizontal: 14, paddingTop: 10, paddingBottom: 12, width: '100%', maxWidth: MAX_W, alignSelf: 'center' }}
           renderItem={({ item, index }) => <MessageItem item={item} showTime={index === (items?.length ?? 0) - 1} />}
           onStartReached={() => {
             if (hasMore && !loadingHistory && (items?.length ?? 0) > 0) {
@@ -203,10 +203,10 @@ export function ChatScreen(): React.JSX.Element {
 
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: S.sm, paddingBottom: S.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.border, backgroundColor: C.bg },
+  header: { alignSelf: 'center', width: '100%', maxWidth: MAX_W, flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: S.sm, paddingBottom: S.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.border, backgroundColor: C.bg },
   stop: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 6, borderRadius: R.pill, backgroundColor: 'rgba(248,113,113,.14)', borderWidth: 1, borderColor: 'rgba(248,113,113,.35)' },
   toBottom: { position: 'absolute', right: 14, bottom: 84, flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, height: 34, borderRadius: 17, backgroundColor: C.panel2, borderWidth: 1, borderColor: C.border2 },
-  composer: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: 12, paddingTop: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: C.border, backgroundColor: C.bg },
+  composer: { alignSelf: 'center', width: '100%', maxWidth: MAX_W, flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: 12, paddingTop: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: C.border, backgroundColor: C.bg },
   input: { flex: 1, maxHeight: 130, minHeight: 42, borderWidth: 1, borderColor: C.border2, backgroundColor: C.panel, color: C.text, borderRadius: 21, paddingHorizontal: 15, paddingTop: 11, paddingBottom: 11, fontSize: 15 },
   send: { width: 42, height: 42, borderRadius: 21, backgroundColor: C.accent2, alignItems: 'center', justifyContent: 'center' },
   retry: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 8, borderRadius: R.pill, backgroundColor: C.panel2, borderWidth: 1, borderColor: C.border2, marginTop: 2 }

@@ -3,7 +3,7 @@ import { Pressable, RefreshControl, SectionList, StyleSheet, Text, View } from '
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native'
 import type { DrawerNavigationProp } from '@react-navigation/drawer'
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack'
-import { C, R, S, T } from '../theme'
+import { C, MAX_W, R, S, T } from '../theme'
 import { Badge, Button, Dot, EmptyState, IconButton, SpaceChip } from '../ui'
 import { PromptCard } from '../components'
 import { send, useStore } from '../store'
@@ -101,7 +101,7 @@ export function WorkspacesScreen(): React.JSX.Element {
         keyExtractor={(w) => w.id}
         stickySectionHeadersEnabled={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={C.muted} />}
-        contentContainerStyle={{ paddingBottom: 32 }}
+        contentContainerStyle={{ paddingBottom: 32, width: '100%', maxWidth: MAX_W, alignSelf: 'center' }}
         ListHeaderComponent={
           <View>
             {lastError && (
@@ -193,7 +193,7 @@ function WorkspaceRow({ w, need, onPress }: { w: RemoteWorkspace; need: boolean;
 
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: S.sm, paddingBottom: S.sm },
+  header: { alignSelf: 'center', width: '100%', maxWidth: MAX_W, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: S.sm, paddingBottom: S.sm },
   notice: { flexDirection: 'row', marginHorizontal: S.md, marginBottom: S.sm, padding: 10, borderRadius: 10, backgroundColor: 'rgba(251,191,36,.08)', borderWidth: 1, borderColor: 'rgba(251,191,36,.3)' },
   banner: { flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: S.md, marginBottom: S.sm, padding: 12, borderRadius: 14, backgroundColor: C.panel, borderWidth: 1, borderColor: C.border },
   controls: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: S.md, paddingTop: 4, paddingBottom: 6 },

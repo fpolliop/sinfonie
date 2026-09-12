@@ -20,6 +20,8 @@ export const C = {
 }
 export const gradient = ['#5b7cff', '#7c9cff'] as const
 export const brandGradient = ['#7c9cff', '#a78bfa', '#f472b6'] as const
+/** Max width of the content column; on a wide screen (iPad) content centers instead of stretching. */
+export const MAX_W = 760
 export const R = { sm: 8, md: 12, lg: 16, xl: 22, pill: 999 }
 export const S = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 }
 export const T = {
