@@ -14,11 +14,11 @@ const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
 const SELECTED_KEY = 'sinfonie.agents.selected'
 
 function blank(scope?: string): AgentSpec {
-  return { id: '', name: '', description: '', prompt: '', model: 'sonnet', effort: 'high', enabled: true, source: 'user', ...(scope ? { scope } : {}) }
+  return { id: '', name: '', description: '', prompt: '', model: 'sonnet', effort: 'high', enabled: true, crew: false, source: 'user', ...(scope ? { scope } : {}) }
 }
 
 function same(a: AgentSpec, b: AgentSpec): boolean {
-  const norm = (x: AgentSpec): string => JSON.stringify({ ...x, updatedAt: undefined, createdAt: undefined, tools: x.tools ?? [], effort: x.effort ?? '', maxTurns: x.maxTurns ?? 0, permissionMode: x.permissionMode ?? '', icon: x.icon ?? '', scope: x.scope ?? '' })
+  const norm = (x: AgentSpec): string => JSON.stringify({ ...x, updatedAt: undefined, createdAt: undefined, tools: x.tools ?? [], effort: x.effort ?? '', maxTurns: x.maxTurns ?? 0, permissionMode: x.permissionMode ?? '', icon: x.icon ?? '', scope: x.scope ?? '', crew: x.crew ?? false })
   return norm(a) === norm(b)
 }
 
@@ -144,12 +144,24 @@ export function AgentsView(): React.JSX.Element {
         </div>
         <div className="flex-1 overflow-auto p-2">
           {shown.length === 0 && <div className="px-2 py-6 text-center text-[12px] text-muted">{agents.length === 0 ? 'No agents yet. Create one with New agent.' : 'Nothing matches.'}</div>}
-          {shown.map((a) => (
-            <AgentCard key={a.id} agent={a} selected={a.id === selectedId} spaceName={a.scope ? spaces.find((s) => s.id === a.scope)?.name : undefined} onClick={() => pick(a.id)} onToggle={(enabled) => {
-                if (a.id === selectedId) setDraft((d) => (d ? { ...d, enabled } : d))
-                void api.invoke('agents:save', { ...a, enabled }).catch(fail)
-              }} onDuplicate={() => void duplicate(a)} onExport={() => void exportOne(a)} onDelete={() => void remove(a)} />
-          ))}
+          {(
+            [
+              ['Standalone', 'You run these: @name in a chat, Try it here, or a schedule.', shown.filter((a) => !a.crew)],
+              ['Crew', 'Orchestrators delegate to these in every session.', shown.filter((a) => a.crew)]
+            ] as const
+          ).map(([title, hint, list]) =>
+            list.length === 0 ? null : (
+              <div key={title} className="mb-2">
+                <div className="flex items-baseline gap-2 px-2 pb-1 pt-1">
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">{title}</span>
+                  <span className="truncate text-[10px] text-muted">{hint}</span>
+                </div>
+                {list.map((a) => (
+                  <AgentCard key={a.id} agent={a} selected={a.id === selectedId} spaceName={a.scope ? spaces.find((s) => s.id === a.scope)?.name : undefined} onClick={() => pick(a.id)} onDuplicate={() => void duplicate(a)} onExport={() => void exportOne(a)} onDelete={() => void remove(a)} />
+                ))}
+              </div>
+            )
+          )}
         </div>
         <div className="flex items-center gap-2 border-t border-border px-3 py-2 text-[11px] text-muted">
           <span className="flex-1">Mention one in any chat with @name.</span>
@@ -214,7 +226,7 @@ function NewAgentButton({ entries, busy }: { entries: MenuEntry[]; busy: boolean
   )
 }
 
-function AgentCard({ agent: a, selected, spaceName, onClick, onToggle, onDuplicate, onExport, onDelete }: { agent: AgentSpec; selected: boolean; spaceName?: string; onClick: () => void; onToggle: (v: boolean) => void; onDuplicate: () => void; onExport: () => void; onDelete: () => void }): React.JSX.Element {
+function AgentCard({ agent: a, selected, spaceName, onClick, onDuplicate, onExport, onDelete }: { agent: AgentSpec; selected: boolean; spaceName?: string; onClick: () => void; onDuplicate: () => void; onExport: () => void; onDelete: () => void }): React.JSX.Element {
   const providersRaw = useApp((s) => s.settings.providers)
   const providers = providersRaw ?? EMPTY_PROVIDERS
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
@@ -249,9 +261,7 @@ function AgentCard({ agent: a, selected, spaceName, onClick, onToggle, onDuplica
           <span>{a.tools?.length ? `${a.tools.length} tools` : 'all tools'}</span>
         </div>
       </div>
-      <label className="mt-1 flex items-center" title={a.enabled ? 'In the crew: orchestrators can delegate to it' : 'Off: kept in the library, not offered to orchestrators'} onClick={(e) => e.stopPropagation()}>
-        <input type="checkbox" checked={a.enabled} onChange={(e) => onToggle(e.target.checked)} />
-      </label>
+      {!a.enabled && <Badge tone="warn">off</Badge>}
       {menu && <ContextMenu x={menu.x} y={menu.y} entries={entries} onClose={() => setMenu(null)} />}
     </div>
   )
@@ -271,7 +281,7 @@ function Empty({ onNew, onDescribe, onTemplates, onImport }: { onNew: () => void
         <Bot size={28} className="mx-auto mb-2 text-accent" />
         <div className="text-[15px] font-semibold">Your agents</div>
         <p className="mx-auto mt-1 max-w-md text-[12px] text-muted">
-          An agent is a role with its own instructions, model and tools. The orchestrator delegates to the ones in its crew, you can call one directly with <span className="font-mono">@name</span> in any chat, and you can try one right here. Pick an agent on the left, or start a new one.
+          An agent is a role with its own instructions, model and tools. New agents are standalone: you call one with <span className="font-mono">@name</span> in any chat or try it right here, and the orchestrator never sees it. Tick “Crew” on an agent to let orchestrators delegate to it. Pick an agent on the left, or start a new one.
         </p>
       </div>
       <div className="flex flex-wrap justify-center gap-3">
@@ -401,11 +411,17 @@ function Editor({ draft, stored, dirty, saving, onChange, onSave, onDiscard }: {
                   ))}
                 </select>
               </Field>
-              <Field label="Crew">
-                <label className="flex h-[34px] items-center gap-2 text-[12px]">
-                  <input type="checkbox" checked={draft.enabled} onChange={(e) => set({ enabled: e.target.checked })} />
-                  Orchestrators may delegate to it
-                </label>
+              <Field label="Where it runs" hint={draft.crew ? 'Orchestrators get it as a subagent in every session of its scope.' : 'Standalone: only when you @mention, try or schedule it.'}>
+                <div className="flex h-[34px] flex-col justify-center gap-0.5 text-[12px]">
+                  <label className="flex items-center gap-2">
+                    <input type="checkbox" checked={Boolean(draft.crew)} onChange={(e) => set({ crew: e.target.checked })} />
+                    Crew: orchestrators may delegate to it
+                  </label>
+                  <label className="flex items-center gap-2 text-muted">
+                    <input type="checkbox" checked={draft.enabled} onChange={(e) => set({ enabled: e.target.checked })} />
+                    Enabled
+                  </label>
+                </div>
               </Field>
             </div>
           </div>

@@ -24,18 +24,20 @@ export function CrewSection({ spaceId, title, intro, useCrew, orchestrator }: { 
   const closeSettings = useApp((s) => s.closeSettings)
   const setError = useApp((s) => s.setError)
   const [suggesting, setSuggesting] = useState(false)
-  const visible = useMemo(() => agents.filter((a) => !a.scope || a.scope === spaceId), [agents, spaceId])
+  const all = useMemo(() => agents.filter((a) => a.enabled && (!a.scope || a.scope === spaceId)), [agents, spaceId])
+  // The app page lists every agent (tick = offered to orchestrators); a space page lists the crew and can switch members off.
+  const visible = useMemo(() => (spaceId ? all.filter((a) => a.crew) : all), [all, spaceId])
+  const standalone = useMemo(() => all.filter((a) => !a.crew), [all])
   const off = useMemo(() => new Set(space?.crewDisabled ?? []), [space])
   const models = space?.crewModels ?? {}
   const fail = (err: unknown): void => setError(err instanceof Error ? err.message : String(err))
 
-  const inCrew = (a: AgentSpec): boolean => a.enabled && !off.has(a.id)
+  const inCrew = (a: AgentSpec): boolean => Boolean(a.crew) && !off.has(a.id)
   const toggle = (a: AgentSpec, on: boolean): void => {
     if (spaceId) {
       const next = on ? [...off].filter((id) => id !== a.id) : [...off, a.id]
       void api.invoke('spaces:update', spaceId, { crewDisabled: next }).catch(fail)
-      if (on && !a.enabled) void api.invoke('agents:save', { ...a, enabled: true }).catch(fail)
-    } else void api.invoke('agents:save', { ...a, enabled: on }).catch(fail)
+    } else void api.invoke('agents:save', { ...a, crew: on }).catch(fail)
   }
   const setModel = (a: AgentSpec, model: string): void => {
     if (spaceId) {
@@ -80,19 +82,19 @@ export function CrewSection({ spaceId, title, intro, useCrew, orchestrator }: { 
         </label>
       )}
       <div className="flex flex-col gap-1.5">
-        {visible.length === 0 && <div className="rounded-md border border-dashed border-border px-3 py-3 text-[12px] text-muted">No agents in the library yet. Open Agents in the sidebar to create one.</div>}
+        {visible.length === 0 && <div className="rounded-md border border-dashed border-border px-3 py-3 text-[12px] text-muted">{all.length === 0 ? 'No agents in the library yet. Open Agents in the sidebar to create one.' : 'No crew agents. Tick "Crew" on an agent under Agents, or on the application Crew page, to offer it to orchestrators.'}</div>}
         {visible.map((a) => {
           const on = inCrew(a)
           const model = spaceId ? (models[a.id] ?? '') : a.model
           return (
             <div key={a.id} className={clsx('flex items-center gap-2 rounded-lg border px-3 py-2', on ? 'border-border' : 'border-border/60 opacity-60')}>
-              <input type="checkbox" checked={on} onChange={(e) => toggle(a, e.target.checked)} title={spaceId ? 'In this space’s crew' : 'In the crew'} />
+              <input type="checkbox" checked={on} onChange={(e) => toggle(a, e.target.checked)} title={spaceId ? 'In this space’s crew' : 'Offered to orchestrators as a subagent'} />
               <span className="w-5 text-center text-[14px]">{a.icon || <Bot size={13} className="inline text-muted" />}</span>
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-1.5 text-[13px] font-medium">
                   {a.name}
                   {a.scope && <Badge tone="accent">this space</Badge>}
-                  {!a.enabled && <Badge tone="warn">off in library</Badge>}
+                  {!a.crew && !spaceId && <Badge>standalone</Badge>}
                   {a.effort && <Badge>{a.effort}</Badge>}
                   <Badge>{a.tools?.length ? `${a.tools.length} tools` : 'all tools'}</Badge>
                 </span>
@@ -111,6 +113,11 @@ export function CrewSection({ spaceId, title, intro, useCrew, orchestrator }: { 
           )
         })}
       </div>
+      {spaceId && standalone.length > 0 && (
+        <p className="mt-2 text-[11px] text-muted">
+          Standalone, not offered to orchestrators: {standalone.map((a) => a.name).join(', ')}. Run them with @name, or tick Crew on them under Agents.
+        </p>
+      )}
       {suggesting && (
         <SuggestCrewDialog
           spaceId={spaceId}
