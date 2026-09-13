@@ -11,6 +11,24 @@ import { isReadOnlyCommand } from '../readonly'
 import { accountEnv } from '../accounts'
 import { askPermission } from '../interaction'
 import * as acp from '../acp/engine'
+import * as notes from '../notes'
+import * as slack from '../slack'
+
+/** Sinfonie's own servers every worker gets: session notes always, Slack when the app or the space is connected. */
+async function sinfonieServers(ws: Workspace): Promise<{ servers: NonNullable<Options['mcpServers']>; prompt: string }> {
+  const servers: NonNullable<Options['mcpServers']> = { notes: notes.sdkServer(ws.id) }
+  let prompt = notes.promptFor(ws.id, true)
+  const connId = slack.connectionForSpace(ws.spaceId)
+  if (slack.connection(connId).connected) {
+    try {
+      servers.slack = await slack.mcpServerConfig(connId)
+      prompt += '\nSlack: Sinfonie\'s Slack connection is available as the mcp__slack tools (search messages, channel history, threads, direct messages, users). Read freely; post or react only when the task says so.'
+    } catch (err) {
+      console.warn('[worker] slack mcp unavailable', err)
+    }
+  }
+  return { servers, prompt }
+}
 
 export interface WorkerRun {
   spec: AgentSpec
@@ -55,6 +73,9 @@ async function runClaude(run: WorkerRun): Promise<string> {
   const mode = spec.permissionMode ?? run.mode
   const abort = new AbortController()
   run.signal?.addEventListener('abort', () => abort.abort())
+  const own = await sinfonieServers(ws)
+  // An allow-list still lets the agent use Sinfonie's notes without a prompt; Slack asks unless listed.
+  const allowed = spec.tools?.length ? [...spec.tools, ...(spec.tools.some((t) => t.startsWith('mcp__notes')) ? [] : ['mcp__notes'])] : undefined
   const options: Options = {
     ...claudeExecutableOption(),
     cwd: wsCwd,
@@ -62,12 +83,13 @@ async function runClaude(run: WorkerRun): Promise<string> {
     model: spec.model,
     permissionMode: mode,
     ...(mode === 'bypassPermissions' ? { allowDangerouslySkipPermissions: true } : {}),
-    ...(spec.tools?.length ? { allowedTools: spec.tools } : {}),
+    ...(allowed ? { allowedTools: allowed } : {}),
     ...(spec.disallowedTools?.length ? { disallowedTools: spec.disallowedTools } : {}),
     maxTurns: spec.maxTurns ?? 40,
     ...(spec.effort ? { effort: spec.effort } : {}),
     abortController: abort,
-    systemPrompt: { type: 'preset', preset: 'claude_code', append: `\n${spec.prompt}\n\nYou are the "${spec.name}" agent inside workspace "${ws.name}". Worktrees:\n${worktreeLines(ws)}\nFinish with a clear report for the orchestrator.` },
+    mcpServers: own.servers,
+    systemPrompt: { type: 'preset', preset: 'claude_code', append: `\n${spec.prompt}\n\nYou are the "${spec.name}" agent inside workspace "${ws.name}". Worktrees:\n${worktreeLines(ws)}\nFinish with a clear report for the orchestrator.\n${own.prompt}` },
     settingSources: ['user', 'project', 'local'],
     env: { ...process.env, ...accountEnv(ws.claudeAccountId) },
     canUseTool: async (toolName, toolInput, opts) => {
@@ -111,11 +133,12 @@ async function runNative(run: WorkerRun): Promise<string> {
   const allowed = spec.tools?.length ? new Set(spec.tools.map((t) => t.split('(')[0])) : null
   const tools: ToolSet = {}
   for (const [k, v] of Object.entries(all)) if (k !== 'AskUserQuestion' && (!allowed || allowed.has(k))) tools[k] = v
+  Object.assign(tools, notes.aiTools(ws.id))
   const readOnly = readOnlyOf(spec)
   const modelId = classifyModel(spec.model).modelId
   const sub = new ToolLoopAgent({
     model: resolveModel(spec.model),
-    instructions: `${spec.prompt}\n\nYou are the "${spec.name}" agent inside workspace "${ws.name}". Worktrees:\n${worktreeLines(ws)}\n${readOnly ? 'You are read-only: do not modify files.' : ''}\nFinish with a clear report for the orchestrator.`,
+    instructions: `${spec.prompt}\n\nYou are the "${spec.name}" agent inside workspace "${ws.name}". Worktrees:\n${worktreeLines(ws)}\n${readOnly ? 'You are read-only: do not modify files.' : ''}\nFinish with a clear report for the orchestrator.\n${notes.promptFor(ws.id, true)}`,
     tools,
     stopWhen: stepCountIs(spec.maxTurns ?? 40),
     toolApproval: ({ toolCall }) => {
