@@ -1,5 +1,7 @@
 import { create } from 'zustand'
-import type { Engine, Label, Repo, Settings, Space, StoreData, Workspace } from '@shared/types'
+import type { AgentSpec, Engine, Label, Repo, Settings, Space, StoreData, Workspace } from '@shared/types'
+
+export type View = 'workspace' | 'reviews' | 'oncall' | 'agents'
 import { api } from '@/lib/api'
 
 export type Tab = 'chat' | 'code' | 'prs' | 'terminal' | 'run' | 'browser' | 'data'
@@ -35,7 +37,7 @@ interface AppState {
   workspaces: Workspace[]
   settings: Settings
   selectedId: string | null
-  view: 'workspace' | 'reviews' | 'oncall'
+  view: View
   tab: Tab
   /** Show the browser docked beside the chat in the same view, instead of only as its own tab. */
   browserDock: boolean
@@ -43,6 +45,9 @@ interface AppState {
   /** Fraction of the width the chat keeps when the browser is docked beside it (0.3–0.8). */
   browserDockRatio: number
   setBrowserDockRatio: (r: number) => void
+  /** The agent library, mirrored from main. */
+  agents: AgentSpec[]
+  setAgents: (a: AgentSpec[]) => void
   showNewWorkspace: boolean
   /** The open settings page, or null when the window is closed. */
   settingsTarget: SettingsTarget | null
@@ -68,7 +73,7 @@ interface AppState {
   load: () => Promise<void>
   applyStore: (d: StoreData) => void
   select: (id: string | null) => void
-  setView: (v: 'workspace' | 'reviews' | 'oncall') => void
+  setView: (v: View) => void
   setTab: (t: Tab) => void
   setShowNewWorkspace: (v: boolean, spaceId?: string) => void
   /** What the New workspace dialog starts from when opened from an incident or a ticket: a name and the first message. */
@@ -162,7 +167,9 @@ export const useApp = create<AppState>((set, get) => ({
   },
   workspaces: [],
   settings: { workspacesRoot: '', basePort: 55000, model: 'claude-opus-5', permissionMode: 'default', jira: { connected: false, siteUrl: '', email: '', hasToken: false, defaultJql: '' }, claudeAccounts: [{ id: 'default', name: 'Default', configDir: null }], defaultClaudeAccountId: 'default', agents: [] },
-  view: (localStorage.getItem('orchestra.view') as 'workspace' | 'reviews' | 'oncall') ?? 'workspace',
+  view: (localStorage.getItem('orchestra.view') as View) ?? 'workspace',
+  agents: [],
+  setAgents: (agents) => set({ agents }),
   selectedId: localStorage.getItem('orchestra.selected'),
   tab: 'chat',
   showNewWorkspace: false,
@@ -190,6 +197,8 @@ export const useApp = create<AppState>((set, get) => ({
     const fresh = !d.settings.onboarding?.setupDoneAt && d.workspaces.length === 0 && d.repos.length === 0 && !d.settings.claudeAccounts.some((a) => a.loggedIn)
     set({ loaded: true, ...(fresh ? { onboarding: 'setup' as const } : {}) })
     api.on('store:changed', (data) => get().applyStore(data))
+    api.invoke('agents:list').then((agents) => set({ agents })).catch(() => undefined)
+    api.on('agents:changed', (agents) => set({ agents }))
   },
   applyStore: (d) => {
     const selected = get().selectedId

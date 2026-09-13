@@ -25,7 +25,8 @@ import * as linear from './linear'
 import * as jira from './jira'
 import * as gcp from './gcp'
 import * as oncall from './oncall/service'
-import { DEFAULT_CREW, SPACE_COLORS, type AgentSpec, type AssistantItem, type CostMode, type CostModeScope, type OnCallSettings, type Repo, type Space, type Settings } from '@shared/types'
+import * as library from './agents'
+import { SPACE_COLORS, type AgentSpec, type AssistantItem, type CostMode, type CostModeScope, type OnCallSettings, type Repo, type Space, type Settings } from '@shared/types'
 
 export const ASSISTANT_WORKSPACE_ID = 'assistant'
 
@@ -123,7 +124,7 @@ function overview(): unknown {
       autoDownloadUpdates: settings.autoDownloadUpdates !== false,
       crashReports: settings.crashReports !== false,
       usageStats: settings.usageStats !== false,
-      defaultCrew: crewSummary(settings.agents),
+      defaultCrew: crewSummary(library.crewFor(undefined)),
       integrations: {
         jira: settings.jira?.connected ? `connected (${settings.jira.siteName ?? settings.jira.siteUrl})` : 'not connected',
         linear: settings.linear?.connected ? `connected (${settings.linear.orgName ?? ''})` : 'not connected',
@@ -144,7 +145,7 @@ function overview(): unknown {
       permissionMode: s.permissionMode ?? 'app default',
       costMode: costModeFor(s.id),
       useCrew: s.useCrew !== false,
-      crew: s.agents ? crewSummary(s.agents) : 'app default crew',
+      crew: crewSummary(library.crewFor(s.id)),
       repos: repos.filter((r) => r.spaceId === s.id).map((r) => r.name),
       workspaces: workspaces.filter((w) => w.spaceId === s.id && w.status !== 'archived').length,
       integrations: {
@@ -220,18 +221,19 @@ const TOOLS: ToolDef[] = [
   },
   {
     name: 'get_crew',
-    description: 'Full crew specs (name, description, prompt, model, effort, tools, maxTurns, enabled) for the app default or one space.',
+    description: 'The crew the orchestrator gets in a scope: every agent from the library that is enabled and visible there (name, description, prompt, model, effort, tools, maxTurns), plus the library entries the space switched off.',
     shape: { scope: z.string().describe('"app" or a space id / name') },
     run: async (i) => {
       const scope = String(i.scope)
-      const { settings } = getStore().get()
-      const agents = scope === 'app' ? settings.agents : (spaceOrThrow(scope).agents ?? null)
-      return agents ? pretty(agents) : 'This space uses the app default crew. Pass scope "app" to see it, or set_crew for the space to give it its own.'
+      const spaceId = scope === 'app' ? undefined : spaceOrThrow(scope).id
+      const crew = library.crewFor(spaceId)
+      const off = library.visibleTo(spaceId).filter((a) => !crew.some((c) => c.id === a.id))
+      return pretty({ crew, notOnTheCrew: off.map((a) => `${a.name} (${a.enabled ? 'switched off for this space' : 'disabled'})`) })
     }
   },
   {
     name: 'set_crew',
-    description: 'Save a crew: the subagents the orchestrator can delegate to. Replaces the whole list for the scope. Confirm the design with the user first. Models: haiku (cheap, fast), sonnet (default coder), opus (deep reasoning), fable (strongest, expensive), or provider/model for API providers. Give read-only roles tools ["Read","Grep","Glob"].',
+    description: 'Save agents into the library and make them the crew for a scope: agents with these names are created or updated (scope "app" makes them available everywhere, a space makes them that space\'s own); library agents not in the list are switched off for that scope. Confirm the design with the user first. Models: haiku (cheap, fast), sonnet (default coder), opus (deep reasoning), fable (strongest, expensive), or provider/model for API providers. Give read-only roles tools ["Read","Grep","Glob"].',
     shape: { scope: z.string().describe('"app" or a space id / name'), agents: z.array(agentShape).min(1).max(8), useCrew: z.boolean().optional().describe('Space only: false turns delegation off') },
     run: async (i) => {
       const scope = String(i.scope)
@@ -241,35 +243,54 @@ const TOOLS: ToolDef[] = [
         if (names.has(a.name)) throw new Error(`Duplicate crew name ${a.name}`)
         names.add(a.name)
       }
-      const specs: AgentSpec[] = parsed.map((a) => ({ id: a.name, name: a.name, description: a.description, prompt: a.prompt, model: a.model, ...(a.effort ? { effort: a.effort } : {}), ...(a.tools?.length ? { tools: a.tools } : {}), ...(a.maxTurns ? { maxTurns: a.maxTurns } : {}), enabled: a.enabled !== false }))
-      getStore().update((d) => {
-        if (scope === 'app') d.settings.agents = specs
-        else {
-          const s = d.spaces.find((x) => x.id === spaceOrThrow(scope).id)!
-          s.agents = specs
+      const spaceId = scope === 'app' ? undefined : spaceOrThrow(scope).id
+      const saved: AgentSpec[] = parsed.map((a) => {
+        const existing = library.byName(a.name, spaceId)
+        return library.save({
+          id: existing?.id ?? '',
+          name: a.name,
+          description: a.description,
+          prompt: a.prompt,
+          model: a.model,
+          ...(a.effort ? { effort: a.effort } : {}),
+          ...(a.tools?.length ? { tools: a.tools } : {}),
+          ...(a.maxTurns ? { maxTurns: a.maxTurns } : {}),
+          enabled: a.enabled !== false,
+          ...(existing?.scope || (!existing && spaceId) ? { scope: existing?.scope ?? spaceId } : {})
+        })
+      })
+      const keep = new Set(saved.map((a) => a.id))
+      if (spaceId) {
+        getStore().update((d) => {
+          const s = d.spaces.find((x) => x.id === spaceId)!
+          s.crewDisabled = library.visibleTo(spaceId).filter((a) => !keep.has(a.id)).map((a) => a.id)
           if (typeof i.useCrew === 'boolean') {
             if (i.useCrew) delete s.useCrew
             else s.useCrew = false
           }
-        }
-      })
-      return `Saved ${specs.length} crew member(s) for ${scope === 'app' ? 'the app default' : `space ${spaceOrThrow(scope).name}`}: ${specs.map((s) => `${s.name} (${s.model})`).join(', ')}. New sessions in that scope use them.`
+        })
+      } else {
+        for (const a of library.list()) if (!a.scope && !keep.has(a.id) && a.enabled) library.save({ ...a, enabled: false })
+      }
+      return `Saved ${saved.length} agent(s) for ${scope === 'app' ? 'every space' : `space ${spaceOrThrow(scope).name}`}: ${saved.map((s) => `${s.name} (${s.model})`).join(', ')}. New sessions in that scope use them; the user can edit them under Agents.`
     }
   },
   {
     name: 'reset_crew_to_default',
-    description: 'Restore the built-in default crew (explorer, implementer, tester, reviewer) for the app, or make a space inherit the app default again.',
+    description: 'Restore the built-in agents (explorer, implementer, tester, reviewer) to their defaults, or make a space use the whole library again (clears its switched-off list and model overrides).',
     shape: { scope: z.string() },
     run: async (i) => {
       const scope = String(i.scope)
+      if (scope === 'app') {
+        library.resetBuiltins()
+        return 'Built-in agents restored to their defaults.'
+      }
       getStore().update((d) => {
-        if (scope === 'app') d.settings.agents = DEFAULT_CREW.map((a) => ({ ...a }))
-        else {
-          const s = d.spaces.find((x) => x.id === spaceOrThrow(scope).id)!
-          delete s.agents
-        }
+        const s = d.spaces.find((x) => x.id === spaceOrThrow(scope).id)!
+        delete s.crewDisabled
+        delete s.crewModels
       })
-      return scope === 'app' ? 'App default crew restored.' : 'The space now inherits the app default crew.'
+      return 'The space now uses every enabled agent in the library again.'
     }
   },
   {
