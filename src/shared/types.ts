@@ -289,6 +289,7 @@ export interface ProviderConfig {
 
 /** A model reference for the native engine: "<providerId>/<modelId>". */
 export function parseModelRef(ref: string): { providerId: string; modelId: string } | null {
+  if (typeof ref !== 'string') return null
   const i = ref.indexOf('/')
   if (i <= 0) return null
   return { providerId: ref.slice(0, i), modelId: ref.slice(i + 1) }
