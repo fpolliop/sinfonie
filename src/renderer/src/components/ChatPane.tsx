@@ -479,7 +479,7 @@ function ModePicker({ mode, onChange }: { mode: PermissionMode; onChange: (m: Pe
   )
 }
 
-function Message({ item }: { item: ChatItem }): React.JSX.Element {
+export function Message({ item }: { item: ChatItem }): React.JSX.Element {
   if (item.role === 'system') {
     const text = item.blocks.map((b) => (b.type === 'text' ? b.text : '')).join('')
     const level = item.level ?? 'info'

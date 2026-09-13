@@ -1,4 +1,4 @@
-import type { NotesFilter, AgentDraft, AgentRunEvent, AgentSpec, AgentMode, AppMode, AuthLink, CompletionRequest, DiscoveredOrg, SharedRepo, TeammateWorkspace, BillingPeriod, CliStatus, CloudOrgDetail, CloudState, Plan, RemoteSettings, RemoteStatus, SpaceDefinition, SpaceImportPreview, SpaceImportResolution, BrowserState, ContextUsage, CrewPriority, FsEntry, LimitAlternative, UsageSnapshot, ChatImageInput, Incident, IncidentStatus, LinearIssue, LinearSettings, OnCallState, ResourceSnapshot, Severity, SlackConnection, LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion, OnCallBulkOp,
+import type { NotesFilter, AgentRun, AgentDraft, AgentRunEvent, AgentSpec, AgentMode, AppMode, AuthLink, CompletionRequest, DiscoveredOrg, SharedRepo, TeammateWorkspace, BillingPeriod, CliStatus, CloudOrgDetail, CloudState, Plan, RemoteSettings, RemoteStatus, SpaceDefinition, SpaceImportPreview, SpaceImportResolution, BrowserState, ContextUsage, CrewPriority, FsEntry, LimitAlternative, UsageSnapshot, ChatImageInput, Incident, IncidentStatus, LinearIssue, LinearSettings, OnCallState, ResourceSnapshot, Severity, SlackConnection, LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion, OnCallBulkOp,
   AgentEvent,
   ChatItem,
   JiraIssue,
@@ -251,8 +251,12 @@ export interface SinfonieInvoke {
   'agents:resetBuiltins': () => AgentSpec[]
   /** Draft a whole agent from a one-line description, model picked from the inventory. */
   'agents:draft': (description: string, spaceId?: string) => AgentDraft
-  /** Run an agent once in a workspace from the editor; progress arrives on agents:run. Returns the run id. */
-  'agents:run': (agentId: string, workspaceId: string, prompt: string, override?: Partial<AgentSpec>) => string
+  /** Run an agent once from the editor, in a workspace or (null) in its own context; progress arrives on agents:run. Returns the run id. */
+  'agents:run': (agentId: string, workspaceId: string | null, prompt: string, override?: Partial<AgentSpec>) => string
+  /** Run history of an agent, newest first. */
+  'agents:runs': (agentId: string) => AgentRun[]
+  /** Start the agent's standing task now, as a scheduled run would. */
+  'agents:runNow': (agentId: string) => void
   'agents:cancelRun': (runId: string) => void
   /** Import Claude Code agent files (.claude/agents/*.md) from a folder. */
   'agents:importDir': (dir: string, spaceId?: string) => AgentSpec[]
@@ -399,6 +403,9 @@ export interface SinfonieEvents {
   'guided:changed': { workspaceId: string; apps: string[] }
   'agents:changed': AgentSpec[]
   'agents:run': AgentRunEvent
+  'agents:runsChanged': { agentId: string; runs: AgentRun[] }
+  /** A scheduled run's notification was clicked: open that agent. */
+  'ui:openAgent': { agentId: string }
   /** A new error was logged; the sidebar badge updates. */
   'errors:new': ErrorEntry
   /** Memory and process sample, every few seconds. */

@@ -7,6 +7,9 @@ import { Markdown } from '@/lib/markdown'
 import { Badge, Button, Dialog, Field, Spinner, inputCls } from '../ui'
 import { CrewModelSelect, modelLabel } from '../ModelSelect'
 import { ContextMenu, type MenuEntry } from '../ContextMenu'
+import { AgentChat } from './AgentChat'
+import { AgentRuns } from './AgentRuns'
+import { MessageSquare, CalendarClock, SlidersHorizontal } from 'lucide-react'
 import { AGENT_TEMPLATES, AGENT_TOOL_NAMES, PERMISSION_MODES, classifyModel, type AgentDraft, type AgentRunEvent, type AgentSpec, type ProviderConfig, type SubagentStep } from '@shared/types'
 
 const EMPTY_PROVIDERS: ProviderConfig[] = []
@@ -37,6 +40,18 @@ export function AgentsView(): React.JSX.Element {
   const [templates, setTemplates] = useState(false)
   const [filter, setFilter] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
+  const [tab, setTab] = useState<'editor' | 'chat' | 'runs'>('editor')
+  const openAgentId = useApp((s) => s.openAgentId)
+  const setOpenAgentId = useApp((s) => s.setOpenAgentId)
+  // A notification click or a link asks for one agent: select it and show its conversation.
+  useEffect(() => {
+    if (!openAgentId || !agents.some((a) => a.id === openAgentId)) return
+    setSelectedId(openAgentId)
+    localStorage.setItem(SELECTED_KEY, openAgentId)
+    setDraft({ ...agents.find((a) => a.id === openAgentId)! })
+    setTab('chat')
+    setOpenAgentId(null)
+  }, [openAgentId, agents, setOpenAgentId])
 
   const selected = useMemo(() => agents.find((a) => a.id === selectedId) ?? null, [agents, selectedId])
   // A stored agent loads into the editor; a new one keeps its unsaved draft until saved or discarded.
@@ -175,7 +190,28 @@ export function AgentsView(): React.JSX.Element {
         </div>
       </div>
       <div className="flex min-w-0 flex-1 flex-col">
-        {draft ? (
+        {draft && selected && (
+          <div className="flex h-9 shrink-0 items-center gap-1 border-b border-border px-3">
+            {(
+              [
+                ['editor', 'Editor', <SlidersHorizontal key="e" size={12} />],
+                ['chat', 'Chat', <MessageSquare key="c" size={12} />],
+                ['runs', 'Runs', <CalendarClock key="r" size={12} />]
+              ] as const
+            ).map(([id, label, icon]) => (
+              <button key={id} onClick={() => setTab(id)} className={clsx('flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[12px] font-medium', tab === id ? 'bg-panel-2 text-text' : 'text-muted hover:text-text')}>
+                {icon} {label}
+                {id === 'runs' && selected.schedule?.enabled && <span className="h-1.5 w-1.5 rounded-full bg-ok" title="Scheduled" />}
+              </button>
+            ))}
+            {dirty && tab !== 'editor' && <span className="ml-auto text-[11px] text-warn">Unsaved changes in the editor</span>}
+          </div>
+        )}
+        {draft && selected && tab === 'chat' ? (
+          <AgentChat agent={selected} />
+        ) : draft && selected && tab === 'runs' ? (
+          <AgentRuns agent={selected} />
+        ) : draft ? (
           <Editor key={selectedId ?? 'none'} draft={draft} stored={selected} dirty={dirty} saving={busy === 'save'} onChange={setDraft} onSave={() => void save()} onDiscard={() => (draft.id ? setDraft({ ...selected! }) : pick(null))} />
         ) : (
           <Empty onNew={() => startNew(blank())} onDescribe={() => setDescribe(true)} onTemplates={() => setTemplates(true)} onImport={() => void importDir()} />
@@ -450,7 +486,9 @@ function TryIt({ draft, dirty }: { draft: AgentSpec; dirty: boolean }): React.JS
   const workspaces = useApp((s) => s.workspaces)
   const selectedWs = useApp((s) => s.selectedId)
   const live = useMemo(() => workspaces.filter((w) => w.status !== 'archived'), [workspaces])
-  const [wsId, setWsId] = useState<string>(() => localStorage.getItem('sinfonie.agents.tryWs') || selectedWs || '')
+  // Agents without code tools default to their own context; the rest to the selected workspace.
+  const needsCode = !draft.tools?.length || draft.tools.some((t) => /^(Read|Edit|Write|Bash|Grep|Glob|LS)/.test(t))
+  const [wsId, setWsId] = useState<string>(() => localStorage.getItem('sinfonie.agents.tryWs') ?? (needsCode ? selectedWs || '' : ''))
   const [prompt, setPrompt] = useState('')
   const [runId, setRunId] = useState<string | null>(null)
   const [steps, setSteps] = useState<{ step: SubagentStep; model?: string }[]>([])
@@ -458,7 +496,7 @@ function TryIt({ draft, dirty }: { draft: AgentSpec; dirty: boolean }): React.JS
   const [error, setError] = useState<string | null>(null)
   const [durationMs, setDurationMs] = useState<number | null>(null)
   const endRef = useRef<HTMLDivElement>(null)
-  const ws = live.find((w) => w.id === wsId) ?? live[0]
+  const ws = wsId ? live.find((w) => w.id === wsId) : undefined
   useEffect(
     () =>
       api.on('agents:run', (e: AgentRunEvent) => {
@@ -479,13 +517,13 @@ function TryIt({ draft, dirty }: { draft: AgentSpec; dirty: boolean }): React.JS
     endRef.current?.scrollIntoView({ block: 'end' })
   }, [steps.length])
   const run = async (): Promise<void> => {
-    if (!ws || !prompt.trim() || runId) return
+    if (!prompt.trim() || runId) return
     setSteps([])
     setReport(null)
     setError(null)
     setDurationMs(null)
     try {
-      const id = await api.invoke('agents:run', draft.id, ws.id, prompt.trim(), draft)
+      const id = await api.invoke('agents:run', draft.id, ws?.id ?? null, prompt.trim(), draft)
       setRunId(id)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -510,14 +548,14 @@ function TryIt({ draft, dirty }: { draft: AgentSpec; dirty: boolean }): React.JS
             localStorage.setItem('sinfonie.agents.tryWs', e.target.value)
           }}
         >
-          {live.length === 0 && <option value="">No workspace yet</option>}
+          <option value="">No workspace · the agent's own context</option>
           {live.map((w) => (
             <option key={w.id} value={w.id}>
               {w.name} · {w.repos.map((r) => r.repoName).join(', ')}
             </option>
           ))}
         </select>
-        <textarea rows={3} className={inputCls} placeholder={`A task for ${draft.name || 'this agent'} in that workspace…`} value={prompt} onChange={(e) => setPrompt(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (e.metaKey || e.ctrlKey) && void run()} />
+        <textarea rows={3} className={inputCls} placeholder={ws ? `A task for ${draft.name || 'this agent'} in ${ws.name}…` : `A task for ${draft.name || 'this agent'}…`} value={prompt} onChange={(e) => setPrompt(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (e.metaKey || e.ctrlKey) && void run()} />
         <div className="flex items-center gap-2">
           <span className="text-[10px] text-muted">⌘↵ runs. Permissions ask like a delegation would.</span>
           <span className="ml-auto" />
@@ -526,7 +564,7 @@ function TryIt({ draft, dirty }: { draft: AgentSpec; dirty: boolean }): React.JS
               <Square size={11} /> Stop
             </Button>
           ) : (
-            <Button size="sm" variant="primary" disabled={!ws || !prompt.trim() || !draft.name.trim()} onClick={() => void run()}>
+            <Button size="sm" variant="primary" disabled={!prompt.trim() || !draft.name.trim()} onClick={() => void run()}>
               <Play size={11} /> Run
             </Button>
           )}
