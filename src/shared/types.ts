@@ -110,7 +110,9 @@ export const AGENT_TOOL_NAMES: { name: string; hint: string; readOnly: boolean }
   { name: 'Bash(git blame:*)', hint: 'git blame only', readOnly: true },
   { name: 'Bash(git status:*)', hint: 'git status only', readOnly: true },
   { name: 'WebFetch', hint: 'Fetch a URL', readOnly: true },
-  { name: 'WebSearch', hint: 'Search the web', readOnly: true }
+  { name: 'WebSearch', hint: 'Search the web', readOnly: true },
+  { name: 'mcp__notes', hint: 'Session notes and todos of the workspace: list, add, update (always allowed)', readOnly: true },
+  { name: 'mcp__slack', hint: "Sinfonie's Slack connection: search, channel history, threads, DMs, post", readOnly: false }
 ]
 
 export const DEFAULT_CREW: AgentSpec[] = [
