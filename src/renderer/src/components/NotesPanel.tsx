@@ -13,6 +13,7 @@ export function NotesPanel({ workspaceId, onClose }: { workspaceId: string; onCl
   const notes = useNotes((s) => s.byWorkspace[workspaceId]) ?? EMPTY
   const { load, add, update, remove, subscribe } = useNotes()
   const setError = useApp((s) => s.setError)
+  const setView = useApp((s) => s.setView)
   const [text, setText] = useState('')
   const [kind, setKind] = useState<Note['kind']>('todo')
   const [showDone, setShowDone] = useState(false)
@@ -42,7 +43,10 @@ export function NotesPanel({ workspaceId, onClose }: { workspaceId: string; onCl
         <StickyNote size={14} className="text-accent" />
         <span className="text-[13px] font-semibold">Notes</span>
         <span className="text-[11px] text-muted">{open.length ? `${open.length} open` : notes.length ? 'nothing open' : ''}</span>
-        <button className="ml-auto text-muted hover:text-text" onClick={onClose} aria-label="Close">
+        <button className="ml-auto text-[11px] text-muted hover:text-text" title="Every note across workspaces, spaces and the app" onClick={() => setView('notes')}>
+          All notes
+        </button>
+        <button className="text-muted hover:text-text" onClick={onClose} aria-label="Close">
           ✕
         </button>
       </div>
@@ -101,11 +105,12 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   )
 }
 
-function Row({ note, workspaceId, onUpdate, onRemove }: { note: Note; workspaceId: string; onUpdate: (p: Partial<Pick<Note, 'text' | 'done' | 'kind'>>) => void; onRemove: () => void }): React.JSX.Element {
+/** One note. `workspaceId` enables the "put in the chat box" action; owners that are not workspaces omit it. */
+export function Row({ note, workspaceId, onUpdate, onRemove }: { note: Note; workspaceId?: string; onUpdate: (p: Partial<Pick<Note, 'text' | 'done' | 'kind'>>) => void; onRemove: () => void }): React.JSX.Element {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(note.text)
   const setChatDraft = useChat((s) => s.setDraft)
-  const chatDraft = useChat((s) => s.chats[workspaceId]?.draft ?? '')
+  const chatDraft = useChat((s) => (workspaceId ? s.chats[workspaceId]?.draft : '') ?? '')
   const save = (): void => {
     setEditing(false)
     if (draft.trim() && draft.trim() !== note.text) onUpdate({ text: draft })
@@ -155,9 +160,11 @@ function Row({ note, workspaceId, onUpdate, onRemove }: { note: Note; workspaceI
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-0.5 opacity-0 group-hover:opacity-100">
-        <button className="rounded p-0.5 text-muted hover:text-accent" title="Put this in the chat box" onClick={() => setChatDraft(workspaceId, (chatDraft ? chatDraft + '\n' : '') + note.text)}>
-          <MessageSquareShare size={12} />
-        </button>
+        {workspaceId && (
+          <button className="rounded p-0.5 text-muted hover:text-accent" title="Put this in the chat box" onClick={() => setChatDraft(workspaceId, (chatDraft ? chatDraft + '\n' : '') + note.text)}>
+            <MessageSquareShare size={12} />
+          </button>
+        )}
         <button className="rounded p-0.5 text-muted hover:text-danger" title="Delete" onClick={onRemove}>
           <Trash2 size={12} />
         </button>
