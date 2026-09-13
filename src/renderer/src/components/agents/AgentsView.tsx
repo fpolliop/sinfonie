@@ -44,11 +44,15 @@ export function AgentsView(): React.JSX.Element {
     if (selected) setDraft((d) => (d && d.id === selected.id ? d : { ...selected }))
     else if (selectedId && selectedId !== 'new') setDraft(null)
   }, [selected, selectedId])
-  const pick = (id: string | null): void => {
+  // The library store updates a moment after a save; `known` lets a fresh spec show at once.
+  const pick = (id: string | null, known?: AgentSpec): void => {
     setSelectedId(id)
     if (id) localStorage.setItem(SELECTED_KEY, id)
     else localStorage.removeItem(SELECTED_KEY)
-    if (id !== 'new') setDraft(id ? ({ ...agents.find((a) => a.id === id) } as AgentSpec) : null)
+    if (id === 'new') return
+    const a = known ?? agents.find((x) => x.id === id)
+    setDraft(a ? { ...a } : null)
+    if (known) useApp.setState((s) => ({ agents: s.agents.some((x) => x.id === known.id) ? s.agents.map((x) => (x.id === known.id ? known : x)) : [...s.agents, known] }))
   }
   const startNew = (spec: AgentSpec): void => {
     setDraft(spec)
@@ -61,8 +65,7 @@ export function AgentsView(): React.JSX.Element {
     setBusy('save')
     try {
       const saved = await api.invoke('agents:save', draft)
-      setDraft({ ...saved })
-      pick(saved.id)
+      pick(saved.id, saved)
     } catch (err) {
       fail(err)
     } finally {
@@ -81,7 +84,7 @@ export function AgentsView(): React.JSX.Element {
   const duplicate = async (a: AgentSpec): Promise<void> => {
     try {
       const copy = await api.invoke('agents:duplicate', a.id)
-      pick(copy.id)
+      pick(copy.id, copy)
     } catch (err) {
       fail(err)
     }
@@ -92,7 +95,7 @@ export function AgentsView(): React.JSX.Element {
     setBusy('import')
     try {
       const done = await api.invoke('agents:importDir', dir, activeSpaceId || undefined)
-      if (done[0]) pick(done[0].id)
+      if (done[0]) pick(done[0].id, done[0])
     } catch (err) {
       fail(err)
     } finally {
@@ -195,7 +198,7 @@ export function AgentsView(): React.JSX.Element {
             setTemplates(false)
             try {
               const a = await api.invoke('agents:fromTemplate', name, undefined)
-              pick(a.id)
+              pick(a.id, a)
             } catch (err) {
               fail(err)
             }
