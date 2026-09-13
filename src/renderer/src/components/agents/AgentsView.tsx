@@ -315,7 +315,11 @@ function Editor({ draft, stored, dirty, saving, onChange, onSave, onDiscard }: {
             from {stored.filePath}
           </span>
         )}
-        <div className="no-drag ml-auto flex items-center gap-2">
+        <div className="no-drag ml-auto flex items-center gap-3">
+          <label className="flex items-center gap-1.5 text-[12px] text-muted" title="Off keeps the agent in the library but nowhere else: no crew, no @mention, no runs.">
+            <input type="checkbox" checked={draft.enabled} onChange={(e) => set({ enabled: e.target.checked })} />
+            Enabled
+          </label>
           {dirty && (
             <Button size="sm" variant="ghost" onClick={onDiscard}>
               {draft.id ? 'Discard changes' : 'Discard'}
@@ -411,16 +415,21 @@ function Editor({ draft, stored, dirty, saving, onChange, onSave, onDiscard }: {
                   ))}
                 </select>
               </Field>
-              <Field label="Where it runs" hint={draft.crew ? 'Orchestrators get it as a subagent in every session of its scope.' : 'Standalone: only when you @mention, try or schedule it.'}>
-                <div className="flex h-[34px] flex-col justify-center gap-0.5 text-[12px]">
-                  <label className="flex items-center gap-2">
-                    <input type="checkbox" checked={Boolean(draft.crew)} onChange={(e) => set({ crew: e.target.checked })} />
-                    Crew: orchestrators may delegate to it
-                  </label>
-                  <label className="flex items-center gap-2 text-muted">
-                    <input type="checkbox" checked={draft.enabled} onChange={(e) => set({ enabled: e.target.checked })} />
-                    Enabled
-                  </label>
+              <Field label="Runs as" hint={draft.crew ? 'Orchestrators get it as a subagent in every session.' : 'Only when you @mention, try or schedule it.'}>
+                <div className="flex h-[34px] rounded-md border border-border bg-bg p-0.5 text-[12px]">
+                  {(
+                    [
+                      ['standalone', 'Standalone', 'You run it yourself'],
+                      ['crew', 'Crew', 'Orchestrators delegate to it']
+                    ] as const
+                  ).map(([id, label, title]) => {
+                    const on = id === 'crew' ? Boolean(draft.crew) : !draft.crew
+                    return (
+                      <button key={id} type="button" title={title} onClick={() => set({ crew: id === 'crew' })} className={clsx('flex-1 rounded px-2 font-medium', on ? 'bg-panel-2 text-text' : 'text-muted hover:text-text')}>
+                        {label}
+                      </button>
+                    )
+                  })}
                 </div>
               </Field>
             </div>
