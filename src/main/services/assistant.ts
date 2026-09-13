@@ -221,19 +221,19 @@ const TOOLS: ToolDef[] = [
   },
   {
     name: 'get_crew',
-    description: 'The crew the orchestrator gets in a scope: every agent from the library that is enabled and visible there (name, description, prompt, model, effort, tools, maxTurns), plus the library entries the space switched off.',
+    description: 'The crew the orchestrator gets in a scope: every library agent marked crew, enabled and visible there (name, description, prompt, model, effort, tools, maxTurns), plus the visible agents that are standalone or switched off for the space.',
     shape: { scope: z.string().describe('"app" or a space id / name') },
     run: async (i) => {
       const scope = String(i.scope)
       const spaceId = scope === 'app' ? undefined : spaceOrThrow(scope).id
       const crew = library.crewFor(spaceId)
       const off = library.visibleTo(spaceId).filter((a) => !crew.some((c) => c.id === a.id))
-      return pretty({ crew, notOnTheCrew: off.map((a) => `${a.name} (${a.enabled ? 'switched off for this space' : 'disabled'})`) })
+      return pretty({ crew, notOnTheCrew: off.map((a) => `${a.name} (${!a.enabled ? 'disabled' : !a.crew ? 'standalone, not offered to orchestrators' : 'switched off for this space'})`) })
     }
   },
   {
     name: 'set_crew',
-    description: 'Save agents into the library and make them the crew for a scope: agents with these names are created or updated (scope "app" makes them available everywhere, a space makes them that space\'s own); library agents not in the list are switched off for that scope. Confirm the design with the user first. Models: haiku (cheap, fast), sonnet (default coder), opus (deep reasoning), fable (strongest, expensive), or provider/model for API providers. Give read-only roles tools ["Read","Grep","Glob"].',
+    description: 'Save agents into the library as crew members for a scope: agents with these names are created or updated and marked crew (scope "app" makes them available everywhere, a space makes them that space\'s own); crew agents not in the list are switched off for that scope. Standalone agents (the user runs them directly) are untouched. Confirm the design with the user first. Models: haiku (cheap, fast), sonnet (default coder), opus (deep reasoning), fable (strongest, expensive), or provider/model for API providers. Give read-only roles tools ["Read","Grep","Glob"].',
     shape: { scope: z.string().describe('"app" or a space id / name'), agents: z.array(agentShape).min(1).max(8), useCrew: z.boolean().optional().describe('Space only: false turns delegation off') },
     run: async (i) => {
       const scope = String(i.scope)
@@ -256,6 +256,7 @@ const TOOLS: ToolDef[] = [
           ...(a.tools?.length ? { tools: a.tools } : {}),
           ...(a.maxTurns ? { maxTurns: a.maxTurns } : {}),
           enabled: a.enabled !== false,
+          crew: true,
           ...(existing?.scope || (!existing && spaceId) ? { scope: existing?.scope ?? spaceId } : {})
         })
       })
@@ -270,7 +271,7 @@ const TOOLS: ToolDef[] = [
           }
         })
       } else {
-        for (const a of library.list()) if (!a.scope && !keep.has(a.id) && a.enabled) library.save({ ...a, enabled: false })
+        for (const a of library.list()) if (!a.scope && !keep.has(a.id) && a.crew) library.save({ ...a, crew: false })
       }
       return `Saved ${saved.length} agent(s) for ${scope === 'app' ? 'every space' : `space ${spaceOrThrow(scope).name}`}: ${saved.map((s) => `${s.name} (${s.model})`).join(', ')}. New sessions in that scope use them; the user can edit them under Agents.`
     }
@@ -290,7 +291,7 @@ const TOOLS: ToolDef[] = [
         delete s.crewDisabled
         delete s.crewModels
       })
-      return 'The space now uses every enabled agent in the library again.'
+      return 'The space now uses every crew agent in the library again.'
     }
   },
   {

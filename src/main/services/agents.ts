@@ -8,9 +8,9 @@ import { getStore } from '../store'
 
 /**
  * The agent library: every agent the user can delegate to, @mention or schedule, one JSON
- * file each under userData/agents. Agents are global unless `scope` names a space. A space's
- * crew is the enabled agents visible to it, minus the ones it switched off, with its model
- * overrides applied. Older builds kept crews inside settings.agents and space.agents; those
+ * file each under userData/agents. Agents are global unless `scope` names a space. An agent is
+ * standalone unless `crew` is set; a space's crew is the crew agents visible to it, minus the
+ * ones it switched off, with its model overrides applied. Older builds kept crews inside settings.agents and space.agents; those
  * are copied in once on first start.
  */
 
@@ -100,6 +100,7 @@ export function save(input: AgentSpec): AgentSpec {
   if (!spec.effort) delete spec.effort
   if (!spec.permissionMode) delete spec.permissionMode
   if (!spec.icon) delete spec.icon
+  if (!spec.crew) delete spec.crew
   assertNameFree(spec)
   write(spec)
   commit([...list().filter((a) => a.id !== spec.id), spec])
@@ -137,7 +138,7 @@ export function fromTemplate(t: AgentTemplate, scope?: string): AgentSpec {
   for (let i = 2; taken.has(name); i++) name = `${t.name}-${i}`
   const { blurb: _b, ...rest } = t
   void _b
-  return save({ ...rest, id: '', name, enabled: true, source: 'user', ...(scope ? { scope } : {}) })
+  return save({ ...rest, id: '', name, enabled: true, crew: false, source: 'user', ...(scope ? { scope } : {}) })
 }
 
 /** The agents a space can see: global ones plus its own. */
@@ -145,7 +146,7 @@ export function visibleTo(spaceId?: string): AgentSpec[] {
   return list().filter((a) => !a.scope || a.scope === spaceId)
 }
 
-/** The crew an orchestrator in this space gets: enabled, not switched off by the space, models overridden. Empty when the space turned delegation off. */
+/** The crew an orchestrator in this space gets: crew agents that are enabled, not switched off by the space, models overridden. Empty when the space turned delegation off. */
 export function crewFor(spaceId?: string): AgentSpec[] {
   const { spaces } = getStore().get()
   const space = spaces.find((s) => s.id === spaceId)
@@ -153,21 +154,21 @@ export function crewFor(spaceId?: string): AgentSpec[] {
   const off = new Set(space?.crewDisabled ?? [])
   const models = space?.crewModels ?? {}
   return visibleTo(spaceId)
-    .filter((a) => a.enabled && a.name.trim() && !off.has(a.id))
+    .filter((a) => a.enabled && a.crew && a.name.trim() && !off.has(a.id))
     .map((a) => (models[a.id] ? { ...a, model: models[a.id] } : a))
 }
 
 /** An agent by name among those a space can see, for @mentions. */
 export function byName(name: string, spaceId?: string): AgentSpec | undefined {
   const n = name.toLowerCase()
-  return visibleTo(spaceId).find((a) => a.name.toLowerCase() === n)
+  return visibleTo(spaceId).find((a) => a.enabled && a.name.toLowerCase() === n)
 }
 
 /** Put the built-in crew back: recreate missing built-ins, reset the existing ones' prompts and models. */
 export function resetBuiltins(): AgentSpec[] {
   for (const d of DEFAULT_CREW) {
     const cur = get(d.id)
-    save({ ...d, ...(cur ? { createdAt: cur.createdAt } : {}), source: 'builtin', enabled: true })
+    save({ ...d, ...(cur ? { createdAt: cur.createdAt } : {}), source: 'builtin', enabled: true, crew: true })
   }
   return list()
 }
@@ -187,7 +188,8 @@ function migrate(): void {
     write(a)
   }
   const globals = settings.agents?.length ? settings.agents : DEFAULT_CREW
-  for (const a of globals) add({ ...a, source: BUILTIN_IDS.has(a.id) ? 'builtin' : 'user', createdAt: now, updatedAt: now })
+  // Everything that lived in a crew list was a crew member.
+  for (const a of globals) add({ ...a, crew: true, source: BUILTIN_IDS.has(a.id) ? 'builtin' : 'user', createdAt: now, updatedAt: now })
   const globalIds = globals.map((a) => a.id)
   const disabledBySpace: Record<string, string[]> = {}
   const modelsBySpace: Record<string, Record<string, string>> = {}
@@ -205,7 +207,7 @@ function migrate(): void {
         if (a.model !== sameRole.model) modelsBySpace[s.id][a.id] = a.model
         continue
       }
-      add({ ...a, id: `${s.id}-${a.id}`.slice(0, 40), scope: s.id, source: 'user', createdAt: now, updatedAt: now })
+      add({ ...a, id: `${s.id}-${a.id}`.slice(0, 40), scope: s.id, crew: true, source: 'user', createdAt: now, updatedAt: now })
     }
   }
   cache = sort(next)
@@ -278,7 +280,7 @@ export function importDir(root: string, scope?: string): AgentSpec[] {
     const parsed = agentFromMarkdown(f, scope)
     if (!parsed) continue
     const existing = byName(parsed.name, scope)
-    done.push(save({ ...parsed, id: existing?.id ?? '', ...(existing ? { source: existing.source, enabled: existing.enabled } : {}) }))
+    done.push(save({ ...parsed, id: existing?.id ?? '', ...(existing ? { source: existing.source, enabled: existing.enabled, crew: existing.crew } : {}) }))
   }
   return done
 }

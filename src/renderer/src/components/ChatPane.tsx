@@ -177,7 +177,7 @@ function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Elem
     if (space?.useCrew === false || leanMode) return []
     const off = new Set(space?.crewDisabled ?? [])
     const models = space?.crewModels ?? {}
-    return library.filter((a) => a.enabled && (!a.scope || a.scope === space?.id) && !off.has(a.id)).map((a) => (models[a.id] ? { ...a, model: models[a.id] } : a))
+    return library.filter((a) => a.enabled && a.crew && (!a.scope || a.scope === space?.id) && !off.has(a.id)).map((a) => (models[a.id] ? { ...a, model: models[a.id] } : a))
   }, [space, library, leanMode])
   const crewNames = useMemo(() => crew.map((a) => `${a.name} (${a.model})`), [crew])
   /** Agents an @mention can reach: everything visible to the space, on or off the crew. */

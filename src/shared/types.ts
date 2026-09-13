@@ -57,8 +57,10 @@ export interface AgentSpec {
   disallowedTools?: string[]
   maxTurns?: number
   permissionMode?: PermissionMode
-  /** Part of the crew: orchestrators may delegate to it and it shows in @mentions. */
+  /** Off means nowhere: not in any crew, not mentionable, not runnable. */
   enabled: boolean
+  /** Offered to orchestrators as a subagent. Off (the default) means standalone: you run it yourself with @name, Try it or a schedule. */
+  crew?: boolean
   /** An emoji shown on the card and in mentions. */
   icon?: string
   /** Space id when the agent belongs to one space; absent means every space. */
@@ -121,7 +123,8 @@ export const DEFAULT_CREW: AgentSpec[] = [
     effort: 'low',
     tools: ['Read', 'Grep', 'Glob', 'LS', 'Bash(git log:*)', 'Bash(git diff:*)', 'Bash(git show:*)', 'Bash(git blame:*)'],
     maxTurns: 30,
-    enabled: true
+    enabled: true,
+    crew: true
   },
   {
     id: 'implementer',
@@ -131,7 +134,8 @@ export const DEFAULT_CREW: AgentSpec[] = [
     model: 'sonnet',
     effort: 'high',
     maxTurns: 80,
-    enabled: true
+    enabled: true,
+    crew: true
   },
   {
     id: 'tester',
@@ -142,7 +146,8 @@ export const DEFAULT_CREW: AgentSpec[] = [
     effort: 'medium',
     tools: ['Read', 'Grep', 'Glob', 'Bash'],
     maxTurns: 20,
-    enabled: true
+    enabled: true,
+    crew: true
   },
   {
     id: 'reviewer',
@@ -153,7 +158,8 @@ export const DEFAULT_CREW: AgentSpec[] = [
     effort: 'xhigh',
     tools: ['Read', 'Grep', 'Glob', 'LS', 'Bash(git diff:*)', 'Bash(git log:*)', 'Bash(git show:*)'],
     maxTurns: 40,
-    enabled: true
+    enabled: true,
+    crew: true
   }
 ]
 
