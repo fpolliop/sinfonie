@@ -45,7 +45,7 @@ const APP_PAGES: { id: AppPage; label: string; icon: React.ReactNode; desc: stri
   { id: 'usage', label: 'Usage', icon: <Activity size={14} />, desc: 'Subscription windows per account, spend per day, and where it went.', group: 'Agents' },
   { id: 'integrations', label: 'Integrations', icon: <Plug size={14} />, desc: 'Jira, Linear, Slack, Google Cloud and MCP servers for every space. Spaces can connect their own on their pages.', group: 'Connect' },
   { id: 'oncall', label: 'On call', icon: <Siren size={14} />, desc: 'Slack channels to watch, the triage agent, and how it drafts replies.', group: 'Connect' },
-  { id: 'phone', label: 'Phone', icon: <Smartphone size={14} />, desc: 'Pair a phone to continue conversations and get notified when an agent needs you.', group: 'Connect' },
+  { id: 'phone', label: 'Devices', icon: <Smartphone size={14} />, desc: 'Pair your phone or tablet to continue conversations and get notified when an agent needs you.', group: 'Connect' },
   { id: 'plan', label: 'Plan', icon: <Gem size={14} />, desc: 'Your Sinfonie account and plan. Agent subscriptions stay with their vendors.', group: 'Account' },
   { id: 'feedback', label: 'Feedback & diagnostics', icon: <MessageSquarePlus size={14} />, desc: 'Send feedback, review captured errors, control crash reports.', group: 'Account' },
   { id: 'about', label: 'About & updates', icon: <Info size={14} />, desc: 'Version, links, and update checks.', group: 'Account' }

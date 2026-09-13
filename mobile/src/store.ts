@@ -3,8 +3,9 @@
  * subscribe/useStore pair. The pairing key lives in SecureStore.
  */
 import { useEffect, useState } from 'react'
-import { AppState } from 'react-native'
+import { AppState, Platform } from 'react-native'
 import * as SecureStore from 'expo-secure-store'
+import * as Device from 'expo-device'
 import { derive, seal, unseal, wsUrl, type ChatItem, type FromPhone, type IncidentStatus, type Pairing, type RemoteIncident, type RemotePrompt, type RemoteReviewPr, type RemoteSpace, type RemoteWorkspace, type Severity, type ToPhone } from './protocol'
 
 export interface State {
@@ -117,6 +118,29 @@ export async function unpair(): Promise<void> {
   set({ pairing: null, workspaces: [], spaces: [], prompts: [], transcripts: {}, transcriptHasMore: {}, loadingHistory: {}, busy: {}, host: '', created: null, reviews: [], onCall: [], onCallRunning: false })
 }
 
+// ---- device identity (so the Mac can list and name paired devices) ----
+let deviceId: string | null = null
+async function ensureDeviceId(): Promise<string> {
+  if (deviceId) return deviceId
+  try {
+    let id = await SecureStore.getItemAsync('sinfonie.deviceId')
+    if (!id) {
+      id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`
+      await SecureStore.setItemAsync('sinfonie.deviceId', id)
+    }
+    deviceId = id
+  } catch {
+    deviceId = deviceId ?? `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`
+  }
+  return deviceId
+}
+async function sendDeviceInfo(): Promise<void> {
+  const id = await ensureDeviceId()
+  const platform: 'ios' | 'android' | 'web' = Platform.OS === 'android' ? 'android' : Platform.OS === 'ios' ? 'ios' : 'web'
+  const name = Device.deviceName || Device.modelName || (platform === 'ios' ? 'iPhone' : platform === 'android' ? 'Android' : 'Device')
+  send({ type: 'device', id, name, platform, model: Device.modelName ?? undefined })
+}
+
 // ---- connection ----
 let ws: WebSocket | null = null
 let backoff = 1000
@@ -138,8 +162,13 @@ export function connect(): void {
     backoff = 1000
     set({ connected: true, lastError: null })
     send({ type: 'sync' })
+    void sendDeviceInfo()
     for (const id of subscribed) send({ type: 'subscribe', workspaceId: id })
-    heartbeat = setInterval(() => sock.readyState === 1 && sock.send('ping'), 25_000)
+    heartbeat = setInterval(() => {
+      if (sock.readyState !== 1) return
+      sock.send('ping')
+      void sendDeviceInfo() // keep the Mac's online/last-seen for this device fresh
+    }, 25_000)
   }
   sock.onmessage = (m) => {
     if (ws !== sock) return
@@ -227,7 +256,10 @@ export function loadHistory(workspaceId: string): void {
 AppState.addEventListener('change', (s) => {
   if (s === 'active') {
     if (!ws) connect()
-    else send({ type: 'sync' })
+    else {
+      send({ type: 'sync' })
+      void sendDeviceInfo()
+    }
   }
 })
 

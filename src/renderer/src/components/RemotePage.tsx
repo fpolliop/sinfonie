@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react'
-import { Check, Copy, Smartphone, Unlink } from 'lucide-react'
+import { Check, Copy, Globe, Smartphone, Tablet, Unlink } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { Badge, Button, Field, inputCls } from './ui'
+import { timeAgo } from '@/lib/format'
 import type { RemoteSettings, RemoteStatus } from '@shared/types'
 
 const EMPTY: RemoteSettings = {}
@@ -79,6 +80,26 @@ export function RemotePage(): React.JSX.Element {
           </span>
         </div>
         {status?.lastError && <div className="mt-1 text-[12px] text-warn">{status.lastError}</div>}
+        {status?.paired && status.devices.length > 0 && (
+          <div className="mt-3 space-y-1.5">
+            {status.devices.map((d) => {
+              const online = Date.now() - Date.parse(d.lastSeen) < 120_000
+              const isTablet = /ipad|tablet/i.test(d.model ?? '') || /ipad|tablet/i.test(d.name)
+              const Icon = d.platform === 'web' ? Globe : isTablet ? Tablet : Smartphone
+              return (
+                <div key={d.id} className="flex items-center gap-2 rounded-md border border-border bg-panel-2/40 px-2.5 py-1.5 text-[12px]">
+                  <Icon size={14} className="shrink-0 text-muted" />
+                  <span className="font-medium">{d.name}</span>
+                  {d.model && d.model !== d.name && <span className="text-muted">· {d.model}</span>}
+                  <span className="ml-auto inline-flex items-center gap-1.5 text-[11px] text-muted">
+                    <span className={`h-1.5 w-1.5 rounded-full ${online ? 'bg-ok' : 'bg-muted/50'}`} />
+                    {online ? 'online' : `last seen ${timeAgo(d.lastSeen)}`}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+        )}
         {pairing && (
           <div className="mt-3 flex gap-4">
             <div className="h-[220px] w-[220px] shrink-0 rounded-md bg-panel-2 p-2 [&>svg]:h-full [&>svg]:w-full" dangerouslySetInnerHTML={{ __html: pairing.qrSvg }} />
@@ -97,7 +118,7 @@ export function RemotePage(): React.JSX.Element {
           </div>
         )}
         {!pairing && !status?.paired && (
-          <p className="mt-2 text-[12px] text-muted">Continue conversations from your phone and get a push when an agent waits for permission, asks a question, or finishes. Messages are encrypted end to end between the Mac and the phone; sinfonie.dev relays them and sees only notification titles.</p>
+          <p className="mt-2 text-[12px] text-muted">Continue conversations from your phone or tablet and get a push when an agent waits for permission, asks a question, or finishes. Messages are encrypted end to end between the Mac and the device; sinfonie.dev relays them and sees only notification titles.</p>
         )}
       </section>
 
@@ -123,7 +144,7 @@ export function RemotePage(): React.JSX.Element {
             </label>
           ))}
         </div>
-        <p className="mt-3 text-[11px] text-muted">While a phone is connected and an agent is running, Sinfonie keeps the Mac from sleeping. The lid still has to stay open, or the Mac connected to power with sleep disabled in System Settings.</p>
+        <p className="mt-3 text-[11px] text-muted">While a device is connected and an agent is running, Sinfonie keeps the Mac from sleeping. The lid still has to stay open, or the Mac connected to power with sleep disabled in System Settings.</p>
       </section>
     </div>
   )

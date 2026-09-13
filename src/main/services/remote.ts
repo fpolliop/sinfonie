@@ -15,7 +15,7 @@ import QRCode from 'qrcode'
 import { getStore } from '../store'
 import { getTranscript } from './transcripts'
 import * as agent from './agent'
-import type { AgentEvent, ChatItem, Incident, IncidentStatus, OnCallState, PermissionRequest, PermissionResponse, QuestionRequest, QuestionResponse, RemoteFromPhone, RemoteIncident, RemotePrompt, RemoteReviewPr, RemoteSettings, RemoteStatus, RemoteSpace, RemoteToPhone, RemoteWorkspace, Severity } from '@shared/types'
+import type { AgentEvent, ChatItem, Incident, IncidentStatus, OnCallState, PermissionRequest, PermissionResponse, QuestionRequest, QuestionResponse, RemoteDevice, RemoteFromPhone, RemoteIncident, RemotePrompt, RemoteReviewPr, RemoteSettings, RemoteStatus, RemoteSpace, RemoteToPhone, RemoteWorkspace, Severity } from '@shared/types'
 
 export const RELAY_URL = process.env.SINFONIE_RELAY_URL ?? 'https://relay.sinfonie.dev'
 const PHONE_URL = process.env.SINFONIE_PHONE_URL ?? 'https://sinfonie.dev/m/'
@@ -84,6 +84,8 @@ async function unseal(k: string, text: string): Promise<unknown> {
 let ws: WebSocket | null = null
 let connected = false
 let phones = 0
+/** Devices that have identified themselves, keyed by their stable id. Rebuilt as they reconnect. */
+const devices = new Map<string, RemoteDevice>()
 let lastError: string | undefined
 let reconnectTimer: NodeJS.Timeout | null = null
 let heartbeat: NodeJS.Timeout | null = null
@@ -93,7 +95,10 @@ export function setStatusEmitter(fn: typeof emitStatus): void {
   emitStatus = fn
 }
 export function status(): RemoteStatus {
-  return { paired: Boolean(pairingKey()), connected, phones, relay: RELAY_URL, pairedAt: settings().pairedAt, lastError }
+  const cutoff = Date.now() - 24 * 60 * 60_000
+  for (const [id, d] of devices) if (Date.parse(d.lastSeen) < cutoff) devices.delete(id)
+  const list = [...devices.values()].sort((a, b) => b.lastSeen.localeCompare(a.lastSeen))
+  return { paired: Boolean(pairingKey()), connected, phones, relay: RELAY_URL, pairedAt: settings().pairedAt, lastError, devices: list }
 }
 const publish = (): void => emitStatus(status())
 
@@ -220,6 +225,7 @@ export async function pair(): Promise<{ url: string; qrSvg: string }> {
 export function unpair(): RemoteStatus {
   control({ ctl: 'reset' })
   disconnect()
+  devices.clear()
   writePairingKey(undefined)
   updateSettings({ pairedAt: undefined })
   publish()
@@ -411,6 +417,13 @@ async function handle(msg: RemoteFromPhone): Promise<void> {
     switch (msg.type) {
       case 'sync':
         await pushAll()
+        break
+      case 'device':
+        if (typeof msg.id === 'string' && msg.id) {
+          const platform = msg.platform === 'android' || msg.platform === 'web' ? msg.platform : 'ios'
+          devices.set(msg.id, { id: msg.id, name: String(msg.name || 'Device').slice(0, 60), platform, model: msg.model ? String(msg.model).slice(0, 60) : undefined, lastSeen: new Date().toISOString() })
+          publish()
+        }
         break
       case 'subscribe': {
         subscribed.add(msg.workspaceId)
