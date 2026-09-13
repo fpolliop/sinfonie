@@ -627,6 +627,15 @@ export interface RemoteSettings {
   notifyFinished?: boolean
   notifyErrors?: boolean
 }
+/** A paired device as the Mac knows it, from the identity the device reports when it connects. */
+export interface RemoteDevice {
+  id: string
+  name: string
+  platform: 'ios' | 'android' | 'web'
+  model?: string
+  /** ISO time the device was last heard from; used to show online/offline. */
+  lastSeen: string
+}
 export interface RemoteStatus {
   paired: boolean
   connected: boolean
@@ -634,6 +643,8 @@ export interface RemoteStatus {
   relay: string
   pairedAt?: string
   lastError?: string
+  /** Devices that have identified themselves this session, newest activity first. */
+  devices: RemoteDevice[]
 }
 /** What the phone shows in its workspace list. */
 export interface RemoteWorkspace {
@@ -723,6 +734,7 @@ export type RemoteToPhone =
 /** Phone → desktop, inside the encrypted envelope. */
 export type RemoteFromPhone =
   | { type: 'sync' }
+  | { type: 'device'; id: string; name: string; platform: 'ios' | 'android' | 'web'; model?: string }
   | { type: 'subscribe'; workspaceId: string }
   | { type: 'unsubscribe'; workspaceId: string }
   | { type: 'history'; workspaceId: string; beforeId: string }

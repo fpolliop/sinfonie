@@ -157,6 +157,7 @@ export type ToPhone =
   | { type: 'error'; workspaceId?: string; message: string }
 export type FromPhone =
   | { type: 'sync' }
+  | { type: 'device'; id: string; name: string; platform: 'ios' | 'android' | 'web'; model?: string }
   | { type: 'subscribe'; workspaceId: string }
   | { type: 'unsubscribe'; workspaceId: string }
   | { type: 'history'; workspaceId: string; beforeId: string }
