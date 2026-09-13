@@ -44,7 +44,11 @@ export interface WorkerRun {
 }
 
 function worktreeLines(ws: Workspace): string {
+  if (ws.repos.length === 0) return '(none: this run has no code workspace; work with the tools you have, such as notes, Slack and the web)'
   return ws.repos.map((r) => `- ${r.repoName}: ${r.worktreePath}`).join('\n')
+}
+function whereLine(spec: AgentSpec, ws: Workspace): string {
+  return ws.repos.length ? `You are the "${spec.name}" agent inside workspace "${ws.name}". Worktrees:\n${worktreeLines(ws)}` : `You are the "${spec.name}" agent, running on your own (no code workspace). Worktrees:\n${worktreeLines(ws)}`
 }
 
 function readOnlyOf(spec: AgentSpec): boolean {
@@ -89,7 +93,7 @@ async function runClaude(run: WorkerRun): Promise<string> {
     ...(spec.effort ? { effort: spec.effort } : {}),
     abortController: abort,
     mcpServers: own.servers,
-    systemPrompt: { type: 'preset', preset: 'claude_code', append: `\n${spec.prompt}\n\nYou are the "${spec.name}" agent inside workspace "${ws.name}". Worktrees:\n${worktreeLines(ws)}\nFinish with a clear report for the orchestrator.\n${own.prompt}` },
+    systemPrompt: { type: 'preset', preset: 'claude_code', append: `\n${spec.prompt}\n\n${whereLine(spec, ws)}\nFinish with a clear report.\n${own.prompt}` },
     settingSources: ['user', 'project', 'local'],
     env: { ...process.env, ...accountEnv(ws.claudeAccountId) },
     canUseTool: async (toolName, toolInput, opts) => {
@@ -138,7 +142,7 @@ async function runNative(run: WorkerRun): Promise<string> {
   const modelId = classifyModel(spec.model).modelId
   const sub = new ToolLoopAgent({
     model: resolveModel(spec.model),
-    instructions: `${spec.prompt}\n\nYou are the "${spec.name}" agent inside workspace "${ws.name}". Worktrees:\n${worktreeLines(ws)}\n${readOnly ? 'You are read-only: do not modify files.' : ''}\nFinish with a clear report for the orchestrator.\n${notes.promptFor(ws.id, true)}`,
+    instructions: `${spec.prompt}\n\n${whereLine(spec, ws)}\n${readOnly ? 'You are read-only: do not modify files.' : ''}\nFinish with a clear report.\n${notes.promptFor(ws.id, true)}`,
     tools,
     stopWhen: stepCountIs(spec.maxTurns ?? 40),
     toolApproval: ({ toolCall }) => {
@@ -174,7 +178,7 @@ async function runAgent(run: WorkerRun, engine: 'codex' | 'gemini' | 'grok', mod
     ws,
     model,
     mode,
-    prompt: `${spec.prompt}\n\nYou are the "${spec.name}" agent inside workspace "${ws.name}". Worktrees:\n${worktreeLines(ws)}\n${readOnly ? 'You are read-only: do not modify files.' : ''}\nFinish with a clear report for the orchestrator.\n\nTask:\n${run.prompt}`,
+    prompt: `${spec.prompt}\n\n${whereLine(spec, ws)}\n${readOnly ? 'You are read-only: do not modify files.' : ''}\nFinish with a clear report.\n\nTask:\n${run.prompt}`,
     signal: run.signal,
     onStep: (s) => run.onStep(s, `${engine}/${model}`)
   })

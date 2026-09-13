@@ -16,7 +16,7 @@ interface RawMcp {
   args?: string[]
   env?: Record<string, string>
 }
-import { SPACE_COLORS, AGENT_TEMPLATES } from '@shared/types'
+import { SPACE_COLORS, AGENT_TEMPLATES, isAgentOwner } from '@shared/types'
 import { getStore } from './store'
 import * as git from './services/git'
 import * as workspaces from './services/workspaces'
@@ -46,6 +46,7 @@ import * as crewSuggest from './services/crew/suggest'
 import * as notes from './services/notes'
 import * as agentLib from './services/agents'
 import * as runs from './services/crew/runs'
+import * as scheduler from './services/crew/scheduler'
 import * as resources from './services/resources'
 import * as browser from './services/browser/service'
 import * as browserHttp from './services/browser/http'
@@ -627,6 +628,8 @@ export function registerIpc(): void {
   // Messages held back by a limit warning, until the user picks a way forward.
   const parked = new Map<string, { itemId: string; text: string; images?: ChatImageRef[] }>()
   const sendMessage = (id: string, text: string, images?: ChatImageInput[]): void | Promise<void> => {
+    // The agent's own conversation: no workspace, no orchestrator.
+    if (isAgentOwner(id)) return runs.chat(id.slice(6), text)
     // "@name …" goes straight to that agent, outside the orchestrator.
     if (!images?.length && !agent.isBusy(id)) {
       const mention = runs.parseMention(text, workspaces.getWorkspace(id).spaceId)
@@ -904,7 +907,11 @@ export function registerIpc(): void {
   handle('notes:all', () => notes.listAll().map((g) => ({ ...g, label: notes.ownerLabel(g.owner) })))
   handle('notes:summarize', (filter, question) => notes.summarize(filter, question))
   agentLib.setAgentsEmitter((list) => send('agents:changed', list))
-  runs.setRunEmitters((e) => send('agents:run', e), emitAgent, (id) => agent.isBusy(id))
+  runs.setRunEmitters((e) => send('agents:run', e), emitAgent, (agentId, list) => send('agents:runsChanged', { agentId, runs: list }), (id) => agent.isBusy(id))
+  agent.addBusySource((id) => runs.isBusy(id))
+  handle('agents:runs', (agentId) => runs.runs(agentId))
+  handle('agents:runNow', (agentId) => scheduler.runNow(agentId))
+  scheduler.start()
   handle('agents:list', () => agentLib.list())
   handle('agents:save', (spec) => agentLib.save(spec))
   handle('agents:remove', (id) => agentLib.remove(id))

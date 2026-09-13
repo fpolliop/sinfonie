@@ -54,6 +54,14 @@ export default function App(): React.JSX.Element {
   useEffect(() => api.on('ui:openOnboarding', ({ kind }) => setOnboarding(kind)), [setOnboarding])
   useEffect(
     () =>
+      api.on('ui:openAgent', ({ agentId }) => {
+        useApp.getState().setOpenAgentId(agentId)
+        useApp.getState().setView('agents')
+      }),
+    []
+  )
+  useEffect(
+    () =>
       api.on('ui:openReview', ({ key }) => {
         useApp.getState().setView('reviews')
         useReviews.getState().select(key)

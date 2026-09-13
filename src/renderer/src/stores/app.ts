@@ -48,6 +48,9 @@ interface AppState {
   /** The agent library, mirrored from main. */
   agents: AgentSpec[]
   setAgents: (a: AgentSpec[]) => void
+  /** An agent the Agents view should select on next render (notification click, links). */
+  openAgentId: string | null
+  setOpenAgentId: (id: string | null) => void
   showNewWorkspace: boolean
   /** The open settings page, or null when the window is closed. */
   settingsTarget: SettingsTarget | null
@@ -170,6 +173,8 @@ export const useApp = create<AppState>((set, get) => ({
   view: (localStorage.getItem('orchestra.view') as View) ?? 'workspace',
   agents: [],
   setAgents: (agents) => set({ agents }),
+  openAgentId: null,
+  setOpenAgentId: (openAgentId) => set({ openAgentId }),
   selectedId: localStorage.getItem('orchestra.selected'),
   tab: 'chat',
   showNewWorkspace: false,

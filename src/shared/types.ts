@@ -61,6 +61,8 @@ export interface AgentSpec {
   enabled: boolean
   /** Offered to orchestrators as a subagent. Off (the default) means standalone: you run it yourself with @name, Try it or a schedule. */
   crew?: boolean
+  /** Runs on its own while the app is open. */
+  schedule?: AgentSchedule
   /** An emoji shown on the card and in mentions. */
   icon?: string
   /** Space id when the agent belongs to one space; absent means every space. */
@@ -73,8 +75,43 @@ export interface AgentSpec {
   updatedAt?: string
 }
 
+/** When an agent runs by itself: every N minutes, or once a day at a local time. */
+export interface AgentSchedule {
+  enabled: boolean
+  kind: 'interval' | 'daily'
+  /** For interval: minutes between runs. */
+  everyMinutes?: number
+  /** For daily: "HH:MM" local time. */
+  at?: string
+  /** The standing task; the agent's description when empty. */
+  prompt?: string
+}
+
+/** One run of an agent, whatever started it. */
+export interface AgentRun {
+  id: string
+  trigger: 'manual' | 'chat' | 'mention' | 'schedule'
+  startedAt: string
+  endedAt?: string
+  prompt: string
+  report?: string
+  error?: string
+  /** Workspace it ran in, when it did; absent for runs in the agent's own context. */
+  workspaceId?: string
+}
+
+/** Transcript and task id of an agent's own conversation (no workspace). */
+export const agentOwner = (agentId: string): string => `agent-${agentId}`
+export const isAgentOwner = (id: string): boolean => id.startsWith('agent-')
+
+/** Where notes tools resolve their scopes from: a workspace, a space, or neither (the app). */
+export interface NotesContext {
+  workspaceId?: string
+  spaceId?: string
+}
+
 /** A starting point for a new agent: everything but id, scope and timestamps. */
-export type AgentTemplate = Omit<AgentSpec, 'id' | 'enabled' | 'scope' | 'source' | 'filePath' | 'createdAt' | 'updatedAt'> & { blurb: string }
+export type AgentTemplate = Omit<AgentSpec, 'id' | 'enabled' | 'scope' | 'source' | 'filePath' | 'createdAt' | 'updatedAt' | 'schedule'> & { blurb: string }
 
 /** What "Describe it" returns: a proposed agent, ready to edit before saving. */
 export interface AgentDraft {
