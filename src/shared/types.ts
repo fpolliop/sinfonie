@@ -1051,6 +1051,20 @@ export interface Note {
   updatedAt: string
 }
 
+/** Where a note lives, from inside a workspace: the workspace, its space, or the app (tied to no project). */
+export type NoteScope = 'workspace' | 'space' | 'app'
+
+/** What the Notes view shows: owners are workspace ids, "space:<id>" or "app". */
+export interface NotesFilter {
+  owners?: string[]
+  source?: Note['source']
+  kind?: Note['kind']
+  openOnly?: boolean
+  /** ISO date; notes created at or after it. */
+  since?: string
+  query?: string
+}
+
 /** A git repository found by scanning a folder, for the setup assistant. */
 export interface ScannedRepo {
   path: string

@@ -154,6 +154,7 @@ export function registerIpc(): void {
   })
   handle('spaces:delete', (id) => {
     for (const a of agentLib.list()) if (a.scope === id) agentLib.remove(a.id)
+    notes.deleteAll(notes.spaceOwner(id))
     getStore().update((d) => {
       d.spaces = d.spaces.filter((s) => s.id !== id)
       for (const w of d.workspaces) if (w.spaceId === id) delete w.spaceId
@@ -900,6 +901,8 @@ export function registerIpc(): void {
   handle('notes:add', (wsId, text, kind) => notes.add(wsId, text, kind, 'user'))
   handle('notes:update', (wsId, id, patch) => notes.update(wsId, id, patch))
   handle('notes:remove', (wsId, id) => notes.remove(wsId, id))
+  handle('notes:all', () => notes.listAll().map((g) => ({ ...g, label: notes.ownerLabel(g.owner) })))
+  handle('notes:summarize', (filter, question) => notes.summarize(filter, question))
   agentLib.setAgentsEmitter((list) => send('agents:changed', list))
   runs.setRunEmitters((e) => send('agents:run', e), emitAgent, (id) => agent.isBusy(id))
   handle('agents:list', () => agentLib.list())

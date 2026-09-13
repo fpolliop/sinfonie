@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { Plus, Settings, Archive, Pencil, Folder, Code2, TerminalSquare, Trash2, GitPullRequest, Layers, ArrowDownWideNarrow, ArrowUpNarrowWide, Filter, ChevronRight, MessageSquarePlus, Siren, Activity, Sparkles, Users2, Bot } from 'lucide-react'
+import { Plus, Settings, Archive, Pencil, Folder, Code2, TerminalSquare, Trash2, GitPullRequest, Layers, ArrowDownWideNarrow, ArrowUpNarrowWide, Filter, ChevronRight, MessageSquarePlus, Siren, Activity, Sparkles, Users2, Bot, StickyNote } from 'lucide-react'
 import { ERRORS_SEEN_KEY } from './FeedbackDialog'
 import { useResources, subscribeResources, gb } from '@/stores/resources'
 import { useOnCall, subscribeOnCall } from '@/stores/oncall'
@@ -10,6 +10,7 @@ import { WORKSPACE_STAGES, type TeammateWorkspace } from '@shared/types'
 import { LabelChip, labelsFor } from './LabelPicker'
 import { useApp, spaceOrder } from '@/stores/app'
 import { useChat } from '@/stores/chat'
+import { useNotes } from '@/stores/notes'
 import { timeAgo } from '@/lib/format'
 import { api } from '@/lib/api'
 import { renameWorkspace } from '@/lib/rename'
@@ -115,9 +116,10 @@ export function Sidebar(): React.JSX.Element {
             <ReviewBadges />
           </button>
           <OnCallButton active={view === 'oncall'} onClick={() => setView('oncall')} />
-          <button data-tour="agents" onClick={() => setView('agents')} className={clsx('mb-2 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] font-medium', view === 'agents' ? 'bg-panel-2' : 'hover:bg-panel-2/60')}>
+          <button data-tour="agents" onClick={() => setView('agents')} className={clsx('mb-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] font-medium', view === 'agents' ? 'bg-panel-2' : 'hover:bg-panel-2/60')}>
             <Bot size={14} className="text-accent" /> Agents
           </button>
+          <NotesButton active={view === 'notes'} onClick={() => setView('notes')} />
         </div>
       )}
       <div key={currentId} className="space-enter flex-1 overflow-auto px-2 pb-2">
@@ -391,6 +393,23 @@ function UsageBadge({ onOpen }: { onOpen: () => void }): React.JSX.Element | nul
         {worst.account} · {windowLabel(worst.type)} {pct}%
       </span>
       {worst.resetsAt && <span className="ml-auto shrink-0 opacity-80">resets {clock(worst.resetsAt)}</span>}
+    </button>
+  )
+}
+
+/** Every note across workspaces, spaces and the app; the badge counts open todos. */
+function NotesButton({ active, onClick }: { active: boolean; onClick: () => void }): React.JSX.Element {
+  const byOwner = useNotes((s) => s.byWorkspace)
+  const { loadAll, subscribe } = useNotes()
+  useEffect(() => {
+    subscribe()
+    void loadAll().catch(() => undefined)
+  }, [loadAll, subscribe])
+  const open = Object.values(byOwner).reduce((n, list) => n + list.filter((x) => x.kind === 'todo' && !x.done).length, 0)
+  return (
+    <button data-tour="notes-all" onClick={onClick} className={clsx('mb-2 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] font-medium', active ? 'bg-panel-2' : 'hover:bg-panel-2/60')}>
+      <StickyNote size={14} className="text-accent" /> Notes
+      {open > 0 && <span className="ml-auto rounded-full bg-panel-2 px-1.5 text-[10px] text-muted">{open}</span>}
     </button>
   )
 }

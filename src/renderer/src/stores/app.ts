@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type { AgentSpec, Engine, Label, Repo, Settings, Space, StoreData, Workspace } from '@shared/types'
 
-export type View = 'workspace' | 'reviews' | 'oncall' | 'agents'
+export type View = 'workspace' | 'reviews' | 'oncall' | 'agents' | 'notes'
 import { api } from '@/lib/api'
 
 export type Tab = 'chat' | 'code' | 'prs' | 'terminal' | 'run' | 'browser' | 'data'
