@@ -22,7 +22,7 @@ async function sinfonieServers(ws: Workspace): Promise<{ servers: NonNullable<Op
   if (slack.connection(connId).connected) {
     try {
       servers.slack = await slack.mcpServerConfig(connId)
-      prompt += '\nSlack: Sinfonie\'s Slack connection is available as the mcp__slack tools (search messages, channel history, threads, direct messages, users). Read freely; post or react only when the task says so.'
+      prompt += '\nSlack: Sinfonie\'s Slack connection is available as the mcp__slack tools (search messages, channel history, threads, direct messages, users). Read freely; post or react only when the task says so. If that server failed to connect and mcp__claude_ai_Slack tools exist, use those instead; only give up when no Slack tools work.'
     } catch (err) {
       console.warn('[worker] slack mcp unavailable', err)
     }
@@ -105,7 +105,11 @@ async function runClaude(run: WorkerRun): Promise<string> {
   }
   let report = ''
   for await (const msg of query({ prompt: run.prompt, options }) as AsyncIterable<SDKMessage>) {
-    if (msg.type === 'assistant') {
+    if (msg.type === 'system' && msg.subtype === 'init') {
+      // Surface MCP servers that did not come up, so a silent "0 tool calls" has an explanation in the activity.
+      const bad = (msg.mcp_servers ?? []).filter((s) => s.status !== 'connected' && s.status !== 'pending')
+      if (bad.length) run.onStep({ kind: 'text', detail: `MCP servers not available: ${bad.map((s) => `${s.name} (${s.status})`).join(', ')}` }, msg.model)
+    } else if (msg.type === 'assistant') {
       for (const b of msg.message.content) {
         if (b.type === 'tool_use') {
           const i = (b.input ?? {}) as Record<string, unknown>
