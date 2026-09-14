@@ -25,7 +25,31 @@ export function setOnConnected(fn: (connId: string) => void): void {
 let pollTimer: NodeJS.Timeout | null = null
 /** Sinfonie's registered Slack OAuth client. Empty until the vendor registers one; the secret never ships. */
 export const SINFONIE_SLACK_CLIENT_ID = process.env.SINFONIE_SLACK_CLIENT_ID ?? '11997181824868.11991600098838'
-const SCOPES = ['channels:history', 'channels:read', 'groups:history', 'groups:read', 'chat:write', 'search:read.public', 'users:read']
+// The user scopes Slack's MCP server expects (its .well-known/oauth-protected-resource lists them); a token
+// without the search and DM scopes is refused by the server as "not approved", even with MCP enabled on the app.
+const SCOPES = [
+  'channels:history',
+  'channels:read',
+  'groups:history',
+  'groups:read',
+  'im:history',
+  'im:read',
+  'mpim:history',
+  'mpim:read',
+  'chat:write',
+  'search:read.public',
+  'search:read.private',
+  'search:read.im',
+  'search:read.mpim',
+  'search:read.files',
+  'search:read.users',
+  'users:read',
+  'users:read.email',
+  'reactions:read',
+  'emoji:read',
+  'files:read',
+  'canvases:read'
+]
 
 // ---------- secrets (same scheme as jira.ts) ----------
 function encrypt(text: string): string {
