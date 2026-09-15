@@ -97,6 +97,12 @@ export interface SinfonieInvoke {
   'git:createPr': (workspaceId: string, repoId: string, title: string, body: string, reviewers?: string[]) => string
   /** Runs each repo's check script (build/tests/lint) once and reports pass or fail per app. Guided Send for review. */
   'workspaces:check': (workspaceId: string) => { repoId: string; name: string; ran: boolean; ok: boolean; output: string }[]
+  /** Worktrees recorded for the workspace that are not on disk any more. */
+  'workspaces:health': (workspaceId: string) => { missing: { repoName: string; worktreePath: string; branch: string }[] }
+  /** Recreate missing worktrees from their recorded branches. */
+  'workspaces:repair': (workspaceId: string) => Workspace
+  /** Manual sidebar order: the ids in the order they should appear. */
+  'workspaces:setOrder': (ids: string[]) => void
   /** Guided New task: from a description and the space's apps, pick the apps to touch and a friendly task name. */
   'guided:plan': (spaceId: string, description: string) => { repoIds: string[]; name: string }
   /** Guided mode: post the person's question to the team's Slack channel. Returns a link, or throws with why. */

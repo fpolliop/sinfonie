@@ -26,7 +26,7 @@ import * as limits from './limits'
 import { accountForEngine, envForAccount } from './accounts'
 import { claudeBinary } from './claude-cli'
 import { workspaceEnv } from './scripts'
-import { getRepo, getWorkspace, patchWorkspace } from './workspaces'
+import { getRepo, getWorkspace, patchWorkspace, assertOnDisk } from './workspaces'
 import { CLAUDE_MODELS, classifyModel } from '@shared/types'
 import type { AgentEvent, CliStatus, Workspace } from '@shared/types'
 
@@ -80,6 +80,7 @@ export async function start(workspaceId: string, opts: { prompt?: string; fresh?
   const { settings, spaces } = getStore().get()
   const space = spaces.find((s) => s.id === ws.spaceId)
   const primary = ws.repos.find((r) => r.repoId === ws.primaryRepoId) ?? ws.repos[0]
+  assertOnDisk(ws)
   const cwd = primary?.worktreePath ?? ws.rootPath
   const repo = getRepo(primary?.repoId ?? ws.primaryRepoId)
   const acc = accountForEngine('claude-code', ws.claudeAccountId)

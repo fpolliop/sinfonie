@@ -160,6 +160,42 @@ export async function archiveWorkspace(
 }
 
 /** What archiving would throw away, per repo. */
+/** Worktrees the workspace records that are gone from disk (deleted by hand, a moved folder, a pruned checkout). */
+export function missingWorktrees(ws: Workspace): WorkspaceRepo[] {
+  return ws.repos.filter((r) => !existsSync(r.worktreePath))
+}
+
+/**
+ * Fail early and clearly when a workspace's folders are gone. Without this the agent runtimes
+ * report a spawn failure in a misleading way (the SDK blames a libc mismatch when cwd is absent).
+ */
+export function assertOnDisk(ws: Workspace): void {
+  const missing = missingWorktrees(ws)
+  if (missing.length === 0 && (ws.repos.length > 0 || existsSync(ws.rootPath))) return
+  const list = missing.length ? missing.map((r) => `${r.repoName} at ${r.worktreePath} (branch ${r.branch})`).join('; ') : ws.rootPath
+  throw new Error(`The folders of workspace "${ws.name}" are missing on disk: ${list}. Use Repair in the workspace header to recreate the worktrees from their branches, or archive the workspace.`)
+}
+
+/** Recreate every missing worktree from its recorded branch; the branch is kept if it still exists, else made from the base branch. */
+export async function repairWorkspace(workspaceId: string): Promise<Workspace> {
+  const ws = getWorkspace(workspaceId)
+  const missing = missingWorktrees(ws)
+  if (!existsSync(ws.rootPath)) mkdirSync(ws.rootPath, { recursive: true })
+  const errors: string[] = []
+  for (const wr of missing) {
+    const repo = getRepo(wr.repoId)
+    try {
+      // Git may still register the old path; prune it so the branch can be checked out again.
+      await git.git(repo.path).raw(['worktree', 'prune'])
+      await git.createWorktree(repo.path, wr.worktreePath, wr.branch, wr.baseBranch)
+    } catch (err) {
+      errors.push(`${wr.repoName}: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+  if (errors.length) return patchWorkspace(ws.id, { status: 'error', error: `Repair failed: ${errors.join('; ')}` })
+  return patchWorkspace(ws.id, { status: 'ready', error: undefined })
+}
+
 export async function safetyReport(workspaceId: string): Promise<RepoSafety[]> {
   const ws = getWorkspace(workspaceId)
   return Promise.all(
@@ -181,7 +217,7 @@ export function setStage(workspaceId: string, stage: WorkspaceStage): Workspace 
 
 /** Only ever moves forward, so a manual choice is not undone by a refresh. */
 export function advanceStage(workspaceId: string, stage: WorkspaceStage): void {
-  const order: WorkspaceStage[] = ['todo', 'in-progress', 'in-review', 'done']
+  const order: WorkspaceStage[] = ['todo', 'on-hold', 'in-progress', 'in-review', 'done']
   const ws = getWorkspace(workspaceId)
   if (order.indexOf(stage) > order.indexOf(ws.stage)) patchWorkspace(workspaceId, { stage })
 }

@@ -24,7 +24,7 @@ export const useGuided = (): boolean => useApp((s) => s.settings.mode === 'guide
 export const isGuided = (): boolean => useApp.getState().settings.mode === 'guided'
 
 /** Stage labels in guided words: the same four stages, seen from the person's side. */
-const GUIDED_STAGES: Record<WorkspaceStage, string> = { todo: 'Not started', 'in-progress': 'Working', 'in-review': 'Waiting for review', done: 'Live' }
+const GUIDED_STAGES: Record<WorkspaceStage, string> = { todo: 'Not started', 'in-progress': 'Working', 'on-hold': 'Paused', 'in-review': 'Waiting for review', done: 'Live' }
 
 export function stageLabel(stage: WorkspaceStage | undefined, guided: boolean): string {
   if (!stage) return ''

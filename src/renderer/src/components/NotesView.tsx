@@ -1,13 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import clsx from 'clsx'
-import { StickyNote, Sparkles, Loader2, Plus, Bot, User, LayoutList, Columns3, Check, Trash2, X, Flag, CalendarDays, ArrowRightLeft, MessageSquareShare } from 'lucide-react'
+import { StickyNote, Sparkles, Loader2, Plus, Bot, User, LayoutList, Columns3, Check, Trash2, X, Flag, CalendarDays, ArrowRightLeft, MessageSquareShare, Settings2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { useNotes } from '@/stores/notes'
 import { useChat } from '@/stores/chat'
 import { Markdown } from '@/lib/markdown'
 import { Button, Dialog, inputCls } from './ui'
-import { noteStatus, type Note, type NotePatch, type NotePriority, type NoteStatus, type NotesFilter } from '@shared/types'
+import { noteStatus, noteStatuses, BUILTIN_NOTE_STATUSES, type Note, type NotePatch, type NotePriority, type NoteStatus, type NoteStatusDef, type NotesFilter } from '@shared/types'
 
 const APP = 'app'
 const SINCE_OPTIONS: { id: string; label: string; days?: number }[] = [
@@ -15,11 +15,6 @@ const SINCE_OPTIONS: { id: string; label: string; days?: number }[] = [
   { id: 'today', label: 'Today', days: 0 },
   { id: '7d', label: 'Last 7 days', days: 7 },
   { id: '30d', label: 'Last 30 days', days: 30 }
-]
-const STATUS: { id: NoteStatus; label: string; tone: string }[] = [
-  { id: 'todo', label: 'To do', tone: 'text-muted' },
-  { id: 'doing', label: 'In progress', tone: 'text-warn' },
-  { id: 'done', label: 'Done', tone: 'text-ok' }
 ]
 const PRIORITY: { id: NotePriority; label: string; cls: string }[] = [
   { id: 'high', label: 'High', cls: 'bg-danger/15 text-danger' },
@@ -55,6 +50,9 @@ export function NotesView(): React.JSX.Element {
   const spaces = useApp((s) => s.spaces)
   const workspaces = useApp((s) => s.workspaces)
   const setError = useApp((s) => s.setError)
+  const customStatuses = useApp((s) => s.settings.noteStatuses)
+  const statuses = useMemo(() => noteStatuses(customStatuses), [customStatuses])
+  const [statusesDlg, setStatusesDlg] = useState(false)
   const [view, setView] = useState<'list' | 'board'>(() => (localStorage.getItem('sinfonie.notes.view') as 'list' | 'board') || 'board')
   const [groupBy, setGroupBy] = useState<GroupBy>(() => (localStorage.getItem('sinfonie.notes.groupBy') as GroupBy) || 'status')
   const [sort, setSort] = useState<Sort>('created')
@@ -111,8 +109,9 @@ export function NotesView(): React.JSX.Element {
         const st = noteStatus(n)
         if (source !== 'all' && n.source !== source) continue
         if (kind !== 'all' && n.kind !== kind) continue
-        if (status === 'open' && n.kind === 'todo' && st === 'done') continue
-        if (status === 'done' && !(n.kind === 'todo' && st === 'done')) continue
+        const boardByStatus = view === 'board' && groupBy === 'status'
+        if (!boardByStatus && status === 'open' && n.kind === 'todo' && st === 'done') continue
+        if (!boardByStatus && status === 'done' && !(n.kind === 'todo' && st === 'done')) continue
         if (sinceMs && new Date(n.createdAt).getTime() < sinceMs) continue
         if (q && !n.text.toLowerCase().includes(q)) continue
         out.push({ ...n, owner: o })
@@ -125,7 +124,7 @@ export function NotesView(): React.JSX.Element {
       return b.createdAt.localeCompare(a.createdAt)
     }
     return out.sort(cmp)
-  }, [byOwner, owner, source, kind, status, sinceMs, q, sort])
+  }, [byOwner, owner, source, kind, status, sinceMs, q, sort, view, groupBy])
   const openTotal = Object.values(byOwner).reduce((n, list) => n + list.filter((x) => x.kind === 'todo' && noteStatus(x) !== 'done').length, 0)
   const opened = openId ? shown.find((n) => n.id === openId) ?? null : null
 
@@ -143,18 +142,18 @@ export function NotesView(): React.JSX.Element {
 
   // Board columns for the chosen grouping.
   const columns: { id: string; label: string; notes: Located[]; drop?: (n: Located) => void }[] = useMemo(() => {
-    if (groupBy === 'status') return STATUS.filter((s) => status !== 'open' || s.id !== 'done' || shown.some((n) => noteStatus(n) === 'done')).map((s) => ({ id: s.id, label: s.label, notes: shown.filter((n) => (n.kind === 'note' ? s.id === 'todo' : noteStatus(n) === s.id)), drop: (n) => n.kind === 'todo' && patch(n, { status: s.id }) }))
+    if (groupBy === 'status') return statuses.map((s) => ({ id: s.id, label: s.label, notes: shown.filter((n) => (n.kind === 'note' ? s.id === 'todo' : noteStatus(n) === s.id)), drop: (n) => patch(n, { status: s.id, ...(n.kind === 'note' ? { kind: 'todo' as const } : {}) }) }))
     if (groupBy === 'priority') return [...PRIORITY.map((p) => ({ id: p.id, label: p.label, notes: shown.filter((n) => n.priority === p.id), drop: (n: Located) => patch(n, { priority: p.id }) })), { id: 'none', label: 'No priority', notes: shown.filter((n) => !n.priority), drop: (n: Located) => patch(n, { priority: undefined as unknown as NotePriority }) }]
     const ids = [...new Set([...(owner === 'all' ? owners.filter((o) => o === APP || isSpace(o) || shown.some((n) => n.owner === o)) : [owner]), ...shown.map((n) => n.owner)])]
     return ids.map((o) => ({ id: o, label: labelOf(o), notes: shown.filter((n) => n.owner === o), drop: (n: Located) => n.owner !== o && go(() => move(n.owner, n.id, o)) }))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groupBy, shown, status, owner, owners, spaces, workspaces])
+  }, [groupBy, shown, status, owner, owners, spaces, workspaces, statuses])
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="drag flex h-[52px] shrink-0 items-center gap-2 border-b border-border px-4">
         <StickyNote size={16} className="text-accent" />
-        <span className="text-[13px] font-semibold">Notes</span>
+        <span className="text-[13px] font-semibold">Todos &amp; notes</span>
         <span className="text-[11px] text-muted">{openTotal ? `${openTotal} open todo${openTotal === 1 ? '' : 's'}` : 'nothing open'}</span>
         <div className="no-drag ml-auto flex items-center gap-2">
           <div className="flex rounded-md bg-panel p-0.5">
@@ -169,6 +168,9 @@ export function NotesView(): React.JSX.Element {
               </button>
             ))}
           </div>
+          <Button size="sm" variant="ghost" onClick={() => setStatusesDlg(true)} title="Your own statuses, as board columns">
+            <Settings2 size={12} /> Statuses
+          </Button>
           <Button size="sm" variant="primary" onClick={() => setSummary(true)} disabled={shown.length === 0} title="Claude summarises the notes shown, or answers a question about them">
             <Sparkles size={12} /> Summarise
           </Button>
@@ -273,19 +275,20 @@ export function NotesView(): React.JSX.Element {
               {Object.values(byOwner).some((l) => l.length) ? 'Nothing matches these filters.' : 'Nothing yet. Add a todo above, jot notes in a workspace, or let an agent file what it finds.'}
             </div>
           )}
-          {shown.length > 0 && view === 'board' && <Board columns={columns} openId={openId} onOpen={setOpenId} labelOf={labelOf} />}
-          {shown.length > 0 && view === 'list' && <List notes={shown} openId={openId} onOpen={setOpenId} labelOf={labelOf} onPatch={patch} />}
+          {shown.length > 0 && view === 'board' && <Board columns={columns} openId={openId} onOpen={setOpenId} labelOf={labelOf} statuses={statuses} />}
+          {shown.length > 0 && view === 'list' && <List notes={shown} openId={openId} onOpen={setOpenId} labelOf={labelOf} onPatch={patch} statuses={statuses} />}
         </div>
-        {opened && <Detail note={opened} owners={owners} labelOf={labelOf} onPatch={(p) => patch(opened, p)} onMove={(to) => go(() => move(opened.owner, opened.id, to))} onRemove={() => (setOpenId(null), go(() => remove(opened.owner, opened.id)))} onClose={() => setOpenId(null)} />}
+        {opened && <Detail note={opened} owners={owners} labelOf={labelOf} statuses={statuses} onPatch={(p) => patch(opened, p)} onMove={(to) => go(() => move(opened.owner, opened.id, to))} onRemove={() => (setOpenId(null), go(() => remove(opened.owner, opened.id)))} onClose={() => setOpenId(null)} />}
       </div>
       {summary && <SummaryDialog filter={filter} count={shown.length} onClose={() => setSummary(false)} />}
+      {statusesDlg && <StatusesDialog custom={customStatuses ?? []} onClose={() => setStatusesDlg(false)} />}
     </div>
   )
 }
 
 // ---------- board ----------
 
-function Board({ columns, openId, onOpen, labelOf }: { columns: { id: string; label: string; notes: Located[]; drop?: (n: Located) => void }[]; openId: string | null; onOpen: (id: string) => void; labelOf: (o: string) => string }): React.JSX.Element {
+function Board({ columns, openId, onOpen, labelOf, statuses }: { columns: { id: string; label: string; notes: Located[]; drop?: (n: Located) => void }[]; openId: string | null; onOpen: (id: string) => void; labelOf: (o: string) => string; statuses: NoteStatusDef[] }): React.JSX.Element {
   const [dragging, setDragging] = useState<Located | null>(null)
   const [over, setOver] = useState<string | null>(null)
   return (
@@ -313,7 +316,7 @@ function Board({ columns, openId, onOpen, labelOf }: { columns: { id: string; la
           </div>
           <div className="flex min-h-[80px] flex-1 flex-col gap-2 overflow-auto px-2 pb-2">
             {c.notes.map((n) => (
-              <Card key={`${n.owner}:${n.id}`} note={n} selected={n.id === openId} labelOf={labelOf} onOpen={() => onOpen(n.id)} onDragStart={() => setDragging(n)} onDragEnd={() => (setDragging(null), setOver(null))} />
+              <Card key={`${n.owner}:${n.id}`} note={n} selected={n.id === openId} labelOf={labelOf} statuses={statuses} onOpen={() => onOpen(n.id)} onDragStart={() => setDragging(n)} onDragEnd={() => (setDragging(null), setOver(null))} />
             ))}
           </div>
         </div>
@@ -322,13 +325,14 @@ function Board({ columns, openId, onOpen, labelOf }: { columns: { id: string; la
   )
 }
 
-function Card({ note: n, selected, labelOf, onOpen, onDragStart, onDragEnd }: { note: Located; selected: boolean; labelOf: (o: string) => string; onOpen: () => void; onDragStart: () => void; onDragEnd: () => void }): React.JSX.Element {
+function Card({ note: n, selected, labelOf, statuses, onOpen, onDragStart, onDragEnd }: { note: Located; selected: boolean; labelOf: (o: string) => string; statuses: NoteStatusDef[]; onOpen: () => void; onDragStart: () => void; onDragEnd: () => void }): React.JSX.Element {
   const st = noteStatus(n)
+  const stDef = statuses.find((s) => s.id === st)
   return (
     <div draggable onDragStart={onDragStart} onDragEnd={onDragEnd} onClick={onOpen} className={clsx('cursor-pointer rounded-lg border bg-bg px-3 py-2 text-[12px] shadow-sm hover:border-accent/60', selected ? 'border-accent' : 'border-border', st === 'done' && 'opacity-60')}>
       <div className={clsx('whitespace-pre-wrap break-words', st === 'done' && 'line-through')}>{n.text.length > 220 ? `${n.text.slice(0, 220)}…` : n.text}</div>
       <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[10px] text-muted">
-        {n.kind === 'note' ? <StickyNote size={10} /> : st === 'doing' ? <span className="rounded bg-warn/15 px-1 text-warn">in progress</span> : null}
+        {n.kind === 'note' ? <StickyNote size={10} /> : st !== 'todo' && st !== 'done' ? <span className={clsx('rounded bg-panel-2 px-1', stDef?.tone ?? 'text-accent')}>{stDef?.label ?? st}</span> : null}
         {n.priority && <span className={clsx('rounded px-1', PRIORITY.find((p) => p.id === n.priority)?.cls)}>{n.priority}</span>}
         {n.due && (
           <span className={clsx('inline-flex items-center gap-0.5', overdue(n) && 'text-danger')}>
@@ -344,7 +348,7 @@ function Card({ note: n, selected, labelOf, onOpen, onDragStart, onDragEnd }: { 
 
 // ---------- list ----------
 
-function List({ notes, openId, onOpen, labelOf, onPatch }: { notes: Located[]; openId: string | null; onOpen: (id: string) => void; labelOf: (o: string) => string; onPatch: (n: Located, p: NotePatch) => void }): React.JSX.Element {
+function List({ notes, openId, onOpen, labelOf, onPatch, statuses }: { notes: Located[]; openId: string | null; onOpen: (id: string) => void; labelOf: (o: string) => string; onPatch: (n: Located, p: NotePatch) => void; statuses: NoteStatusDef[] }): React.JSX.Element {
   return (
     <div className="px-4 py-2">
       <div className="grid grid-cols-[24px_1fr_110px_90px_90px_150px_70px] items-center gap-2 px-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted">
@@ -380,7 +384,7 @@ function List({ notes, openId, onOpen, labelOf, onPatch }: { notes: Located[]; o
               <span onClick={(e) => e.stopPropagation()}>
                 {n.kind === 'todo' ? (
                   <select className="h-6 w-full rounded-md border border-border bg-bg px-1 text-[11px]" value={st} onChange={(e) => onPatch(n, { status: e.target.value as NoteStatus })}>
-                    {STATUS.map((s) => (
+                    {statuses.map((s) => (
                       <option key={s.id} value={s.id}>
                         {s.label}
                       </option>
@@ -417,7 +421,7 @@ function List({ notes, openId, onOpen, labelOf, onPatch }: { notes: Located[]; o
 
 // ---------- detail drawer ----------
 
-function Detail({ note: n, owners, labelOf, onPatch, onMove, onRemove, onClose }: { note: Located; owners: string[]; labelOf: (o: string) => string; onPatch: (p: NotePatch) => void; onMove: (to: string) => void; onRemove: () => void; onClose: () => void }): React.JSX.Element {
+function Detail({ note: n, owners, labelOf, statuses, onPatch, onMove, onRemove, onClose }: { note: Located; owners: string[]; labelOf: (o: string) => string; statuses: NoteStatusDef[]; onPatch: (p: NotePatch) => void; onMove: (to: string) => void; onRemove: () => void; onClose: () => void }): React.JSX.Element {
   const [text, setText] = useState(n.text)
   const [tags, setTags] = useState((n.tags ?? []).join(', '))
   const setChatDraft = useChat((s) => s.setDraft)
@@ -446,9 +450,9 @@ function Detail({ note: n, owners, labelOf, onPatch, onMove, onRemove, onClose }
         {n.kind === 'todo' && (
           <div className={field}>
             <span className={label}>Status</span>
-            <div className="flex rounded-md border border-border bg-bg p-0.5 text-[12px]">
-              {STATUS.map((s) => (
-                <button key={s.id} onClick={() => onPatch({ status: s.id })} className={clsx('flex-1 rounded px-2 py-1', st === s.id ? `bg-panel-2 ${s.tone} font-medium` : 'text-muted hover:text-text')}>
+            <div className="flex flex-wrap rounded-md border border-border bg-bg p-0.5 text-[12px]">
+              {statuses.map((s) => (
+                <button key={s.id} onClick={() => onPatch({ status: s.id })} className={clsx('flex-1 rounded px-2 py-1', st === s.id ? `bg-panel-2 ${s.tone ?? 'text-accent'} font-medium` : 'text-muted hover:text-text')}>
                   {s.label}
                 </button>
               ))}
@@ -571,6 +575,93 @@ function SummaryDialog({ filter, count, onClose }: { filter: NotesFilter; count:
         />
         <Button size="sm" variant="primary" disabled={busy || !question.trim()} onClick={() => void run(question.trim())}>
           {busy ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />} Ask
+        </Button>
+      </div>
+    </Dialog>
+  )
+}
+
+
+// ---------- the user's own statuses ----------
+
+const TONES: { id: string; label: string }[] = [
+  { id: 'text-accent', label: 'Blue' },
+  { id: 'text-warn', label: 'Amber' },
+  { id: 'text-ok', label: 'Green' },
+  { id: 'text-danger', label: 'Red' },
+  { id: 'text-muted', label: 'Grey' }
+]
+
+function StatusesDialog({ custom, onClose }: { custom: NoteStatusDef[]; onClose: () => void }): React.JSX.Element {
+  const setError = useApp((s) => s.setError)
+  const [label, setLabel] = useState('')
+  const [tone, setTone] = useState('text-accent')
+  const save = (next: NoteStatusDef[]): void => {
+    void api.invoke('settings:update', { noteStatuses: next }).catch((e) => setError(e instanceof Error ? e.message : String(e)))
+  }
+  const add = (): void => {
+    const l = label.trim()
+    if (!l) return
+    const id = l
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+    if (!id || BUILTIN_NOTE_STATUSES.some((b) => b.id === id) || custom.some((c) => c.id === id)) {
+      setError('That status already exists.')
+      return
+    }
+    save([...custom, { id, label: l, tone }])
+    setLabel('')
+  }
+  return (
+    <Dialog title="Todo statuses" onClose={onClose} width={520}>
+      <p className="mb-3 text-[12px] text-muted">To do, In progress and Done are always there. Your own statuses go between In progress and Done, as board columns and in every status picker. Agents can use them by name.</p>
+      <div className="rounded-lg border border-border">
+        {BUILTIN_NOTE_STATUSES.slice(0, 2).map((b) => (
+          <div key={b.id} className="flex items-center gap-2 border-b border-border px-3 py-1.5 text-[12px] text-muted">
+            <span className={clsx('font-medium', b.tone)}>{b.label}</span>
+            <span className="ml-auto text-[10px]">built in</span>
+          </div>
+        ))}
+        {custom.map((c) => (
+          <div key={c.id} className="group flex items-center gap-2 border-b border-border px-3 py-1.5 text-[12px]">
+            <input className="min-w-0 flex-1 bg-transparent font-medium outline-none" defaultValue={c.label} onBlur={(e) => e.target.value.trim() && e.target.value.trim() !== c.label && save(custom.map((x) => (x.id === c.id ? { ...x, label: e.target.value.trim() } : x)))} />
+            <select className="h-6 rounded-md border border-border bg-bg px-1 text-[11px]" value={c.tone ?? 'text-accent'} onChange={(e) => save(custom.map((x) => (x.id === c.id ? { ...x, tone: e.target.value } : x)))}>
+              {TONES.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+            <button className="rounded p-0.5 text-muted hover:text-danger" title="Remove (todos in it go back to To do on next edit)" onClick={() => save(custom.filter((x) => x.id !== c.id))}>
+              <Trash2 size={12} />
+            </button>
+          </div>
+        ))}
+        <div className="flex items-center gap-2 px-3 py-1.5 text-[12px] text-muted">
+          <span className="font-medium text-ok">Done</span>
+          <span className="ml-auto text-[10px]">built in</span>
+        </div>
+      </div>
+      <div className="mt-3 flex items-center gap-2">
+        <input
+          className={inputCls}
+          placeholder="New status, e.g. Blocked, Waiting, Review"
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') add()
+          }}
+        />
+        <select className="h-8 rounded-md border border-border bg-bg px-1 text-[12px]" value={tone} onChange={(e) => setTone(e.target.value)}>
+          {TONES.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.label}
+            </option>
+          ))}
+        </select>
+        <Button size="sm" variant="primary" disabled={!label.trim()} onClick={add}>
+          <Plus size={12} /> Add
         </Button>
       </div>
     </Dialog>

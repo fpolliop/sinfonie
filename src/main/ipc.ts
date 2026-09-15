@@ -359,6 +359,16 @@ export function registerIpc(): void {
     return ws
   })
   handle('workspaces:safety', (id) => workspaces.safetyReport(id))
+  handle('workspaces:health', (id) => ({ missing: workspaces.missingWorktrees(workspaces.getWorkspace(id)).map((r) => ({ repoName: r.repoName, worktreePath: r.worktreePath, branch: r.branch })) }))
+  handle('workspaces:repair', (id) => workspaces.repairWorkspace(id))
+  handle('workspaces:setOrder', (ids) => {
+    getStore().update((d) => {
+      ids.forEach((id, i) => {
+        const w = d.workspaces.find((x) => x.id === id)
+        if (w) w.order = i
+      })
+    })
+  })
   handle('workspaces:setStage', (id, stage) => workspaces.setStage(id, stage))
   handle('workspaces:refreshJira', (id) => workspaces.refreshJiraStatus(id))
   handle('workspaces:delete', (id) => {

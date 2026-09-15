@@ -8,6 +8,7 @@ import { useGuided, stageLabel as label, stages } from '@/lib/guided'
 export const STAGE_TONE: Record<WorkspaceStage, string> = {
   todo: 'text-muted bg-panel-2',
   'in-progress': 'text-accent bg-accent/15',
+  'on-hold': 'text-muted bg-warn/10',
   'in-review': 'text-warn bg-warn/15',
   done: 'text-ok bg-ok/15'
 }
@@ -15,6 +16,7 @@ export const STAGE_TONE: Record<WorkspaceStage, string> = {
 export const STAGE_DOT: Record<WorkspaceStage, string> = {
   todo: 'bg-muted',
   'in-progress': 'bg-accent',
+  'on-hold': 'bg-warn/50',
   'in-review': 'bg-warn',
   done: 'bg-ok'
 }
