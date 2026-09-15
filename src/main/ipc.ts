@@ -834,12 +834,19 @@ export function registerIpc(): void {
   handle('db:export', (spaceId, id, text, format) => db.exportResult(spaceId, id, text, format))
   handle('db:pickSqlite', () => db.pickSqliteFile())
   // ---- setup assistant ----
-  assistant.setEmitter((e) => send('assistant:event', e))
+  assistant.setEmitter((e) => send('maestro:event', e))
   assistant.setHost({ addRepoAt, setCostMode: (scope, mode) => applyCostMode(scope, mode), openSettings: (t) => send('ui:openSettings', t), sendToWorkspace: (id, text) => sendMessage(id, text), openWorkspace: (id) => send('ui:openWorkspace', { workspaceId: id }) })
-  handle('assistant:send', (text) => assistant.send(text))
+  handle('maestro:conversations', () => assistant.conversations())
+  handle('maestro:get', (id) => assistant.get(id))
+  handle('maestro:new', (ctx) => assistant.create(ctx))
+  handle('maestro:send', (id, text) => assistant.send(id, text))
+  handle('maestro:stop', (id) => assistant.stop(id))
+  handle('maestro:rename', (id, title) => assistant.rename(id, title))
+  handle('maestro:pin', (id, pinned) => assistant.pin(id, pinned))
+  handle('maestro:archive', (id, archived) => assistant.archive(id, archived))
+  handle('maestro:delete', (id) => assistant.remove(id))
+  handle('maestro:suggestions', () => assistant.suggestions())
   handle('assistant:history', () => assistant.history())
-  handle('assistant:reset', () => assistant.reset())
-  handle('assistant:stop', () => assistant.stop())
   setTimeout(() => oncall.reconcile(), 5_000)
 
   // ---- files ----

@@ -1,7 +1,8 @@
 import React from 'react'
-import ReactMarkdown from 'react-markdown'
+import ReactMarkdown, { defaultUrlTransform } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { api } from '@/lib/api'
+import { openSinfonieLink } from '@/lib/links'
 
 /**
  * GitHub-flavoured markdown rendered to React elements (no raw HTML), so
@@ -14,13 +15,15 @@ export function Markdown({ text }: { text: string }): React.JSX.Element {
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         skipHtml
+        urlTransform={(u) => (u.startsWith('sinfonie://') ? u : defaultUrlTransform(u))}
         components={{
           a: ({ href, children }) => (
             <a
               href={href}
               onClick={(e) => {
                 e.preventDefault()
-                if (href) void api.invoke('shell:openExternal', href)
+                if (href?.startsWith('sinfonie://')) openSinfonieLink(href)
+                else if (href) void api.invoke('shell:openExternal', href)
               }}
             >
               {children}

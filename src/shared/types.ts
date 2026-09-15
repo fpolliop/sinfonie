@@ -1864,6 +1864,36 @@ export interface DbHistoryEntry {
 }
 
 /** One entry of the setup assistant's conversation. */
+/** Where a Maestro conversation was opened from. */
+export interface MaestroContext {
+  workspaceId?: string
+  spaceId?: string
+}
+export interface MaestroConversationMeta {
+  id: string
+  title: string
+  /** True once the user renamed it; the auto title then stops. */
+  titleLocked?: boolean
+  createdAt: string
+  updatedAt: string
+  pinnedAt?: string
+  archivedAt?: string
+  context?: MaestroContext
+  busy?: boolean
+  preview?: string
+}
+export interface MaestroConversation extends MaestroConversationMeta {
+  items: AssistantItem[]
+}
+export type MaestroEvent = { conversationId: string } & ({ type: 'item'; item: AssistantItem } | { type: 'delta'; id: string; text: string } | { type: 'status'; busy: boolean } | { type: 'meta'; meta: MaestroConversationMeta } | { type: 'removed' })
+/** One prompt Maestro offers on an empty conversation, computed from real state. */
+export interface MaestroSuggestion {
+  kind: 'todos' | 'workspace' | 'agent' | 'oncall' | 'setup'
+  label: string
+  text: string
+  id?: string
+}
+
 export interface AssistantItem {
   id: string
   role: 'user' | 'assistant' | 'tool' | 'system'

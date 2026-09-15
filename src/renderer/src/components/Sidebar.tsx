@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { Plus, Settings, Archive, Pencil, Folder, Code2, TerminalSquare, Trash2, GitPullRequest, Layers, ArrowDownWideNarrow, ArrowUpNarrowWide, Filter, ChevronRight, MessageSquarePlus, Siren, Activity, Sparkles, Users2, Bot, StickyNote } from 'lucide-react'
+import { Plus, Settings, Archive, Pencil, Folder, Code2, TerminalSquare, Trash2, GitPullRequest, Layers, ArrowDownWideNarrow, ArrowUpNarrowWide, Filter, ChevronRight, MessageSquarePlus, Siren, Activity, Sparkles, Users2, Bot, StickyNote, Wand2 } from 'lucide-react'
 import { ERRORS_SEEN_KEY } from './FeedbackDialog'
 import { useResources, subscribeResources, gb } from '@/stores/resources'
 import { useOnCall, subscribeOnCall } from '@/stores/oncall'
@@ -11,6 +11,7 @@ import { LabelChip, labelsFor } from './LabelPicker'
 import { useApp, spaceOrder } from '@/stores/app'
 import { useChat } from '@/stores/chat'
 import { useNotes } from '@/stores/notes'
+import { openMaestro } from '@/stores/maestro'
 import { timeAgo } from '@/lib/format'
 import { api } from '@/lib/api'
 import { renameWorkspace } from '@/lib/rename'
@@ -111,7 +112,13 @@ export function Sidebar(): React.JSX.Element {
       </div>
       {!guided && (
         <div className="px-2">
-          <button data-tour="reviews" onClick={() => setView('reviews')} className={clsx('mb-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] font-medium', view === 'reviews' ? 'bg-panel-2' : 'hover:bg-panel-2/60')}>
+          <button data-tour="maestro" onClick={() => void openMaestro()} className={clsx('mb-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] font-medium', view === 'maestro' ? 'bg-panel-2' : 'hover:bg-panel-2/60')} title="Maestro, your companion for everything in Sinfonie (⇧⌘A)">
+          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-accent/15 text-accent">
+            <Wand2 size={12} />
+          </span>
+          Maestro
+        </button>
+        <button data-tour="reviews" onClick={() => setView('reviews')} className={clsx('mb-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] font-medium', view === 'reviews' ? 'bg-panel-2' : 'hover:bg-panel-2/60')}>
             <GitPullRequest size={14} className="text-accent" /> Review cockpit
             <ReviewBadges />
           </button>
@@ -255,9 +262,8 @@ export function Sidebar(): React.JSX.Element {
 
 /** Opens the assistant: one conversation that knows every space, workspace, agent, note and integration, and can act on them. */
 function AssistantButton(): React.JSX.Element {
-  const setAssistantOpen = useApp((s) => s.setAssistantOpen)
   return (
-    <button data-tour="assistant" className="no-drag rounded-md p-1.5 text-muted hover:bg-panel-2 hover:text-text" title="Assistant (⇧⌘A)" onClick={() => setAssistantOpen(true)}>
+    <button data-tour="assistant" className="no-drag rounded-md p-1.5 text-muted hover:bg-panel-2 hover:text-text" title="Maestro (⇧⌘A)" onClick={() => void openMaestro()}>
       <Sparkles size={16} />
     </button>
   )

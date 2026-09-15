@@ -1,4 +1,4 @@
-import type { NotePatch, NotesFilter, AgentRun, AgentDraft, AgentRunEvent, AgentSpec, AgentMode, AppMode, AuthLink, CompletionRequest, DiscoveredOrg, SharedRepo, TeammateWorkspace, BillingPeriod, CliStatus, CloudOrgDetail, CloudState, Plan, RemoteSettings, RemoteStatus, SpaceDefinition, SpaceImportPreview, SpaceImportResolution, BrowserState, ContextUsage, CrewPriority, FsEntry, LimitAlternative, UsageSnapshot, ChatImageInput, Incident, IncidentStatus, LinearIssue, LinearSettings, OnCallState, ResourceSnapshot, Severity, SlackConnection, LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion, OnCallBulkOp,
+import type { MaestroConversation, MaestroConversationMeta, MaestroContext, MaestroEvent, MaestroSuggestion, NotePatch, NotesFilter, AgentRun, AgentDraft, AgentRunEvent, AgentSpec, AgentMode, AppMode, AuthLink, CompletionRequest, DiscoveredOrg, SharedRepo, TeammateWorkspace, BillingPeriod, CliStatus, CloudOrgDetail, CloudState, Plan, RemoteSettings, RemoteStatus, SpaceDefinition, SpaceImportPreview, SpaceImportResolution, BrowserState, ContextUsage, CrewPriority, FsEntry, LimitAlternative, UsageSnapshot, ChatImageInput, Incident, IncidentStatus, LinearIssue, LinearSettings, OnCallState, ResourceSnapshot, Severity, SlackConnection, LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion, OnCallBulkOp,
   AgentEvent,
   ChatItem,
   JiraIssue,
@@ -294,11 +294,19 @@ export interface SinfonieInvoke {
   'db:import': (spaceId: string, id: string, req: { path: string; delimiter: string; table: { schema: string; name: string }; mapping: Record<string, string>; coerceTypes?: boolean }) => { inserted: number; ms: number }
   'db:export': (spaceId: string, id: string, text: string, format: 'csv' | 'json') => { path: string; rows: number } | null
   'db:pickSqlite': () => string | null
-  // ---- setup assistant ----
-  'assistant:send': (text: string) => void
+  // ---- Maestro ----
+  'maestro:conversations': () => MaestroConversationMeta[]
+  'maestro:get': (id: string) => MaestroConversation
+  'maestro:new': (context?: MaestroContext) => MaestroConversation
+  'maestro:send': (id: string, text: string) => void
+  'maestro:stop': (id: string) => void
+  'maestro:rename': (id: string, title: string) => void
+  'maestro:pin': (id: string, pinned: boolean) => void
+  'maestro:archive': (id: string, archived: boolean) => void
+  'maestro:delete': (id: string) => void
+  'maestro:suggestions': () => MaestroSuggestion[]
+  /** Has the user talked to Maestro at all (for the checklist). */
   'assistant:history': () => { items: AssistantItem[]; busy: boolean }
-  'assistant:reset': () => void
-  'assistant:stop': () => void
   'agent:setMode': (workspaceId: string, mode: PermissionMode) => Workspace
   'chat:load': (workspaceId: string) => { items: ChatItem[]; busy: boolean }
   // ---- session notes ----
@@ -432,7 +440,7 @@ export interface SinfonieEvents {
   /** The assistant (or main) asks the renderer to show a settings page. */
   'ui:openSettings': { scope: 'app'; page: string } | { scope: 'space'; spaceId: string; page: string }
   'db:history': { connectionId: string }
-  'assistant:event': { type: 'item'; item: AssistantItem } | { type: 'delta'; id: string; text: string } | { type: 'status'; busy: boolean } | { type: 'reset' }
+  'maestro:event': MaestroEvent
   /** Open the On call view on this incident (notification click, deep link). */
   'ui:openOnCall': { incidentId?: string }
   /** An agent started using the browser of this workspace; the renderer brings the pane forward. */
