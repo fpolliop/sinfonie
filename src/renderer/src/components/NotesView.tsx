@@ -1,13 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import clsx from 'clsx'
-import { StickyNote, Sparkles, Loader2, Plus, Bot, User } from 'lucide-react'
+import { StickyNote, Sparkles, Loader2, Plus, Bot, User, LayoutList, Columns3, Check, Trash2, X, Flag, CalendarDays, ArrowRightLeft, MessageSquareShare } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { useNotes } from '@/stores/notes'
+import { useChat } from '@/stores/chat'
 import { Markdown } from '@/lib/markdown'
 import { Button, Dialog, inputCls } from './ui'
-import { Row } from './NotesPanel'
-import type { Note, NotesFilter } from '@shared/types'
+import { noteStatus, type Note, type NotePatch, type NotePriority, type NoteStatus, type NotesFilter } from '@shared/types'
 
 const APP = 'app'
 const SINCE_OPTIONS: { id: string; label: string; days?: number }[] = [
@@ -16,6 +16,20 @@ const SINCE_OPTIONS: { id: string; label: string; days?: number }[] = [
   { id: '7d', label: 'Last 7 days', days: 7 },
   { id: '30d', label: 'Last 30 days', days: 30 }
 ]
+const STATUS: { id: NoteStatus; label: string; tone: string }[] = [
+  { id: 'todo', label: 'To do', tone: 'text-muted' },
+  { id: 'doing', label: 'In progress', tone: 'text-warn' },
+  { id: 'done', label: 'Done', tone: 'text-ok' }
+]
+const PRIORITY: { id: NotePriority; label: string; cls: string }[] = [
+  { id: 'high', label: 'High', cls: 'bg-danger/15 text-danger' },
+  { id: 'medium', label: 'Medium', cls: 'bg-warn/15 text-warn' },
+  { id: 'low', label: 'Low', cls: 'bg-panel-2 text-muted' }
+]
+const PRIORITY_RANK: Record<string, number> = { high: 0, medium: 1, low: 2 }
+type Located = Note & { owner: string }
+type GroupBy = 'status' | 'owner' | 'priority'
+type Sort = 'created' | 'due' | 'priority' | 'updated'
 
 function sinceDate(id: string): string | undefined {
   const o = SINCE_OPTIONS.find((x) => x.id === id)
@@ -25,19 +39,25 @@ function sinceDate(id: string): string | undefined {
   d.setDate(d.getDate() - o.days)
   return d.toISOString()
 }
+const today = (): string => new Date().toISOString().slice(0, 10)
+const overdue = (n: Note): boolean => Boolean(n.due && n.due < today() && noteStatus(n) !== 'done')
+const isSpace = (o: string): boolean => o.startsWith('space:')
 
 /**
- * Every note and todo in one place: the app's own, each space's, and each workspace's. Filter
- * by where it lives, who wrote it, kind, status and date; add at any level; ask Claude for a
- * summary or a question over the filtered set.
+ * Every note and todo in one place, as a list or a board. Filter by where it lives, who wrote it,
+ * kind, status and date; drag cards between columns; open one for status, priority, due date and
+ * moving it elsewhere; ask Claude for a summary of what is shown.
  */
 export function NotesView(): React.JSX.Element {
   const byOwner = useNotes((s) => s.byWorkspace)
   const labels = useNotes((s) => s.labels)
-  const { loadAll, subscribe, add, update, remove } = useNotes()
+  const { loadAll, subscribe, add, update, remove, move } = useNotes()
   const spaces = useApp((s) => s.spaces)
   const workspaces = useApp((s) => s.workspaces)
   const setError = useApp((s) => s.setError)
+  const [view, setView] = useState<'list' | 'board'>(() => (localStorage.getItem('sinfonie.notes.view') as 'list' | 'board') || 'board')
+  const [groupBy, setGroupBy] = useState<GroupBy>(() => (localStorage.getItem('sinfonie.notes.groupBy') as GroupBy) || 'status')
+  const [sort, setSort] = useState<Sort>('created')
   const [owner, setOwner] = useState<string>('all')
   const [source, setSource] = useState<'all' | Note['source']>('all')
   const [kind, setKind] = useState<'all' | Note['kind']>('all')
@@ -48,21 +68,23 @@ export function NotesView(): React.JSX.Element {
   const [addKind, setAddKind] = useState<Note['kind']>('todo')
   const [addOwner, setAddOwner] = useState(APP)
   const [summary, setSummary] = useState(false)
+  const [openId, setOpenId] = useState<string | null>(null)
   useEffect(() => {
     subscribe()
     void loadAll().catch((e) => setError(e instanceof Error ? e.message : String(e)))
   }, [loadAll, subscribe, setError])
+  useEffect(() => localStorage.setItem('sinfonie.notes.view', view), [view])
+  useEffect(() => localStorage.setItem('sinfonie.notes.groupBy', groupBy), [groupBy])
   const go = (fn: () => Promise<void>): void => {
     fn().catch((e) => setError(e instanceof Error ? e.message : String(e)))
   }
 
   const labelOf = (o: string): string => {
     if (o === APP) return 'App'
-    if (o.startsWith('space:')) return `Space · ${spaces.find((s) => s.id === o.slice(6))?.name ?? 'deleted space'}`
+    if (isSpace(o)) return `Space · ${spaces.find((s) => s.id === o.slice(6))?.name ?? 'deleted space'}`
     const ws = workspaces.find((w) => w.id === o)
     return ws ? `${ws.name}${ws.spaceId ? ` · ${spaces.find((s) => s.id === ws.spaceId)?.name ?? ''}` : ''}` : (labels[o] ?? 'deleted workspace')
   }
-  // Owners to offer: the app, every space, every live workspace, plus anything that has notes.
   const owners = useMemo(() => {
     const ids = new Set<string>([APP, ...spaces.map((s) => `space:${s.id}`), ...workspaces.filter((w) => w.status !== 'archived').map((w) => w.id), ...Object.keys(byOwner).filter((o) => byOwner[o]?.length)])
     return [...ids]
@@ -81,26 +103,31 @@ export function NotesView(): React.JSX.Element {
   )
   const sinceMs = sinceDate(since) ? new Date(sinceDate(since)!).getTime() : 0
   const q = query.trim().toLowerCase()
-  const groups = useMemo(() => {
-    const out: { owner: string; notes: Note[] }[] = []
+  const shown: Located[] = useMemo(() => {
+    const out: Located[] = []
     for (const o of Object.keys(byOwner)) {
       if (owner !== 'all' && o !== owner) continue
-      const list = (byOwner[o] ?? []).filter(
-        (n) =>
-          (source === 'all' || n.source === source) &&
-          (kind === 'all' || n.kind === kind) &&
-          (status === 'all' || (status === 'open' ? !(n.kind === 'todo' && n.done) : n.kind === 'todo' && n.done)) &&
-          (!sinceMs || new Date(n.createdAt).getTime() >= sinceMs) &&
-          (!q || n.text.toLowerCase().includes(q))
-      )
-      if (list.length) out.push({ owner: o, notes: [...list].sort((a, b) => b.createdAt.localeCompare(a.createdAt)) })
+      for (const n of byOwner[o] ?? []) {
+        const st = noteStatus(n)
+        if (source !== 'all' && n.source !== source) continue
+        if (kind !== 'all' && n.kind !== kind) continue
+        if (status === 'open' && n.kind === 'todo' && st === 'done') continue
+        if (status === 'done' && !(n.kind === 'todo' && st === 'done')) continue
+        if (sinceMs && new Date(n.createdAt).getTime() < sinceMs) continue
+        if (q && !n.text.toLowerCase().includes(q)) continue
+        out.push({ ...n, owner: o })
+      }
     }
-    const rank = (o: string): number => (o === APP ? 0 : o.startsWith('space:') ? 1 : 2)
-    return out.sort((a, b) => rank(a.owner) - rank(b.owner) || labelOf(a.owner).localeCompare(labelOf(b.owner)))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [byOwner, owner, source, kind, status, sinceMs, q, spaces, workspaces])
-  const total = groups.reduce((n, g) => n + g.notes.length, 0)
-  const openTotal = Object.values(byOwner).reduce((n, list) => n + list.filter((x) => x.kind === 'todo' && !x.done).length, 0)
+    const cmp = (a: Located, b: Located): number => {
+      if (sort === 'due') return (a.due ?? '9999').localeCompare(b.due ?? '9999') || b.createdAt.localeCompare(a.createdAt)
+      if (sort === 'priority') return (PRIORITY_RANK[a.priority ?? 'zz'] ?? 3) - (PRIORITY_RANK[b.priority ?? 'zz'] ?? 3) || b.createdAt.localeCompare(a.createdAt)
+      if (sort === 'updated') return b.updatedAt.localeCompare(a.updatedAt)
+      return b.createdAt.localeCompare(a.createdAt)
+    }
+    return out.sort(cmp)
+  }, [byOwner, owner, source, kind, status, sinceMs, q, sort])
+  const openTotal = Object.values(byOwner).reduce((n, list) => n + list.filter((x) => x.kind === 'todo' && noteStatus(x) !== 'done').length, 0)
+  const opened = openId ? shown.find((n) => n.id === openId) ?? null : null
 
   const submit = (): void => {
     const t = text.trim()
@@ -111,7 +138,17 @@ export function NotesView(): React.JSX.Element {
     go(() => add(addOwner, clean, asTodo ? 'todo' : asNote ? 'note' : addKind))
     setText('')
   }
+  const patch = (n: Located, p: NotePatch): void => go(() => update(n.owner, n.id, p))
   const select = 'h-7 rounded-md border border-border bg-bg px-1.5 text-[12px]'
+
+  // Board columns for the chosen grouping.
+  const columns: { id: string; label: string; notes: Located[]; drop?: (n: Located) => void }[] = useMemo(() => {
+    if (groupBy === 'status') return STATUS.filter((s) => status !== 'open' || s.id !== 'done' || shown.some((n) => noteStatus(n) === 'done')).map((s) => ({ id: s.id, label: s.label, notes: shown.filter((n) => (n.kind === 'note' ? s.id === 'todo' : noteStatus(n) === s.id)), drop: (n) => n.kind === 'todo' && patch(n, { status: s.id }) }))
+    if (groupBy === 'priority') return [...PRIORITY.map((p) => ({ id: p.id, label: p.label, notes: shown.filter((n) => n.priority === p.id), drop: (n: Located) => patch(n, { priority: p.id }) })), { id: 'none', label: 'No priority', notes: shown.filter((n) => !n.priority), drop: (n: Located) => patch(n, { priority: undefined as unknown as NotePriority }) }]
+    const ids = [...new Set([...(owner === 'all' ? owners.filter((o) => o === APP || isSpace(o) || shown.some((n) => n.owner === o)) : [owner]), ...shown.map((n) => n.owner)])]
+    return ids.map((o) => ({ id: o, label: labelOf(o), notes: shown.filter((n) => n.owner === o), drop: (n: Located) => n.owner !== o && go(() => move(n.owner, n.id, o)) }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupBy, shown, status, owner, owners, spaces, workspaces])
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -120,7 +157,19 @@ export function NotesView(): React.JSX.Element {
         <span className="text-[13px] font-semibold">Notes</span>
         <span className="text-[11px] text-muted">{openTotal ? `${openTotal} open todo${openTotal === 1 ? '' : 's'}` : 'nothing open'}</span>
         <div className="no-drag ml-auto flex items-center gap-2">
-          <Button size="sm" variant="primary" onClick={() => setSummary(true)} disabled={total === 0} title="Claude summarises the notes shown, or answers a question about them">
+          <div className="flex rounded-md bg-panel p-0.5">
+            {(
+              [
+                ['board', 'Board', <Columns3 key="b" size={12} />],
+                ['list', 'List', <LayoutList key="l" size={12} />]
+              ] as const
+            ).map(([id, label, icon]) => (
+              <button key={id} onClick={() => setView(id)} className={clsx('flex items-center gap-1 rounded px-2 py-0.5 text-[12px]', view === id ? 'bg-panel-2 text-text' : 'text-muted hover:text-text')}>
+                {icon} {label}
+              </button>
+            ))}
+          </div>
+          <Button size="sm" variant="primary" onClick={() => setSummary(true)} disabled={shown.length === 0} title="Claude summarises the notes shown, or answers a question about them">
             <Sparkles size={12} /> Summarise
           </Button>
         </div>
@@ -156,8 +205,30 @@ export function NotesView(): React.JSX.Element {
             </option>
           ))}
         </select>
-        <input className={clsx(inputCls, 'h-7 w-56 py-0')} placeholder="Search…" value={query} onChange={(e) => setQuery(e.target.value)} />
-        <span className="ml-auto text-[11px] text-muted">{total} shown</span>
+        <input className={clsx(inputCls, 'h-7 w-48 py-0')} placeholder="Search…" value={query} onChange={(e) => setQuery(e.target.value)} />
+        <span className="ml-auto flex items-center gap-2 text-[11px] text-muted">
+          {view === 'board' ? (
+            <>
+              Columns
+              <select className={select} value={groupBy} onChange={(e) => setGroupBy(e.target.value as GroupBy)}>
+                <option value="status">by status</option>
+                <option value="owner">by where</option>
+                <option value="priority">by priority</option>
+              </select>
+            </>
+          ) : (
+            <>
+              Sort
+              <select className={select} value={sort} onChange={(e) => setSort(e.target.value as Sort)}>
+                <option value="created">newest</option>
+                <option value="updated">last changed</option>
+                <option value="due">due date</option>
+                <option value="priority">priority</option>
+              </select>
+            </>
+          )}
+          <span>{shown.length} shown</span>
+        </span>
       </div>
       <div className="border-b border-border px-4 py-2">
         <div className="rounded-lg border border-border bg-bg focus-within:border-accent">
@@ -195,36 +266,267 @@ export function NotesView(): React.JSX.Element {
           </div>
         </div>
       </div>
-      <div className="min-h-0 flex-1 overflow-auto px-4 py-3">
-        {groups.length === 0 && (
-          <div className="mx-auto mt-10 max-w-md rounded-md border border-dashed border-border p-4 text-center text-[12px] text-muted">
-            {Object.values(byOwner).some((l) => l.length) ? 'Nothing matches these filters.' : 'Nothing yet. Add a todo above, jot notes in a workspace, or let an agent file what it finds: an agent can write to the app, a space or a workspace.'}
-          </div>
-        )}
-        <div className="mx-auto flex max-w-3xl flex-col gap-4">
-          {groups.map((g) => (
-            <section key={g.owner}>
-              <div className="mb-1 flex items-center gap-2 px-1">
-                <span className="text-[11px] font-medium uppercase tracking-wide text-muted">{labelOf(g.owner)}</span>
-                <span className="text-[10px] text-muted">{g.notes.length}</span>
-                <span className="ml-auto inline-flex items-center gap-1 text-[10px] text-muted">
-                  {g.notes.some((n) => n.source === 'agent') && <Bot size={10} />}
-                  {g.notes.some((n) => n.source === 'user') && <User size={10} />}
-                </span>
-              </div>
-              <div className="flex flex-col gap-1">
-                {g.notes.map((n) => (
-                  <Row key={n.id} note={n} workspaceId={g.owner === APP || g.owner.startsWith('space:') ? undefined : g.owner} onUpdate={(p) => go(() => update(g.owner, n.id, p))} onRemove={() => go(() => remove(g.owner, n.id))} />
-                ))}
-              </div>
-            </section>
-          ))}
+      <div className="flex min-h-0 flex-1">
+        <div className="min-h-0 min-w-0 flex-1 overflow-auto">
+          {shown.length === 0 && (
+            <div className="mx-auto mt-10 max-w-md rounded-md border border-dashed border-border p-4 text-center text-[12px] text-muted">
+              {Object.values(byOwner).some((l) => l.length) ? 'Nothing matches these filters.' : 'Nothing yet. Add a todo above, jot notes in a workspace, or let an agent file what it finds.'}
+            </div>
+          )}
+          {shown.length > 0 && view === 'board' && <Board columns={columns} openId={openId} onOpen={setOpenId} labelOf={labelOf} />}
+          {shown.length > 0 && view === 'list' && <List notes={shown} openId={openId} onOpen={setOpenId} labelOf={labelOf} onPatch={patch} />}
         </div>
+        {opened && <Detail note={opened} owners={owners} labelOf={labelOf} onPatch={(p) => patch(opened, p)} onMove={(to) => go(() => move(opened.owner, opened.id, to))} onRemove={() => (setOpenId(null), go(() => remove(opened.owner, opened.id)))} onClose={() => setOpenId(null)} />}
       </div>
-      {summary && <SummaryDialog filter={filter} count={total} onClose={() => setSummary(false)} />}
+      {summary && <SummaryDialog filter={filter} count={shown.length} onClose={() => setSummary(false)} />}
     </div>
   )
 }
+
+// ---------- board ----------
+
+function Board({ columns, openId, onOpen, labelOf }: { columns: { id: string; label: string; notes: Located[]; drop?: (n: Located) => void }[]; openId: string | null; onOpen: (id: string) => void; labelOf: (o: string) => string }): React.JSX.Element {
+  const [dragging, setDragging] = useState<Located | null>(null)
+  const [over, setOver] = useState<string | null>(null)
+  return (
+    <div className="flex h-full min-w-max gap-3 px-4 py-3">
+      {columns.map((c) => (
+        <div
+          key={c.id}
+          className={clsx('flex w-[280px] shrink-0 flex-col rounded-xl border bg-panel/40', over === c.id && dragging ? 'border-accent/60 bg-accent/5' : 'border-border')}
+          onDragOver={(e) => {
+            if (!dragging || !c.drop) return
+            e.preventDefault()
+            setOver(c.id)
+          }}
+          onDragLeave={() => setOver((o) => (o === c.id ? null : o))}
+          onDrop={(e) => {
+            e.preventDefault()
+            if (dragging && c.drop) c.drop(dragging)
+            setDragging(null)
+            setOver(null)
+          }}
+        >
+          <div className="flex items-center gap-2 px-3 py-2">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted">{c.label}</span>
+            <span className="rounded-full bg-panel-2 px-1.5 text-[10px] text-muted">{c.notes.length}</span>
+          </div>
+          <div className="flex min-h-[80px] flex-1 flex-col gap-2 overflow-auto px-2 pb-2">
+            {c.notes.map((n) => (
+              <Card key={`${n.owner}:${n.id}`} note={n} selected={n.id === openId} labelOf={labelOf} onOpen={() => onOpen(n.id)} onDragStart={() => setDragging(n)} onDragEnd={() => (setDragging(null), setOver(null))} />
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function Card({ note: n, selected, labelOf, onOpen, onDragStart, onDragEnd }: { note: Located; selected: boolean; labelOf: (o: string) => string; onOpen: () => void; onDragStart: () => void; onDragEnd: () => void }): React.JSX.Element {
+  const st = noteStatus(n)
+  return (
+    <div draggable onDragStart={onDragStart} onDragEnd={onDragEnd} onClick={onOpen} className={clsx('cursor-pointer rounded-lg border bg-bg px-3 py-2 text-[12px] shadow-sm hover:border-accent/60', selected ? 'border-accent' : 'border-border', st === 'done' && 'opacity-60')}>
+      <div className={clsx('whitespace-pre-wrap break-words', st === 'done' && 'line-through')}>{n.text.length > 220 ? `${n.text.slice(0, 220)}…` : n.text}</div>
+      <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[10px] text-muted">
+        {n.kind === 'note' ? <StickyNote size={10} /> : st === 'doing' ? <span className="rounded bg-warn/15 px-1 text-warn">in progress</span> : null}
+        {n.priority && <span className={clsx('rounded px-1', PRIORITY.find((p) => p.id === n.priority)?.cls)}>{n.priority}</span>}
+        {n.due && (
+          <span className={clsx('inline-flex items-center gap-0.5', overdue(n) && 'text-danger')}>
+            <CalendarDays size={9} /> {n.due}
+          </span>
+        )}
+        <span className="truncate">{labelOf(n.owner)}</span>
+        <span className="ml-auto inline-flex items-center gap-0.5">{n.source === 'agent' ? <Bot size={9} /> : <User size={9} />}</span>
+      </div>
+    </div>
+  )
+}
+
+// ---------- list ----------
+
+function List({ notes, openId, onOpen, labelOf, onPatch }: { notes: Located[]; openId: string | null; onOpen: (id: string) => void; labelOf: (o: string) => string; onPatch: (n: Located, p: NotePatch) => void }): React.JSX.Element {
+  return (
+    <div className="px-4 py-2">
+      <div className="grid grid-cols-[24px_1fr_110px_90px_90px_150px_70px] items-center gap-2 px-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted">
+        <span />
+        <span>Item</span>
+        <span>Status</span>
+        <span>Priority</span>
+        <span>Due</span>
+        <span>Where</span>
+        <span>Created</span>
+      </div>
+      <div className="flex flex-col">
+        {notes.map((n) => {
+          const st = noteStatus(n)
+          return (
+            <div key={`${n.owner}:${n.id}`} onClick={() => onOpen(n.id)} className={clsx('grid cursor-pointer grid-cols-[24px_1fr_110px_90px_90px_150px_70px] items-center gap-2 rounded-md border-b border-border/60 px-2 py-1.5 text-[12px] hover:bg-panel-2/60', n.id === openId && 'bg-panel-2', st === 'done' && 'opacity-60')}>
+              {n.kind === 'todo' ? (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onPatch(n, { status: st === 'done' ? 'todo' : 'done' })
+                  }}
+                  className={clsx('flex h-3.5 w-3.5 items-center justify-center rounded border', st === 'done' ? 'border-ok bg-ok/20 text-ok' : 'border-muted hover:border-accent')}
+                >
+                  {st === 'done' && <Check size={9} />}
+                </button>
+              ) : (
+                <StickyNote size={12} className="text-muted" />
+              )}
+              <span className={clsx('truncate', st === 'done' && 'line-through')} title={n.text}>
+                {n.text}
+              </span>
+              <span onClick={(e) => e.stopPropagation()}>
+                {n.kind === 'todo' ? (
+                  <select className="h-6 w-full rounded-md border border-border bg-bg px-1 text-[11px]" value={st} onChange={(e) => onPatch(n, { status: e.target.value as NoteStatus })}>
+                    {STATUS.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.label}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <span className="text-[11px] text-muted">note</span>
+                )}
+              </span>
+              <span onClick={(e) => e.stopPropagation()}>
+                <select className="h-6 w-full rounded-md border border-border bg-bg px-1 text-[11px]" value={n.priority ?? ''} onChange={(e) => onPatch(n, { priority: (e.target.value || undefined) as NotePriority })}>
+                  <option value="">—</option>
+                  {PRIORITY.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.label}
+                    </option>
+                  ))}
+                </select>
+              </span>
+              <span className={clsx('text-[11px]', overdue(n) ? 'text-danger' : 'text-muted')}>{n.due ?? '—'}</span>
+              <span className="truncate text-[11px] text-muted" title={labelOf(n.owner)}>
+                {labelOf(n.owner)}
+              </span>
+              <span className="text-[11px] text-muted" title={n.createdAt}>
+                {new Date(n.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+              </span>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ---------- detail drawer ----------
+
+function Detail({ note: n, owners, labelOf, onPatch, onMove, onRemove, onClose }: { note: Located; owners: string[]; labelOf: (o: string) => string; onPatch: (p: NotePatch) => void; onMove: (to: string) => void; onRemove: () => void; onClose: () => void }): React.JSX.Element {
+  const [text, setText] = useState(n.text)
+  const [tags, setTags] = useState((n.tags ?? []).join(', '))
+  const setChatDraft = useChat((s) => s.setDraft)
+  const select = useApp((s) => s.select)
+  useEffect(() => {
+    setText(n.text)
+    setTags((n.tags ?? []).join(', '))
+  }, [n.id, n.text, n.tags])
+  const st = noteStatus(n)
+  const isWs = n.owner !== APP && !isSpace(n.owner)
+  const field = 'mb-3'
+  const label = 'mb-1 block text-[10px] font-semibold uppercase tracking-wide text-muted'
+  return (
+    <aside className="flex w-[360px] shrink-0 flex-col border-l border-border bg-panel">
+      <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+        <span className="text-[12px] font-semibold">{n.kind === 'todo' ? 'Todo' : 'Note'}</span>
+        <span className="inline-flex items-center gap-1 text-[10px] text-muted">{n.source === 'agent' ? <Bot size={10} /> : <User size={10} />} {n.source === 'agent' ? 'by an agent' : 'by you'}</span>
+        <button className="ml-auto text-muted hover:text-text" onClick={onClose} aria-label="Close">
+          <X size={14} />
+        </button>
+      </div>
+      <div className="flex-1 overflow-auto p-3">
+        <div className={field}>
+          <textarea value={text} rows={Math.min(10, Math.max(3, text.split('\n').length + 1))} onChange={(e) => setText(e.target.value)} onBlur={() => text.trim() && text.trim() !== n.text && onPatch({ text })} className={clsx(inputCls, 'resize-none')} />
+        </div>
+        {n.kind === 'todo' && (
+          <div className={field}>
+            <span className={label}>Status</span>
+            <div className="flex rounded-md border border-border bg-bg p-0.5 text-[12px]">
+              {STATUS.map((s) => (
+                <button key={s.id} onClick={() => onPatch({ status: s.id })} className={clsx('flex-1 rounded px-2 py-1', st === s.id ? `bg-panel-2 ${s.tone} font-medium` : 'text-muted hover:text-text')}>
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        <div className={field}>
+          <span className={label}>
+            <Flag size={9} className="mr-1 inline" />
+            Priority
+          </span>
+          <div className="flex rounded-md border border-border bg-bg p-0.5 text-[12px]">
+            {[...PRIORITY, { id: '' as NotePriority, label: 'None', cls: '' }].map((p) => (
+              <button key={p.id || 'none'} onClick={() => onPatch({ priority: (p.id || undefined) as NotePriority })} className={clsx('flex-1 rounded px-2 py-1', (n.priority ?? '') === p.id ? `bg-panel-2 font-medium ${p.id === 'high' ? 'text-danger' : p.id === 'medium' ? 'text-warn' : 'text-text'}` : 'text-muted hover:text-text')}>
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className={field}>
+          <span className={label}>
+            <CalendarDays size={9} className="mr-1 inline" />
+            Due
+          </span>
+          <div className="flex items-center gap-2">
+            <input type="date" className={clsx(inputCls, 'w-44')} value={n.due ?? ''} onChange={(e) => onPatch({ due: e.target.value || undefined })} />
+            {n.due && (
+              <button className="text-[11px] text-muted hover:text-text" onClick={() => onPatch({ due: undefined })}>
+                clear
+              </button>
+            )}
+          </div>
+        </div>
+        <div className={field}>
+          <span className={label}>Tags</span>
+          <input className={inputCls} placeholder="comma separated" value={tags} onChange={(e) => setTags(e.target.value)} onBlur={() => onPatch({ tags: tags.split(',').map((t) => t.trim()).filter(Boolean) })} />
+        </div>
+        <div className={field}>
+          <span className={label}>
+            <ArrowRightLeft size={9} className="mr-1 inline" />
+            Where
+          </span>
+          <select className={inputCls} value={n.owner} onChange={(e) => e.target.value !== n.owner && onMove(e.target.value)}>
+            {[...new Set([n.owner, ...owners])].map((o) => (
+              <option key={o} value={o}>
+                {labelOf(o)}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="text-[10px] text-muted">
+          Created {new Date(n.createdAt).toLocaleString()} · changed {new Date(n.updatedAt).toLocaleString()} · id {n.id}
+        </div>
+      </div>
+      <div className="flex items-center gap-2 border-t border-border px-3 py-2">
+        {isWs && (
+          <Button
+            size="sm"
+            variant="ghost"
+            title="Open the workspace with this in its chat box"
+            onClick={() => {
+              setChatDraft(n.owner, n.text)
+              select(n.owner)
+            }}
+          >
+            <MessageSquareShare size={12} /> To chat
+          </Button>
+        )}
+        <span className="ml-auto" />
+        <Button size="sm" variant="danger" onClick={onRemove}>
+          <Trash2 size={12} /> Delete
+        </Button>
+      </div>
+    </aside>
+  )
+}
+
+// ---------- summary ----------
 
 function SummaryDialog({ filter, count, onClose }: { filter: NotesFilter; count: number; onClose: () => void }): React.JSX.Element {
   const [question, setQuestion] = useState('')

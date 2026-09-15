@@ -5,7 +5,7 @@ import { nanoid } from 'nanoid'
 import { z } from 'zod'
 import { tool as aiTool, type ToolSet } from 'ai'
 import { createSdkMcpServer, query, tool as sdkTool, type Options, type SDKMessage } from '@anthropic-ai/claude-agent-sdk'
-import type { Note, NoteScope, NotesContext, NotesFilter } from '@shared/types'
+import type { Note, NotePatch, NoteScope, NotesContext, NotesFilter } from '@shared/types'
 import { isAgentOwner } from '@shared/types'
 import { getStore } from '../store'
 import * as agentLib from './agents'
@@ -84,13 +84,48 @@ export function add(owner: string, text: string, kind: Note['kind'], source: Not
   return save(owner, [...list(owner), note])
 }
 
-export function update(owner: string, id: string, patch: Partial<Pick<Note, 'text' | 'done' | 'kind'>>): Note[] {
+export function update(owner: string, id: string, patch: NotePatch): Note[] {
   const notes = list(owner)
   if (!notes.some((n) => n.id === id)) throw new Error(`No note ${id}`)
   return save(
     owner,
-    notes.map((n) => (n.id === id ? { ...n, ...(patch.text !== undefined ? { text: patch.text.trim() } : {}), ...(patch.done !== undefined ? { done: patch.done } : {}), ...(patch.kind ? { kind: patch.kind } : {}), updatedAt: new Date().toISOString() } : n))
+    notes.map((n) => {
+      if (n.id !== id) return n
+      const next: Note = { ...n, updatedAt: new Date().toISOString() }
+      if (patch.text !== undefined) next.text = patch.text.trim()
+      if (patch.kind) next.kind = patch.kind
+      // status and done are one fact; whichever the caller sends wins and the other follows.
+      if (patch.status) {
+        next.status = patch.status
+        next.done = patch.status === 'done'
+      } else if (patch.done !== undefined) {
+        next.done = patch.done
+        next.status = patch.done ? 'done' : n.status === 'doing' ? 'doing' : 'todo'
+      }
+      if (patch.priority !== undefined) {
+        if (patch.priority) next.priority = patch.priority
+        else delete next.priority
+      }
+      if (patch.due !== undefined) {
+        if (patch.due) next.due = patch.due
+        else delete next.due
+      }
+      if (patch.tags !== undefined) {
+        if (patch.tags.length) next.tags = patch.tags.map((t) => t.trim()).filter(Boolean)
+        else delete next.tags
+      }
+      return next
+    })
   )
+}
+
+/** Move a note to another owner; the id stays. */
+export function move(fromOwner: string, id: string, toOwner: string): Note[] {
+  if (fromOwner === toOwner) return list(toOwner)
+  const note = list(fromOwner).find((n) => n.id === id)
+  if (!note) throw new Error(`No note ${id}`)
+  save(fromOwner, list(fromOwner).filter((n) => n.id !== id))
+  return save(toOwner, [...list(toOwner), { ...note, updatedAt: new Date().toISOString() }])
 }
 
 export function remove(owner: string, id: string): Note[] {
@@ -162,7 +197,7 @@ function findOwner(c: string | NotesContext, id: string, scope?: NoteScope): str
 export function render(owner: string): string {
   const notes = list(owner)
   if (notes.length === 0) return '(no notes yet)'
-  return notes.map((n) => `- [${n.id}] ${n.kind === 'todo' ? (n.done ? '[x]' : '[ ]') + ' ' : ''}${n.text}${n.source === 'agent' ? ' (added by agent)' : ''}`).join('\n')
+  return notes.map((n) => `- [${n.id}] ${n.kind === 'todo' ? (n.done ? '[x]' : n.status === 'doing' ? '[~]' : '[ ]') + ' ' : ''}${n.text}${n.priority ? ` (${n.priority} priority)` : ''}${n.due ? ` (due ${n.due})` : ''}${n.source === 'agent' ? ' (added by agent)' : ''}`).join('\n')
 }
 
 function renderScopes(c: string | NotesContext, scope: NoteScope | 'all' | undefined): string {
@@ -202,6 +237,8 @@ export function prefixFor(workspaceId: string): string {
 }
 
 const kindSchema = z.enum(['note', 'todo'])
+const statusSchema = z.enum(['todo', 'doing', 'done'])
+const prioritySchema = z.enum(['low', 'medium', 'high'])
 const scopeSchema = z.enum(['workspace', 'space', 'app'])
 const SCOPE_HINT = 'Where the note lives: "workspace" (default, this project), "space" (the whole space) or "app" (not tied to any project, e.g. requests from Slack or email).'
 
@@ -212,14 +249,16 @@ export function sdkServer(workspaceId: string | NotesContext): NonNullable<Optio
     name: 'notes',
     tools: [
       sdkTool('list_notes', "The user's notes and todos, with ids. Scope: workspace (default), space, app or all.", { scope: z.enum(['workspace', 'space', 'app', 'all']).optional() }, async ({ scope }) => text(renderScopes(workspaceId, scope))),
-      sdkTool('add_note', 'Add a note or todo for the user. Use kind "todo" for actionable follow-ups, "note" for context worth keeping.', { text: z.string(), kind: kindSchema.default('todo'), scope: scopeSchema.optional().describe(SCOPE_HINT) }, async ({ text: t, kind, scope }) => {
+      sdkTool('add_note', 'Add a note or todo for the user. Use kind "todo" for actionable follow-ups, "note" for context worth keeping. Optional priority (low|medium|high) and due date (YYYY-MM-DD).', { text: z.string(), kind: kindSchema.default('todo'), scope: scopeSchema.optional().describe(SCOPE_HINT), priority: prioritySchema.optional(), due: z.string().optional() }, async ({ text: t, kind, scope, priority, due }) => {
         const owner = ownerFor(scope, workspaceId)
-        add(owner, t, kind, 'agent')
+        const added = add(owner, t, kind, 'agent')
+        const last = added[added.length - 1]
+        if (last && (priority || due)) update(owner, last.id, { priority, due })
         return text(`Added at the ${scope ?? 'workspace'} level. Notes there now:\n${render(owner)}`)
       }),
-      sdkTool('update_note', 'Edit a note or mark a todo done or not done.', { id: z.string(), text: z.string().optional(), done: z.boolean().optional(), kind: kindSchema.optional(), scope: scopeSchema.optional().describe(SCOPE_HINT) }, async ({ id, text: t, done, kind, scope }) => {
+      sdkTool('update_note', 'Edit a note; set status (todo|doing|done), priority, due date, or mark done.', { id: z.string(), text: z.string().optional(), done: z.boolean().optional(), status: statusSchema.optional(), priority: prioritySchema.optional(), due: z.string().optional(), kind: kindSchema.optional(), scope: scopeSchema.optional().describe(SCOPE_HINT) }, async ({ id, text: t, done, status, priority, due, kind, scope }) => {
         const owner = findOwner(workspaceId, id, scope)
-        update(owner, id, { text: t, done, kind })
+        update(owner, id, { text: t, done, status, priority, due, kind })
         return text(`Updated. Notes there now:\n${render(owner)}`)
       }),
       sdkTool('remove_note', 'Delete a note. Only when the user asked for it.', { id: z.string(), scope: scopeSchema.optional().describe(SCOPE_HINT) }, async ({ id, scope }) => {
@@ -236,20 +275,22 @@ export function aiTools(workspaceId: string | NotesContext): ToolSet {
   return {
     list_notes: aiTool({ description: "The user's notes and todos, with ids. Scope: workspace (default), space, app or all.", inputSchema: z.object({ scope: z.enum(['workspace', 'space', 'app', 'all']).optional() }), execute: async ({ scope }) => renderScopes(workspaceId, scope) }),
     add_note: aiTool({
-      description: 'Add a note or todo for the user. Use kind "todo" for actionable follow-ups, "note" for context worth keeping.',
-      inputSchema: z.object({ text: z.string(), kind: kindSchema.default('todo'), scope: scopeSchema.optional().describe(SCOPE_HINT) }),
-      execute: async ({ text, kind, scope }) => {
+      description: 'Add a note or todo for the user. Use kind "todo" for actionable follow-ups, "note" for context worth keeping. Optional priority (low|medium|high) and due date (YYYY-MM-DD).',
+      inputSchema: z.object({ text: z.string(), kind: kindSchema.default('todo'), scope: scopeSchema.optional().describe(SCOPE_HINT), priority: prioritySchema.optional(), due: z.string().optional() }),
+      execute: async ({ text, kind, scope, priority, due }) => {
         const owner = ownerFor(scope, workspaceId)
-        add(owner, text, kind, 'agent')
+        const added = add(owner, text, kind, 'agent')
+        const last = added[added.length - 1]
+        if (last && (priority || due)) update(owner, last.id, { priority, due })
         return `Added at the ${scope ?? 'workspace'} level. Notes there now:\n${render(owner)}`
       }
     }),
     update_note: aiTool({
-      description: 'Edit a note or mark a todo done or not done.',
-      inputSchema: z.object({ id: z.string(), text: z.string().optional(), done: z.boolean().optional(), kind: kindSchema.optional(), scope: scopeSchema.optional().describe(SCOPE_HINT) }),
-      execute: async ({ id, text, done, kind, scope }) => {
+      description: 'Edit a note; set status (todo|doing|done), priority, due date, or mark done.',
+      inputSchema: z.object({ id: z.string(), text: z.string().optional(), done: z.boolean().optional(), status: statusSchema.optional(), priority: prioritySchema.optional(), due: z.string().optional(), kind: kindSchema.optional(), scope: scopeSchema.optional().describe(SCOPE_HINT) }),
+      execute: async ({ id, text, done, status, priority, due, kind, scope }) => {
         const owner = findOwner(workspaceId, id, scope)
-        update(owner, id, { text, done, kind })
+        update(owner, id, { text, done, status, priority, due, kind })
         return `Updated. Notes there now:\n${render(owner)}`
       }
     }),
