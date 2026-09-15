@@ -157,7 +157,7 @@ interface TranscriptRun {
   trigger: AgentRun['trigger']
 }
 
-async function runInTranscript(t: TranscriptRun): Promise<void> {
+async function runInTranscript(t: TranscriptRun): Promise<string> {
   const { spec, ws, owner, prompt, trigger } = t
   if (chatBusy(owner) || invoking.has(owner)) throw new Error(trigger === 'schedule' ? 'The agent is already running.' : 'Wait for the current turn to finish first.')
   const veto = resources.delegationVeto(owner)
@@ -180,6 +180,7 @@ async function runInTranscript(t: TranscriptRun): Promise<void> {
   running.set(taskId, { abort, workspaceId: owner })
   let isError = false
   let errorText: string | undefined
+  let out = ''
   try {
     const report = await runWorker({
       spec,
@@ -192,6 +193,7 @@ async function runInTranscript(t: TranscriptRun): Promise<void> {
     emitChat({ type: 'tool_result', workspaceId: owner, toolUseId, result: report, isError: false })
     emitChat({ type: 'text_delta', workspaceId: owner, itemId, text: report })
     record(spec.id, { ...entry, endedAt: new Date().toISOString(), report })
+    out = report
   } catch (err) {
     isError = true
     errorText = abort.signal.aborted ? 'Stopped.' : err instanceof Error ? err.message : String(err)
@@ -206,6 +208,16 @@ async function runInTranscript(t: TranscriptRun): Promise<void> {
     emitChat({ type: 'result', result: { workspaceId: owner, costUsd: 0, durationMs: Date.now() - started, numTurns: 1, isError, errorText } })
     emitChat({ type: 'status', workspaceId: owner, busy: false })
   }
+  if (isError) throw new Error(errorText)
+  return out
+}
+
+/** The assistant (or another caller) asks an agent something and waits for the report; the exchange lands in the agent's chat. */
+export async function ask(agentId: string, prompt: string): Promise<string> {
+  const spec = agents.get(agentId)
+  if (!spec) throw new Error(`No agent ${agentId}`)
+  const owner = agentOwner(agentId)
+  return runInTranscript({ spec, ws: contextFor(spec), owner, prompt: `${recentHistory(owner)}Now the user says:\n${prompt}`, shown: prompt, trigger: 'chat' })
 }
 
 /** "@name do this" in a workspace chat. */

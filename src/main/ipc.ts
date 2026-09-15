@@ -835,7 +835,7 @@ export function registerIpc(): void {
   handle('db:pickSqlite', () => db.pickSqliteFile())
   // ---- setup assistant ----
   assistant.setEmitter((e) => send('assistant:event', e))
-  assistant.setHost({ addRepoAt, setCostMode: (scope, mode) => applyCostMode(scope, mode), openSettings: (t) => send('ui:openSettings', t) })
+  assistant.setHost({ addRepoAt, setCostMode: (scope, mode) => applyCostMode(scope, mode), openSettings: (t) => send('ui:openSettings', t), sendToWorkspace: (id, text) => sendMessage(id, text), openWorkspace: (id) => send('ui:openWorkspace', { workspaceId: id }) })
   handle('assistant:send', (text) => assistant.send(text))
   handle('assistant:history', () => assistant.history())
   handle('assistant:reset', () => assistant.reset())

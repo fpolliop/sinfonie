@@ -26,6 +26,14 @@ import * as jira from './jira'
 import * as gcp from './gcp'
 import * as oncall from './oncall/service'
 import * as library from './agents'
+import * as notes from './notes'
+import * as runs from './crew/runs'
+import * as scheduler from './crew/scheduler'
+import * as slackTools from './slack-tools'
+import * as reviews from './reviews'
+import { mcpServersFor } from './agent'
+import { getTranscript } from './transcripts'
+import { agentOwner } from '@shared/types'
 import { SPACE_COLORS, type AgentSpec, type AssistantItem, type CostMode, type CostModeScope, type OnCallSettings, type Repo, type Space, type Settings } from '@shared/types'
 
 export const ASSISTANT_WORKSPACE_ID = 'assistant'
@@ -35,6 +43,9 @@ interface Host {
   addRepoAt: (path: string, spaceId?: string) => Promise<Repo>
   setCostMode: (scope: CostModeScope, mode: CostMode | null) => void
   openSettings: (target: { scope: 'app'; page: string } | { scope: 'space'; spaceId: string; page: string }) => void
+  /** Send a message into a workspace's conversation, as if typed there. */
+  sendToWorkspace: (workspaceId: string, text: string) => Promise<void> | void
+  openWorkspace: (workspaceId: string) => void
 }
 let host: Host | null = null
 export function setHost(h: Host): void {
@@ -109,6 +120,11 @@ const spaceOrThrow = (id: string): Space => {
   return s
 }
 const connId = (spaceId?: string): string => (spaceId ? spaceOrThrow(spaceId).id : '')
+const agentOrThrow = (ref: string): AgentSpec => {
+  const a = library.list().find((x) => x.id === ref || x.name.toLowerCase() === ref.toLowerCase())
+  if (!a) throw new Error(`No agent "${ref}". Call list_agents for the list.`)
+  return a
+}
 const pretty = (v: unknown): string => JSON.stringify(v, null, 1)
 
 function overview(): unknown {
@@ -156,6 +172,13 @@ function overview(): unknown {
         oncall: s.oncall?.enabled ? `on, ${s.oncall.channels.length} channel(s)` : 'off'
       }
     })),
+    workspaces: workspaces
+      .filter((w) => w.status !== 'archived')
+      .map((w) => ({ id: w.id, name: w.name, space: spaces.find((s) => s.id === w.spaceId)?.name ?? null, stage: w.stage, status: w.status, repos: w.repos.map((r) => `${r.repoName}@${r.branch}`), lastMessageAt: w.lastMessageAt ?? null, openTodos: notes.list(w.id).filter((n) => n.kind === 'todo' && !n.done).length })),
+    agents: library.list().map((a) => ({ id: a.id, name: a.name, icon: a.icon, role: a.crew ? 'crew' : 'standalone', enabled: a.enabled, model: a.model, scope: a.scope ? (spaces.find((s) => s.id === a.scope)?.name ?? a.scope) : 'every space', tools: a.tools?.length ? a.tools : 'all', schedule: a.schedule?.enabled ? `${a.schedule.kind === 'daily' ? `daily at ${a.schedule.at}` : `every ${a.schedule.everyMinutes} min`}${scheduler.nextRunAt(a) ? `, next ${scheduler.nextRunAt(a)!.toISOString()}` : ''}` : 'off', lastRun: runs.lastRun(a.id)?.startedAt ?? null, description: a.description.slice(0, 120) })),
+    notes: notes.listAll().map((g) => ({ owner: g.owner, where: notes.ownerLabel(g.owner), openTodos: g.notes.filter((n) => n.kind === 'todo' && !n.done).length, notes: g.notes.filter((n) => n.kind === 'note').length, done: g.notes.filter((n) => n.kind === 'todo' && n.done).length })),
+    reviews: reviews.listRuns().slice(0, 20).map((r) => ({ key: r.key, status: r.status, title: (r as unknown as { title?: string }).title ?? r.key })),
+    oncall: { running: oncall.state().running, openIncidents: oncall.state().incidents.filter((i) => i.status !== 'resolved' && i.status !== 'dismissed').length },
     unassignedRepos: repos.filter((r) => !r.spaceId).map((r) => ({ id: r.id, name: r.name, path: r.path })),
     reposById: repos.map((r) => ({ id: r.id, name: r.name, path: r.path, spaceId: r.spaceId, defaultBranch: r.defaultBranch })),
     settingsPages: {
@@ -509,6 +532,186 @@ const TOOLS: ToolDef[] = [
     }
   },
   {
+    name: 'list_workspaces',
+    description: 'Workspaces (tasks) with their space, stage, status, repos and branches, last activity and open todos. Optionally one space.',
+    shape: { space: z.string().optional().describe('space id or name') },
+    run: async (i) => {
+      const { spaces, workspaces } = getStore().get()
+      const sid = i.space ? spaceOrThrow(String(i.space)).id : undefined
+      return pretty(
+        workspaces
+          .filter((w) => w.status !== 'archived' && (!sid || w.spaceId === sid))
+          .map((w) => ({ id: w.id, name: w.name, space: spaces.find((s) => s.id === w.spaceId)?.name ?? null, stage: w.stage, status: w.status, repos: w.repos.map((r) => `${r.repoName}@${r.branch} (${r.worktreePath})`), lastMessageAt: w.lastMessageAt ?? null, engine: w.engine ?? 'space/app default', costMode: costModeFor(w.spaceId, w.id) }))
+      )
+    }
+  },
+  {
+    name: 'workspace_transcript',
+    description: "The recent conversation of a workspace (or of an agent's own chat: pass agent:<id>): who said what and which tools ran. Use it to answer 'what happened in X' or 'what is the agent doing'.",
+    shape: { workspaceId: z.string(), last: z.number().int().min(1).max(60).optional().describe('How many items from the end, default 20') },
+    run: async (i) => {
+      const id = String(i.workspaceId)
+      const items = getTranscript(id.startsWith('agent:') ? agentOwner(id.slice(6)) : id).slice(-(Number(i.last) || 20))
+      if (items.length === 0) return 'No conversation yet.'
+      return items
+        .map((it) => {
+          const text = it.blocks.map((b) => (b.type === 'text' ? b.text : b.type === 'tool' ? `[tool ${b.name}${b.done ? '' : ' (running)'}${b.isError ? ' failed' : ''}]` : '')).join(' ').trim()
+          return `${it.createdAt.slice(0, 16).replace('T', ' ')} ${it.role}: ${text.slice(0, 1200)}`
+        })
+        .join('\n')
+    }
+  },
+  {
+    name: 'send_to_workspace',
+    description: "Send a message into a workspace's conversation, as if the user typed it there; the orchestrator of that workspace acts on it. Confirm with the user first. Returns at once; read workspace_transcript later for the outcome.",
+    shape: { workspaceId: z.string(), text: z.string().min(1) },
+    run: async (i) => {
+      const ws = getStore().get().workspaces.find((w) => w.id === String(i.workspaceId))
+      if (!ws) throw new Error('No such workspace. Call list_workspaces.')
+      await needHost().sendToWorkspace(ws.id, String(i.text))
+      return `Sent to "${ws.name}". It runs there; check workspace_transcript for the reply.`
+    }
+  },
+  {
+    name: 'open_workspace',
+    description: 'Show a workspace in the main window.',
+    shape: { workspaceId: z.string() },
+    run: async (i) => {
+      needHost().openWorkspace(String(i.workspaceId))
+      return 'Opened.'
+    }
+  },
+  {
+    name: 'notes_list',
+    description: 'Notes and todos, everywhere or filtered: owner (a workspace id, "space:<id>" or "app"), source (user|agent), kind (note|todo), openOnly, since (ISO date), query (text).',
+    shape: { owner: z.string().optional(), source: z.enum(['user', 'agent']).optional(), kind: z.enum(['note', 'todo']).optional(), openOnly: z.boolean().optional(), since: z.string().optional(), query: z.string().optional() },
+    run: async (i) => {
+      const groups = notes.filtered({ ...(i.owner ? { owners: [String(i.owner)] } : {}), ...(i.source ? { source: i.source as 'user' | 'agent' } : {}), ...(i.kind ? { kind: i.kind as 'note' | 'todo' } : {}), ...(i.openOnly ? { openOnly: true } : {}), ...(i.since ? { since: String(i.since) } : {}), ...(i.query ? { query: String(i.query) } : {}) })
+      if (groups.length === 0) return 'Nothing matches.'
+      return groups.map((g) => `## ${g.label} (owner ${g.owner})\n${g.notes.map((n) => `- [${n.id}] ${n.kind === 'todo' ? (n.done ? '[x] ' : '[ ] ') : ''}${n.text} (${n.source}, ${n.createdAt.slice(0, 10)})`).join('\n')}`).join('\n\n')
+    }
+  },
+  {
+    name: 'notes_add',
+    description: 'Add a note or todo. owner: "app" (default, tied to no project), "space:<id>", or a workspace id.',
+    shape: { text: z.string().min(1), kind: z.enum(['note', 'todo']).default('todo'), owner: z.string().optional() },
+    run: async (i) => {
+      const owner = String(i.owner || notes.APP_OWNER)
+      notes.add(owner, String(i.text), (i.kind as 'note' | 'todo') ?? 'todo', 'agent')
+      return `Added to ${notes.ownerLabel(owner)}.`
+    }
+  },
+  {
+    name: 'notes_update',
+    description: 'Edit a note, or mark a todo done or not done. Pass the owner from notes_list.',
+    shape: { owner: z.string(), id: z.string(), text: z.string().optional(), done: z.boolean().optional(), kind: z.enum(['note', 'todo']).optional() },
+    run: async (i) => {
+      notes.update(String(i.owner), String(i.id), { ...(i.text !== undefined ? { text: String(i.text) } : {}), ...(i.done !== undefined ? { done: Boolean(i.done) } : {}), ...(i.kind ? { kind: i.kind as 'note' | 'todo' } : {}) })
+      return 'Updated.'
+    }
+  },
+  {
+    name: 'notes_remove',
+    description: 'Delete a note. Only when the user asked for it.',
+    shape: { owner: z.string(), id: z.string() },
+    run: async (i) => {
+      notes.remove(String(i.owner), String(i.id))
+      return 'Removed.'
+    }
+  },
+  {
+    name: 'list_agents',
+    description: 'The agent library: crew members and standalone agents, with model, tools, scope, schedule and last run.',
+    shape: {},
+    run: async () => pretty((overview() as { agents: unknown }).agents)
+  },
+  {
+    name: 'get_agent',
+    description: 'Full definition of one agent: prompt, description, model, tools, schedule, and its recent runs.',
+    shape: { agent: z.string().describe('agent id or name') },
+    run: async (i) => {
+      const a = agentOrThrow(String(i.agent))
+      return pretty({ ...a, runs: runs.runs(a.id).slice(0, 10).map((r) => ({ trigger: r.trigger, startedAt: r.startedAt, endedAt: r.endedAt, error: r.error, report: r.report?.slice(0, 400) })) })
+    }
+  },
+  {
+    name: 'save_agent',
+    description: 'Create an agent (no id) or update one (id). Fields left out are kept. crew=false is standalone (the user runs it by @name, chat or schedule); crew=true offers it to orchestrators. schedule: {enabled, kind: interval|daily, everyMinutes, at "HH:MM", prompt}. Confirm with the user before creating or changing.',
+    shape: {
+      id: z.string().optional(),
+      name: z.string().regex(/^[a-z0-9][a-z0-9-_]*$/i).optional(),
+      description: z.string().optional(),
+      prompt: z.string().optional(),
+      model: z.string().optional(),
+      effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).optional(),
+      tools: z.array(z.string()).optional().describe('Allow-list; e.g. ["mcp__slack","mcp__notes"] for a Slack agent, ["Read","Grep","Glob"] for read-only code roles; omit for everything'),
+      maxTurns: z.number().int().min(5).max(200).optional(),
+      icon: z.string().optional(),
+      crew: z.boolean().optional(),
+      enabled: z.boolean().optional(),
+      scope: z.string().optional().describe('space id or name to restrict it to one space; "" for every space'),
+      schedule: z.object({ enabled: z.boolean(), kind: z.enum(['interval', 'daily']), everyMinutes: z.number().int().min(5).optional(), at: z.string().optional(), prompt: z.string().optional() }).optional()
+    },
+    run: async (i) => {
+      const existing = i.id ? library.get(String(i.id)) : undefined
+      if (i.id && !existing) throw new Error(`No agent ${String(i.id)}`)
+      if (!existing && (!i.name || !i.prompt)) throw new Error('A new agent needs at least a name and a prompt.')
+      const scope = i.scope === undefined ? existing?.scope : i.scope ? spaceOrThrow(String(i.scope)).id : undefined
+      const spec: AgentSpec = {
+        id: existing?.id ?? '',
+        name: String(i.name ?? existing?.name ?? ''),
+        description: String(i.description ?? existing?.description ?? ''),
+        prompt: String(i.prompt ?? existing?.prompt ?? ''),
+        model: String(i.model ?? existing?.model ?? 'sonnet'),
+        enabled: i.enabled === undefined ? (existing?.enabled ?? true) : Boolean(i.enabled),
+        crew: i.crew === undefined ? Boolean(existing?.crew) : Boolean(i.crew),
+        ...(i.effort !== undefined ? { effort: i.effort as AgentSpec['effort'] } : existing?.effort ? { effort: existing.effort } : {}),
+        ...(i.tools !== undefined ? { tools: i.tools as string[] } : existing?.tools ? { tools: existing.tools } : {}),
+        ...(i.maxTurns !== undefined ? { maxTurns: Number(i.maxTurns) } : existing?.maxTurns ? { maxTurns: existing.maxTurns } : {}),
+        ...(i.icon !== undefined ? { icon: String(i.icon) } : existing?.icon ? { icon: existing.icon } : {}),
+        ...(scope ? { scope } : {}),
+        ...(i.schedule !== undefined ? { schedule: i.schedule as AgentSpec['schedule'] } : existing?.schedule ? { schedule: existing.schedule } : {})
+      }
+      const saved = library.save(spec)
+      return `${existing ? 'Updated' : 'Created'} agent ${saved.name} (id ${saved.id}, ${saved.crew ? 'crew' : 'standalone'}${saved.schedule?.enabled ? ', scheduled' : ''}).`
+    }
+  },
+  {
+    name: 'delete_agent',
+    description: 'Delete an agent from the library. Only when the user named it.',
+    shape: { agent: z.string() },
+    run: async (i) => {
+      const a = agentOrThrow(String(i.agent))
+      library.remove(a.id)
+      return `Deleted ${a.name}.`
+    }
+  },
+  {
+    name: 'run_agent',
+    description: "Run an agent now with a task and wait for its report (up to a few minutes). The exchange also appears in the agent's own chat. Use it to delegate anything an agent is built for, e.g. a Slack sweep.",
+    shape: { agent: z.string(), task: z.string().min(1) },
+    run: async (i) => runs.ask(agentOrThrow(String(i.agent)).id, String(i.task))
+  },
+  {
+    name: 'run_agent_task',
+    description: "Start an agent's standing (scheduled) task now, as its schedule would. Returns when it finishes.",
+    shape: { agent: z.string() },
+    run: async (i) => {
+      const a = agentOrThrow(String(i.agent))
+      await scheduler.runNow(a.id)
+      return runs.lastRun(a.id)?.report ?? runs.lastRun(a.id)?.error ?? 'Done.'
+    }
+  },
+  {
+    name: 'oncall_incidents',
+    description: 'On-call incidents Sinfonie has seen: title, channel, status, severity.',
+    shape: { all: z.boolean().optional().describe('Include resolved and dismissed') },
+    run: async (i) => {
+      const inc = oncall.state().incidents.filter((x) => i.all || (x.status !== 'resolved' && x.status !== 'dismissed'))
+      return inc.length ? pretty(inc.map((x) => ({ id: x.id, title: x.title, channel: x.channelName, status: x.status, severity: (x as unknown as { severity?: string }).severity }))) : 'No incidents.'
+    }
+  },
+  {
     name: 'open_settings',
     description: 'Open a settings page in the app for the user, for anything this assistant cannot do itself: account sign-ins (terminal), API keys under providers, MCP servers with secrets, resources. App pages: general, spaces, repos, providers, accounts, crew, resources, usage, oncall, jira, linear, slack, gcp, mcp, about. Space pages: general, repos, crew, oncall, jira, linear, slack, gcp, github, mcp.',
     shape: { page: z.string(), spaceId: z.string().optional() },
@@ -541,28 +744,45 @@ function server(): NonNullable<Options['mcpServers']>[string] {
   })
 }
 
-const SYSTEM = `You are Sinfonie's setup assistant, living inside the app. You configure Sinfonie for the user by talking with them and calling the sinfonie tools; you never edit files or run shell commands.
+const SYSTEM = `You are Sinfonie's assistant, living inside the app: the one place the user can ask about anything Sinfonie knows and have it done. You configure the app, you know every space, workspace, agent, integration and note, and you use the same integrations the user's agents use (Slack, Jira, Linear, Google Cloud, MCP servers) through their tools. You never edit files or run shell commands yourself; for code work you send tasks to workspaces or run agents.
 
 Sinfonie in one minute:
-- A SPACE groups repositories (one product, one client, one team). Each space can have its own engine, model, permission mode, cost mode, crew, and integrations (Jira, Linear, Slack, Google Cloud, on-call); anything unset falls back to the app default.
-- A WORKSPACE is one task inside a space: a git worktree per repository the task touches, plus a conversation with an agent. The user creates workspaces from the sidebar; you do not create them.
-- The ENGINE runs the conversation: claude-code (default, uses the user's Claude login), native (API providers with keys), codex, gemini, grok (their CLIs).
-- The CREW is the set of subagents the orchestrator can delegate to. Each has a name, a description (when to delegate), a system prompt, a model (haiku cheap and fast; sonnet the default coder; opus deep reasoning; fable the strongest and most expensive), an effort, optional tool allow-list and turn cap. Spaces can override the app default crew or turn delegation off.
-- COST MODES: standard, budget (Sonnet orchestrator, low effort, 60 tool calls per message), lean (one Sonnet agent, no crew, trimmed tools, 25 calls per message). Lean is for tight subscriptions.
-- INTEGRATIONS: Slack and Linear/Jira sign in through the browser (OAuth); Google Cloud uses the local gcloud login and a project per space; GitHub uses the gh CLI. The on-call agent watches Slack channels, triages incidents, and can open draft PRs with fixes.
+- A SPACE groups repositories (one product, one client, one team). Each space can have its own engine, model, permission mode, cost mode, crew, and integrations (Jira, Linear, Slack, Google Cloud, on-call, databases); anything unset falls back to the app default.
+- A WORKSPACE is one task inside a space: a git worktree per repository the task touches, plus a conversation with an orchestrator agent. You can read its transcript (workspace_transcript) and send it a message (send_to_workspace); the user creates workspaces from the sidebar.
+- AGENTS live in a library. A crew agent is a subagent orchestrators delegate to. A standalone agent is one the user runs directly: by @name in a workspace chat, in the agent's own chat, on a schedule (every N minutes or daily), or by you with run_agent. Agents have a name, description, prompt, model (haiku cheap and fast; sonnet the default coder; opus deep reasoning; fable the strongest), optional tool allow-list (mcp__slack for Slack, mcp__notes for notes, Read/Grep/Glob for read-only code) and turn cap.
+- NOTES and todos live at three levels: a workspace, a space ("space:<id>"), or the app ("app", tied to no project). Agents file into them; the user sees everything in the Notes view.
+- The ENGINE runs conversations: claude-code (default, the user's Claude login), native (API providers), codex, gemini, grok.
+- COST MODES: standard, budget (Sonnet orchestrator, low effort, capped calls), lean (one Sonnet agent, no crew, trimmed tools).
+- INTEGRATIONS: Slack, Jira and Linear sign in through the browser; Google Cloud uses the local gcloud login; GitHub uses gh. The on-call agent watches Slack channels and triages incidents. The review cockpit runs AI reviews on pull requests.
 - Accounts: several Claude/OpenAI/Google/xAI logins can coexist; spaces and workspaces pick one.
 
 How you work:
-1. Start every conversation by calling get_overview, then answer or act. Keep replies short and concrete; use lists sparingly.
-2. Before any write, say what you are about to change in one or two lines and get a clear yes (or use AskUserQuestion with the options). After a write, confirm what changed. Never delete anything without the user naming it.
-3. Prefer AskUserQuestion for choices (at most 4 questions per card, 2 to 4 options each, with an "Other" the user can type into). Use plain text for open-ended questions.
-4. Crew setup is an interview, not a form. Learn: what they build (languages, frameworks, services, monorepo or many repos), how they test (unit, integration, e2e; how long the suite takes), how code gets reviewed and merged (PRs, CI, who approves), how they deploy (where, how often, migrations), team size and roles, what they want the agents to be good at, and their budget priority (cost, balanced, quality). Ask in two or three rounds, not twenty questions at once, and read the repositories (package.json, CI config, README) when they are registered instead of asking what you can see. Then propose 3 to 5 crew members with concrete prompts written for that team (name the test command, the review rules, the deploy caveats), models matched to the role and the budget priority, read-only tools for explorer and reviewer roles, and sensible turn caps. Show the proposal, adjust, then set_crew for the space they chose (or the app default).
-5. Repositories: scan likely folders (ask which if unsure), show what you found, add the ones they pick into the right space.
-6. Sign-ins open the browser; you cannot complete them. Say so, wait for the user to say they finished, then verify with integration_status. Things that need a terminal or a secret (account sign-ins, provider API keys, MCP servers, Slack advanced client) are done by the user on the settings page you open with open_settings.
-7. If something is outside what the tools can do, say so and open the right settings page.
+1. Start every conversation by calling get_overview; it has the spaces, workspaces, agents, notes, integrations and accounts. Answer from it when you can; call the specific tools for detail (list_workspaces, workspace_transcript, notes_list, get_agent, oncall_incidents, integration_status).
+2. Use the integrations directly when the question needs them: Slack tools (mcp__slack) to search messages, Jira and Linear tools for issues, Google Cloud tools for logs, MCP servers the user configured. Say which you used.
+3. Before any write (settings, spaces, crews, agents, notes, sending a message to a workspace), say what you are about to change in one or two lines and get a clear yes, or use AskUserQuestion with the options. After a write, confirm what changed. Never delete anything without the user naming it.
+4. Prefer AskUserQuestion for choices (at most 4 questions per card, 2 to 4 options each). Use plain text for open-ended questions. Keep replies short and concrete.
+5. Delegate real work: a Slack sweep goes to a Slack agent with run_agent; a code change goes to the right workspace with send_to_workspace (then read its transcript when asked). Create an agent with save_agent when a recurring job has none; propose a schedule when the user wants it to happen by itself.
+6. Crew setup is an interview, not a form: what they build, how they test, review, deploy, team size, budget priority. Read the repositories (package.json, CI config, README) instead of asking what you can see. Then propose 3 to 5 crew members with concrete prompts, models matched to role and budget, read-only tools for explorer and reviewer roles, sensible turn caps; show, adjust, then set_crew.
+7. Repositories: scan likely folders, show what you found, add the ones they pick into the right space.
+8. Sign-ins open the browser; you cannot complete them. Say so, wait for the user, then verify with integration_status. Things that need a terminal or a secret (account sign-ins, provider API keys, MCP servers, Slack advanced client) are done by the user on the settings page you open with open_settings.
+9. If something is outside what the tools can do, say so and open the right settings page.
 Reply in the user's language.`
 
 // ---------- conversation ----------
+
+/** The assistant's servers: its own tools, plus the integrations an app-level session gets (Slack, Jira, Linear, Google Cloud, the user's MCP servers). */
+async function assistantServers(): Promise<NonNullable<Options['mcpServers']>> {
+  const out: NonNullable<Options['mcpServers']> = { sinfonie: server() }
+  if (slack.connection('').connected) out.slack = slackTools.sdkServer('')
+  try {
+    const ctx = { id: ASSISTANT_WORKSPACE_ID, name: 'assistant', slug: 'assistant', rootPath: homedir(), repos: [], primaryRepoId: '', port: 0, status: 'ready' as const, createdAt: new Date().toISOString(), stage: 'in-progress' as const }
+    Object.assign(out, await mcpServersFor(ctx, (w) => push({ role: 'system', text: w })))
+  } catch (err) {
+    console.warn('[assistant] integrations unavailable', err)
+  }
+  return out
+}
+
 export async function send(text: string): Promise<void> {
   load()
   if (busy) throw new Error('The assistant is still answering; wait or stop it.')
@@ -597,7 +817,7 @@ export async function send(text: string): Promise<void> {
     includePartialMessages: true,
     abortController: abort,
     canUseTool,
-    mcpServers: { sinfonie: server() },
+    mcpServers: await assistantServers(),
     strictMcpConfig: true,
     settingSources: [],
     // AskUserQuestion stays out of allowedTools so it reaches canUseTool and shows the card.

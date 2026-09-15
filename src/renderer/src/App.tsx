@@ -52,6 +52,7 @@ export default function App(): React.JSX.Element {
   useEffect(() => api.on('ui:openFeedback', ({ tab }) => setFeedbackDialog(tab)), [setFeedbackDialog])
   useEffect(() => api.on('ui:openSettings', (t) => openSettings(t as Parameters<typeof openSettings>[0])), [openSettings])
   useEffect(() => api.on('ui:openOnboarding', ({ kind }) => setOnboarding(kind)), [setOnboarding])
+  useEffect(() => api.on('ui:openWorkspace', ({ workspaceId }) => useApp.getState().select(workspaceId)), [])
   useEffect(
     () =>
       api.on('ui:openAgent', ({ agentId }) => {

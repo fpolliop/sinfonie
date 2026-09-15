@@ -63,7 +63,7 @@ export function AssistantPane({ onClose }: { onClose: () => void }): React.JSX.E
     api.invoke('assistant:send', t).catch((err) => setError(err instanceof Error ? err.message : String(err)))
   }
   return (
-    <Dialog title="Setup assistant" onClose={onClose} width={780}>
+    <Dialog title="Assistant" onClose={onClose} width={780}>
       <div className="flex h-[70vh] flex-col">
         <div ref={scroller} className="flex-1 space-y-3 overflow-auto pr-1 text-[13px]">
           {items.length === 0 && !busy && (

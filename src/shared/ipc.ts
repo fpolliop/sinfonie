@@ -408,6 +408,7 @@ export interface SinfonieEvents {
   'agents:runsChanged': { agentId: string; runs: AgentRun[] }
   /** A scheduled run's notification was clicked: open that agent. */
   'ui:openAgent': { agentId: string }
+  'ui:openWorkspace': { workspaceId: string }
   /** A new error was logged; the sidebar badge updates. */
   'errors:new': ErrorEntry
   /** Memory and process sample, every few seconds. */
