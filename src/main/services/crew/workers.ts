@@ -13,19 +13,17 @@ import { askPermission } from '../interaction'
 import * as acp from '../acp/engine'
 import * as notes from '../notes'
 import * as slack from '../slack'
+import * as slackTools from '../slack-tools'
 
-/** Sinfonie's own servers every worker gets: session notes always, Slack when the app or the space is connected. */
-async function sinfonieServers(ws: Workspace): Promise<{ servers: NonNullable<Options['mcpServers']>; prompt: string }> {
+/** Sinfonie's own servers every worker gets: session notes always, Slack (on the Web API) when the app or the space is connected. */
+function sinfonieServers(ws: Workspace): { servers: NonNullable<Options['mcpServers']>; prompt: string; slackConn?: string } {
   const servers: NonNullable<Options['mcpServers']> = { notes: notes.sdkServer(ws.id) }
   let prompt = notes.promptFor(ws.id, true)
   const connId = slack.connectionForSpace(ws.spaceId)
   if (slack.connection(connId).connected) {
-    try {
-      servers.slack = await slack.mcpServerConfig(connId)
-      prompt += '\nSlack: Sinfonie\'s Slack connection is available as the mcp__slack tools (search messages, channel history, threads, direct messages, users). Read freely; post or react only when the task says so. If that server failed to connect and mcp__claude_ai_Slack tools exist, use those instead; only give up when no Slack tools work.'
-    } catch (err) {
-      console.warn('[worker] slack mcp unavailable', err)
-    }
+    servers.slack = slackTools.sdkServer(connId)
+    prompt += slackTools.promptFor(connId)
+    return { servers, prompt, slackConn: connId }
   }
   return { servers, prompt }
 }
@@ -77,7 +75,7 @@ async function runClaude(run: WorkerRun): Promise<string> {
   const mode = spec.permissionMode ?? run.mode
   const abort = new AbortController()
   run.signal?.addEventListener('abort', () => abort.abort())
-  const own = await sinfonieServers(ws)
+  const own = sinfonieServers(ws)
   // An allow-list still lets the agent use Sinfonie's notes without a prompt; Slack asks unless listed.
   const allowed = spec.tools?.length ? [...spec.tools, ...(spec.tools.some((t) => t.startsWith('mcp__notes')) ? [] : ['mcp__notes'])] : undefined
   const options: Options = {
@@ -142,11 +140,13 @@ async function runNative(run: WorkerRun): Promise<string> {
   const tools: ToolSet = {}
   for (const [k, v] of Object.entries(all)) if (k !== 'AskUserQuestion' && (!allowed || allowed.has(k))) tools[k] = v
   Object.assign(tools, notes.aiTools(ws.id))
+  const own = sinfonieServers(ws)
+  if (own.slackConn !== undefined) Object.assign(tools, slackTools.aiTools(own.slackConn))
   const readOnly = readOnlyOf(spec)
   const modelId = classifyModel(spec.model).modelId
   const sub = new ToolLoopAgent({
     model: resolveModel(spec.model),
-    instructions: `${spec.prompt}\n\n${whereLine(spec, ws)}\n${readOnly ? 'You are read-only: do not modify files.' : ''}\nFinish with a clear report.\n${notes.promptFor(ws.id, true)}`,
+    instructions: `${spec.prompt}\n\n${whereLine(spec, ws)}\n${readOnly ? 'You are read-only: do not modify files.' : ''}\nFinish with a clear report.\n${own.prompt}`,
     tools,
     stopWhen: stepCountIs(spec.maxTurns ?? 40),
     toolApproval: ({ toolCall }) => {
