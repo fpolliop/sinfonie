@@ -6,7 +6,7 @@
  * hands (terminal logins, API keys). Every write is confirmed in conversation first.
  */
 import { app } from 'electron'
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'fs'
 import { basename, join } from 'path'
 import { homedir } from 'os'
 import { spawn } from 'child_process'
@@ -33,7 +33,7 @@ import * as slackTools from './slack-tools'
 import * as reviews from './reviews'
 import { mcpServersFor } from './agent'
 import { getTranscript } from './transcripts'
-import { agentOwner } from '@shared/types'
+import { agentOwner, type MaestroConversation, type MaestroConversationMeta, type MaestroContext, type MaestroEvent, type MaestroSuggestion } from '@shared/types'
 import { SPACE_COLORS, type AgentSpec, type AssistantItem, type CostMode, type CostModeScope, type OnCallSettings, type Repo, type Space, type Settings } from '@shared/types'
 
 export const ASSISTANT_WORKSPACE_ID = 'assistant'
@@ -56,60 +56,176 @@ const needHost = (): Host => {
   return host
 }
 
-// ---------- transcript ----------
-interface Persisted {
+// ---------- conversations ----------
+/**
+ * Maestro keeps many conversations, one JSON each under userData/maestro. Each has its own
+ * Claude session (resumed across app runs), a title, optional pin and archive marks, and the
+ * workspace or space it was opened from.
+ */
+interface Conversation extends MaestroConversationMeta {
   items: AssistantItem[]
   sessionId?: string
 }
-let data: Persisted = { items: [] }
+const convos = new Map<string, Conversation>()
 let loaded = false
-let busy = false
-let abort: AbortController | null = null
-let emit: (e: AssistantEvent) => void = () => undefined
-export type AssistantEvent = { type: 'item'; item: AssistantItem } | { type: 'delta'; id: string; text: string } | { type: 'status'; busy: boolean } | { type: 'reset' }
+const running = new Map<string, AbortController>()
+let emit: (e: MaestroEvent) => void = () => undefined
 
-function file(): string {
-  return join(app.getPath('userData'), 'assistant.json')
+function dir(): string {
+  const d = join(app.getPath('userData'), 'maestro')
+  if (!existsSync(d)) mkdirSync(d, { recursive: true })
+  return d
 }
+const fileOf = (id: string): string => join(dir(), `${id}.json`)
+
 function load(): void {
   if (loaded) return
   loaded = true
-  try {
-    if (existsSync(file())) data = JSON.parse(readFileSync(file(), 'utf8')) as Persisted
-  } catch {
-    data = { items: [] }
+  for (const f of readdirSync(dir())) {
+    if (!f.endsWith('.json')) continue
+    try {
+      const c = JSON.parse(readFileSync(join(dir(), f), 'utf8')) as Conversation
+      if (c && typeof c.id === 'string') convos.set(c.id, { ...c, items: c.items ?? [] })
+    } catch (err) {
+      console.error(`Corrupt Maestro conversation ${f}`, err)
+    }
+  }
+  // The single conversation of earlier builds becomes the first one here.
+  const legacy = join(app.getPath('userData'), 'assistant.json')
+  if (convos.size === 0 && existsSync(legacy)) {
+    try {
+      const old = JSON.parse(readFileSync(legacy, 'utf8')) as { items?: AssistantItem[]; sessionId?: string }
+      if (old.items?.length) {
+        const c: Conversation = { id: 'legacy', title: 'Earlier conversation', createdAt: old.items[0].createdAt, updatedAt: old.items[old.items.length - 1].createdAt, items: old.items, sessionId: old.sessionId }
+        convos.set(c.id, c)
+        save(c)
+      }
+      renameSync(legacy, `${legacy}.migrated`)
+    } catch {
+      /* ignore */
+    }
   }
 }
-function save(): void {
+function save(c: Conversation): void {
   try {
-    writeFileSync(file(), JSON.stringify({ ...data, items: data.items.slice(-400) }))
+    writeFileSync(fileOf(c.id), JSON.stringify({ ...c, items: c.items.slice(-600) }))
   } catch {
     /* best effort */
   }
 }
-export function setEmitter(fn: (e: AssistantEvent) => void): void {
+function meta(c: Conversation): MaestroConversationMeta {
+  const { items: _i, sessionId: _s, ...m } = c
+  void _i
+  void _s
+  return { ...m, busy: running.has(c.id), preview: [...c.items].reverse().find((it) => it.role === 'user' || it.role === 'assistant')?.text.slice(0, 120) }
+}
+const need = (id: string): Conversation => {
+  load()
+  const c = convos.get(id)
+  if (!c) throw new Error(`No conversation ${id}`)
+  return c
+}
+
+export function setEmitter(fn: (e: MaestroEvent) => void): void {
   emit = fn
 }
+export function conversations(): MaestroConversationMeta[] {
+  load()
+  return [...convos.values()].map(meta).sort((a, b) => Number(Boolean(b.pinnedAt)) - Number(Boolean(a.pinnedAt)) || b.updatedAt.localeCompare(a.updatedAt))
+}
+export function get(id: string): MaestroConversation {
+  const c = need(id)
+  return { ...meta(c), items: c.items }
+}
+export function create(context?: MaestroContext): MaestroConversation {
+  load()
+  const now = new Date().toISOString()
+  const c: Conversation = { id: nanoid(8), title: 'New conversation', createdAt: now, updatedAt: now, items: [], ...(context && (context.workspaceId || context.spaceId) ? { context } : {}) }
+  convos.set(c.id, c)
+  save(c)
+  emit({ conversationId: c.id, type: 'meta', meta: meta(c) })
+  return { ...meta(c), items: [] }
+}
+export function rename(id: string, title: string): void {
+  const c = need(id)
+  c.title = title.trim() || c.title
+  c.titleLocked = true
+  save(c)
+  emit({ conversationId: id, type: 'meta', meta: meta(c) })
+}
+export function pin(id: string, pinned: boolean): void {
+  const c = need(id)
+  if (pinned) c.pinnedAt = new Date().toISOString()
+  else delete c.pinnedAt
+  save(c)
+  emit({ conversationId: id, type: 'meta', meta: meta(c) })
+}
+export function archive(id: string, archived: boolean): void {
+  const c = need(id)
+  if (archived) c.archivedAt = new Date().toISOString()
+  else delete c.archivedAt
+  save(c)
+  emit({ conversationId: id, type: 'meta', meta: meta(c) })
+}
+export function remove(id: string): void {
+  const c = need(id)
+  running.get(id)?.abort()
+  convos.delete(id)
+  try {
+    rmSync(fileOf(c.id), { force: true })
+  } catch {
+    /* ignore */
+  }
+  emit({ conversationId: id, type: 'removed' })
+}
+export function stop(id: string): void {
+  running.get(id)?.abort()
+}
+/** Kept for the checklist: has the user talked to Maestro at all. */
 export function history(): { items: AssistantItem[]; busy: boolean } {
   load()
-  return { items: data.items, busy }
+  const all = [...convos.values()].flatMap((c) => c.items)
+  return { items: all, busy: running.size > 0 }
 }
 export function reset(): void {
-  load()
-  abort?.abort()
-  data = { items: [] }
-  save()
-  emit({ type: 'reset' })
+  /* conversations are removed one by one now */
 }
-export function stop(): void {
-  abort?.abort()
-}
-function push(item: Omit<AssistantItem, 'id' | 'createdAt'> & { id?: string }): AssistantItem {
+function push(c: Conversation, item: Omit<AssistantItem, 'id' | 'createdAt'> & { id?: string }): AssistantItem {
   const full: AssistantItem = { id: item.id ?? nanoid(8), createdAt: new Date().toISOString(), ...item }
-  data.items.push(full)
-  save()
-  emit({ type: 'item', item: full })
+  c.items.push(full)
+  c.updatedAt = full.createdAt
+  save(c)
+  emit({ conversationId: c.id, type: 'item', item: full })
   return full
+}
+
+/** What matters right now, for an empty conversation: computed from real state, each one a prompt. */
+export function suggestions(): MaestroSuggestion[] {
+  load()
+  const { workspaces, spaces } = getStore().get()
+  const out: MaestroSuggestion[] = []
+  const today = new Date().toISOString().slice(0, 10)
+  const all = notes.listAll().flatMap((g) => g.notes.map((n) => ({ ...n, owner: g.owner })))
+  const overdue = all.filter((n) => n.kind === 'todo' && !n.done && n.due && n.due < today)
+  const dueToday = all.filter((n) => n.kind === 'todo' && !n.done && n.due === today)
+  if (overdue.length) out.push({ kind: 'todos', label: `${overdue.length} overdue todo${overdue.length === 1 ? '' : 's'}`, text: 'Show me my overdue todos and help me decide what to do first.' })
+  if (dueToday.length) out.push({ kind: 'todos', label: `${dueToday.length} due today`, text: 'What is due today, and what would you tackle first?' })
+  const last = [...convos.values()].map((c) => c.updatedAt).sort().pop() ?? ''
+  const finished = workspaces.filter((w) => w.status !== 'archived' && w.lastMessageAt && w.lastMessageAt > last).slice(0, 3)
+  for (const w of finished) out.push({ kind: 'workspace', label: `${w.name} was active`, text: `What happened in the "${w.name}" workspace since we last talked? Summarise it.`, id: w.id })
+  const agentsRan = library
+    .list()
+    .map((a) => ({ a, r: runs.lastRun(a.id, 'schedule') }))
+    .filter((x) => x.r && x.r.startedAt > last)
+    .slice(0, 2)
+  for (const { a, r } of agentsRan) out.push({ kind: 'agent', label: `${a.icon ? `${a.icon} ` : ''}${a.name} ran ${r!.startedAt.slice(11, 16)}`, text: `What did ${a.name} report in its last scheduled run, and did it file anything?`, id: a.id })
+  const incidents = oncall.state().incidents.filter((i) => i.status !== 'resolved' && i.status !== 'dismissed')
+  if (incidents.length) out.push({ kind: 'oncall', label: `${incidents.length} open incident${incidents.length === 1 ? '' : 's'}`, text: 'Walk me through the open on-call incidents.' })
+  const open = all.filter((n) => n.kind === 'todo' && !n.done).length
+  if (open && out.length < 4) out.push({ kind: 'todos', label: `${open} open todos`, text: 'Give me a short brief of everything left across my notes and todos.' })
+  if (spaces.length && out.length < 5) out.push({ kind: 'setup', label: 'What changed lately?', text: 'What changed in Sinfonie since we last talked: workspaces, agents, notes, incidents?' })
+  if (out.length === 0) out.push({ kind: 'setup', label: 'Show me around', text: 'Show me what is configured right now and what looks incomplete.' }, { kind: 'setup', label: 'Set up my crew', text: 'Help me set up my crew. Interview me about how we build, test, review and ship, then propose the agents.' })
+  return out.slice(0, 6)
 }
 
 // ---------- helpers ----------
@@ -726,7 +842,7 @@ const TOOLS: ToolDef[] = [
   }
 ]
 
-function server(): NonNullable<Options['mcpServers']>[string] {
+function server(c: Conversation): NonNullable<Options['mcpServers']>[string] {
   return createSdkMcpServer({
     name: 'sinfonie',
     tools: TOOLS.map((t) =>
@@ -734,11 +850,11 @@ function server(): NonNullable<Options['mcpServers']>[string] {
         const started = Date.now()
         try {
           const text = await t.run(args as Record<string, unknown>)
-          push({ role: 'tool', text: text.slice(0, 4000), tool: { name: t.name, input: args as Record<string, unknown>, ok: true, ms: Date.now() - started } })
+          push(c, { role: 'tool', text: text.slice(0, 4000), tool: { name: t.name, input: args as Record<string, unknown>, ok: true, ms: Date.now() - started } })
           return { content: [{ type: 'text', text }] }
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
-          push({ role: 'tool', text: msg, tool: { name: t.name, input: args as Record<string, unknown>, ok: false, ms: Date.now() - started } })
+          push(c, { role: 'tool', text: msg, tool: { name: t.name, input: args as Record<string, unknown>, ok: false, ms: Date.now() - started } })
           return { content: [{ type: 'text', text: `Error: ${msg}` }], isError: true }
         }
       })
@@ -746,7 +862,7 @@ function server(): NonNullable<Options['mcpServers']>[string] {
   })
 }
 
-const SYSTEM = `You are Sinfonie's assistant, living inside the app: the one place the user can ask about anything Sinfonie knows and have it done. You configure the app, you know every space, workspace, agent, integration and note, and you use the same integrations the user's agents use (Slack, Jira, Linear, Google Cloud, MCP servers) through their tools. You never edit files or run shell commands yourself; for code work you send tasks to workspaces or run agents.
+const SYSTEM = `You are Maestro, Sinfonie's assistant, living inside the app: the one place the user can ask about anything Sinfonie knows and have it done. You configure the app, you know every space, workspace, agent, integration and note, and you use the same integrations the user's agents use (Slack, Jira, Linear, Google Cloud, MCP servers) through their tools. You never edit files or run shell commands yourself; for code work you send tasks to workspaces or run agents.
 
 Sinfonie in one minute:
 - A SPACE groups repositories (one product, one client, one team). Each space can have its own engine, model, permission mode, cost mode, crew, and integrations (Jira, Linear, Slack, Google Cloud, on-call, databases); anything unset falls back to the app default.
@@ -768,31 +884,71 @@ How you work:
 7. Repositories: scan likely folders, show what you found, add the ones they pick into the right space.
 8. Sign-ins open the browser; you cannot complete them. Say so, wait for the user, then verify with integration_status. Things that need a terminal or a secret (account sign-ins, provider API keys, MCP servers, Slack advanced client) are done by the user on the settings page you open with open_settings.
 9. If something is outside what the tools can do, say so and open the right settings page.
+10. Link what you mention so the user can jump there: [name](sinfonie://workspace/<id>), [name](sinfonie://agent/<id>), [name](sinfonie://space/<id>), [Notes](sinfonie://notes), [Agents](sinfonie://agents), [Settings › page](sinfonie://settings/app/<page>) or sinfonie://settings/space/<spaceId>/<page>. Use the ids from get_overview.
 Reply in the user's language.`
 
-// ---------- conversation ----------
+// ---------- a turn ----------
 
 /** The assistant's servers: its own tools, plus the integrations an app-level session gets (Slack, Jira, Linear, Google Cloud, the user's MCP servers). */
-async function assistantServers(): Promise<NonNullable<Options['mcpServers']>> {
-  const out: NonNullable<Options['mcpServers']> = { sinfonie: server() }
+async function assistantServers(c: Conversation): Promise<NonNullable<Options['mcpServers']>> {
+  const out: NonNullable<Options['mcpServers']> = { sinfonie: server(c) }
   if (slack.connection('').connected) out.slack = slackTools.sdkServer('')
   try {
-    const ctx = { id: ASSISTANT_WORKSPACE_ID, name: 'assistant', slug: 'assistant', rootPath: homedir(), repos: [], primaryRepoId: '', port: 0, status: 'ready' as const, createdAt: new Date().toISOString(), stage: 'in-progress' as const }
-    Object.assign(out, await mcpServersFor(ctx, (w) => push({ role: 'system', text: w })))
+    const ctx = { id: `maestro:${c.id}`, name: 'Maestro', slug: 'maestro', rootPath: homedir(), repos: [], primaryRepoId: '', port: 0, status: 'ready' as const, createdAt: new Date().toISOString(), stage: 'in-progress' as const, ...(c.context?.spaceId ? { spaceId: c.context.spaceId } : {}) }
+    Object.assign(out, await mcpServersFor(ctx, (w) => push(c, { role: 'system', text: w })))
   } catch (err) {
-    console.warn('[assistant] integrations unavailable', err)
+    console.warn('[maestro] integrations unavailable', err)
   }
   return out
 }
 
-export async function send(text: string): Promise<void> {
-  load()
-  if (busy) throw new Error('The assistant is still answering; wait or stop it.')
+function contextLine(c: Conversation): string {
+  const { workspaces, spaces } = getStore().get()
+  const ws = c.context?.workspaceId ? workspaces.find((w) => w.id === c.context!.workspaceId) : undefined
+  const sp = spaces.find((s) => s.id === (ws?.spaceId ?? c.context?.spaceId))
+  if (!ws && !sp) return ''
+  return `Context: the user opened this conversation from ${ws ? `the workspace "${ws.name}" (id ${ws.id}${sp ? `, space ${sp.name}` : ''})` : `the space "${sp!.name}" (id ${sp!.id})`}. Assume questions are about it unless they say otherwise.\n\n`
+}
+
+/** A short title from the first exchange, best effort, with a cheap model. */
+async function titleFor(c: Conversation): Promise<void> {
+  if (c.titleLocked || c.items.filter((i) => i.role === 'assistant').length !== 1) return
+  const user = c.items.find((i) => i.role === 'user')?.text ?? ''
+  const reply = c.items.find((i) => i.role === 'assistant')?.text ?? ''
+  const { settings } = getStore().get()
+  const abort = new AbortController()
+  const timer = setTimeout(() => abort.abort(), 20_000)
+  try {
+    let title = ''
+    for await (const msg of query({ prompt: `Title this conversation in 3 to 6 words, no quotes, no trailing period, same language as the user.\n\nUser: ${user.slice(0, 600)}\n\nAssistant: ${reply.slice(0, 600)}`, options: { ...claudeExecutableOption(), cwd: homedir(), model: 'haiku', maxTurns: 1, allowedTools: [], settingSources: [], abortController: abort, env: { ...process.env, ...accountEnv(settings.defaultClaudeAccountId) } } }) as AsyncIterable<SDKMessage>) {
+      if (msg.type === 'result' && msg.subtype === 'success') title = msg.result.trim().replace(/^["']|["'.]$/g, '')
+    }
+    if (title && !c.titleLocked) {
+      c.title = title.slice(0, 80)
+      save(c)
+      emit({ conversationId: c.id, type: 'meta', meta: meta(c) })
+    }
+  } catch {
+    /* the first message stays as the title */
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+export async function send(id: string, text: string): Promise<void> {
+  const c = need(id)
+  if (running.has(id)) throw new Error('Maestro is still answering here; wait or stop it.')
   const { settings, repos } = getStore().get()
-  push({ role: 'user', text })
-  busy = true
-  abort = new AbortController()
-  emit({ type: 'status', busy: true })
+  const first = c.items.length === 0
+  push(c, { role: 'user', text })
+  if (first && !c.titleLocked) {
+    c.title = text.trim().slice(0, 60)
+    save(c)
+    emit({ conversationId: id, type: 'meta', meta: meta(c) })
+  }
+  const abort = new AbortController()
+  running.set(id, abort)
+  emit({ conversationId: id, type: 'status', busy: true })
   const accountId = settings.defaultClaudeAccountId ?? defaultAccountId('anthropic') ?? 'default'
   const model = costModeFor(undefined) !== 'standard' ? leanModel(settings.model) : settings.model
   const root = settings.workspacesRoot.startsWith('~') ? join(homedir(), settings.workspacesRoot.slice(1)) : settings.workspacesRoot
@@ -800,7 +956,7 @@ export async function send(text: string): Promise<void> {
   const canUseTool: NonNullable<Options['canUseTool']> = async (toolName, toolInput, opts) => {
     if (toolName === 'AskUserQuestion') {
       const questions = ((toolInput as { questions?: { question: string; header: string; multiSelect?: boolean; options?: { label: string; description: string }[] }[] }).questions ?? []).map((q) => ({ question: q.question, header: q.header, multiSelect: Boolean(q.multiSelect), options: (q.options ?? []).map((o) => ({ label: o.label, description: o.description })) }))
-      const reply = await askQuestion(ASSISTANT_WORKSPACE_ID, questions, opts.signal)
+      const reply = await askQuestion(`maestro:${id}`, questions, opts.signal)
       if (reply.cancelled) return { behavior: 'deny', message: 'The user dismissed the questions. Continue in plain text.' }
       const updatedInput: Record<string, unknown> = { questions: (toolInput as { questions?: unknown }).questions, answers: reply.answers }
       if (reply.response) updatedInput.response = reply.response
@@ -819,7 +975,7 @@ export async function send(text: string): Promise<void> {
     includePartialMessages: true,
     abortController: abort,
     canUseTool,
-    mcpServers: await assistantServers(),
+    mcpServers: await assistantServers(c),
     strictMcpConfig: true,
     settingSources: [],
     // AskUserQuestion stays out of allowedTools so it reaches canUseTool and shows the card.
@@ -828,69 +984,64 @@ export async function send(text: string): Promise<void> {
     systemPrompt: { type: 'preset', preset: 'claude_code', append: SYSTEM },
     maxTurns: 40,
     env: { ...process.env, ...accountEnv(accountId) },
-    ...(data.sessionId ? { resume: data.sessionId } : {}),
-    stderr: (d) => console.error('[assistant]', d.trimEnd()),
+    ...(c.sessionId ? { resume: c.sessionId } : {}),
+    stderr: (d) => console.error('[maestro]', d.trimEnd()),
     spawnClaudeCodeProcess: (o) => {
       const child = spawn(o.command, o.args, { cwd: o.cwd, env: o.env as NodeJS.ProcessEnv, stdio: ['pipe', 'pipe', 'pipe'], signal: o.signal })
-      resources.registerProcess(child.pid, { kind: 'agent', label: 'Assistant' })
+      resources.registerProcess(child.pid, { kind: 'agent', label: 'Maestro' })
       child.once('exit', () => resources.unregisterProcess(child.pid))
       return child as unknown as SpawnedProcess
     }
   }
   let current: AssistantItem | null = null
   let streamed = ''
+  const prompt = first ? `${contextLine(c)}${text}` : text
   try {
-    for await (const msg of query({ prompt: text, options }) as AsyncIterable<SDKMessage>) {
+    for await (const msg of query({ prompt, options }) as AsyncIterable<SDKMessage>) {
       if (msg.type === 'system' && msg.subtype === 'init') {
-        data.sessionId = msg.session_id
-        save()
-        if (process.env.SINFONIE_ASSISTANT_DEBUG) {
-          const init = msg as unknown as { mcp_servers?: { name: string; status: string; error?: string }[]; tools?: string[] }
-          console.error('[assistant] init mcp:', JSON.stringify(init.mcp_servers), 'sinfonie tools:', (init.tools ?? []).filter((t) => t.includes('sinfonie')).length, 'of', (init.tools ?? []).length)
-        }
+        c.sessionId = msg.session_id
+        save(c)
       } else if (msg.type === 'stream_event') {
         const ev = msg.event as { type: string; delta?: { type: string; text?: string } }
         if (ev.type === 'content_block_delta' && ev.delta?.type === 'text_delta' && ev.delta.text) {
           if (!current) {
-            current = push({ role: 'assistant', text: '' })
+            current = push(c, { role: 'assistant', text: '' })
             streamed = ''
           }
           streamed += ev.delta.text
-          emit({ type: 'delta', id: current.id, text: streamed })
+          emit({ conversationId: id, type: 'delta', id: current.id, text: streamed })
         }
       } else if (msg.type === 'assistant') {
-        // The full message is authoritative; stream events may arrive around it in either order.
         const blocks = msg.message.content as { type: string; text?: string; name?: string }[]
         const full = blocks.filter((b) => b.type === 'text').map((b) => b.text ?? '').join('\n')
-        if (process.env.SINFONIE_ASSISTANT_DEBUG) console.error('[assistant] message blocks:', blocks.map((b) => b.type + (b.name ? ':' + b.name : '')).join(','), 'text', full.length)
         if (current) {
           current.text = full || streamed
-          save()
-          emit({ type: 'item', item: current })
+          save(c)
+          emit({ conversationId: id, type: 'item', item: current })
           current = null
-        } else if (full.trim()) push({ role: 'assistant', text: full })
+        } else if (full.trim()) push(c, { role: 'assistant', text: full })
         streamed = ''
       } else if (msg.type === 'result') {
         if (current) {
           current.text = streamed
-          save()
-          emit({ type: 'item', item: current })
+          save(c)
+          emit({ conversationId: id, type: 'item', item: current })
           current = null
         }
-        if (process.env.SINFONIE_ASSISTANT_DEBUG) console.error('[assistant] result', msg.subtype, 'turns', msg.num_turns)
         try {
           usage.recordTurn(usage.fromResult(msg, { workspaceId: '', spaceId: '', accountId, kind: 'chat' }))
         } catch {
           /* ledger must not break the assistant */
         }
-        if (msg.subtype !== 'success' && !abort.signal.aborted) push({ role: 'system', text: `The assistant stopped: ${msg.subtype.replace(/_/g, ' ')}${'errors' in msg && Array.isArray(msg.errors) ? ` (${(msg.errors as string[]).join('; ')})` : ''}` })
+        if (msg.subtype !== 'success' && !abort.signal.aborted) push(c, { role: 'system', text: `Maestro stopped: ${msg.subtype.replace(/_/g, ' ')}${'errors' in msg && Array.isArray(msg.errors) ? ` (${(msg.errors as string[]).join('; ')})` : ''}` })
       }
     }
   } catch (err) {
-    if (!abort.signal.aborted) push({ role: 'system', text: `Assistant error: ${err instanceof Error ? err.message : String(err)}` })
+    if (!abort.signal.aborted) push(c, { role: 'system', text: `Maestro error: ${err instanceof Error ? err.message : String(err)}` })
   } finally {
-    busy = false
-    abort = null
-    emit({ type: 'status', busy: false })
+    running.delete(id)
+    emit({ conversationId: id, type: 'status', busy: false })
+    emit({ conversationId: id, type: 'meta', meta: meta(c) })
+    void titleFor(c)
   }
 }

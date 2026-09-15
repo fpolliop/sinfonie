@@ -127,7 +127,7 @@ export function SettingsWindow({ target, onClose }: { target: SettingsTarget; on
           {!guided && (
           <div className="mt-3 flex items-center px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-muted">
             Spaces
-            <button className="ml-auto rounded p-0.5 hover:bg-panel-2 hover:text-text" title="Ask the assistant (⇧⌘A)" onClick={() => setAssistantOpen(true)}>
+            <button className="ml-auto rounded p-0.5 hover:bg-panel-2 hover:text-text" title="Ask Maestro (⇧⌘A)" onClick={() => setAssistantOpen(true)}>
             <Sparkles size={13} />
           </button>
           <button className="rounded p-0.5 hover:bg-panel-2 hover:text-text" title="New space" onClick={() => openSettings({ scope: 'app', page: 'spaces' })}>
@@ -572,7 +572,7 @@ function AboutPage(): React.JSX.Element {
       <div className="mb-4 flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-[12px]">
         <span className="text-muted">New here?</span>
         <Button size="sm" variant="ghost" onClick={() => { closeSettings(); setOnboarding('setup') }}>
-          Open the assistant
+          Open Maestro
         </Button>
         <Button size="sm" variant="ghost" onClick={() => { closeSettings(); setOnboarding('tour') }}>
           Take the tour

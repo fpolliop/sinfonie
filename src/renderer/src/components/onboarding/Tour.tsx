@@ -31,7 +31,7 @@ const STOPS: Stop[] = [
     }
   },
   { anchor: 'agents', title: 'Agents', text: 'Your agent library. Each agent is a role with its own instructions, model and tools: the built-in explorer, implementer, tester and reviewer, plus any you create. Describe one in a sentence and Claude drafts it, try it on a workspace right there, and call one directly in any chat with @name. Agents are standalone unless you put them in the crew.' },
-  { anchor: 'assistant', title: 'Assistant', text: 'One conversation that knows everything in Sinfonie: your spaces, workspaces and what happened in them, your agents, your notes and todos, your integrations. Ask it anything, have it set things up, send tasks to workspaces, run agents, or sweep Slack for you. It confirms before every change. ⇧⌘A.' },
+  { anchor: 'maestro', title: 'Maestro', text: 'Your companion. It knows everything in Sinfonie: your spaces, workspaces and what happened in them, your agents, your notes and todos, your integrations. Ask it anything, have it set things up, send tasks to workspaces, run agents, or sweep Slack for you. It confirms before every change. Dock it beside your work or open it full screen, with as many conversations as you like. ⇧⌘A.' },
   { anchor: 'settings', title: 'Settings', text: 'Accounts for every vendor, model providers, the crew, usage, resources, and the integrations: Jira, Linear, Slack, Google Cloud, databases, MCP servers. Application-wide on the left, per space on the right. ⌘, opens it.' }
 ]
 

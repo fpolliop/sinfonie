@@ -19,7 +19,9 @@ import { PermissionPrompt } from './components/PermissionPrompt'
 import { BranchRenamePrompt } from './components/BranchRenamePrompt'
 import { ReviewCockpit } from './components/ReviewCockpit'
 import { FeedbackDialog } from './components/FeedbackDialog'
-import { AssistantPane } from './components/AssistantPane'
+import { MaestroSide } from './components/maestro/MaestroSide'
+import { MaestroView } from './components/maestro/MaestroView'
+import { useMaestro, openMaestro } from './stores/maestro'
 import { SetupWizard } from './components/onboarding/SetupWizard'
 import { Tour } from './components/onboarding/Tour'
 import { GettingStarted } from './components/onboarding/GettingStarted'
@@ -86,7 +88,10 @@ export default function App(): React.JSX.Element {
       }
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'a') {
         e.preventDefault()
-        setAssistantOpen(true)
+        const m = useMaestro.getState()
+        if (m.open) m.setOpen(false)
+        else if (m.shape === 'full' && useApp.getState().view === 'maestro') useApp.getState().setView('workspace')
+        else void openMaestro()
       }
       if ((e.metaKey || e.ctrlKey) && ((e.shiftKey && e.key.toLowerCase() === 'n') || (!e.shiftKey && !e.altKey && e.key.toLowerCase() === 't'))) {
         e.preventDefault()
@@ -116,18 +121,24 @@ export default function App(): React.JSX.Element {
   }, [setShowNewWorkspace, setShowSettings, stepSpace, setActiveSpace, setFeedbackDialog, setAssistantOpen])
 
   const guided = useGuided()
+  useEffect(() => {
+    if (!assistantOpen) return
+    setAssistantOpen(false)
+    void openMaestro()
+  }, [assistantOpen, setAssistantOpen])
+
   if (!loaded) return <div className="flex h-full items-center justify-center text-muted">Loading…</div>
 
   return (
     <div className="flex h-full">
       <Sidebar />
       <main className="flex min-w-0 flex-1 flex-col">
-        {view === 'reviews' ? <ReviewCockpit /> : view === 'oncall' ? <OnCallView /> : view === 'agents' ? <AgentsView /> : view === 'notes' ? <NotesView /> : selectedId ? <WorkspaceView key={selectedId} workspaceId={selectedId} /> : <EmptyState />}
+        {view === 'reviews' ? <ReviewCockpit /> : view === 'oncall' ? <OnCallView /> : view === 'agents' ? <AgentsView /> : view === 'notes' ? <NotesView /> : view === 'maestro' ? <MaestroView /> : selectedId ? <WorkspaceView key={selectedId} workspaceId={selectedId} /> : <EmptyState />}
       </main>
       {showNewWorkspace && (guided ? <NewTaskDialog onClose={() => setShowNewWorkspace(false)} /> : <NewWorkspaceDialog onClose={() => setShowNewWorkspace(false)} />)}
       {settingsTarget && <SettingsWindow target={settingsTarget} onClose={closeSettings} />}
       {feedbackDialog && <FeedbackDialog tab={feedbackDialog} onClose={() => setFeedbackDialog(null)} />}
-      {assistantOpen && <AssistantPane onClose={() => setAssistantOpen(false)} />}
+      <MaestroSide />
       <PermissionPrompt />
       <BranchRenamePrompt />
       {onboarding === 'setup' && <SetupWizard onClose={() => setOnboarding(null)} />}
