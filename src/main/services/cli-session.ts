@@ -8,7 +8,16 @@
  * chat transcript, the phone, cost tracking and context size all keep working while the CLI runs.
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'fs'
-import { createServer, type IncomingMessage, type Server } from 'http'
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'http'
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
+import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk'
+import * as notes from './notes'
+import * as slack from './slack'
+import * as slackTools from './slack-tools'
+import * as workspaceTools from './workspace-tools'
+import * as browserTools from './browser/tools'
+import * as gcp from './gcp'
+import * as dbTools from './db/tools'
 import type { AddressInfo } from 'net'
 import { homedir } from 'os'
 import { join } from 'path'
@@ -105,19 +114,49 @@ export async function start(workspaceId: string, opts: { prompt?: string; fresh?
       args.push('--agents', q(JSON.stringify(defs)))
     }
   }
-  // MCP servers the CLI can reach: everything with a URL or a command. In-process ones (crew, gcp, db) need the Sinfonie MCP endpoint, later.
-  const servers = await agent.mcpServersFor(ws).catch(() => ({}))
-  const external = Object.fromEntries(Object.entries(servers).filter(([, s]) => (s as { type?: string }).type !== 'sdk'))
-  if (Object.keys(external).length) {
-    const dir = join(app.getPath('userData'), 'cli')
-    mkdirSync(dir, { recursive: true })
-    const file = join(dir, `${workspaceId}.mcp.json`)
-    writeFileSync(file, JSON.stringify({ mcpServers: external }))
-    args.push('--mcp-config', q(file))
-  }
   // Hooks: Claude calls back into Sinfonie before tools run (permission cards, phone), on stop, on notifications.
   const hookToken = nanoid(24)
   const port = await hookPort()
+  // MCP servers: the ones with a URL or a command go to the CLI as they are; Sinfonie's in-process ones
+  // (workspace tools, notes, Slack, browser, Google Cloud, databases) are served over the same local
+  // port, so the CLI session has the same tools and context as an in-app session.
+  const servers: Record<string, unknown> = await agent.mcpServersFor(ws).catch(() => ({}))
+  const config: Record<string, unknown> = {}
+  const inProcess: Record<string, McpSdkServerConfigWithInstance> = {
+    workspace: workspaceTools.sdkServer(ws.id) as McpSdkServerConfigWithInstance,
+    notes: notes.sdkServer(ws.id) as McpSdkServerConfigWithInstance,
+    browser: browserTools.sdkServer(ws.id) as McpSdkServerConfigWithInstance
+  }
+  const slackConn = slack.connectionForSpace(ws.spaceId)
+  if (slack.connection(slackConn).connected) inProcess.slack = slackTools.sdkServer(slackConn) as McpSdkServerConfigWithInstance
+  for (const [name, s] of Object.entries(servers)) {
+    if ((s as { type?: string }).type === 'sdk') inProcess[name] = s as McpSdkServerConfigWithInstance
+    else config[name] = s
+  }
+  const mcpToken = nanoid(24)
+  mcpSessions.set(workspaceId, { token: mcpToken, servers: inProcess, queues: {} })
+  for (const name of Object.keys(inProcess)) config[name] = { type: 'http', url: `http://127.0.0.1:${port}/mcp/${workspaceId}/${mcpToken}/${name}` }
+  const dir = join(app.getPath('userData'), 'cli')
+  mkdirSync(dir, { recursive: true })
+  const mcpFile = join(dir, `${workspaceId}.mcp.json`)
+  writeFileSync(mcpFile, JSON.stringify({ mcpServers: config }))
+  args.push('--mcp-config', q(mcpFile))
+  if (space?.strictMcp ?? settings.strictMcp) args.push('--strict-mcp-config')
+  // The same context an in-app session gets: worktrees, workspace tools, notes, Slack, Google Cloud, databases, browser.
+  const gcpOn = Boolean(gcp.gcpFor(ws.spaceId)) && (space ? space.exposeGcpMcp !== false : true)
+  const appendPrompt = [
+    `You are working inside a Sinfonie workspace named "${ws.name}" that spans ${ws.repos.length} git repositor${ws.repos.length === 1 ? 'y' : 'ies'}: ${ws.repos.map((r) => `${r.repoName} at ${r.worktreePath} (branch ${r.branch})`).join('; ')}. Keep each repository's changes inside its own worktree.`,
+    `Sinfonie's tools are the mcp__workspace, mcp__notes${inProcess.slack ? ', mcp__slack' : ''}${servers.jira ? ', mcp__jira' : ''}${servers.linear ? ', mcp__linear' : ''}${gcpOn ? ', mcp__gcp' : ''}${servers.db ? ', mcp__db' : ''} and mcp__browser servers; they use Sinfonie's own sign-ins, nothing needs authorising.`,
+    workspaceTools.promptFor(ws.id),
+    notes.promptFor(ws.id, true),
+    inProcess.slack ? slackTools.promptFor(slackConn) : '',
+    gcpOn ? gcp.promptFor(ws.spaceId) : '',
+    servers.db && ws.spaceId ? dbTools.promptFor(ws.spaceId) : '',
+    browserTools.promptFor(ws.port)
+  ]
+    .filter(Boolean)
+    .join('\n')
+  args.push('--append-system-prompt', q(appendPrompt))
   const hook = (event: string, timeout: number): object => ({ hooks: [{ type: 'command', command: `curl -sS -m ${timeout} -X POST --data-binary @- 'http://127.0.0.1:${port}/hook/${workspaceId}/${hookToken}/${event}'`, timeout }] })
   const settingsFile = join(app.getPath('userData'), 'cli', `${workspaceId}.settings.json`)
   mkdirSync(join(app.getPath('userData'), 'cli'), { recursive: true })
@@ -157,7 +196,81 @@ export function setTerminalEmitters(onData: (terminalId: string, data: string) =
   terminalExit = onExit
 }
 
+interface McpSession {
+  token: string
+  servers: Record<string, McpSdkServerConfigWithInstance>
+  /** One request at a time per server: an McpServer instance holds a single transport. */
+  queues: Record<string, Promise<void>>
+}
+const mcpSessions = new Map<string, McpSession>()
+
+/** Serve one Streamable HTTP request for an in-process server, stateless, serialised per server. */
+async function handleMcp(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const m = /^\/mcp\/([^/]+)\/([^/]+)\/([^/?]+)/.exec(req.url ?? '')
+  if (!m) {
+    res.writeHead(404)
+    res.end()
+    return
+  }
+  const [, workspaceId, token, name] = m
+  const s = mcpSessions.get(workspaceId)
+  const server = s && s.token === token ? s.servers[name] : undefined
+  if (!s || !server) {
+    res.writeHead(403)
+    res.end('unknown session')
+    return
+  }
+  // Stateless: no server-to-client stream (GET) and no session to delete; a held GET would pin the server's single transport.
+  if (req.method !== 'POST') {
+    res.writeHead(405, { Allow: 'POST' })
+    res.end()
+    return
+  }
+  const chunks: Buffer[] = []
+  for await (const c of req) chunks.push(c as Buffer)
+  let body: unknown
+  try {
+    body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : undefined
+  } catch {
+    res.writeHead(400)
+    res.end('bad json')
+    return
+  }
+  const run = (): Promise<void> =>
+    new Promise<void>((done) => {
+      const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true })
+      let released = false
+      // The McpServer holds one transport at a time: let go once the HTTP response is out, then the next request may connect.
+      const release = (): void => {
+        if (released) return
+        released = true
+        transport
+          .close()
+          .catch(() => undefined)
+          .finally(done)
+      }
+      res.once('close', release)
+      void (async () => {
+        try {
+          await server.instance.connect(transport)
+          await transport.handleRequest(req, res, body)
+        } catch (err) {
+          if (!res.headersSent) {
+            res.writeHead(500)
+            res.end(err instanceof Error ? err.message : String(err))
+          }
+          release()
+        }
+      })()
+    })
+  const prev = s.queues[name] ?? Promise.resolve()
+  const next = prev.then(run, run)
+  s.queues[name] = next.catch(() => undefined)
+  await next
+}
+
 export function stop(workspaceId: string): CliStatus {
+  mcpSessions.delete(workspaceId)
   const l = live.get(workspaceId)
   if (!l) return status(workspaceId)
   clearInterval(l.timer)
@@ -329,6 +442,13 @@ let hookPortNumber = 0
 async function hookPort(): Promise<number> {
   if (hookServer) return hookPortNumber
   hookServer = createServer((req, res) => {
+    if (req.url?.startsWith('/mcp/')) {
+      void handleMcp(req, res).catch((err) => {
+        if (!res.headersSent) res.writeHead(500)
+        res.end(String(err))
+      })
+      return
+    }
     void handleHook(req)
       .then((body) => {
         res.writeHead(200, { 'Content-Type': 'application/json' })
