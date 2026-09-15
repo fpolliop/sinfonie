@@ -13,6 +13,7 @@ export function SlackConnectionCard({ connId = '', intro }: { connId?: string; i
   const persisted = (connId ? spaces.find((x) => x.id === connId)?.slack : settings.slack) ?? { connected: false, hasClient: false, vendorClient: false }
   // vendorClient/hasClient are computed in main from the build and the secrets; the stored copy can be stale.
   const [live, setLive] = useState<SlackConnection | null>(null)
+  const [mcpTest, setMcpTest] = useState<{ ok: boolean; status: number; detail: string; scopes: string[] } | null>(null)
   useEffect(() => {
     api.invoke('slack:connection', connId).then(setLive).catch(() => undefined)
   }, [connId, persisted.connected, persisted.connectedAt])
@@ -72,9 +73,19 @@ export function SlackConnectionCard({ connId = '', intro }: { connId?: string; i
         {slack.connected && (
           <div className="flex items-center gap-2">
             <span className="text-[11px] text-muted">Replies the agent drafts are sent as you, only after you approve them.</span>
-            <Button size="sm" variant="ghost" className="ml-auto" onClick={() => go(() => api.invoke('oncall:slackDisconnect', connId))}>
+            <Button size="sm" variant="ghost" className="ml-auto" title="Ask Slack's MCP server whether this sign-in is accepted, and show its exact answer" onClick={() => go(async () => setMcpTest(await api.invoke('slack:testMcp', connId)))}>
+              Test MCP
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => go(() => api.invoke('oncall:slackDisconnect', connId))}>
               Disconnect
             </Button>
+          </div>
+        )}
+        {mcpTest && (
+          <div className={`mt-2 rounded-md border px-3 py-2 text-[11px] ${mcpTest.ok ? 'border-ok/40' : 'border-danger/40'}`}>
+            <div className="font-medium">{mcpTest.ok ? 'Slack MCP server accepted this sign-in.' : `Slack MCP server refused this sign-in (HTTP ${mcpTest.status}).`}</div>
+            <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[10px] text-muted">{mcpTest.detail || '(empty answer)'}</pre>
+            <div className="mt-1 text-muted">Token scopes: {mcpTest.scopes.length ? mcpTest.scopes.join(', ') : '(none reported)'}</div>
           </div>
         )}
       </section>

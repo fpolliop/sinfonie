@@ -338,6 +338,8 @@ export interface SinfonieInvoke {
   'oncall:state': () => OnCallState
   /** Live view of a Slack connection: derived flags (vendor client, own client) are never trusted from the persisted copy. */
   'slack:connection': (connId: string) => SlackConnection
+  /** Diagnostic: what mcp.slack.com answers to an initialize with the stored token, and the token's scopes. */
+  'slack:testMcp': (connId: string) => { ok: boolean; status: number; detail: string; scopes: string[] }
   /** connId: '' for the application's Slack, or a space id for that space's own. */
   'oncall:slackSetClient': (connId: string, clientId: string, clientSecret: string) => SlackConnection
   /** Opens the browser for Slack approval; the code returns via sinfonie://oauth/slack or oncall:slackFinish. */

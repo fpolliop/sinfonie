@@ -5,7 +5,7 @@
  * for tokens with the secret. Advanced users can plug in their own client id/secret instead.
  * Polling and posting use the Web API; agent sessions get the MCP URL with the bearer token.
  */
-import { safeStorage } from 'electron'
+import { app, safeStorage } from 'electron'
 import { presentAuthLink } from './auth-link'
 import { createHash, randomBytes } from 'crypto'
 import { getStore } from '../store'
@@ -250,6 +250,20 @@ export async function accessToken(connId = '', force = false): Promise<string> {
 /** For agent sessions: Slack's MCP server with the user's bearer token. */
 export async function mcpServerConfig(connId = ''): Promise<{ type: 'http'; url: string; headers: Record<string, string> }> {
   return { type: 'http', url: SLACK_MCP_URL, headers: { Authorization: `Bearer ${await accessToken(connId)}` } }
+}
+
+/** Talk to Slack's MCP server with the stored token and report exactly what it answers, plus the token's scopes. */
+export async function testMcp(connId = ''): Promise<{ ok: boolean; status: number; detail: string; scopes: string[] }> {
+  const t = readSecret<Tokens>(k('tokens', connId))
+  const scopes = (t?.scope ?? '').split(/[ ,]+/).filter(Boolean)
+  const token = await accessToken(connId)
+  const res = await fetch(SLACK_MCP_URL, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'sinfonie', version: app.getVersion() } } })
+  })
+  const text = (await res.text()).slice(0, 2000)
+  return { ok: res.ok, status: res.status, detail: `${res.headers.get('www-authenticate') ? `WWW-Authenticate: ${res.headers.get('www-authenticate')}\n` : ''}${text}`, scopes }
 }
 
 // ---------- Web API ----------
