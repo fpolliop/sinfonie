@@ -253,11 +253,11 @@ export function Sidebar(): React.JSX.Element {
   )
 }
 
-/** Opens the setup assistant: a conversation that configures spaces, repos, crews and integrations. */
+/** Opens the assistant: one conversation that knows every space, workspace, agent, note and integration, and can act on them. */
 function AssistantButton(): React.JSX.Element {
   const setAssistantOpen = useApp((s) => s.setAssistantOpen)
   return (
-    <button data-tour="assistant" className="no-drag rounded-md p-1.5 text-muted hover:bg-panel-2 hover:text-text" title="Setup assistant (⇧⌘A)" onClick={() => setAssistantOpen(true)}>
+    <button data-tour="assistant" className="no-drag rounded-md p-1.5 text-muted hover:bg-panel-2 hover:text-text" title="Assistant (⇧⌘A)" onClick={() => setAssistantOpen(true)}>
       <Sparkles size={16} />
     </button>
   )
