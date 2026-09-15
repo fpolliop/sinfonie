@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { Bot, Plus, Sparkles, LayoutTemplate, FolderInput, FolderOutput, Copy, Trash2, Play, Square, RotateCcw, Check, ChevronDown, Loader2, AtSign } from 'lucide-react'
+import { Bot, Plus, Sparkles, LayoutTemplate, FolderInput, FolderOutput, Copy, Trash2, Play, Square, RotateCcw, Check, ChevronDown, Loader2, AtSign, Users, MoreHorizontal } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { Markdown } from '@/lib/markdown'
@@ -41,6 +41,9 @@ export function AgentsView(): React.JSX.Element {
   const [filter, setFilter] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
   const [tab, setTab] = useState<'editor' | 'chat' | 'runs'>('editor')
+  // Two kinds live in the library: agents you run yourself, and the crew orchestrators delegate to inside workspaces.
+  const [section, setSection] = useState<'agents' | 'crew'>(() => (localStorage.getItem('sinfonie.agents.section') as 'agents' | 'crew') || 'agents')
+  useEffect(() => localStorage.setItem('sinfonie.agents.section', section), [section])
   const openAgentId = useApp((s) => s.openAgentId)
   const setOpenAgentId = useApp((s) => s.setOpenAgentId)
   // A notification click or a link asks for one agent: select it and show its conversation.
@@ -59,6 +62,9 @@ export function AgentsView(): React.JSX.Element {
     if (selected) setDraft((d) => (d && d.id === selected.id ? d : { ...selected }))
     else if (selectedId && selectedId !== 'new') setDraft(null)
   }, [selected, selectedId])
+  useEffect(() => {
+    if (selected) setSection(selected.crew ? 'crew' : 'agents')
+  }, [selected?.id, selected?.crew])
   // The library store updates a moment after a save; `known` lets a fresh spec show at once.
   const pick = (id: string | null, known?: AgentSpec): void => {
     setSelectedId(id)
@@ -88,7 +94,7 @@ export function AgentsView(): React.JSX.Element {
     }
   }
   const remove = async (a: AgentSpec): Promise<void> => {
-    if (!window.confirm(`Delete the agent "${a.name}"? Spaces that delegate to it lose it.`)) return
+    if (!window.confirm(`Delete "${a.name}"?${a.crew ? ' Orchestrators stop delegating to it.' : ' Its conversation and schedule go with it.'}${a.source === 'builtin' ? ' Reset built-ins can bring it back.' : ''}`)) return
     try {
       await api.invoke('agents:remove', a.id)
       if (selectedId === a.id) pick(null)
@@ -136,11 +142,13 @@ export function AgentsView(): React.JSX.Element {
   }
 
   const q = filter.trim().toLowerCase()
-  const shown = agents.filter((a) => !q || a.name.toLowerCase().includes(q) || a.description.toLowerCase().includes(q))
+  const shown = agents.filter((a) => (section === 'crew' ? Boolean(a.crew) : !a.crew) && (!q || a.name.toLowerCase().includes(q) || a.description.toLowerCase().includes(q)))
+  const crewCount = agents.filter((a) => a.crew).length
   const dirty = draft !== null && (draft.id === '' || !selected || !same(draft, selected))
 
+  const fresh = (): AgentSpec => ({ ...blank(), crew: section === 'crew' })
   const newMenu: MenuEntry[] = [
-    { label: 'Blank agent', icon: <Plus size={13} />, onClick: () => startNew(blank()) },
+    { label: section === 'crew' ? 'Blank crew member' : 'Blank agent', icon: <Plus size={13} />, onClick: () => startNew(fresh()) },
     { label: 'Describe it… (Claude drafts it)', icon: <Sparkles size={13} />, onClick: () => setDescribe(true) },
     { label: 'From a template…', icon: <LayoutTemplate size={13} />, onClick: () => setTemplates(true) },
     { label: 'Import from a folder… (.claude/agents)', icon: <FolderInput size={13} />, onClick: () => void importDir() }
@@ -150,36 +158,32 @@ export function AgentsView(): React.JSX.Element {
     <div className="flex h-full min-h-0">
       <div className="flex w-[340px] shrink-0 flex-col border-r border-border">
         <div className="drag flex h-[52px] items-center gap-2 border-b border-border px-4">
-          <Bot size={16} className="text-accent" />
-          <span className="text-[13px] font-semibold">Agents</span>
-          <span className="text-[11px] text-muted">{agents.length}</span>
+          {section === 'crew' ? <Users size={16} className="text-accent" /> : <Bot size={16} className="text-accent" />}
+          <span className="text-[13px] font-semibold">{section === 'crew' ? 'Crew' : 'Agents'}</span>
+          <span className="text-[11px] text-muted">{shown.length}</span>
           <div className="no-drag ml-auto flex items-center gap-1">
             <NewAgentButton entries={newMenu} busy={busy === 'import'} />
           </div>
         </div>
-        <div className="border-b border-border px-3 py-2">
-          <input className={inputCls} placeholder="Filter agents…" value={filter} onChange={(e) => setFilter(e.target.value)} />
+        <div className="no-drag flex items-center gap-1 border-b border-border px-3 py-2">
+          <div className="flex flex-1 rounded-md bg-panel p-0.5 text-[12px]">
+            <button onClick={() => setSection('agents')} title="Agents you run yourself: in their chat, by @name, or on a schedule" className={clsx('flex flex-1 items-center justify-center gap-1.5 rounded px-2 py-1', section === 'agents' ? 'bg-panel-2 text-text' : 'text-muted hover:text-text')}>
+              <Bot size={12} /> Agents <span className="text-[10px] text-muted">{agents.length - crewCount}</span>
+            </button>
+            <button onClick={() => setSection('crew')} title="Subagents the orchestrator delegates to inside workspaces" className={clsx('flex flex-1 items-center justify-center gap-1.5 rounded px-2 py-1', section === 'crew' ? 'bg-panel-2 text-text' : 'text-muted hover:text-text')}>
+              <Users size={12} /> Crew <span className="text-[10px] text-muted">{crewCount}</span>
+            </button>
+          </div>
         </div>
+        <div className="border-b border-border px-3 py-2">
+          <input className={inputCls} placeholder={section === 'crew' ? 'Filter crew…' : 'Filter agents…'} value={filter} onChange={(e) => setFilter(e.target.value)} />
+        </div>
+        <div className="border-b border-border px-3 py-1.5 text-[10px] text-muted">{section === 'crew' ? 'The orchestrator delegates to these inside a workspace: explore, implement, test, review. Which ones each space uses is under Settings › Crew.' : 'Yours to run: in their own chat, with @name in any workspace, or on a schedule.'}</div>
         <div className="flex-1 overflow-auto p-2">
-          {shown.length === 0 && <div className="px-2 py-6 text-center text-[12px] text-muted">{agents.length === 0 ? 'No agents yet. Create one with New agent.' : 'Nothing matches.'}</div>}
-          {(
-            [
-              ['Standalone', 'You run these: @name in a chat, Try it here, or a schedule.', shown.filter((a) => !a.crew)],
-              ['Crew', 'Orchestrators delegate to these in every session.', shown.filter((a) => a.crew)]
-            ] as const
-          ).map(([title, hint, list]) =>
-            list.length === 0 ? null : (
-              <div key={title} className="mb-2">
-                <div className="flex items-baseline gap-2 px-2 pb-1 pt-1">
-                  <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">{title}</span>
-                  <span className="truncate text-[10px] text-muted">{hint}</span>
-                </div>
-                {list.map((a) => (
-                  <AgentCard key={a.id} agent={a} selected={a.id === selectedId} spaceName={a.scope ? spaces.find((s) => s.id === a.scope)?.name : undefined} onClick={() => pick(a.id)} onDuplicate={() => void duplicate(a)} onExport={() => void exportOne(a)} onDelete={() => void remove(a)} />
-                ))}
-              </div>
-            )
-          )}
+          {shown.length === 0 && <div className="px-2 py-6 text-center text-[12px] text-muted">{q ? 'Nothing matches.' : section === 'crew' ? 'No crew members. Reset built-ins brings back explorer, implementer, tester and reviewer.' : 'No agents yet. Create one with New agent, or describe one in a sentence.'}</div>}
+          {shown.map((a) => (
+            <AgentCard key={a.id} agent={a} selected={a.id === selectedId} spaceName={a.scope ? spaces.find((s) => s.id === a.scope)?.name : undefined} onClick={() => pick(a.id)} onDuplicate={() => void duplicate(a)} onExport={() => void exportOne(a)} onDelete={() => void remove(a)} />
+          ))}
         </div>
         <div className="flex items-center gap-2 border-t border-border px-3 py-2 text-[11px] text-muted">
           <span className="flex-1">Mention one in any chat with @name.</span>
@@ -212,7 +216,7 @@ export function AgentsView(): React.JSX.Element {
         ) : draft && selected && tab === 'runs' ? (
           <AgentRuns agent={selected} />
         ) : draft ? (
-          <Editor key={selectedId ?? 'none'} draft={draft} stored={selected} dirty={dirty} saving={busy === 'save'} onChange={setDraft} onSave={() => void save()} onDiscard={() => (draft.id ? setDraft({ ...selected! }) : pick(null))} />
+          <Editor key={selectedId ?? 'none'} draft={draft} stored={selected} dirty={dirty} saving={busy === 'save'} onChange={setDraft} onSave={() => void save()} onDiscard={() => (draft.id ? setDraft({ ...selected! }) : pick(null))} onDelete={(a) => void remove(a)} />
         ) : (
           <Empty onNew={() => startNew(blank())} onDescribe={() => setDescribe(true)} onTemplates={() => setTemplates(true)} onImport={() => void importDir()} />
         )}
@@ -301,6 +305,17 @@ function AgentCard({ agent: a, selected, spaceName, onClick, onDuplicate, onExpo
         </div>
       </div>
       {!a.enabled && <Badge tone="warn">off</Badge>}
+      <button
+        className="rounded p-0.5 text-muted opacity-0 hover:text-text group-hover:opacity-100"
+        title="Duplicate, export, delete"
+        onClick={(e) => {
+          e.stopPropagation()
+          const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+          setMenu({ x: r.left, y: r.bottom + 2 })
+        }}
+      >
+        <MoreHorizontal size={14} />
+      </button>
       {menu && <ContextMenu x={menu.x} y={menu.y} entries={entries} onClose={() => setMenu(null)} />}
     </div>
   )
@@ -335,7 +350,7 @@ function Empty({ onNew, onDescribe, onTemplates, onImport }: { onNew: () => void
 
 // ---------- editor ----------
 
-function Editor({ draft, stored, dirty, saving, onChange, onSave, onDiscard }: { draft: AgentSpec; stored: AgentSpec | null; dirty: boolean; saving: boolean; onChange: (a: AgentSpec) => void; onSave: () => void; onDiscard: () => void }): React.JSX.Element {
+function Editor({ draft, stored, dirty, saving, onChange, onSave, onDiscard, onDelete }: { draft: AgentSpec; stored: AgentSpec | null; dirty: boolean; saving: boolean; onChange: (a: AgentSpec) => void; onSave: () => void; onDiscard: () => void; onDelete: (a: AgentSpec) => void }): React.JSX.Element {
   const spaces = useApp((s) => s.spaces)
   const set = (patch: Partial<AgentSpec>): void => onChange({ ...draft, ...patch })
   const kind = classifyModel(draft.model).kind
@@ -355,6 +370,11 @@ function Editor({ draft, stored, dirty, saving, onChange, onSave, onDiscard }: {
           </span>
         )}
         <div className="no-drag ml-auto flex items-center gap-3">
+          {stored && (
+            <Button size="sm" variant="ghost" title="Delete this agent" onClick={() => onDelete(stored)}>
+              <Trash2 size={12} />
+            </Button>
+          )}
           <label className="flex items-center gap-1.5 text-[12px] text-muted" title="Off keeps the agent in the library but nowhere else: no crew, no @mention, no runs.">
             <input type="checkbox" checked={draft.enabled} onChange={(e) => set({ enabled: e.target.checked })} />
             Enabled
@@ -454,7 +474,7 @@ function Editor({ draft, stored, dirty, saving, onChange, onSave, onDiscard }: {
                   ))}
                 </select>
               </Field>
-              <Field label="Runs as" hint={draft.crew ? 'Orchestrators get it as a subagent in every session.' : 'Only when you @mention, try or schedule it.'}>
+              <Field label="Runs as" hint={draft.crew ? 'A crew member: orchestrators delegate to it inside workspaces. Listed under Crew.' : 'An agent of yours: its own chat, @name in a workspace, or a schedule. Listed under Agents.'}>
                 <div className="flex h-[34px] rounded-md border border-border bg-bg p-0.5 text-[12px]">
                   {(
                     [

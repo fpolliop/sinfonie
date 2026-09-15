@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { Wand2, Plus, Maximize2, X, ChevronDown, Brain } from 'lucide-react'
+import { Wand2, Plus, Maximize2, Minus, ChevronDown, Brain } from 'lucide-react'
 import { MaestroMemory } from './MaestroMemory'
 import { useMaestro } from '@/stores/maestro'
 import { useApp } from '@/stores/app'
@@ -77,8 +77,8 @@ export function MaestroSide(): React.JSX.Element | null {
         >
           <Maximize2 size={14} />
         </button>
-        <button className="no-drag rounded-md p-1.5 text-muted hover:bg-panel-2 hover:text-text" title="Close (⇧⌘A)" onClick={() => setOpen(false)}>
-          <X size={15} />
+        <button className="no-drag rounded-md p-1.5 text-muted hover:bg-panel-2 hover:text-text" title="Minimise; the conversation stays (⇧⌘A)" onClick={() => setOpen(false)}>
+          <Minus size={15} />
         </button>
       </div>
       <div className="min-h-0 flex-1">{activeId ? <MaestroConversation id={activeId} compact /> : null}</div>
