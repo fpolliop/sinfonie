@@ -1079,16 +1079,28 @@ export interface CloudState {
 export type CrewPriority = 'cost' | 'balanced' | 'quality'
 
 /** A session note or todo on a workspace. The orchestrator can read and edit them too. */
+export type NoteStatus = 'todo' | 'doing' | 'done'
+export type NotePriority = 'low' | 'medium' | 'high'
 export interface Note {
   id: string
   text: string
   kind: 'note' | 'todo'
+  /** Kept in step with status === 'done' for older readers. */
   done: boolean
+  /** Todos only: to do, in progress, done. Absent means to do (or done when `done`). */
+  status?: NoteStatus
+  priority?: NotePriority
+  /** ISO date (YYYY-MM-DD). */
+  due?: string
+  tags?: string[]
   /** Who wrote it. */
   source: 'user' | 'agent'
   createdAt: string
   updatedAt: string
 }
+export const noteStatus = (n: Note): NoteStatus => n.status ?? (n.done ? 'done' : 'todo')
+/** Fields the user or an agent may change on a note. */
+export type NotePatch = Partial<Pick<Note, 'text' | 'done' | 'kind' | 'status' | 'priority' | 'due' | 'tags'>>
 
 /** Where a note lives, from inside a workspace: the workspace, its space, or the app (tied to no project). */
 export type NoteScope = 'workspace' | 'space' | 'app'

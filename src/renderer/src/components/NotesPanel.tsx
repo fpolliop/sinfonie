@@ -4,7 +4,7 @@ import { Bot, Check, ChevronDown, ChevronRight, MessageSquareShare, StickyNote, 
 import { useNotes } from '@/stores/notes'
 import { useChat } from '@/stores/chat'
 import { useApp } from '@/stores/app'
-import type { Note } from '@shared/types'
+import type { Note, NotePatch } from '@shared/types'
 
 const EMPTY: Note[] = []
 
@@ -106,7 +106,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 /** One note. `workspaceId` enables the "put in the chat box" action; owners that are not workspaces omit it. */
-export function Row({ note, workspaceId, onUpdate, onRemove }: { note: Note; workspaceId?: string; onUpdate: (p: Partial<Pick<Note, 'text' | 'done' | 'kind'>>) => void; onRemove: () => void }): React.JSX.Element {
+export function Row({ note, workspaceId, onUpdate, onRemove }: { note: Note; workspaceId?: string; onUpdate: (p: NotePatch) => void; onRemove: () => void }): React.JSX.Element {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(note.text)
   const setChatDraft = useChat((s) => s.setDraft)
@@ -156,6 +156,9 @@ export function Row({ note, workspaceId, onUpdate, onRemove }: { note: Note; wor
               <Bot size={9} /> agent
             </span>
           )}
+          {note.status === 'doing' && !note.done && <span className="rounded bg-warn/15 px-1 text-warn">in progress</span>}
+          {note.priority && <span className={clsx('rounded px-1', note.priority === 'high' ? 'bg-danger/15 text-danger' : note.priority === 'medium' ? 'bg-warn/15 text-warn' : 'bg-panel-2')}>{note.priority}</span>}
+          {note.due && <span className={clsx(note.due < new Date().toISOString().slice(0, 10) && !note.done && 'text-danger')}>due {note.due}</span>}
           <span>{new Date(note.updatedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
         </div>
       </div>

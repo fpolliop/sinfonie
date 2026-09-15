@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { api } from '@/lib/api'
-import type { Note } from '@shared/types'
+import type { Note, NotePatch } from '@shared/types'
 
 interface NotesState {
   /** Notes per owner: a workspace id, "space:<id>" or "app". */
@@ -11,7 +11,8 @@ interface NotesState {
   load: (owner: string) => Promise<void>
   loadAll: () => Promise<void>
   add: (owner: string, text: string, kind: Note['kind']) => Promise<void>
-  update: (owner: string, id: string, patch: Partial<Pick<Note, 'text' | 'done' | 'kind'>>) => Promise<void>
+  update: (owner: string, id: string, patch: NotePatch) => Promise<void>
+  move: (fromOwner: string, id: string, toOwner: string) => Promise<void>
   remove: (owner: string, id: string) => Promise<void>
   subscribe: () => void
 }
@@ -41,6 +42,10 @@ export const useNotes = create<NotesState>((set) => ({
   update: async (owner, id, patch) => {
     const notes = await api.invoke('notes:update', owner, id, patch)
     set((s) => ({ byWorkspace: { ...s.byWorkspace, [owner]: notes } }))
+  },
+  move: async (fromOwner, id, toOwner) => {
+    const dest = await api.invoke('notes:move', fromOwner, id, toOwner)
+    set((s) => ({ byWorkspace: { ...s.byWorkspace, [fromOwner]: (s.byWorkspace[fromOwner] ?? []).filter((n) => n.id !== id), [toOwner]: dest } }))
   },
   remove: async (owner, id) => {
     const notes = await api.invoke('notes:remove', owner, id)

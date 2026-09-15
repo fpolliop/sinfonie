@@ -593,20 +593,22 @@ const TOOLS: ToolDef[] = [
   },
   {
     name: 'notes_add',
-    description: 'Add a note or todo. owner: "app" (default, tied to no project), "space:<id>", or a workspace id.',
-    shape: { text: z.string().min(1), kind: z.enum(['note', 'todo']).default('todo'), owner: z.string().optional() },
+    description: 'Add a note or todo. owner: "app" (default, tied to no project), "space:<id>", or a workspace id. Optional priority and due date (YYYY-MM-DD).',
+    shape: { text: z.string().min(1), kind: z.enum(['note', 'todo']).default('todo'), owner: z.string().optional(), priority: z.enum(['low', 'medium', 'high']).optional(), due: z.string().optional() },
     run: async (i) => {
       const owner = String(i.owner || notes.APP_OWNER)
-      notes.add(owner, String(i.text), (i.kind as 'note' | 'todo') ?? 'todo', 'agent')
+      const list = notes.add(owner, String(i.text), (i.kind as 'note' | 'todo') ?? 'todo', 'agent')
+      const last = list[list.length - 1]
+      if (last && (i.priority || i.due)) notes.update(owner, last.id, { ...(i.priority ? { priority: i.priority as 'low' | 'medium' | 'high' } : {}), ...(i.due ? { due: String(i.due) } : {}) })
       return `Added to ${notes.ownerLabel(owner)}.`
     }
   },
   {
     name: 'notes_update',
-    description: 'Edit a note, or mark a todo done or not done. Pass the owner from notes_list.',
-    shape: { owner: z.string(), id: z.string(), text: z.string().optional(), done: z.boolean().optional(), kind: z.enum(['note', 'todo']).optional() },
+    description: 'Edit a note: text, status (todo|doing|done), priority (low|medium|high), due date (YYYY-MM-DD), tags, kind. Pass the owner from notes_list.',
+    shape: { owner: z.string(), id: z.string(), text: z.string().optional(), status: z.enum(['todo', 'doing', 'done']).optional(), done: z.boolean().optional(), priority: z.enum(['low', 'medium', 'high']).optional(), due: z.string().optional(), tags: z.array(z.string()).optional(), kind: z.enum(['note', 'todo']).optional() },
     run: async (i) => {
-      notes.update(String(i.owner), String(i.id), { ...(i.text !== undefined ? { text: String(i.text) } : {}), ...(i.done !== undefined ? { done: Boolean(i.done) } : {}), ...(i.kind ? { kind: i.kind as 'note' | 'todo' } : {}) })
+      notes.update(String(i.owner), String(i.id), { ...(i.text !== undefined ? { text: String(i.text) } : {}), ...(i.status ? { status: i.status as 'todo' | 'doing' | 'done' } : {}), ...(i.done !== undefined ? { done: Boolean(i.done) } : {}), ...(i.priority ? { priority: i.priority as 'low' | 'medium' | 'high' } : {}), ...(i.due !== undefined ? { due: String(i.due) } : {}), ...(i.tags !== undefined ? { tags: i.tags as string[] } : {}), ...(i.kind ? { kind: i.kind as 'note' | 'todo' } : {}) })
       return 'Updated.'
     }
   },

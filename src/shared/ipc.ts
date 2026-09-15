@@ -1,4 +1,4 @@
-import type { NotesFilter, AgentRun, AgentDraft, AgentRunEvent, AgentSpec, AgentMode, AppMode, AuthLink, CompletionRequest, DiscoveredOrg, SharedRepo, TeammateWorkspace, BillingPeriod, CliStatus, CloudOrgDetail, CloudState, Plan, RemoteSettings, RemoteStatus, SpaceDefinition, SpaceImportPreview, SpaceImportResolution, BrowserState, ContextUsage, CrewPriority, FsEntry, LimitAlternative, UsageSnapshot, ChatImageInput, Incident, IncidentStatus, LinearIssue, LinearSettings, OnCallState, ResourceSnapshot, Severity, SlackConnection, LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion, OnCallBulkOp,
+import type { NotePatch, NotesFilter, AgentRun, AgentDraft, AgentRunEvent, AgentSpec, AgentMode, AppMode, AuthLink, CompletionRequest, DiscoveredOrg, SharedRepo, TeammateWorkspace, BillingPeriod, CliStatus, CloudOrgDetail, CloudState, Plan, RemoteSettings, RemoteStatus, SpaceDefinition, SpaceImportPreview, SpaceImportResolution, BrowserState, ContextUsage, CrewPriority, FsEntry, LimitAlternative, UsageSnapshot, ChatImageInput, Incident, IncidentStatus, LinearIssue, LinearSettings, OnCallState, ResourceSnapshot, Severity, SlackConnection, LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion, OnCallBulkOp,
   AgentEvent,
   ChatItem,
   JiraIssue,
@@ -304,7 +304,9 @@ export interface SinfonieInvoke {
   // ---- session notes ----
   'notes:list': (workspaceId: string) => Note[]
   'notes:add': (workspaceId: string, text: string, kind: Note['kind']) => Note[]
-  'notes:update': (workspaceId: string, id: string, patch: Partial<Pick<Note, 'text' | 'done' | 'kind'>>) => Note[]
+  'notes:update': (workspaceId: string, id: string, patch: NotePatch) => Note[]
+  /** Move a note to another owner (workspace id, "space:<id>" or "app"). Returns the destination list. */
+  'notes:move': (fromOwner: string, id: string, toOwner: string) => Note[]
   'notes:remove': (workspaceId: string, id: string) => Note[]
   /** Every owner with notes: workspace ids, "space:<id>" and "app", with a display label. */
   'notes:all': () => { owner: string; label: string; notes: Note[] }[]
