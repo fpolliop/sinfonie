@@ -758,6 +758,7 @@ export interface Settings {
   mode?: AppMode
   /** First-run setup, tour and getting-started checklist state. */
   onboarding?: { setupDoneAt?: string; tourDoneAt?: string; checklistDismissedAt?: string }
+  maestro?: MaestroSettings
   resources?: ResourceSettings
   /** Expose browser_evaluate (arbitrary JavaScript in pages) to agents. Off by default. */
   browserEvaluate?: boolean
@@ -1886,6 +1887,21 @@ export interface MaestroConversation extends MaestroConversationMeta {
   items: AssistantItem[]
 }
 export type MaestroEvent = { conversationId: string } & ({ type: 'item'; item: AssistantItem } | { type: 'delta'; id: string; text: string } | { type: 'status'; busy: boolean } | { type: 'meta'; meta: MaestroConversationMeta } | { type: 'removed' })
+/** A durable fact Maestro keeps about the user and their work. */
+export type MaestroMemoryCategory = 'user' | 'work' | 'preference' | 'space' | 'thread'
+export interface MaestroMemoryEntry {
+  id: string
+  category: MaestroMemoryCategory
+  text: string
+  createdAt: string
+  updatedAt: string
+}
+/** How much Maestro may do without asking. Deletions always ask. */
+export type MaestroAutonomy = 'ask' | 'destructive' | 'trusted'
+export interface MaestroSettings {
+  autonomy?: MaestroAutonomy
+}
+
 /** One prompt Maestro offers on an empty conversation, computed from real state. */
 export interface MaestroSuggestion {
   kind: 'todos' | 'workspace' | 'agent' | 'oncall' | 'setup'

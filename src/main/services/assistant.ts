@@ -26,6 +26,7 @@ import * as jira from './jira'
 import * as gcp from './gcp'
 import * as oncall from './oncall/service'
 import * as library from './agents'
+import * as workspaces from './workspaces'
 import * as notes from './notes'
 import * as runs from './crew/runs'
 import * as scheduler from './crew/scheduler'
@@ -33,13 +34,16 @@ import * as slackTools from './slack-tools'
 import * as reviews from './reviews'
 import { mcpServersFor } from './agent'
 import { getTranscript } from './transcripts'
-import { agentOwner, type MaestroConversation, type MaestroConversationMeta, type MaestroContext, type MaestroEvent, type MaestroSuggestion } from '@shared/types'
+import { agentOwner, type MaestroConversation, type MaestroConversationMeta, type MaestroContext, type MaestroEvent, type MaestroSuggestion, type MaestroAutonomy, type MaestroMemoryCategory, type MaestroMemoryEntry, type CreateWorkspaceInput, type ReviewPr, type IncidentStatus, type Severity } from '@shared/types'
 import { SPACE_COLORS, type AgentSpec, type AssistantItem, type CostMode, type CostModeScope, type OnCallSettings, type Repo, type Space, type Settings } from '@shared/types'
 
 export const ASSISTANT_WORKSPACE_ID = 'assistant'
 
 // ---------- host callbacks (things that live in ipc.ts) ----------
 interface Host {
+  createWorkspace: (input: CreateWorkspaceInput) => Promise<{ id: string; name: string }>
+  archiveWorkspace: (id: string, opts: { deleteBranches: boolean; forget?: boolean }) => Promise<void>
+  startReview: (pr: ReviewPr, accountId: string) => Promise<{ key: string }>
   addRepoAt: (path: string, spaceId?: string) => Promise<Repo>
   setCostMode: (scope: CostModeScope, mode: CostMode | null) => void
   openSettings: (target: { scope: 'app'; page: string } | { scope: 'space'; spaceId: string; page: string }) => void
@@ -197,6 +201,64 @@ function push(c: Conversation, item: Omit<AssistantItem, 'id' | 'createdAt'> & {
   save(c)
   emit({ conversationId: c.id, type: 'item', item: full })
   return full
+}
+
+// ---------- memory: what Maestro keeps about the user ----------
+let memoryCache: MaestroMemoryEntry[] | null = null
+const memoryFile = (): string => join(dir(), 'memory.json')
+export function memory(): MaestroMemoryEntry[] {
+  if (memoryCache) return memoryCache
+  try {
+    memoryCache = existsSync(memoryFile()) ? (JSON.parse(readFileSync(memoryFile(), 'utf8')) as MaestroMemoryEntry[]) : []
+  } catch {
+    memoryCache = []
+  }
+  return memoryCache
+}
+function saveMemory(list: MaestroMemoryEntry[]): MaestroMemoryEntry[] {
+  memoryCache = list
+  writeFileSync(memoryFile(), JSON.stringify(list, null, 2))
+  return list
+}
+export function memoryAdd(category: MaestroMemoryCategory, text: string): MaestroMemoryEntry[] {
+  const t = text.trim()
+  if (!t) return memory()
+  const now = new Date().toISOString()
+  // The same fact twice is an update, not a duplicate.
+  const same = memory().find((m) => m.text.toLowerCase() === t.toLowerCase())
+  if (same) return memoryUpdate(same.id, t)
+  return saveMemory([...memory(), { id: nanoid(6), category, text: t, createdAt: now, updatedAt: now }])
+}
+export function memoryUpdate(id: string, text: string): MaestroMemoryEntry[] {
+  return saveMemory(memory().map((m) => (m.id === id ? { ...m, text: text.trim(), updatedAt: new Date().toISOString() } : m)))
+}
+export function memoryRemove(id: string): MaestroMemoryEntry[] {
+  return saveMemory(memory().filter((m) => m.id !== id))
+}
+const CATEGORY_LABEL: Record<MaestroMemoryCategory, string> = { user: 'About the user', work: 'How they work', preference: 'Preferences', space: 'Spaces and apps', thread: 'Open threads' }
+function memoryText(): string {
+  const list = memory()
+  if (list.length === 0) return ''
+  const groups = (['user', 'work', 'preference', 'space', 'thread'] as MaestroMemoryCategory[]).map((c) => ({ c, items: list.filter((m) => m.category === c) })).filter((g) => g.items.length)
+  return groups.map((g) => `${CATEGORY_LABEL[g.c]}:\n${g.items.map((m) => `- [${m.id}] ${m.text}`).join('\n')}`).join('\n').slice(0, 8000)
+}
+
+/** What changed since the previous conversation: injected into the first message of a new one. */
+function digestSince(since: string): string {
+  if (!since) return ''
+  const { workspaces: all, spaces } = getStore().get()
+  const lines: string[] = []
+  const active = all.filter((w) => w.status !== 'archived' && w.lastMessageAt && w.lastMessageAt > since)
+  if (active.length) lines.push(`Workspaces active: ${active.map((w) => `${w.name} (${spaces.find((s) => s.id === w.spaceId)?.name ?? 'no space'}, ${w.stage})`).join('; ')}`)
+  const created = all.filter((w) => w.createdAt > since)
+  if (created.length) lines.push(`New workspaces: ${created.map((w) => w.name).join(', ')}`)
+  const filed = notes.listAll().flatMap((g) => g.notes.filter((n) => n.source === 'agent' && n.createdAt > since).map((n) => `${n.text.slice(0, 80)} (${notes.ownerLabel(g.owner)})`))
+  if (filed.length) lines.push(`Notes filed by agents: ${filed.slice(0, 8).join('; ')}${filed.length > 8 ? ` and ${filed.length - 8} more` : ''}`)
+  const ran = library.list().flatMap((a) => runs.runs(a.id).filter((r) => r.startedAt > since && r.trigger === 'schedule').slice(0, 1).map((r) => `${a.name} at ${r.startedAt.slice(0, 16).replace('T', ' ')}: ${(r.report ?? r.error ?? '').split('\n')[0].slice(0, 100)}`))
+  if (ran.length) lines.push(`Scheduled agent runs: ${ran.join('; ')}`)
+  const incidents = oncall.state().incidents.filter((i) => (i as unknown as { createdAt?: string }).createdAt && (i as unknown as { createdAt: string }).createdAt > since)
+  if (incidents.length) lines.push(`New on-call incidents: ${incidents.map((i) => i.title).join('; ')}`)
+  return lines.length ? `Since the previous conversation (${since.slice(0, 16).replace('T', ' ')}):\n${lines.map((l) => `- ${l}`).join('\n')}\n\n` : ''
 }
 
 /** What matters right now, for an empty conversation: computed from real state, each one a prompt. */
@@ -821,6 +883,130 @@ const TOOLS: ToolDef[] = [
     }
   },
   {
+    name: 'remember',
+    description: 'Keep a durable fact about the user for every future conversation. category: user | work | preference | space | thread. One sentence. Saving the same text again updates it.',
+    shape: { category: z.enum(['user', 'work', 'preference', 'space', 'thread']), text: z.string().min(3).max(400) },
+    run: async (i) => {
+      memoryAdd(i.category as MaestroMemoryCategory, String(i.text))
+      return 'Remembered.'
+    }
+  },
+  {
+    name: 'forget',
+    description: 'Drop or correct a remembered fact by id (ids are in your memory list).',
+    shape: { id: z.string(), replaceWith: z.string().optional() },
+    run: async (i) => {
+      if (i.replaceWith) memoryUpdate(String(i.id), String(i.replaceWith))
+      else memoryRemove(String(i.id))
+      return i.replaceWith ? 'Corrected.' : 'Forgotten.'
+    }
+  },
+  {
+    name: 'memories',
+    description: 'Everything you currently remember about the user, with ids.',
+    shape: {},
+    run: async () => memoryText() || 'Nothing remembered yet.'
+  },
+  {
+    name: 'create_workspace',
+    description: 'Create a workspace (a task): a name, the repositories it touches (ids from get_overview, each with a base branch), and the space. Sinfonie creates a git worktree per repo. Confirm the repos and branch with the user first unless trusted.',
+    shape: { name: z.string().min(1), space: z.string().optional().describe('space id or name'), repos: z.array(z.object({ repoId: z.string(), baseBranch: z.string().optional() })).min(1), branch: z.string().optional().describe('exact branch name; derived from the name when omitted') },
+    run: async (i) => {
+      const { repos } = getStore().get()
+      const spaceId = i.space ? spaceOrThrow(String(i.space)).id : undefined
+      const list = (i.repos as { repoId: string; baseBranch?: string }[]).map((r) => {
+        const repo = repos.find((x) => x.id === r.repoId || x.name === r.repoId)
+        if (!repo) throw new Error(`No repository ${r.repoId}`)
+        return { repoId: repo.id, baseBranch: r.baseBranch ?? repo.defaultBranch ?? 'main' }
+      })
+      const ws = await needHost().createWorkspace({ name: String(i.name), repos: list, ...(i.branch ? { branch: String(i.branch) } : {}), ...(spaceId ? { spaceId } : {}) })
+      return `Created workspace "${ws.name}" (id ${ws.id}). Link it as [${ws.name}](sinfonie://workspace/${ws.id}).`
+    }
+  },
+  {
+    name: 'rename_workspace',
+    description: 'Rename a workspace; optionally rename its branches too.',
+    shape: { workspaceId: z.string(), name: z.string().min(1), renameBranches: z.boolean().optional() },
+    run: async (i) => {
+      const ws = await workspaces.renameWorkspace(String(i.workspaceId), String(i.name), { renameBranches: Boolean(i.renameBranches) })
+      return `Renamed to "${ws.name}".`
+    }
+  },
+  {
+    name: 'set_stage',
+    description: 'Move a workspace to a stage: todo, in-progress, in-review, done.',
+    shape: { workspaceId: z.string(), stage: z.enum(['todo', 'in-progress', 'in-review', 'done']) },
+    run: async (i) => {
+      const ws = workspaces.setStage(String(i.workspaceId), i.stage as 'todo' | 'in-progress' | 'in-review' | 'done')
+      return `"${ws.name}" is now ${ws.stage}.`
+    }
+  },
+  {
+    name: 'archive_workspace',
+    description: 'Archive a workspace: its worktrees are removed; branches are kept unless deleteBranches. Destructive: always confirm by name first.',
+    shape: { workspaceId: z.string(), deleteBranches: z.boolean().optional() },
+    run: async (i) => {
+      const ws = getStore().get().workspaces.find((w) => w.id === String(i.workspaceId))
+      if (!ws) throw new Error('No such workspace.')
+      await needHost().archiveWorkspace(ws.id, { deleteBranches: Boolean(i.deleteBranches) })
+      return `Archived "${ws.name}".`
+    }
+  },
+  {
+    name: 'list_prs',
+    description: "Open pull requests across the user's repositories, from GitHub: those waiting for their review, or all. Optionally one space.",
+    shape: { mode: z.enum(['requested', 'all']).default('requested'), space: z.string().optional() },
+    run: async (i) => {
+      const { settings, spaces } = getStore().get()
+      const spaceId = i.space ? spaceOrThrow(String(i.space)).id : undefined
+      let owners: string[] = spaceId ? (spaces.find((s) => s.id === spaceId)?.githubOwners ?? []) : spaces.flatMap((s) => s.githubOwners ?? [])
+      if (owners.length === 0 && spaceId) owners = await reviews.detectOwners(spaceId)
+      if (owners.length === 0) for (const s of spaces) owners.push(...(await reviews.detectOwners(s.id).catch(() => [])))
+      owners = [...new Set(owners)]
+      void settings
+      const prs = await reviews.listPrs(owners, (i.mode as 'requested' | 'all') ?? 'requested', spaceId ? await reviews.detectRepos(spaceId).catch(() => []) : [])
+      return prs.length ? pretty(prs.map((p) => ({ repo: p.nameWithOwner, number: p.number, title: p.title, author: p.author, updatedAt: p.updatedAt, draft: p.isDraft, url: p.url }))) : 'No open pull requests found.'
+    }
+  },
+  {
+    name: 'start_review',
+    description: 'Run an AI review on a pull request (repo "owner/name" and number, from list_prs). Findings appear in the Review cockpit.',
+    shape: { repo: z.string(), number: z.number().int() },
+    run: async (i) => {
+      const { settings } = getStore().get()
+      const owners = [String(i.repo).split('/')[0]]
+      const prs = await reviews.listPrs(owners, 'all', [String(i.repo)])
+      const pr = prs.find((p) => p.number === Number(i.number) && p.nameWithOwner === String(i.repo))
+      if (!pr) throw new Error('That pull request is not open, or not visible to gh.')
+      const r = await needHost().startReview(pr, settings.defaultClaudeAccountId)
+      return `Review started for ${pr.nameWithOwner}#${pr.number} (${r.key}). See [Review cockpit](sinfonie://reviews).`
+    }
+  },
+  {
+    name: 'incident',
+    description: 'Act on an on-call incident: set its status (open|acknowledged|resolved|dismissed) or severity (low|medium|high|critical), trigger a triage, approve a proposed reply (sends it to Slack as the user), or dismiss a proposal.',
+    shape: { id: z.string(), status: z.string().optional(), severity: z.string().optional(), triage: z.boolean().optional(), approveProposal: z.string().optional(), dismissProposal: z.string().optional(), replyText: z.string().optional() },
+    run: async (i) => {
+      const id = String(i.id)
+      const done: string[] = []
+      if (i.status) done.push(`status ${oncall.setStatus(id, i.status as IncidentStatus).status}`)
+      if (i.severity) done.push(`severity ${oncall.setSeverity(id, i.severity as Severity).severity}`)
+      if (i.triage) {
+        oncall.enqueueTriage(id)
+        done.push('triage queued')
+      }
+      if (i.approveProposal) {
+        await oncall.approve(id, String(i.approveProposal), i.replyText ? String(i.replyText) : undefined)
+        done.push('reply sent')
+      }
+      if (i.dismissProposal) {
+        oncall.dismissProposal(id, String(i.dismissProposal))
+        done.push('proposal dismissed')
+      }
+      return done.length ? `Done: ${done.join(', ')}.` : 'Nothing to do; pass status, severity, triage, approveProposal or dismissProposal.'
+    }
+  },
+  {
     name: 'oncall_incidents',
     description: 'On-call incidents Sinfonie has seen: title, channel, status, severity.',
     shape: { all: z.boolean().optional().describe('Include resolved and dismissed') },
@@ -860,6 +1046,20 @@ function server(c: Conversation): NonNullable<Options['mcpServers']>[string] {
       })
     )
   })
+}
+
+function systemFor(): string {
+  const autonomy: MaestroAutonomy = getStore().get().settings.maestro?.autonomy ?? 'ask'
+  const rule =
+    autonomy === 'trusted'
+      ? '3. The user trusts you to act: make changes without asking and report what you changed, in one or two lines each. Only deleting a space, workspace, agent, note or conversation still asks first, by name.'
+      : autonomy === 'destructive'
+        ? '3. Make ordinary changes (settings, notes, agents, crews, sending a message to a workspace) without asking and report what you changed. Ask first, naming the thing, before anything destructive: deleting or archiving a space, workspace, agent or note, or a change that is hard to undo.'
+        : '3. Before any write (settings, spaces, crews, agents, notes, sending a message to a workspace), say what you are about to change in one or two lines and get a clear yes, or use AskUserQuestion with the options. After a write, confirm what changed. Never delete anything without the user naming it.'
+  const mem = memoryText()
+  return `${SYSTEM.replace('3. Before any write (settings, spaces, crews, agents, notes, sending a message to a workspace), say what you are about to change in one or two lines and get a clear yes, or use AskUserQuestion with the options. After a write, confirm what changed. Never delete anything without the user naming it.', rule)}
+
+MEMORY. You keep durable facts about the user with remember(category, text): who they are (user), how they work (work), preferences (preference), facts about their spaces and apps (space), and open threads to follow up (thread). Save a fact as soon as you learn it, in one sentence, without asking; correct or drop it with forget when it changes. Never store secrets. ${mem ? `What you know so far:\n${mem}` : 'You know nothing about the user yet: early in this first conversation, ask three or four short questions with AskUserQuestion (their role, what they build and for whom, how their team ships, what they want you to be best at) and remember the answers.'}`
 }
 
 const SYSTEM = `You are Maestro, Sinfonie's assistant, living inside the app: the one place the user can ask about anything Sinfonie knows and have it done. You configure the app, you know every space, workspace, agent, integration and note, and you use the same integrations the user's agents use (Slack, Jira, Linear, Google Cloud, MCP servers) through their tools. You never edit files or run shell commands yourself; for code work you send tasks to workspaces or run agents.
@@ -981,7 +1181,7 @@ export async function send(id: string, text: string): Promise<void> {
     // AskUserQuestion stays out of allowedTools so it reaches canUseTool and shows the card.
     allowedTools: ['Read', 'Grep', 'Glob', ...TOOLS.map((t) => `mcp__sinfonie__${t.name}`)],
     disallowedTools: ['Bash', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'Agent', 'Task', 'WebFetch', 'WebSearch', 'EnterPlanMode', 'ExitPlanMode'],
-    systemPrompt: { type: 'preset', preset: 'claude_code', append: SYSTEM },
+    systemPrompt: { type: 'preset', preset: 'claude_code', append: systemFor() },
     maxTurns: 40,
     env: { ...process.env, ...accountEnv(accountId) },
     ...(c.sessionId ? { resume: c.sessionId } : {}),
@@ -995,7 +1195,8 @@ export async function send(id: string, text: string): Promise<void> {
   }
   let current: AssistantItem | null = null
   let streamed = ''
-  const prompt = first ? `${contextLine(c)}${text}` : text
+  const since = first ? [...convos.values()].filter((x) => x.id !== c.id).map((x) => x.updatedAt).sort().pop() ?? '' : ''
+  const prompt = first ? `${contextLine(c)}${digestSince(since)}${text}` : text
   try {
     for await (const msg of query({ prompt, options }) as AsyncIterable<SDKMessage>) {
       if (msg.type === 'system' && msg.subtype === 'init') {

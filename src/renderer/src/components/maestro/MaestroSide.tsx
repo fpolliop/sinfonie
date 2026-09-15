@@ -1,5 +1,6 @@
-import React, { useEffect, useRef } from 'react'
-import { Wand2, Plus, Maximize2, X, ChevronDown } from 'lucide-react'
+import React, { useEffect, useRef, useState } from 'react'
+import { Wand2, Plus, Maximize2, X, ChevronDown, Brain } from 'lucide-react'
+import { MaestroMemory } from './MaestroMemory'
 import { useMaestro } from '@/stores/maestro'
 import { useApp } from '@/stores/app'
 import { MaestroConversation } from './MaestroConversation'
@@ -9,6 +10,7 @@ export function MaestroSide(): React.JSX.Element | null {
   const { open, width, activeId, conversations, listLoaded, setOpen, setWidth, setShape, select, newConversation, loadList, subscribe } = useMaestro()
   const setView = useApp((s) => s.setView)
   const dragging = useRef(false)
+  const [memory, setMemory] = useState(false)
   useEffect(() => {
     subscribe()
     if (!listLoaded) void loadList()
@@ -61,6 +63,9 @@ export function MaestroSide(): React.JSX.Element | null {
         <button className="no-drag rounded-md p-1.5 text-muted hover:bg-panel-2 hover:text-text" title="New conversation" onClick={() => void newConversation()}>
           <Plus size={15} />
         </button>
+        <button className="no-drag rounded-md p-1.5 text-muted hover:bg-panel-2 hover:text-text" title="Memory and autonomy" onClick={() => setMemory(true)}>
+          <Brain size={14} />
+        </button>
         <button
           className="no-drag rounded-md p-1.5 text-muted hover:bg-panel-2 hover:text-text"
           title="Full screen"
@@ -77,6 +82,7 @@ export function MaestroSide(): React.JSX.Element | null {
         </button>
       </div>
       <div className="min-h-0 flex-1">{activeId ? <MaestroConversation id={activeId} compact /> : null}</div>
+      {memory && <MaestroMemory onClose={() => setMemory(false)} />}
     </aside>
   )
 }
