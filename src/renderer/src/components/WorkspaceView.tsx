@@ -271,6 +271,7 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
 
       <WorkspaceTabs workspaceId={ws.id} />
       {ws.status === 'error' && <div className="border-b border-danger/30 bg-danger/10 px-4 py-2 text-[12px] text-danger">{ws.error}</div>}
+      <HealthBanner workspaceId={ws.id} />
 
       <div className="min-h-0 flex-1">
         <div className={clsx('h-full', tab !== 'chat' && 'hidden')}>
@@ -485,5 +486,48 @@ function BranchDialog({ initial, onClose, onSubmit }: { initial: string; onClose
         </div>
       </form>
     </Dialog>
+  )
+}
+
+
+/** Worktrees recorded for the workspace that are gone from disk, with a one-click repair. */
+function HealthBanner({ workspaceId }: { workspaceId: string }): React.JSX.Element | null {
+  const [missing, setMissing] = useState<{ repoName: string; worktreePath: string; branch: string }[]>([])
+  const [busy, setBusy] = useState(false)
+  const setError = useApp((s) => s.setError)
+  const status = useApp((s) => s.workspaces.find((w) => w.id === workspaceId)?.status)
+  useEffect(() => {
+    let alive = true
+    api
+      .invoke('workspaces:health', workspaceId)
+      .then((h) => alive && setMissing(h.missing))
+      .catch(() => undefined)
+    return () => {
+      alive = false
+    }
+  }, [workspaceId, status])
+  if (missing.length === 0) return null
+  const repair = async (): Promise<void> => {
+    setBusy(true)
+    try {
+      await api.invoke('workspaces:repair', workspaceId)
+      const h = await api.invoke('workspaces:health', workspaceId)
+      setMissing(h.missing)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="flex items-center gap-3 border-b border-warn/40 bg-warn/10 px-4 py-2 text-[12px]">
+      <AlertTriangle size={14} className="shrink-0 text-warn" />
+      <span className="min-w-0 flex-1">
+        {missing.length === 1 ? 'A worktree is' : `${missing.length} worktrees are`} missing on disk: {missing.map((m) => `${m.repoName} (${m.branch})`).join(', ')}. The agent cannot run here until they are back.
+      </span>
+      <Button size="sm" variant="primary" disabled={busy} onClick={() => void repair()} title="Recreate the missing worktrees from their branches">
+        <RefreshCw size={12} className={clsx(busy && 'animate-spin')} /> Repair
+      </Button>
+    </div>
   )
 }

@@ -11,6 +11,8 @@ import type { AgentEvent, AgentSpec, McpServerSpec, PermissionMode, SubagentStep
 import { parseModelRef } from '@shared/types'
 import { getStore } from '../../store'
 import * as library from '../agents'
+import { assertOnDisk } from '../workspaces'
+import { isAgentOwner } from '@shared/types'
 import { getWorkspace, patchWorkspace } from '../workspaces'
 import { buildTools, type ToolContext } from './tools'
 import { runWorker } from '../crew/workers'
@@ -236,6 +238,7 @@ function approvalPolicy(mode: PermissionMode, ws: Workspace) {
 // ---------- the turn loop ----------
 
 async function runTurn(ws: Workspace, session: NativeSession, emit: Emit): Promise<void> {
+  if (!isAgentOwner(ws.id)) assertOnDisk(ws)
   const { settings, space } = spaceOf(ws)
   const mode: PermissionMode = ws.permissionMode ?? space?.permissionMode ?? settings.permissionMode
   const modelRef = modelRefFor(ws)

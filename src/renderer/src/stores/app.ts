@@ -24,10 +24,10 @@ interface AppState {
   activeSpaceId: string
   setActiveSpace: (id: string) => void
   /** Sidebar layout: workspaces grouped by stage, or a flat list by start date. */
-  sidebarView: 'status' | 'date'
+  sidebarView: 'status' | 'date' | 'activity' | 'manual'
   sidebarDateDir: 'desc' | 'asc'
   collapsedStages: Record<string, boolean>
-  setSidebarView: (v: 'status' | 'date') => void
+  setSidebarView: (v: 'status' | 'date' | 'activity' | 'manual') => void
   setSidebarDateDir: (d: 'desc' | 'asc') => void
   toggleStage: (id: string) => void
   /** Move to the previous/next space in the dot bar, wrapping around. */
@@ -121,7 +121,7 @@ export const useApp = create<AppState>((set, get) => ({
     }),
   newWorkspaceSpaceId: localStorage.getItem('orchestra.lastSpace') ?? '',
   activeSpaceId: localStorage.getItem('orchestra.activeSpace') ?? '',
-  sidebarView: (localStorage.getItem('orchestra.sidebarView') as 'status' | 'date') ?? 'status',
+  sidebarView: (localStorage.getItem('orchestra.sidebarView') as 'status' | 'date' | 'activity' | 'manual') ?? 'status',
   sidebarDateDir: (localStorage.getItem('orchestra.sidebarDateDir') as 'desc' | 'asc') ?? 'desc',
   collapsedStages: JSON.parse(localStorage.getItem('orchestra.collapsedStages') ?? '{}'),
   setSidebarView: (sidebarView) => {

@@ -62,7 +62,42 @@ export function Sidebar(): React.JSX.Element {
   const swipe = useRef({ acc: 0, lockedUntil: 0 })
   const byActivity = (a: Workspace, b: Workspace): number => (b.lastMessageAt ?? b.createdAt).localeCompare(a.lastMessageAt ?? a.createdAt)
   const byStart = (a: Workspace, b: Workspace): number => (sidebarDateDir === 'desc' ? b.createdAt.localeCompare(a.createdAt) : a.createdAt.localeCompare(b.createdAt))
-  const active = workspaces.filter((w) => w.status !== 'archived').sort(sidebarView === 'date' ? byStart : byActivity)
+  const byOrder = (a: Workspace, b: Workspace): number => (a.order ?? 1e9) - (b.order ?? 1e9) || b.createdAt.localeCompare(a.createdAt)
+  const active = workspaces.filter((w) => w.status !== 'archived').sort(sidebarView === 'date' ? byStart : sidebarView === 'manual' ? byOrder : byActivity)
+  // Manual order: drag a row onto another; the list of ids in the new order is saved.
+  const [dragId, setDragId] = useState<string | null>(null)
+  const [overId, setOverId] = useState<string | null>(null)
+  const dropOn = (targetId: string): void => {
+    if (!dragId || dragId === targetId) return
+    const list = active.filter((w) => (currentId ? w.spaceId === currentId : isUngrouped(w))).map((w) => w.id)
+    const from = list.indexOf(dragId)
+    const to = list.indexOf(targetId)
+    if (from < 0 || to < 0) return
+    list.splice(from, 1)
+    list.splice(to, 0, dragId)
+    void api.invoke('workspaces:setOrder', list).catch((err) => setError(err instanceof Error ? err.message : String(err)))
+  }
+  const draggableRow = (w: Workspace): React.JSX.Element => (
+    <div
+      key={w.id}
+      draggable
+      onDragStart={() => setDragId(w.id)}
+      onDragEnd={() => (setDragId(null), setOverId(null))}
+      onDragOver={(e) => {
+        e.preventDefault()
+        setOverId(w.id)
+      }}
+      onDrop={(e) => {
+        e.preventDefault()
+        dropOn(w.id)
+        setDragId(null)
+        setOverId(null)
+      }}
+      className={clsx(overId === w.id && dragId && dragId !== w.id && 'border-t-2 border-accent')}
+    >
+      {row(w, false)}
+    </div>
+  )
   const isUngrouped = (w: Workspace): boolean => !w.spaceId || !spaces.some((s) => s.id === w.spaceId)
   const ids = spaceOrder(
     spaces.map((s) => s.id),
@@ -118,15 +153,16 @@ export function Sidebar(): React.JSX.Element {
           </span>
           Maestro
         </button>
+        <NotesButton active={view === 'notes'} onClick={() => setView('notes')} />
+        <div className="mx-2 my-2 border-t border-border" />
         <button data-tour="reviews" onClick={() => setView('reviews')} className={clsx('mb-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] font-medium', view === 'reviews' ? 'bg-panel-2' : 'hover:bg-panel-2/60')}>
-            <GitPullRequest size={14} className="text-accent" /> Review cockpit
-            <ReviewBadges />
-          </button>
-          <OnCallButton active={view === 'oncall'} onClick={() => setView('oncall')} />
-          <button data-tour="agents" onClick={() => setView('agents')} className={clsx('mb-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] font-medium', view === 'agents' ? 'bg-panel-2' : 'hover:bg-panel-2/60')}>
-            <Bot size={14} className="text-accent" /> Agents
-          </button>
-          <NotesButton active={view === 'notes'} onClick={() => setView('notes')} />
+          <GitPullRequest size={14} className="text-accent" /> Review cockpit
+          <ReviewBadges />
+        </button>
+        <OnCallButton active={view === 'oncall'} onClick={() => setView('oncall')} />
+        <button data-tour="agents" onClick={() => setView('agents')} className={clsx('mb-2 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] font-medium', view === 'agents' ? 'bg-panel-2' : 'hover:bg-panel-2/60')}>
+          <Bot size={14} className="text-accent" /> Agents
+        </button>
         </div>
       )}
       <div key={currentId} className="space-enter flex-1 overflow-auto px-2 pb-2">
@@ -166,8 +202,14 @@ export function Sidebar(): React.JSX.Element {
             <button onClick={() => setSidebarView('status')} className={clsx('rounded px-2 py-0.5', sidebarView === 'status' ? 'bg-panel-2 text-text' : 'text-muted hover:text-text')}>
               Status
             </button>
-            <button onClick={() => setSidebarView('date')} className={clsx('rounded px-2 py-0.5', sidebarView === 'date' ? 'bg-panel-2 text-text' : 'text-muted hover:text-text')}>
+            <button onClick={() => setSidebarView('activity')} className={clsx('rounded px-2 py-0.5', sidebarView === 'activity' ? 'bg-panel-2 text-text' : 'text-muted hover:text-text')} title="Latest response first">
+              Latest
+            </button>
+            <button onClick={() => setSidebarView('date')} className={clsx('rounded px-2 py-0.5', sidebarView === 'date' ? 'bg-panel-2 text-text' : 'text-muted hover:text-text')} title="By creation date">
               Date
+            </button>
+            <button onClick={() => setSidebarView('manual')} className={clsx('rounded px-2 py-0.5', sidebarView === 'manual' ? 'bg-panel-2 text-text' : 'text-muted hover:text-text')} title="Your own order: drag rows">
+              Manual
             </button>
           </div>
           {sidebarView === 'date' && (
@@ -217,7 +259,9 @@ export function Sidebar(): React.JSX.Element {
                 </div>
               )
             })
-          : items.map((w) => row(w, false))}
+          : sidebarView === 'manual'
+            ? items.map(draggableRow)
+            : items.map((w) => row(w, false))}
         {items.length === 0 && inSpace.length > 0 && <div className="px-2 py-3 text-[12px] text-muted">No workspaces match the selected labels.</div>}
         {inSpace.length === 0 && (
           <div className="px-2 py-3 text-[12px] text-muted">
@@ -413,8 +457,8 @@ function NotesButton({ active, onClick }: { active: boolean; onClick: () => void
   }, [loadAll, subscribe])
   const open = Object.values(byOwner).reduce((n, list) => n + list.filter((x) => x.kind === 'todo' && !x.done).length, 0)
   return (
-    <button data-tour="notes-all" onClick={onClick} className={clsx('mb-2 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] font-medium', active ? 'bg-panel-2' : 'hover:bg-panel-2/60')}>
-      <StickyNote size={14} className="text-accent" /> Notes
+    <button data-tour="notes-all" onClick={onClick} className={clsx('mb-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] font-medium', active ? 'bg-panel-2' : 'hover:bg-panel-2/60')}>
+      <StickyNote size={14} className="text-accent" /> Todos &amp; notes
       {open > 0 && <span className="ml-auto rounded-full bg-panel-2 px-1.5 text-[10px] text-muted">{open}</span>}
     </button>
   )

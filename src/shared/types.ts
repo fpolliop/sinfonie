@@ -554,11 +554,12 @@ export interface WorkspaceRepo {
 export type WorkspaceStatus = 'creating' | 'ready' | 'error' | 'archiving' | 'archived'
 
 /** Where the work is, as the user sees it. Distinct from `status`, which is the app's own lifecycle. */
-export type WorkspaceStage = 'todo' | 'in-progress' | 'in-review' | 'done'
+export type WorkspaceStage = 'todo' | 'in-progress' | 'on-hold' | 'in-review' | 'done'
 
 export const WORKSPACE_STAGES: { id: WorkspaceStage; label: string }[] = [
   { id: 'todo', label: 'To do' },
   { id: 'in-progress', label: 'In progress' },
+  { id: 'on-hold', label: 'On hold' },
   { id: 'in-review', label: 'In review' },
   { id: 'done', label: 'Done' }
 ]
@@ -601,6 +602,8 @@ export interface Workspace {
   /** Cost profile for this workspace only; undefined inherits the space, then the app. */
   costMode?: CostMode
   stage: WorkspaceStage
+  /** Position in the sidebar's manual order; unset sorts last. */
+  order?: number
   labelIds?: string[]
   spaceId?: string
   claudeAccountId?: string
@@ -759,6 +762,8 @@ export interface Settings {
   /** First-run setup, tour and getting-started checklist state. */
   onboarding?: { setupDoneAt?: string; tourDoneAt?: string; checklistDismissedAt?: string }
   maestro?: MaestroSettings
+  /** The user's own todo statuses, shown as board columns between In progress and Done. */
+  noteStatuses?: NoteStatusDef[]
   resources?: ResourceSettings
   /** Expose browser_evaluate (arbitrary JavaScript in pages) to agents. Off by default. */
   browserEvaluate?: boolean
@@ -1080,7 +1085,24 @@ export interface CloudState {
 export type CrewPriority = 'cost' | 'balanced' | 'quality'
 
 /** A session note or todo on a workspace. The orchestrator can read and edit them too. */
-export type NoteStatus = 'todo' | 'doing' | 'done'
+/** Built-in statuses plus any the user added in Settings (noteStatuses). "done" always means finished. */
+export type NoteStatus = string
+export interface NoteStatusDef {
+  id: string
+  label: string
+  /** Tailwind text class, e.g. "text-warn". */
+  tone?: string
+}
+export const BUILTIN_NOTE_STATUSES: NoteStatusDef[] = [
+  { id: 'todo', label: 'To do', tone: 'text-muted' },
+  { id: 'doing', label: 'In progress', tone: 'text-warn' },
+  { id: 'done', label: 'Done', tone: 'text-ok' }
+]
+/** Every status in board order: to do, in progress, the user's own, done. */
+export function noteStatuses(custom: NoteStatusDef[] | undefined): NoteStatusDef[] {
+  const own = (custom ?? []).filter((c) => !BUILTIN_NOTE_STATUSES.some((b) => b.id === c.id))
+  return [BUILTIN_NOTE_STATUSES[0], BUILTIN_NOTE_STATUSES[1], ...own, BUILTIN_NOTE_STATUSES[2]]
+}
 export type NotePriority = 'low' | 'medium' | 'high'
 export interface Note {
   id: string

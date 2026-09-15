@@ -4,7 +4,7 @@ import { Bot, Check, ChevronDown, ChevronRight, MessageSquareShare, StickyNote, 
 import { useNotes } from '@/stores/notes'
 import { useChat } from '@/stores/chat'
 import { useApp } from '@/stores/app'
-import type { Note, NotePatch } from '@shared/types'
+import { noteStatuses, type Note, type NotePatch } from '@shared/types'
 
 const EMPTY: Note[] = []
 
@@ -156,7 +156,7 @@ export function Row({ note, workspaceId, onUpdate, onRemove }: { note: Note; wor
               <Bot size={9} /> agent
             </span>
           )}
-          {note.status === 'doing' && !note.done && <span className="rounded bg-warn/15 px-1 text-warn">in progress</span>}
+          {note.status && note.status !== 'todo' && !note.done && <StatusChip id={note.status} />}
           {note.priority && <span className={clsx('rounded px-1', note.priority === 'high' ? 'bg-danger/15 text-danger' : note.priority === 'medium' ? 'bg-warn/15 text-warn' : 'bg-panel-2')}>{note.priority}</span>}
           {note.due && <span className={clsx(note.due < new Date().toISOString().slice(0, 10) && !note.done && 'text-danger')}>due {note.due}</span>}
           <span>{new Date(note.updatedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
@@ -174,4 +174,11 @@ export function Row({ note, workspaceId, onUpdate, onRemove }: { note: Note; wor
       </div>
     </div>
   )
+}
+
+
+function StatusChip({ id }: { id: string }): React.JSX.Element {
+  const custom = useApp((s) => s.settings.noteStatuses)
+  const def = noteStatuses(custom).find((s) => s.id === id)
+  return <span className={clsx('rounded bg-panel-2 px-1', def?.tone ?? 'text-accent')}>{def?.label ?? id}</span>
 }

@@ -13,6 +13,8 @@ import type * as schema from '@agentclientprotocol/sdk'
 import type { AcpProbe, AgentEvent, Engine, McpServerSpec, PermissionMode, SubagentStep, Workspace } from '@shared/types'
 import { getStore } from '../../store'
 import { accountEnvFor } from '../accounts'
+import { assertOnDisk } from '../workspaces'
+import { isAgentOwner } from '@shared/types'
 import { getWorkspace, patchWorkspace } from '../workspaces'
 import { askPermission } from '../interaction'
 import { run } from '../native/tools'
@@ -243,6 +245,7 @@ async function openSession(workspaceId: string, engine: AcpEngine, emit: Emit): 
   const ws = getWorkspace(workspaceId)
   const { settings, space } = spaceOf(ws)
   const primary = ws.repos.find((r) => r.repoId === ws.primaryRepoId) ?? ws.repos[0]
+  if (!isAgentOwner(ws.id)) assertOnDisk(ws)
   const wsCwd = primary?.worktreePath ?? ws.rootPath
   const roots = [...ws.repos.map((r) => r.worktreePath), ws.rootPath]
   const mode: PermissionMode = ws.permissionMode ?? space?.permissionMode ?? settings.permissionMode

@@ -27,7 +27,7 @@ import { join } from 'path'
 import { getStore } from '../store'
 import { effectivePermissionMode } from './permission-mode'
 import * as library from './agents'
-import { getWorkspace, patchWorkspace } from './workspaces'
+import { getWorkspace, patchWorkspace, assertOnDisk } from './workspaces'
 import { checkpoint } from './git'
 import { accountEnv } from './accounts'
 import * as jira from './jira'
@@ -332,6 +332,7 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
   const ws = getWorkspace(workspaceId)
   const { settings, spaces } = getStore().get()
   const space = spaces.find((s) => s.id === ws.spaceId)
+  assertOnDisk(ws)
   const primary = ws.repos.find((r) => r.repoId === ws.primaryRepoId) ?? ws.repos[0]
   const wsCwd = primary?.worktreePath ?? ws.rootPath
   const others = ws.repos.filter((r) => r !== primary).map((r) => r.worktreePath)

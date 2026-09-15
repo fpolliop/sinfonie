@@ -237,7 +237,7 @@ export function prefixFor(workspaceId: string): string {
 }
 
 const kindSchema = z.enum(['note', 'todo'])
-const statusSchema = z.enum(['todo', 'doing', 'done'])
+const statusSchema = z.string().describe('todo, doing, done, or one of the user\'s own statuses')
 const prioritySchema = z.enum(['low', 'medium', 'high'])
 const scopeSchema = z.enum(['workspace', 'space', 'app'])
 const SCOPE_HINT = 'Where the note lives: "workspace" (default, this project), "space" (the whole space) or "app" (not tied to any project, e.g. requests from Slack or email).'

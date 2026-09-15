@@ -34,7 +34,7 @@ import * as slackTools from './slack-tools'
 import * as reviews from './reviews'
 import { mcpServersFor } from './agent'
 import { getTranscript } from './transcripts'
-import { agentOwner, type MaestroConversation, type MaestroConversationMeta, type MaestroContext, type MaestroEvent, type MaestroSuggestion, type MaestroAutonomy, type MaestroMemoryCategory, type MaestroMemoryEntry, type CreateWorkspaceInput, type ReviewPr, type IncidentStatus, type Severity } from '@shared/types'
+import { agentOwner, type MaestroConversation, type MaestroConversationMeta, type MaestroContext, type MaestroEvent, type MaestroSuggestion, type MaestroAutonomy, type MaestroMemoryCategory, type MaestroMemoryEntry, type CreateWorkspaceInput, type WorkspaceStage, type ReviewPr, type IncidentStatus, type Severity } from '@shared/types'
 import { SPACE_COLORS, type AgentSpec, type AssistantItem, type CostMode, type CostModeScope, type OnCallSettings, type Repo, type Space, type Settings } from '@shared/types'
 
 export const ASSISTANT_WORKSPACE_ID = 'assistant'
@@ -784,9 +784,9 @@ const TOOLS: ToolDef[] = [
   {
     name: 'notes_update',
     description: 'Edit a note: text, status (todo|doing|done), priority (low|medium|high), due date (YYYY-MM-DD), tags, kind. Pass the owner from notes_list.',
-    shape: { owner: z.string(), id: z.string(), text: z.string().optional(), status: z.enum(['todo', 'doing', 'done']).optional(), done: z.boolean().optional(), priority: z.enum(['low', 'medium', 'high']).optional(), due: z.string().optional(), tags: z.array(z.string()).optional(), kind: z.enum(['note', 'todo']).optional() },
+    shape: { owner: z.string(), id: z.string(), text: z.string().optional(), status: z.string().optional().describe('todo | doing | done | one of the user\'s own statuses'), done: z.boolean().optional(), priority: z.enum(['low', 'medium', 'high']).optional(), due: z.string().optional(), tags: z.array(z.string()).optional(), kind: z.enum(['note', 'todo']).optional() },
     run: async (i) => {
-      notes.update(String(i.owner), String(i.id), { ...(i.text !== undefined ? { text: String(i.text) } : {}), ...(i.status ? { status: i.status as 'todo' | 'doing' | 'done' } : {}), ...(i.done !== undefined ? { done: Boolean(i.done) } : {}), ...(i.priority ? { priority: i.priority as 'low' | 'medium' | 'high' } : {}), ...(i.due !== undefined ? { due: String(i.due) } : {}), ...(i.tags !== undefined ? { tags: i.tags as string[] } : {}), ...(i.kind ? { kind: i.kind as 'note' | 'todo' } : {}) })
+      notes.update(String(i.owner), String(i.id), { ...(i.text !== undefined ? { text: String(i.text) } : {}), ...(i.status ? { status: String(i.status) } : {}), ...(i.done !== undefined ? { done: Boolean(i.done) } : {}), ...(i.priority ? { priority: i.priority as 'low' | 'medium' | 'high' } : {}), ...(i.due !== undefined ? { due: String(i.due) } : {}), ...(i.tags !== undefined ? { tags: i.tags as string[] } : {}), ...(i.kind ? { kind: i.kind as 'note' | 'todo' } : {}) })
       return 'Updated.'
     }
   },
@@ -934,10 +934,10 @@ const TOOLS: ToolDef[] = [
   },
   {
     name: 'set_stage',
-    description: 'Move a workspace to a stage: todo, in-progress, in-review, done.',
-    shape: { workspaceId: z.string(), stage: z.enum(['todo', 'in-progress', 'in-review', 'done']) },
+    description: 'Move a workspace to a stage: todo, in-progress, on-hold, in-review, done.',
+    shape: { workspaceId: z.string(), stage: z.enum(['todo', 'in-progress', 'on-hold', 'in-review', 'done']) },
     run: async (i) => {
-      const ws = workspaces.setStage(String(i.workspaceId), i.stage as 'todo' | 'in-progress' | 'in-review' | 'done')
+      const ws = workspaces.setStage(String(i.workspaceId), i.stage as WorkspaceStage)
       return `"${ws.name}" is now ${ws.stage}.`
     }
   },
