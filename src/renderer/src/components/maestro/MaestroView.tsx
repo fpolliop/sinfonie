@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import clsx from 'clsx'
-import { Wand2, Plus, Minimize2, Pin, PinOff, Archive, ArchiveRestore, Trash2, Pencil, Search } from 'lucide-react'
+import { Wand2, Plus, Minimize2, Pin, PinOff, Archive, ArchiveRestore, Trash2, Pencil, Search, Brain } from 'lucide-react'
+import { MaestroMemory } from './MaestroMemory'
 import { useMaestro } from '@/stores/maestro'
 import { useApp } from '@/stores/app'
 import { MaestroConversation } from './MaestroConversation'
@@ -18,6 +19,7 @@ export function MaestroView(): React.JSX.Element {
   const [showArchived, setShowArchived] = useState(false)
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null)
   const [renaming, setRenaming] = useState<string | null>(null)
+  const [memory, setMemory] = useState(false)
   useEffect(() => {
     subscribe()
     if (!listLoaded) void loadList()
@@ -104,14 +106,18 @@ export function MaestroView(): React.JSX.Element {
           {rest.map(row)}
           {shown.length === 0 && <div className="px-3 py-6 text-center text-[12px] text-muted">{showArchived ? 'Nothing archived.' : 'No conversations yet.'}</div>}
         </div>
-        <div className="border-t border-border px-3 py-2 text-[11px] text-muted">
+        <div className="flex items-center gap-2 border-t border-border px-3 py-2 text-[11px] text-muted">
           <button className="hover:text-text" onClick={() => setShowArchived(!showArchived)}>
             {showArchived ? 'Show recent' : `Archived · ${conversations.filter((c) => c.archivedAt).length}`}
+          </button>
+          <button className="ml-auto inline-flex items-center gap-1 hover:text-text" title="What Maestro remembers, and how much it may do on its own" onClick={() => setMemory(true)}>
+            <Brain size={12} /> Memory
           </button>
         </div>
       </div>
       <div className="min-w-0 flex-1">{activeId ? <MaestroConversation id={activeId} /> : null}</div>
       {menu && <ContextMenu x={menu.x} y={menu.y} entries={entriesFor(conversations.find((c) => c.id === menu.id)!)} onClose={() => setMenu(null)} />}
+      {memory && <MaestroMemory onClose={() => setMemory(false)} />}
     </div>
   )
 }

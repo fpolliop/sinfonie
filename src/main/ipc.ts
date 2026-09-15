@@ -835,7 +835,21 @@ export function registerIpc(): void {
   handle('db:pickSqlite', () => db.pickSqliteFile())
   // ---- setup assistant ----
   assistant.setEmitter((e) => send('maestro:event', e))
-  assistant.setHost({ addRepoAt, setCostMode: (scope, mode) => applyCostMode(scope, mode), openSettings: (t) => send('ui:openSettings', t), sendToWorkspace: (id, text) => sendMessage(id, text), openWorkspace: (id) => send('ui:openWorkspace', { workspaceId: id }) })
+  assistant.setHost({
+    createWorkspace: async (input) => {
+      const ws = await workspaces.createWorkspace(input, emitScript)
+      return { id: ws.id, name: ws.name }
+    },
+    archiveWorkspace: async (id, opts) => {
+      agent.closeSession(id)
+      await workspaces.archiveWorkspace(id, opts, emitScript)
+      if (opts.forget) {
+        clearTranscript(id)
+        workspaces.deleteWorkspaceRecord(id)
+      }
+    },
+    startReview: async (pr, accountId) => ({ key: (await reviews.startReview(pr, accountId, emitReview)).key }),
+    addRepoAt, setCostMode: (scope, mode) => applyCostMode(scope, mode), openSettings: (t) => send('ui:openSettings', t), sendToWorkspace: (id, text) => sendMessage(id, text), openWorkspace: (id) => send('ui:openWorkspace', { workspaceId: id }) })
   handle('maestro:conversations', () => assistant.conversations())
   handle('maestro:get', (id) => assistant.get(id))
   handle('maestro:new', (ctx) => assistant.create(ctx))
@@ -846,6 +860,10 @@ export function registerIpc(): void {
   handle('maestro:archive', (id, archived) => assistant.archive(id, archived))
   handle('maestro:delete', (id) => assistant.remove(id))
   handle('maestro:suggestions', () => assistant.suggestions())
+  handle('maestro:memory', () => assistant.memory())
+  handle('maestro:memoryAdd', (c, t) => assistant.memoryAdd(c, t))
+  handle('maestro:memoryUpdate', (id, t) => assistant.memoryUpdate(id, t))
+  handle('maestro:memoryRemove', (id) => assistant.memoryRemove(id))
   handle('assistant:history', () => assistant.history())
   setTimeout(() => oncall.reconcile(), 5_000)
 

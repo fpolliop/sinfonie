@@ -1,4 +1,4 @@
-import type { MaestroConversation, MaestroConversationMeta, MaestroContext, MaestroEvent, MaestroSuggestion, NotePatch, NotesFilter, AgentRun, AgentDraft, AgentRunEvent, AgentSpec, AgentMode, AppMode, AuthLink, CompletionRequest, DiscoveredOrg, SharedRepo, TeammateWorkspace, BillingPeriod, CliStatus, CloudOrgDetail, CloudState, Plan, RemoteSettings, RemoteStatus, SpaceDefinition, SpaceImportPreview, SpaceImportResolution, BrowserState, ContextUsage, CrewPriority, FsEntry, LimitAlternative, UsageSnapshot, ChatImageInput, Incident, IncidentStatus, LinearIssue, LinearSettings, OnCallState, ResourceSnapshot, Severity, SlackConnection, LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion, OnCallBulkOp,
+import type { MaestroMemoryCategory, MaestroMemoryEntry, MaestroConversation, MaestroConversationMeta, MaestroContext, MaestroEvent, MaestroSuggestion, NotePatch, NotesFilter, AgentRun, AgentDraft, AgentRunEvent, AgentSpec, AgentMode, AppMode, AuthLink, CompletionRequest, DiscoveredOrg, SharedRepo, TeammateWorkspace, BillingPeriod, CliStatus, CloudOrgDetail, CloudState, Plan, RemoteSettings, RemoteStatus, SpaceDefinition, SpaceImportPreview, SpaceImportResolution, BrowserState, ContextUsage, CrewPriority, FsEntry, LimitAlternative, UsageSnapshot, ChatImageInput, Incident, IncidentStatus, LinearIssue, LinearSettings, OnCallState, ResourceSnapshot, Severity, SlackConnection, LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion, OnCallBulkOp,
   AgentEvent,
   ChatItem,
   JiraIssue,
@@ -305,6 +305,10 @@ export interface SinfonieInvoke {
   'maestro:archive': (id: string, archived: boolean) => void
   'maestro:delete': (id: string) => void
   'maestro:suggestions': () => MaestroSuggestion[]
+  'maestro:memory': () => MaestroMemoryEntry[]
+  'maestro:memoryAdd': (category: MaestroMemoryCategory, text: string) => MaestroMemoryEntry[]
+  'maestro:memoryUpdate': (id: string, text: string) => MaestroMemoryEntry[]
+  'maestro:memoryRemove': (id: string) => MaestroMemoryEntry[]
   /** Has the user talked to Maestro at all (for the checklist). */
   'assistant:history': () => { items: AssistantItem[]; busy: boolean }
   'agent:setMode': (workspaceId: string, mode: PermissionMode) => Workspace
