@@ -28,6 +28,7 @@ import { GettingStarted } from './components/onboarding/GettingStarted'
 import { api } from '@/lib/api'
 import logo from './assets/logo.svg'
 import { Button } from './components/ui'
+import { Wand2 } from 'lucide-react'
 
 export default function App(): React.JSX.Element {
   const { loaded, load, selectedId, view, showNewWorkspace, settingsTarget, closeSettings, setShowNewWorkspace, setShowSettings, error, setError, stepSpace, setActiveSpace, feedbackDialog, setFeedbackDialog, onboarding, setOnboarding, assistantOpen, setAssistantOpen, openSettings } = useApp()
@@ -139,6 +140,7 @@ export default function App(): React.JSX.Element {
       {settingsTarget && <SettingsWindow target={settingsTarget} onClose={closeSettings} />}
       {feedbackDialog && <FeedbackDialog tab={feedbackDialog} onClose={() => setFeedbackDialog(null)} />}
       <MaestroSide />
+      <MaestroChip />
       <PermissionPrompt />
       <BranchRenamePrompt />
       {onboarding === 'setup' && <SetupWizard onClose={() => setOnboarding(null)} />}
@@ -178,5 +180,27 @@ function EmptyState(): React.JSX.Element {
       </div>
       <GettingStarted />
     </div>
+  )
+}
+
+
+/** A floating Maestro chip at the bottom right, on every screen, unless Maestro is already showing. */
+function MaestroChip(): React.JSX.Element | null {
+  const open = useMaestro((s) => s.open)
+  const view = useApp((s) => s.view)
+  const busy = useMaestro((s) => Object.values(s.byId).some((c) => c.busy))
+  if (open || view === 'maestro') return null
+  return (
+    <button
+      onClick={() => void openMaestro()}
+      title="Maestro (⇧⌘A)"
+      className="no-drag fixed bottom-4 right-4 z-30 flex items-center gap-2 rounded-full border border-border bg-panel py-1.5 pl-1.5 pr-3 text-[12px] font-medium shadow-lg hover:border-accent/60 hover:bg-panel-2"
+    >
+      <span className="relative flex h-6 w-6 items-center justify-center rounded-full bg-accent/15 text-accent">
+        <Wand2 size={12} />
+        {busy && <span className="absolute -right-0.5 -top-0.5 h-2 w-2 animate-pulse rounded-full bg-accent" />}
+      </span>
+      Maestro
+    </button>
   )
 }
