@@ -150,7 +150,10 @@ export const AGENT_TOOL_NAMES: { name: string; hint: string; readOnly: boolean }
   { name: 'WebSearch', hint: 'Search the web', readOnly: true },
   { name: 'mcp__notes', hint: 'Session notes and todos of the workspace: list, add, update (always allowed)', readOnly: true },
   { name: 'mcp__slack', hint: "Slack through Sinfonie's sign-in: search across channels, DMs and threads; history; permalinks; post", readOnly: false },
-  { name: 'mcp__claude_ai_Slack', hint: "Slack through your Claude Code login's claude.ai connector, when you have connected it there", readOnly: false }
+  { name: 'mcp__jira', hint: "Jira through Sinfonie's sign-in: search and read issues, comment, transition", readOnly: false },
+  { name: 'mcp__linear', hint: "Linear through Sinfonie's sign-in", readOnly: false },
+  { name: 'mcp__gcp', hint: 'Google Cloud, read-only, over the local gcloud login', readOnly: true },
+  { name: 'mcp__db', hint: "The space's databases, read-only unless a connection allows writes", readOnly: true }
 ]
 
 export const DEFAULT_CREW: AgentSpec[] = [

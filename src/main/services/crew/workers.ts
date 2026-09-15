@@ -14,18 +14,40 @@ import * as acp from '../acp/engine'
 import * as notes from '../notes'
 import * as slack from '../slack'
 import * as slackTools from '../slack-tools'
+import { mcpServersFor } from '../agent'
 
-/** Sinfonie's own servers every worker gets: session notes always, Slack (on the Web API) when the app or the space is connected. */
-function sinfonieServers(ws: Workspace): { servers: NonNullable<Options['mcpServers']>; prompt: string; slackConn?: string } {
+const INTEGRATION_HINT: Record<string, string> = {
+  jira: "Jira, with Sinfonie's Jira sign-in (mcp__jira tools: search and read issues, comment, transition).",
+  linear: "Linear, with Sinfonie's Linear sign-in (mcp__linear tools).",
+  gcp: "Google Cloud, read-only over the local gcloud login (mcp__gcp tools: logs, Cloud Run, error groups).",
+  db: "The space's databases, read-only unless a connection allows writes (mcp__db tools)."
+}
+
+/**
+ * Sinfonie's own servers every agent run gets: session notes always, Slack when connected, and the
+ * same integrations a workspace session has (Jira, Linear, Google Cloud, databases, the user's MCP
+ * servers). Agents see only these; Claude Code's own MCP config stays out, so a stale entry there
+ * cannot shadow an integration that Sinfonie has connected.
+ */
+async function sinfonieServers(ws: Workspace, warn?: (text: string) => void): Promise<{ servers: NonNullable<Options['mcpServers']>; prompt: string; slackConn?: string }> {
   const servers: NonNullable<Options['mcpServers']> = { notes: notes.sdkServer(ws.id) }
-  let prompt = notes.promptFor(ws.id, true)
+  const lines = [notes.promptFor(ws.id, true)]
+  let slackConn: string | undefined
   const connId = slack.connectionForSpace(ws.spaceId)
   if (slack.connection(connId).connected) {
     servers.slack = slackTools.sdkServer(connId)
-    prompt += slackTools.promptFor(connId)
-    return { servers, prompt, slackConn: connId }
+    lines.push(slackTools.promptFor(connId))
+    slackConn = connId
   }
-  return { servers, prompt }
+  try {
+    const extra = await mcpServersFor(ws, warn)
+    const names = Object.keys(extra)
+    Object.assign(servers, extra)
+    if (names.length) lines.push('', `Integrations available to you, through Sinfonie's own sign-ins: ${names.map((n) => INTEGRATION_HINT[n] ?? `${n} (mcp__${n} tools).`).join(' ')} Use them directly; there is nothing to authorise here.`)
+  } catch (err) {
+    warn?.(`Integrations unavailable: ${err instanceof Error ? err.message : String(err)}`)
+  }
+  return { servers, prompt: lines.join('\n'), slackConn }
 }
 
 export interface WorkerRun {
@@ -75,7 +97,7 @@ async function runClaude(run: WorkerRun): Promise<string> {
   const mode = spec.permissionMode ?? run.mode
   const abort = new AbortController()
   run.signal?.addEventListener('abort', () => abort.abort())
-  const own = sinfonieServers(ws)
+  const own = await sinfonieServers(ws, (text) => run.onStep({ kind: 'text', detail: text }))
   // An allow-list still lets the agent use Sinfonie's notes without a prompt; Slack asks unless listed.
   const allowed = spec.tools?.length ? [...spec.tools, ...(spec.tools.some((t) => t.startsWith('mcp__notes')) ? [] : ['mcp__notes'])] : undefined
   const options: Options = {
@@ -91,6 +113,8 @@ async function runClaude(run: WorkerRun): Promise<string> {
     ...(spec.effort ? { effort: spec.effort } : {}),
     abortController: abort,
     mcpServers: own.servers,
+    // Sinfonie's servers only: the CLI's own MCP entries (and their auth state) would confuse the agent.
+    strictMcpConfig: true,
     systemPrompt: { type: 'preset', preset: 'claude_code', append: `\n${spec.prompt}\n\n${whereLine(spec, ws)}\nFinish with a clear report.\n${own.prompt}` },
     settingSources: ['user', 'project', 'local'],
     env: { ...process.env, ...accountEnv(ws.claudeAccountId) },
@@ -140,7 +164,7 @@ async function runNative(run: WorkerRun): Promise<string> {
   const tools: ToolSet = {}
   for (const [k, v] of Object.entries(all)) if (k !== 'AskUserQuestion' && (!allowed || allowed.has(k))) tools[k] = v
   Object.assign(tools, notes.aiTools(ws.id))
-  const own = sinfonieServers(ws)
+  const own = await sinfonieServers(ws)
   if (own.slackConn !== undefined) Object.assign(tools, slackTools.aiTools(own.slackConn))
   const readOnly = readOnlyOf(spec)
   const modelId = classifyModel(spec.model).modelId
