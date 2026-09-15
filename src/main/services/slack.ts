@@ -37,6 +37,7 @@ const SCOPES = [
   'mpim:history',
   'mpim:read',
   'chat:write',
+  'search:read',
   'search:read.public',
   'search:read.private',
   'search:read.im',
