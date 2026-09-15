@@ -904,6 +904,7 @@ export function registerIpc(): void {
   handle('notes:add', (wsId, text, kind) => notes.add(wsId, text, kind, 'user'))
   handle('notes:update', (wsId, id, patch) => notes.update(wsId, id, patch))
   handle('notes:remove', (wsId, id) => notes.remove(wsId, id))
+  handle('slack:testMcp', (connId) => slack.testMcp(connId))
   handle('notes:all', () => notes.listAll().map((g) => ({ ...g, label: notes.ownerLabel(g.owner) })))
   handle('notes:summarize', (filter, question) => notes.summarize(filter, question))
   agentLib.setAgentsEmitter((list) => send('agents:changed', list))
