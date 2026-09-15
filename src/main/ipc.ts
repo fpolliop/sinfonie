@@ -1024,7 +1024,15 @@ export function registerIpc(): void {
     if (!agent.isBusy(id)) markInterrupted(id)
     return { items: getTranscript(id), busy: agent.isBusy(id) }
   })
-  handle('agent:setMode', (id, mode) => agent.setMode(id, mode))
+  handle('agent:setMode', (id, mode) => {
+    if (isAgentOwner(id)) {
+      const spec = agentLib.get(id.slice(6))
+      if (!spec) throw new Error('Unknown agent')
+      const saved = agentLib.save({ ...spec, permissionMode: mode })
+      return runs.contextFor(saved)
+    }
+    return agent.setMode(id, mode)
+  })
 
   // ---- terminal ----
   handle('terminal:create', (id, repoId, cols, rows, agent) => {
