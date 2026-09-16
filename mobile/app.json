@@ -21,7 +21,7 @@
         "UIBackgroundModes": [
           "remote-notification"
         ],
-        "ITSAppUsesNonExemptEncryption": false,
+        "ITSAppUsesNonExemptEncryption": true,
         "UISupportedInterfaceOrientations~ipad": [
           "UIInterfaceOrientationPortrait",
           "UIInterfaceOrientationPortraitUpsideDown",

@@ -10,6 +10,7 @@
  *   GET  /vapid                                   the public key phones subscribe with
  */
 import { sendPush } from './webpush.js'
+import { DemoDesktop, demoIds } from './demo.js'
 
 const json = (d, s = 200) => new Response(JSON.stringify(d), { status: s, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*' } })
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET,POST,OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type' }
@@ -41,9 +42,21 @@ export class Room {
     this.ctx = ctx
     this.env = env
     this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'))
+    this.demo = null // set when this room is the scripted demo Mac
+  }
+
+  /** The demo room answers phones itself; there is never a real desktop behind it. */
+  async isDemo() {
+    if (this.demo) return true
+    const ids = await demoIds(this.env)
+    if (!ids || ids.roomId !== this.ctx.id.name) return false
+    this.demoAuth = ids.auth
+    this.demo = new DemoDesktop(this.env, this.ctx)
+    return true
   }
 
   async authorized(auth, role) {
+    if (await this.isDemo()) return role === 'phone' && timingSafeEqual(this.demoAuth, auth)
     const stored = await this.ctx.storage.get('auth')
     if (!stored) {
       // The first desktop to arrive claims the room. Phones cannot create rooms.
@@ -65,7 +78,8 @@ export class Room {
       if (request.headers.get('Upgrade') !== 'websocket') return json({ error: 'expected_websocket' }, 426)
       const pair = new WebSocketPair()
       this.ctx.acceptWebSocket(pair[1], [role])
-      if (role === 'desktop') await this.flushQueue(pair[1])
+      if (this.demo) setTimeout(() => void this.demo.sync(pair[1]), 300)
+      else if (role === 'desktop') await this.flushQueue(pair[1])
       else this.broadcast('desktop', JSON.stringify({ ctl: 'presence', phones: this.sockets('phone').length }))
       return new Response(null, { status: 101, webSocket: pair[0] })
     }
@@ -135,6 +149,7 @@ export class Room {
       }
       return
     }
+    if (await this.isDemo()) return this.demo.message(ws, message)
     if (role === 'desktop') this.broadcast('phone', message)
     else await this.toDesktop(message)
   }

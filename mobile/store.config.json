@@ -1,0 +1,44 @@
+{
+  "configVersion": 0,
+  "apple": {
+    "version": "0.1.0",
+    "copyright": "2026 Francisco Pollio",
+    "release": {
+      "automaticRelease": true
+    },
+    "categories": ["DEVELOPER_TOOLS", "PRODUCTIVITY"],
+    "info": {
+      "en-US": {
+        "title": "Sinfonie – Agent Companion",
+        "subtitle": "Your coding agents, on the go",
+        "description": "Sinfonie for iPhone and iPad is the companion to Sinfonie for Mac, the desktop app that runs coding agents such as Claude Code, Codex and Gemini across several repositories at once.\n\nAgents work for minutes and then wait for you: permission to run a command, an answer to a question, a look at what they produced. With the phone app you no longer have to sit at the Mac for that.\n\n• Get a notification when an agent needs you, and answer Allow or Deny right from the notification.\n• Follow every workspace: which agents are running, which are waiting, what they said last.\n• Open a conversation and keep it going from anywhere, with the full transcript, tool calls and results.\n• Stop a turn, answer questions, and see when the work is finished.\n• Spaces, filters and an inbox keep dozens of workspaces organized.\n\nPrivate by design. The phone and the Mac share a key that only they hold, and every message between them is encrypted end to end. Our relay forwards what it cannot read. No account, no sign-up, no tracking.\n\nRequires Sinfonie for Mac, a free download at sinfonie.dev. Pair in seconds by scanning a QR code on the Mac.",
+        "keywords": ["coding agent", "claude code", "codex", "developer", "git", "worktree", "remote", "notifications", "AI", "programming"],
+        "releaseNotes": "First release: pair with your Mac, follow your workspaces, answer permission prompts from notifications, and continue conversations from your phone.",
+        "promoText": "Answer your coding agents from your pocket. Notifications when they wait, the whole conversation when you want it.",
+        "marketingUrl": "https://sinfonie.dev",
+        "supportUrl": "https://sinfonie.dev/support",
+        "privacyPolicyUrl": "https://sinfonie.dev/privacy"
+      }
+    },
+    "advisory": {
+      "alcoholTobaccoOrDrugUseOrReferences": "NONE",
+      "contests": "NONE",
+      "gamblingSimulated": "NONE",
+      "horrorOrFearThemes": "NONE",
+      "matureOrSuggestiveThemes": "NONE",
+      "medicalOrTreatmentInformation": "NONE",
+      "profanityOrCrudeHumor": "NONE",
+      "sexualContentGraphicAndNudity": "NONE",
+      "sexualContentOrNudity": "NONE",
+      "violenceCartoonOrFantasy": "NONE",
+      "violenceRealistic": "NONE",
+      "violenceRealisticProlongedGraphicOrSadistic": "NONE",
+      "gambling": false,
+      "unrestrictedWebAccess": false,
+      "kidsAgeBand": null,
+      "seventeenPlus": false,
+      "ageRatingOverride": "NONE",
+      "koreaAgeRatingOverride": "NONE"
+    }
+  }
+}
