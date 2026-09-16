@@ -82,7 +82,7 @@ export function CrewSection({ spaceId, title, intro, useCrew, orchestrator }: { 
         </label>
       )}
       <div className="flex flex-col gap-1.5">
-        {visible.length === 0 && <div className="rounded-md border border-dashed border-border px-3 py-3 text-[12px] text-muted">{all.length === 0 ? 'No agents in the library yet. Open Agents in the sidebar to create one.' : 'No crew agents. Tick "Crew" on an agent under Agents, or on the application Crew page, to offer it to orchestrators.'}</div>}
+        {visible.length === 0 && <div className="rounded-md border border-dashed border-border px-3 py-3 text-[12px] text-muted">{all.length === 0 ? 'No agents in the library yet. Open Agents in the sidebar to create one.' : 'No crew members. Tick "Crew" on an agent under Agents, or on the application Crew page, to offer it to orchestrators.'}</div>}
         {visible.map((a) => {
           const on = inCrew(a)
           const model = spaceId ? (models[a.id] ?? '') : a.model
@@ -124,12 +124,17 @@ export function CrewSection({ spaceId, title, intro, useCrew, orchestrator }: { 
           agents={crew}
           orchestrator={orchestrator ? { value: orchestrator.value, label: orchestrator.label } : undefined}
           onApply={(changes, orchestratorModel) => {
+            // On a space page every override lands in one crewModels object, so one update carries them all.
+            const crewModels = { ...models }
             for (const c of changes) {
               const a = visible.find((x) => x.id === c.id)
               if (!a) continue
-              if (spaceId) setModel(a, c.model)
-              else void api.invoke('agents:save', { ...a, model: c.model, ...(c.effort ? { effort: c.effort } : {}) }).catch(fail)
+              if (spaceId) {
+                if (!c.model || c.model === a.model) delete crewModels[a.id]
+                else crewModels[a.id] = c.model
+              } else void api.invoke('agents:save', { ...a, model: c.model, ...(c.effort ? { effort: c.effort } : {}) }).catch(fail)
             }
+            if (spaceId) void api.invoke('spaces:update', spaceId, { crewModels }).catch(fail)
             if (orchestratorModel && orchestrator) orchestrator.onChange(orchestratorModel)
           }}
           onClose={() => setSuggesting(false)}

@@ -229,7 +229,7 @@ function ConnectionForm({ spaceId, initial, onClose, onSaved }: { spaceId: strin
               </select>
             </Field>
             <Field label="Google account" hint="Default: the space’s Google Cloud account. Needs roles/cloudsql.client.">
-              <input className={inputCls} placeholder="francisco@example.com" value={tunnel.account ?? ''} onChange={(e) => setTunnel({ account: e.target.value || undefined })} />
+              <input className={inputCls} placeholder="you@example.com" value={tunnel.account ?? ''} onChange={(e) => setTunnel({ account: e.target.value || undefined })} />
             </Field>
             <label className="col-span-2 flex items-start gap-2 text-[12px]">
               <input type="checkbox" className="mt-0.5" checked={Boolean(tunnel.iamAuth)} onChange={(e) => setTunnel({ iamAuth: e.target.checked })} />

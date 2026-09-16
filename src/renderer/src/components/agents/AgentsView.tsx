@@ -178,7 +178,7 @@ export function AgentsView(): React.JSX.Element {
         <div className="border-b border-border px-3 py-2">
           <input className={inputCls} placeholder={section === 'crew' ? 'Filter crew…' : 'Filter agents…'} value={filter} onChange={(e) => setFilter(e.target.value)} />
         </div>
-        <div className="border-b border-border px-3 py-1.5 text-[10px] text-muted">{section === 'crew' ? 'The orchestrator delegates to these inside a workspace: explore, implement, test, review. Which ones each space uses is under Settings › Crew.' : 'Yours to run: in their own chat, with @name in any workspace, or on a schedule.'}</div>
+        <div className="border-b border-border px-3 py-1.5 text-[10px] text-muted">{section === 'crew' ? 'The orchestrator delegates to these inside a workspace: explore, implement, test, review. Which ones each space uses is under Settings → Crew.' : 'Yours to run: in their own chat, with @name in any workspace, or on a schedule.'}</div>
         <div className="flex-1 overflow-auto p-2">
           {shown.length === 0 && <div className="px-2 py-6 text-center text-[12px] text-muted">{q ? 'Nothing matches.' : section === 'crew' ? 'No crew members. Reset built-ins brings back explorer, implementer, tester and reviewer.' : 'No agents yet. Create one with New agent, or describe one in a sentence.'}</div>}
           {shown.map((a) => (
@@ -186,11 +186,17 @@ export function AgentsView(): React.JSX.Element {
           ))}
         </div>
         <div className="flex items-center gap-2 border-t border-border px-3 py-2 text-[11px] text-muted">
-          <span className="flex-1">Mention one in any chat with @name.</span>
-          <button className="hover:text-text" onClick={() => void resetBuiltins()} title="Restore the four built-in agents to their defaults">
-            <RotateCcw size={11} className="mr-1 inline" />
-            Reset built-ins
-          </button>
+          {section === 'crew' ? (
+            <>
+              <span className="flex-1">The orchestrator delegates to these; which ones each space uses is under Settings → Crew.</span>
+              <button className="hover:text-text" onClick={() => void resetBuiltins()} title="Restore the four built-in agents to their defaults">
+                <RotateCcw size={11} className="mr-1 inline" />
+                Reset built-ins
+              </button>
+            </>
+          ) : (
+            <span className="flex-1">Mention one in any chat with @name.</span>
+          )}
         </div>
       </div>
       <div className="flex min-w-0 flex-1 flex-col">

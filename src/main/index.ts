@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow, dialog, shell } from 'electron'
 import { cpSync, existsSync, readdirSync } from 'fs'
 import { dirname, join } from 'path'
 import { registerIpc } from './ipc'
@@ -10,7 +10,6 @@ import { adoptShellPath } from './services/shell-path'
 import * as cloud from './services/cloud'
 import * as orgSpaces from './services/org-spaces'
 import * as remote from './services/remote'
-import * as oncall from './services/oncall/service'
 import { installCrashHandlers, rendererConsoleError, logError, startUsagePings } from './services/telemetry'
 import { Menu, nativeImage } from 'electron'
 import { checkForUpdate } from './services/updates'
@@ -19,23 +18,66 @@ function sendToWindows(channel: string, payload: unknown): void {
   for (const win of BrowserWindow.getAllWindows()) win.webContents.send(channel, payload)
 }
 
+/** Help → Check for Updates: the banner announces a newer release; otherwise say so here, since a silent click reads as broken. */
+async function checkForUpdateFromMenu(): Promise<void> {
+  const r = await checkForUpdate({ report: true })
+  if (r.update) return
+  const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+  const opts: Electron.MessageBoxOptions = r.error
+    ? { type: 'warning', message: 'Could not check for updates', detail: r.error, buttons: ['OK'] }
+    : { type: 'info', message: `You're on the latest version (${app.getVersion()}).`, buttons: ['OK'] }
+  if (win) await dialog.showMessageBox(win, opts)
+  else await dialog.showMessageBox(opts)
+}
+
 function buildMenu(): void {
+  const settingsItem: Electron.MenuItemConstructorOptions = { label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: () => sendToWindows('ui:openSettings', { scope: 'app', page: 'general' }) }
+  const appMenu: Electron.MenuItemConstructorOptions =
+    process.platform === 'darwin'
+      ? {
+          role: 'appMenu',
+          submenu: [
+            { role: 'about' },
+            { type: 'separator' },
+            settingsItem,
+            { type: 'separator' },
+            { role: 'services' },
+            { type: 'separator' },
+            { role: 'hide' },
+            { role: 'hideOthers' },
+            { role: 'unhide' },
+            { type: 'separator' },
+            { role: 'quit' }
+          ]
+        }
+      : { role: 'appMenu' }
+  // Packaged builds hide Reload, Force Reload and Developer Tools: they only confuse end users (and a reload drops the live agent state).
+  const viewMenu: Electron.MenuItemConstructorOptions = app.isPackaged
+    ? { label: 'View', submenu: [{ role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' }, { type: 'separator' }, { role: 'togglefullscreen' }] }
+    : { role: 'viewMenu' }
   const template: Electron.MenuItemConstructorOptions[] = [
-    { role: 'appMenu' },
-    { role: 'fileMenu' },
+    appMenu,
+    {
+      role: 'fileMenu',
+      submenu: [
+        { label: 'New Workspace…', accelerator: 'CmdOrCtrl+Shift+N', click: () => sendToWindows('ui:newWorkspace', {}) },
+        { label: 'Maestro', accelerator: 'CmdOrCtrl+Shift+A', click: () => sendToWindows('ui:openMaestro', {}) },
+        ...(process.platform === 'darwin' ? [{ type: 'separator' } as Electron.MenuItemConstructorOptions, { role: 'close' } as Electron.MenuItemConstructorOptions] : [{ type: 'separator' } as Electron.MenuItemConstructorOptions, settingsItem, { type: 'separator' } as Electron.MenuItemConstructorOptions, { role: 'quit' } as Electron.MenuItemConstructorOptions])
+      ]
+    },
     { role: 'editMenu' },
-    { role: 'viewMenu' },
+    viewMenu,
     { role: 'windowMenu' },
     {
       role: 'help',
       submenu: [
         { label: 'Send Feedback…', accelerator: 'CmdOrCtrl+Shift+F', click: () => sendToWindows('ui:openFeedback', { tab: 'feedback' }) },
-        { label: 'Errors and Diagnostics…', click: () => sendToWindows('ui:openFeedback', { tab: 'errors' }) },
+        { label: 'Feedback & Diagnostics…', click: () => sendToWindows('ui:openFeedback', { tab: 'errors' }) },
         { type: 'separator' },
-        { label: 'Setup Assistant…', click: () => sendToWindows('ui:openOnboarding', { kind: 'setup' }) },
+        { label: 'Setup Wizard…', click: () => sendToWindows('ui:openOnboarding', { kind: 'setup' }) },
         { label: 'Take the Tour', click: () => sendToWindows('ui:openOnboarding', { kind: 'tour' }) },
         { type: 'separator' },
-        { label: 'Check for Updates…', click: () => void checkForUpdate() },
+        { label: 'Check for Updates…', click: () => void checkForUpdateFromMenu().catch((err) => logError('updates:menu', err)) },
         { label: 'sinfonie.dev', click: () => void shell.openExternal('https://sinfonie.dev') },
         { label: 'Release Notes', click: () => void shell.openExternal('https://github.com/fpolliop/sinfonie-releases/releases') }
       ]

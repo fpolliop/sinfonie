@@ -44,7 +44,7 @@ export function NotesPanel({ workspaceId, onClose }: { workspaceId: string; onCl
         <span className="text-[13px] font-semibold">Notes</span>
         <span className="text-[11px] text-muted">{open.length ? `${open.length} open` : notes.length ? 'nothing open' : ''}</span>
         <button className="ml-auto text-[11px] text-muted hover:text-text" title="Every note across workspaces, spaces and the app" onClick={() => setView('notes')}>
-          All notes
+          All todos &amp; notes
         </button>
         <button className="text-muted hover:text-text" onClick={onClose} aria-label="Close">
           ✕

@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { ArrowLeft, ArrowRight, Check, CheckCircle2, FolderOpen, GitBranch, Loader2, LogIn, RefreshCw, Sparkles, Users, Palette } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Check, CheckCircle2, FolderOpen, GitBranch, Loader2, LogIn, RefreshCw, Sparkles, Users, Palette, X } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { Button, Badge, inputCls } from '../ui'
@@ -13,16 +13,22 @@ import { useGuided } from '@/lib/guided'
 const EXPERT_STEPS = ['Welcome', 'Sign in', 'First space', 'Ready'] as const
 const GUIDED_STEPS = ['Welcome', 'Sign in', 'Your team', 'Ready'] as const
 
+/** What Maestro starts with when setup hands off to it. */
+const SETUP_HANDOFF_PROMPT = 'I just finished setup. Look at my space and repositories and help me set up my crew and integrations.'
+
 /**
- * First-run setup: what Sinfonie is, sign in to the vendors you use, make a first space with
- * its repositories, then hand off to the first workspace or the tour. Every step can be skipped.
+ * First-run setup: what Sinfonie is, sign in to the agents you use, make a first space with
+ * its repositories, then hand off to the first workspace, Maestro or the tour. Every step can be
+ * left for later (Escape, or the Later button), in both modes; the Getting started checklist
+ * carries whatever was skipped.
  */
 export function SetupWizard({ onClose }: { onClose: () => void }): React.JSX.Element {
   const [step, setStep] = useState(0)
   const [spaceId, setSpaceId] = useState<string | null>(null)
   const guided = useGuided()
   const STEPS = guided ? GUIDED_STEPS : EXPERT_STEPS
-  const { settings, setError, setShowNewWorkspace, setOnboarding, setActiveSpace, setAssistantOpen } = useApp()
+  const { settings, error, setError, setShowNewWorkspace, setOnboarding, setActiveSpace, setAssistantOpen, setMaestroSeed } = useApp()
+  const rerun = Boolean(settings.onboarding?.setupDoneAt)
   const finish = async (then?: 'workspace' | 'tour' | 'assistant'): Promise<void> => {
     try {
       await api.invoke('settings:update', { onboarding: { ...(settings.onboarding ?? {}), setupDoneAt: new Date().toISOString() } })
@@ -33,12 +39,25 @@ export function SetupWizard({ onClose }: { onClose: () => void }): React.JSX.Ele
     if (spaceId) setActiveSpace(spaceId)
     if (then === 'workspace') setShowNewWorkspace(true, spaceId ?? undefined)
     if (then === 'tour') setOnboarding('tour')
-    if (then === 'assistant') setAssistantOpen(true)
+    if (then === 'assistant') {
+      setMaestroSeed(SETUP_HANDOFF_PROMPT)
+      setAssistantOpen(true)
+    }
   }
-  // Guided setup is three short screens and nothing works without them, so it cannot be skipped;
-  // the sign-in step waits for Claude.
-  const claudeReady = settings.claudeAccounts.some((a) => a.id === settings.defaultClaudeAccountId && a.loggedIn)
-  const blocked = guided && step === 1 && !claudeReady
+  // Escape leaves the wizard, unless a dialog (a vendor login) is open on top of it: that one owns the key.
+  const modalRef = useRef(false)
+  const finishRef = useRef(finish)
+  finishRef.current = finish
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape' || modalRef.current) return
+      e.preventDefault()
+      void finishRef.current()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+  const anySignedIn = settings.claudeAccounts.some((a) => a.loggedIn)
   return (
     <div className="fixed inset-0 z-[60] flex flex-col bg-bg text-text">
       <div className="drag flex h-[52px] shrink-0 items-center justify-between pl-[88px] pr-4">
@@ -50,41 +69,50 @@ export function SetupWizard({ onClose }: { onClose: () => void }): React.JSX.Ele
             </button>
           ))}
         </div>
-        {!guided && (
-          <Button size="sm" variant="ghost" className="no-drag" onClick={() => void finish()}>
-            Skip setup
+        <div className="flex items-center gap-2">
+          {rerun && <span className="text-[11px] text-muted">Running setup again</span>}
+          <Button size="sm" variant="ghost" className="no-drag" onClick={() => void finish()} title="Leave setup; the Getting started checklist keeps what is left (Esc)">
+            {rerun ? 'Close' : 'Later'} <X size={12} />
           </Button>
-        )}
+        </div>
       </div>
       <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto px-8 py-6">
         <div className="w-full max-w-[760px]">
           {step === 0 && <Welcome />}
-          {step === 1 && <SignIn />}
+          {step === 1 && <SignIn onModal={(open) => (modalRef.current = open)} />}
           {step === 2 && (guided ? <JoinTeam onSpace={setSpaceId} /> : <FirstSpace spaceId={spaceId} onSpace={setSpaceId} />)}
           {step === 3 && (guided ? <GuidedReady spaceId={spaceId} onWorkspace={() => void finish('workspace')} onDone={() => void finish()} /> : <Ready spaceId={spaceId} onWorkspace={() => void finish('workspace')} onTour={() => void finish('tour')} onAssistant={() => void finish('assistant')} onDone={() => void finish()} />)}
         </div>
       </div>
+      {error && (
+        <div className="flex shrink-0 items-center gap-3 border-t border-danger/40 bg-danger/10 px-8 py-2 text-[12px]" role="alert">
+          <span className="min-w-0 flex-1 break-words text-danger">{error}</span>
+          <Button size="sm" variant="ghost" onClick={() => setError(null)}>
+            Dismiss
+          </Button>
+        </div>
+      )}
       {step < 3 && (
         <div className="flex h-[64px] shrink-0 items-center justify-between border-t border-border px-8">
           <Button variant="ghost" disabled={step === 0} onClick={() => setStep(step - 1)}>
             <ArrowLeft size={14} /> Back
           </Button>
-          <ContinueButton step={guided && step === 2 ? -1 : step} disabled={blocked} spaceId={spaceId} onSpace={setSpaceId} onNext={() => setStep(step + 1)} />
+          <ContinueButton step={guided && step === 2 ? -1 : step} label={step === 1 && !anySignedIn ? 'Sign in later' : undefined} spaceId={spaceId} onSpace={setSpaceId} onNext={() => setStep(step + 1)} />
         </div>
       )}
     </div>
   )
 }
 
-/** Continue is plain on most steps; on First space it creates the space and adds the repos first. */
-function ContinueButton({ step, spaceId, onSpace, onNext, disabled }: { step: number; spaceId: string | null; onSpace: (id: string) => void; onNext: () => void; disabled?: boolean }): React.JSX.Element {
+/** Continue is plain on most steps; on First space it creates the space (or reuses the existing one) and adds the repos first. */
+function ContinueButton({ step, spaceId, onSpace, onNext, label }: { step: number; spaceId: string | null; onSpace: (id: string) => void; onNext: () => void; label?: string }): React.JSX.Element {
   const pending = useApp((s) => s.onboardingDraft)
   const setError = useApp((s) => s.setError)
   const [busy, setBusy] = useState(false)
   if (step !== 2) {
     return (
-      <Button variant="primary" onClick={onNext} disabled={disabled} title={disabled ? 'Sign in to Claude first' : undefined}>
-        Continue <ArrowRight size={14} />
+      <Button variant="primary" onClick={onNext}>
+        {label ?? 'Continue'} <ArrowRight size={14} />
       </Button>
     )
   }
@@ -127,7 +155,7 @@ const FEATURES = [
   {
     icon: <Users size={16} />,
     title: 'A crew from any vendor',
-    text: 'The chat model orchestrates. It delegates exploring, implementing, testing and reviewing to a crew you assemble from Claude, Codex, Gemini, Grok, or your own API keys and local models.',
+    text: 'Sinfonie works with Claude Code, Codex, Gemini CLI and Grok Build. The chat model orchestrates and delegates exploring, implementing, testing and reviewing to a crew you assemble from any of them, your own API keys, or local models.',
     art: <ArtCrew />
   },
   {
@@ -138,7 +166,7 @@ const FEATURES = [
   },
   {
     icon: <Sparkles size={16} />,
-    title: 'A setup assistant',
+    title: 'Maestro, your companion',
     text: 'Tell it how your team builds, tests and ships. It designs a crew with prompts written for your repos, adds repositories, creates spaces and connects your tools, confirming every change first.',
     art: <ArtAssistant />
   },
@@ -345,9 +373,14 @@ function ArtReview(): React.JSX.Element {
 
 // ---------- 2. Sign in ----------
 
-function SignIn(): React.JSX.Element {
+function SignIn({ onModal }: { onModal?: (open: boolean) => void }): React.JSX.Element {
   const { settings, setError } = useApp()
   const [login, setLogin] = useState<{ id: string; name: string; vendor: string } | null>(null)
+  useEffect(() => {
+    onModal?.(login !== null)
+    return () => onModal?.(false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [login])
   const [checking, setChecking] = useState<string | null>(null)
   const [geminiKey, setGeminiKey] = useState('')
   const [savingKey, setSavingKey] = useState(false)
@@ -384,17 +417,16 @@ function SignIn(): React.JSX.Element {
   }
   const signedIn = settings.claudeAccounts.filter((a) => a.loggedIn).length
   const guided = useGuided()
-  const vendors = guided ? VENDORS.filter((v) => v.id === 'anthropic') : VENDORS
   return (
     <div>
-      <h2 className="text-[22px] font-semibold tracking-tight">{guided ? 'Sign in to Claude' : 'Sign in to the agents you use'}</h2>
+      <h2 className="text-[22px] font-semibold tracking-tight">{guided ? 'Sign in to an agent' : 'Sign in to the agents you use'}</h2>
       <p className="mt-1 text-[13px] text-muted">
         {guided
-          ? 'The assistant runs on your Claude account. Sign in with the account your team uses; a browser window opens and comes back here.'
-          : 'One is enough to start, and the first one you sign in to becomes the default engine for chats. Each uses the vendor’s own login, so your subscription applies. You can add more accounts per vendor later under Settings → Accounts, and change the engine under Settings → General.'}
+          ? 'The assistant runs on an agent account: Claude Code, Codex, Gemini CLI or Grok Build. One is enough. Sign in with the account your team uses; a browser window opens and comes back here.'
+          : 'Claude Code, Codex, Gemini CLI or Grok Build: one is enough to start, and the first one you sign in to becomes the default engine for chats. Each uses the vendor’s own login, so your subscription applies. You can add more accounts per vendor later under Settings → Accounts, and change the engine under Settings → General.'}
       </p>
       <div className="mt-5 flex flex-col gap-2">
-        {vendors.map((v) => {
+        {VENDORS.map((v) => {
           const acc = settings.claudeAccounts.find((a) => a.id === idFor(v.id))
           const ok = acc?.loggedIn === true
           return (
@@ -403,7 +435,6 @@ function SignIn(): React.JSX.Element {
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 text-[13px] font-semibold">
                     {v.label} <span className="font-normal text-muted">· {v.agent}</span>
-                    {v.id === 'anthropic' && !ok && <Badge tone="accent">recommended</Badge>}
                     {ok && (
                       <Badge tone="ok">
                         <CheckCircle2 size={10} className="mr-1 inline" />
@@ -411,7 +442,8 @@ function SignIn(): React.JSX.Element {
                       </Badge>
                     )}
                   </div>
-                  <div className="text-[11px] text-muted">{ok && acc?.detail ? acc.detail : v.hint}</div>
+                  {/* The check's own words once it has run (signed in as…, or why not: CLI missing, not logged in); the vendor hint before that. */}
+                  <div className="text-[11px] text-muted">{acc?.detail && acc.loggedIn !== undefined ? acc.detail : v.hint}</div>
                 </div>
                 {acc && (
                   <Button size="sm" variant="ghost" onClick={() => void check(acc.id)} disabled={checking === acc.id} title="Ask the CLI whether this account is signed in">
@@ -436,7 +468,7 @@ function SignIn(): React.JSX.Element {
           )
         })}
       </div>
-      <p className="mt-3 text-[12px] text-muted">{signedIn === 0 ? (guided ? 'Not signed in yet. Continue lights up once Claude is signed in.' : 'Nothing signed in yet. You can continue and sign in later, but chats will not run until you do.') : guided ? 'Signed in. Continue to join your team.' : `${signedIn} account${signedIn === 1 ? '' : 's'} ready.`}</p>
+      <p className="mt-3 text-[12px] text-muted">{signedIn === 0 ? (guided ? 'Not signed in yet. You can sign in later from Settings → Accounts, but the assistant will not work until you do.' : 'Nothing signed in yet. You can continue and sign in later, but chats will not run until you do.') : guided ? 'Signed in. Continue to join your team.' : `${signedIn} account${signedIn === 1 ? '' : 's'} ready.`}</p>
       {login && (
         <LoginDialog
           accountId={login.id}
@@ -473,11 +505,15 @@ function FirstSpace({ spaceId, onSpace }: { spaceId: string | null; onSpace: (id
     }
     return Array.from(m.entries())
   }, [filtered])
-  void spaceId
-  void onSpace
-  const existing = spaces[0]
+  // A space already exists (setup run again, or one made outside the wizard): add repositories to it
+  // instead of creating a second one. Continue then updates that space rather than creating one.
+  const existing = spaces.find((s) => s.id === spaceId) ?? spaces[0]
   useEffect(() => {
-    if (existing && !draft.name) setOnboardingDraft({ name: existing.name, color: existing.color })
+    if (!existing) return
+    if (spaceId !== existing.id) {
+      onSpace(existing.id)
+      setOnboardingDraft({ name: existing.name, color: existing.color })
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   const runScan = async (root: string): Promise<void> => {
@@ -518,8 +554,12 @@ function FirstSpace({ spaceId, onSpace }: { spaceId: string | null; onSpace: (id
   const root = draft.root || settings.workspacesRoot
   return (
     <div>
-      <h2 className="text-[22px] font-semibold tracking-tight">Your first space</h2>
-      <p className="mt-1 text-[13px] text-muted">A space groups repositories, workspaces and settings: personal projects, work, a client. Start with one; add more from the dots at the bottom of the sidebar.</p>
+      <h2 className="text-[22px] font-semibold tracking-tight">{existing ? `Add repositories to ${existing.name}` : 'Your first space'}</h2>
+      <p className="mt-1 text-[13px] text-muted">
+        {existing
+          ? 'A space groups repositories, workspaces and settings. This one already exists; pick the repositories to add to it, or rename it. More spaces come from the dots at the bottom of the sidebar.'
+          : 'A space groups repositories, workspaces and settings: personal projects, work, a client. Start with one; add more from the dots at the bottom of the sidebar.'}
+      </p>
       <div className="mt-5 grid grid-cols-[1fr_auto] items-end gap-4">
         <label className="block">
           <span className="mb-1 block text-[12px] text-muted">Space name (you can rename it later by double-clicking it in the sidebar)</span>
@@ -602,13 +642,14 @@ function FirstSpace({ spaceId, onSpace }: { spaceId: string | null; onSpace: (id
 // ---------- 4. Ready ----------
 
 function Ready({ spaceId, onWorkspace, onTour, onAssistant, onDone }: { spaceId: string | null; onWorkspace: () => void; onTour: () => void; onAssistant: () => void; onDone: () => void }): React.JSX.Element {
-  const { settings, spaces, repos } = useApp()
+  const { settings, spaces, repos, workspaces } = useApp()
   const space = spaces.find((s) => s.id === spaceId)
   const mine = useMemo(() => repos.filter((r) => r.spaceId === spaceId), [repos, spaceId])
+  const hasWorkspace = workspaces.some((w) => w.status !== 'archived')
   const signedIn = settings.claudeAccounts.filter((a) => a.loggedIn)
   const rows = [
     { ok: signedIn.length > 0, text: signedIn.length ? `Signed in: ${signedIn.map((a) => VENDORS.find((v) => v.id === (a.vendor ?? 'anthropic'))?.agent).join(', ')}` : 'No account signed in yet (Settings → Accounts)' },
-    { ok: Boolean(space), text: space ? `Space “${space.name}” created` : 'No space yet' },
+    { ok: Boolean(space), text: space ? `Space “${space.name}” ready` : 'No space yet' },
     { ok: mine.length > 0, text: mine.length ? `${mine.length} repositor${mine.length === 1 ? 'y' : 'ies'}: ${mine.map((r) => r.name).join(', ')}` : 'No repositories yet (space settings → Repositories)' }
   ]
   return (
@@ -625,15 +666,17 @@ function Ready({ spaceId, onWorkspace, onTour, onAssistant, onDone }: { spaceId:
           </div>
         ))}
       </div>
-      <p className="mx-auto mt-4 max-w-[460px] text-[13px] text-muted">A workspace is one branch across the repos you pick. Create the first one now, let the assistant design your crew and connect your tools, or take a two-minute tour of the app.</p>
+      <p className="mx-auto mt-4 max-w-[460px] text-[13px] text-muted">A workspace is one branch across the repos you pick. Create the first one now, let Maestro design your crew and connect your tools, or take a two-minute tour of the app.</p>
       <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
         <Button variant="primary" onClick={onWorkspace}>
           Create your first workspace
         </Button>
         <Button onClick={onAssistant}>
-          <Sparkles size={13} /> Set up with the assistant
+          <Sparkles size={13} /> Continue with Maestro
         </Button>
-        <Button onClick={onTour}>Take the tour</Button>
+        <Button onClick={onTour} title={hasWorkspace ? undefined : 'More stops appear once a workspace is open'}>
+          Take the tour
+        </Button>
         <Button variant="ghost" onClick={onDone}>
           Close
         </Button>
@@ -743,7 +786,7 @@ function JoinTeam({ onSpace }: { onSpace: (id: string) => void }): React.JSX.Ele
               </div>
             ))}
           {discovered && discovered.length === 0 && orgs.length === 0 && (
-            <p className="text-[12px] text-muted">No team has claimed your email's domain yet. Ask whoever set up Sinfonie for your team for an invite link, then paste it under Settings → Plan.</p>
+            <p className="text-[12px] text-muted">No team has claimed your email's domain yet. Ask whoever set up Sinfonie for your team for an invite link, then paste it under Settings → Account & team.</p>
           )}
         </div>
       )}
@@ -756,9 +799,9 @@ function GuidedReady({ spaceId, onWorkspace, onDone }: { spaceId: string | null;
   const orgs = settings.cloud?.account?.orgs ?? []
   const teamSpaces = spaces.filter((sp) => sp.orgId && orgs.some((o) => o.id === sp.orgId))
   const apps = repos.filter((r) => teamSpaces.some((sp) => sp.id === r.spaceId))
-  const claude = settings.claudeAccounts.some((a) => a.loggedIn)
+  const signedIn = settings.claudeAccounts.filter((a) => a.loggedIn)
   const rows = [
-    { ok: claude, text: claude ? 'Signed in to Claude' : 'Not signed in to Claude yet' },
+    { ok: signedIn.length > 0, text: signedIn.length ? `Signed in: ${signedIn.map((a) => VENDORS.find((v) => v.id === (a.vendor ?? 'anthropic'))?.agent).join(', ')}` : 'Not signed in to an agent yet (Settings → Accounts)' },
     { ok: orgs.length > 0, text: orgs.length ? `In the team: ${orgs.map((o) => o.name).join(', ')}` : 'Not in a team yet' },
     { ok: apps.length > 0, text: apps.length ? `${apps.length} app${apps.length === 1 ? '' : 's'} ready: ${apps.map((r) => r.name).join(', ')}` : 'The team’s apps are still being set up' }
   ]

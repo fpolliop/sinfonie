@@ -13,7 +13,7 @@ import { useOnCall } from './stores/oncall'
 import { useReviews } from './stores/reviews'
 import { NewWorkspaceDialog } from './components/NewWorkspaceDialog'
 import { NewTaskDialog } from './components/NewTaskDialog'
-import { useGuided } from '@/lib/guided'
+import { useGuided, isGuided } from '@/lib/guided'
 import { SettingsWindow } from './components/SettingsWindow'
 import { PermissionPrompt } from './components/PermissionPrompt'
 import { BranchRenamePrompt } from './components/BranchRenamePrompt'
@@ -58,6 +58,18 @@ export default function App(): React.JSX.Element {
   useEffect(() => api.on('ui:openWorkspace', ({ workspaceId }) => useApp.getState().select(workspaceId)), [])
   useEffect(
     () =>
+      api.on('ui:openMaestro', () => {
+        if (isGuided()) return
+        const m = useMaestro.getState()
+        if (m.open) m.setOpen(false)
+        else if (m.shape === 'full' && useApp.getState().view === 'maestro') useApp.getState().setView('workspace')
+        else void openMaestro()
+      }),
+    []
+  )
+  useEffect(() => api.on('ui:newWorkspace', () => useApp.getState().setShowNewWorkspace(true, useApp.getState().activeSpaceId || undefined)), [])
+  useEffect(
+    () =>
       api.on('ui:openAgent', ({ agentId }) => {
         useApp.getState().setOpenAgentId(agentId)
         useApp.getState().setView('agents')
@@ -87,7 +99,8 @@ export default function App(): React.JSX.Element {
         e.preventDefault()
         setFeedbackDialog('feedback')
       }
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'a') {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'a' && !isGuided()) {
+        // Guided mode has no Maestro; the shortcut does nothing there.
         e.preventDefault()
         const m = useMaestro.getState()
         if (m.open) m.setOpen(false)
@@ -125,7 +138,12 @@ export default function App(): React.JSX.Element {
   useEffect(() => {
     if (!assistantOpen) return
     setAssistantOpen(false)
-    void openMaestro()
+    // The setup wizard's hand-off seeds a fresh conversation; everything else resumes the last one.
+    const seed = useApp.getState().maestroSeed
+    if (seed) {
+      useApp.getState().setMaestroSeed(null)
+      void openMaestro({ fresh: true, prompt: seed })
+    } else void openMaestro()
   }, [assistantOpen, setAssistantOpen])
 
   if (!loaded) return <div className="flex h-full items-center justify-center text-muted">Loading…</div>
@@ -147,7 +165,7 @@ export default function App(): React.JSX.Element {
       {authLink && <AuthLinkDialog link={authLink} onClose={() => setAuthLink(null)} />}
       {onboarding === 'tour' && <Tour onClose={() => setOnboarding(null)} />}
       {error && (
-        <div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-lg border border-danger/40 bg-panel px-4 py-2 text-[12px] shadow-xl">
+        <div className="fixed bottom-4 left-1/2 z-[80] -translate-x-1/2 rounded-lg border border-danger/40 bg-panel px-4 py-2 text-[12px] shadow-xl">
           <span className="text-danger">{error}</span>
           <Button size="sm" variant="ghost" className="ml-3" onClick={() => setError(null)}>
             Dismiss
@@ -160,6 +178,23 @@ export default function App(): React.JSX.Element {
 
 function EmptyState(): React.JSX.Element {
   const { repos, setShowNewWorkspace, openSettings } = useApp()
+  const guided = useGuided()
+  if (guided) {
+    return (
+      <div className="drag flex h-full flex-col items-center justify-center gap-3 text-center">
+        <img src={logo} alt="" className="h-16 w-16 rounded-2xl shadow-[0_20px_60px_rgba(91,124,255,.25)]" />
+        <div className="text-[18px] font-semibold">Sinfonie</div>
+        <p className="max-w-md text-muted">A task is one thing you want built or changed in your app. Start one and describe it in plain words.</p>
+        <div className="flex gap-2">
+          <Button variant="primary" onClick={() => setShowNewWorkspace(true)}>
+            Start a task <kbd className="ml-1 rounded bg-black/30 px-1 text-[10px]">⇧⌘N</kbd>
+          </Button>
+          <Button onClick={() => openSettings({ scope: 'app', page: 'plan' })}>Join your team</Button>
+        </div>
+        <GettingStarted />
+      </div>
+    )
+  }
   return (
     <div className="drag flex h-full flex-col items-center justify-center gap-3 text-center">
       <img src={logo} alt="" className="h-16 w-16 rounded-2xl shadow-[0_20px_60px_rgba(91,124,255,.25)]" />
@@ -184,12 +219,13 @@ function EmptyState(): React.JSX.Element {
 }
 
 
-/** A floating Maestro chip at the bottom right, on every screen, unless Maestro is already showing. */
+/** A floating Maestro chip at the bottom right, on every screen, unless Maestro is already showing. Guided mode has no Maestro. */
 function MaestroChip(): React.JSX.Element | null {
   const open = useMaestro((s) => s.open)
   const view = useApp((s) => s.view)
   const busy = useMaestro((s) => Object.values(s.byId).some((c) => c.busy))
-  if (open || view === 'maestro') return null
+  const guided = useGuided()
+  if (guided || open || view === 'maestro') return null
   return (
     <button
       onClick={() => void openMaestro()}

@@ -37,7 +37,7 @@ import { claudeBinary } from './claude-cli'
 import { workspaceEnv } from './scripts'
 import { getRepo, getWorkspace, patchWorkspace, assertOnDisk } from './workspaces'
 import { CLAUDE_MODELS, classifyModel } from '@shared/types'
-import type { AgentEvent, CliStatus, Workspace } from '@shared/types'
+import type { AgentEvent, CliStatus } from '@shared/types'
 
 type Emit = (e: AgentEvent) => void
 let emit: Emit = () => undefined

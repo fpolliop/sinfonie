@@ -72,29 +72,51 @@ function wire(): void {
   })
 }
 
+/** Outcome of one explicit check: the update the banner shows (if any), or why the check could not tell. */
+export interface UpdateCheckResult {
+  update: UpdateInfo | null
+  error?: string
+}
+
+function errorText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
+}
+
 /** Ask GitHub what the latest release is (dev builds and packaged builds alike). */
-export async function checkForUpdate(): Promise<UpdateInfo | null> {
+export async function checkForUpdate(): Promise<UpdateInfo | null>
+export async function checkForUpdate(opts: { report: true }): Promise<UpdateCheckResult>
+export async function checkForUpdate(opts?: { report: true }): Promise<UpdateInfo | null | UpdateCheckResult> {
+  const r = await runCheck()
+  return opts?.report ? r : r.update
+}
+
+async function runCheck(): Promise<UpdateCheckResult> {
   if (app.isPackaged) {
     wire()
     try {
-      await autoUpdater.checkForUpdates()
+      const res = await autoUpdater.checkForUpdates()
+      // electron-updater fires update-available (which fills `latest`) before resolving; without a newer
+      // release it resolves with the current version and `latest` keeps whatever an earlier check found.
+      const found = res?.updateInfo?.version
+      if (found && newer(found, app.getVersion())) return { update: latest }
+      return { update: latest && newer(latest.version, app.getVersion()) ? latest : null }
     } catch (err) {
       console.warn('update check failed', err)
+      return { update: null, error: errorText(err) }
     }
-    return latest
   }
   // In development there is no app-update.yml, so just report what is out there.
   try {
     const res = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, { headers: { 'User-Agent': `sinfonie/${app.getVersion()}`, Accept: 'application/vnd.github+json' } })
-    if (!res.ok) return null
+    if (!res.ok) return { update: null, error: `GitHub answered ${res.status}` }
     const rel = (await res.json()) as { tag_name: string; html_url: string; body?: string }
     const version = rel.tag_name.replace(/^v/, '')
-    if (!newer(version, app.getVersion())) return null
+    if (!newer(version, app.getVersion())) return { update: null }
     send({ state: 'available', version, current: app.getVersion(), url: rel.html_url, releaseUrl: rel.html_url, notes: (rel.body ?? '').slice(0, 2000) })
-    return latest
+    return { update: latest }
   } catch (err) {
     console.warn('update check failed', err)
-    return null
+    return { update: null, error: errorText(err) }
   }
 }
 

@@ -98,7 +98,7 @@ function logMsg(workspaceId: string, msg: SDKMessage): void {
 }
 
 const ERROR_TEXT: Record<string, string> = {
-  authentication_failed: 'Claude Code is not logged in for this account. Open Settings → Claude accounts and log in.',
+  authentication_failed: 'Claude Code is not logged in for this account. Open Settings → Accounts and log in.',
   oauth_org_not_allowed: 'This login is not allowed to use the API for this organization.',
   account_on_hold: 'The Claude account is on hold.',
   billing_error: 'Billing problem on the Claude account.',

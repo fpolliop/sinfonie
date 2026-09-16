@@ -1,5 +1,5 @@
 import mysql from 'mysql2/promise'
-import { classifySql, clipCell, type Driver, type QueryOut } from '../common'
+import { classifySql, clipCell, type Driver } from '../common'
 import { cloudSqlOptions, sshStream } from '../transport'
 import type { DbColumn, DbTable } from '@shared/types'
 

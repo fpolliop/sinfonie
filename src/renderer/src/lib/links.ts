@@ -1,9 +1,17 @@
-import { useApp } from '@/stores/app'
+import { useApp, type AppPage, type SpacePage } from '@/stores/app'
+
+/** Settings page ids the window knows (SettingsWindow's APP_PAGES/SPACE_PAGES plus the old ids it still routes). */
+const APP_PAGE_IDS: readonly string[] = ['preferences', 'general', 'spaces', 'repos', 'accounts', 'logins', 'providers', 'crew', 'resources', 'usage', 'integrations', 'oncall', 'mcp', 'jira', 'linear', 'slack', 'gcp', 'phone', 'plan', 'feedback', 'about']
+const SPACE_PAGE_IDS: readonly string[] = ['general', 'repos', 'crew', 'oncall', 'jira', 'linear', 'slack', 'github', 'gcp', 'databases', 'mcp']
+
+const appPage = (id: string | undefined): AppPage => (id && APP_PAGE_IDS.includes(id) ? (id as AppPage) : 'general')
+const spacePage = (id: string | undefined): SpacePage => (id && SPACE_PAGE_IDS.includes(id) ? (id as SpacePage) : 'general')
 
 /**
  * In-app links Maestro and agents write into their answers: sinfonie://workspace/<id>,
  * sinfonie://agent/<id>, sinfonie://space/<id>, sinfonie://notes, sinfonie://agents,
  * sinfonie://settings/app/<page>, sinfonie://settings/space/<spaceId>/<page>.
+ * An unknown settings page opens General rather than a blank window.
  */
 export function openSinfonieLink(href: string): void {
   const [kind, ...rest] = href.replace(/^sinfonie:\/\//, '').split('/').filter(Boolean)
@@ -33,8 +41,8 @@ export function openSinfonieLink(href: string): void {
       app.setView('oncall')
       return
     case 'settings':
-      if (rest[0] === 'space' && rest[1]) app.openSettings({ scope: 'space', spaceId: rest[1], page: rest[2] ?? 'general' } as Parameters<typeof app.openSettings>[0])
-      else app.openSettings({ scope: 'app', page: rest[1] ?? rest[0] ?? 'general' } as Parameters<typeof app.openSettings>[0])
+      if (rest[0] === 'space' && rest[1]) app.openSettings({ scope: 'space', spaceId: rest[1], page: spacePage(rest[2]) })
+      else app.openSettings({ scope: 'app', page: appPage(rest[0] === 'app' ? rest[1] : rest[0]) })
       return
     default:
       return

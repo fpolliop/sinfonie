@@ -11,7 +11,7 @@ import type { RemoteReviewPr } from '../protocol'
 
 const repoOf = (pr: RemoteReviewPr): string => pr.nameWithOwner.split('/').slice(-1)[0]
 
-/** Pull requests waiting for your review, across your teams. Read-only: tap to open on GitHub. */
+/** Pull requests waiting for your review, across your spaces. Read-only: tap to open on GitHub. */
 export function ReviewsScreen(): React.JSX.Element {
   const nav = useNavigation<DrawerNavigationProp<DrawerParams>>()
   const reviews = useStore((s) => s.reviews)
@@ -73,11 +73,11 @@ export function ReviewsScreen(): React.JSX.Element {
         renderItem={({ item }) => <ReviewRow pr={item} />}
         ListEmptyComponent={
           loading ? (
-            <EmptyState icon="cloud-download-outline" title="Looking for pull requests…" body="Gathering the PRs across your teams where you are asked to review." />
+            <EmptyState icon="cloud-download-outline" title="Looking for pull requests…" body="Gathering the PRs across your spaces where you are asked to review." />
           ) : reviews.length > 0 ? (
             <EmptyState icon="filter-outline" title="Nothing matches" body="No pull requests match the filters above. Clear them to see the rest." />
           ) : (
-            <EmptyState icon="checkmark-done-outline" title="Nothing to review" body="Pull requests that ask for your review across your teams show up here. Pull to refresh." />
+            <EmptyState icon="checkmark-done-outline" title="Nothing to review" body="Pull requests that ask for your review across your spaces show up here. Pull to refresh." />
           )
         }
       />

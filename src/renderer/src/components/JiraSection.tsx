@@ -31,6 +31,7 @@ export function JiraSection({ connId, title, intro }: { connId: string; title?: 
     }
   }
   const disconnect = async (): Promise<void> => {
+    if (!window.confirm('Disconnect Jira? You will need to sign in again.')) return
     try {
       await api.invoke('jira:disconnect', connId)
       setTesting(null)

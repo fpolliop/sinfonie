@@ -1,5 +1,5 @@
 /**
- * The settings assistant: a Claude conversation that can read and change Sinfonie's own
+ * The settings assistant (Maestro): an agent conversation that can read and change Sinfonie's own
  * configuration through an in-process tool server. It creates spaces, adds repositories, designs
  * and saves crews after interviewing the user, sets cost modes, starts sign-ins for integrations,
  * configures Google Cloud and on-call, and opens a settings page when something needs the user's
@@ -397,6 +397,8 @@ function scanRepos(rootIn: string): { path: string; name: string; added: boolean
 }
 
 const SPACE_KEYS = ['name', 'color', 'engine', 'model', 'permissionMode', 'budgetMode', 'leanMode', 'useCrew', 'workspacesRoot', 'exposeLinearMcp', 'exposeJiraMcp', 'exposeGcpMcp', 'claudeAccountId'] as const
+const APP_SETTINGS_PAGES = ['preferences', 'general', 'spaces', 'repos', 'accounts', 'providers', 'crew', 'resources', 'usage', 'integrations', 'jira', 'linear', 'slack', 'gcp', 'mcp', 'oncall', 'phone', 'plan', 'feedback', 'about'] as const
+const SPACE_SETTINGS_PAGES = ['general', 'repos', 'crew', 'oncall', 'jira', 'linear', 'slack', 'gcp', 'github', 'mcp', 'databases'] as const
 const SETTINGS_KEYS = ['engine', 'model', 'permissionMode', 'budgetMode', 'leanMode', 'workspacesRoot', 'basePort', 'autoDownloadUpdates', 'crashReports', 'usageStats', 'strictMcp', 'browserEvaluate', 'defaultClaudeAccountId', 'nativeModel', 'codexModel', 'geminiModel', 'grokModel'] as const
 
 const agentShape = z.object({
@@ -1017,13 +1019,16 @@ const TOOLS: ToolDef[] = [
   },
   {
     name: 'open_settings',
-    description: 'Open a settings page in the app for the user, for anything this assistant cannot do itself: account sign-ins (terminal), API keys under providers, MCP servers with secrets, resources. App pages: general, spaces, repos, providers, accounts, crew, resources, usage, oncall, jira, linear, slack, gcp, mcp, about. Space pages: general, repos, crew, oncall, jira, linear, slack, gcp, github, mcp.',
+    description: `Open a settings page in the app for the user, for anything this assistant cannot do itself: account sign-ins (terminal), API keys under providers, MCP servers with secrets, resources. App pages (no spaceId): ${APP_SETTINGS_PAGES.join(', ')}. Space pages (with spaceId): ${SPACE_SETTINGS_PAGES.join(', ')}. An unknown page opens general.`,
     shape: { page: z.string(), spaceId: z.string().optional() },
     run: async (i) => {
-      const page = String(i.page)
+      const asked = String(i.page).trim().toLowerCase()
+      const valid: readonly string[] = i.spaceId ? SPACE_SETTINGS_PAGES : APP_SETTINGS_PAGES
+      const page = valid.includes(asked) ? asked : 'general'
       if (i.spaceId) needHost().openSettings({ scope: 'space', spaceId: spaceOrThrow(String(i.spaceId)).id, page })
       else needHost().openSettings({ scope: 'app', page })
-      return `Opened ${i.spaceId ? `${spaceOrThrow(String(i.spaceId)).name} → ` : ''}${page}.`
+      const note = page === asked ? '' : ` (no page "${asked}" here; valid pages: ${valid.join(', ')})`
+      return `Opened ${i.spaceId ? `${spaceOrThrow(String(i.spaceId)).name} → ` : ''}${page}.${note}`
     }
   }
 ]
@@ -1069,10 +1074,10 @@ Sinfonie in one minute:
 - A WORKSPACE is one task inside a space: a git worktree per repository the task touches, plus a conversation with an orchestrator agent. You can read its transcript (workspace_transcript) and send it a message (send_to_workspace); the user creates workspaces from the sidebar.
 - AGENTS live in a library. A crew agent is a subagent orchestrators delegate to. A standalone agent is one the user runs directly: by @name in a workspace chat, in the agent's own chat, on a schedule (every N minutes or daily), or by you with run_agent. Agents have a name, description, prompt, model (haiku cheap and fast; sonnet the default coder; opus deep reasoning; fable the strongest), optional tool allow-list (mcp__slack for Slack, mcp__notes for notes, Read/Grep/Glob for read-only code) and turn cap.
 - NOTES and todos live at three levels: a workspace, a space ("space:<id>"), or the app ("app", tied to no project). Agents file into them; the user sees everything in the Notes view.
-- The ENGINE runs conversations: claude-code (default, the user's Claude login), native (API providers), codex, gemini, grok.
+- The ENGINE runs conversations; Sinfonie works with any of four: claude-code (the user's Claude login), codex (OpenAI login), gemini (Gemini CLI, Google login), grok (Grok Build, xAI login), plus native (any API provider with a key). Each space and workspace can pick its own.
 - COST MODES: standard, budget (Sonnet orchestrator, low effort, capped calls), lean (one Sonnet agent, no crew, trimmed tools).
 - INTEGRATIONS: Slack, Jira and Linear sign in through the browser; Google Cloud uses the local gcloud login; GitHub uses gh. The on-call agent watches Slack channels and triages incidents. The review cockpit runs AI reviews on pull requests.
-- Accounts: several Claude/OpenAI/Google/xAI logins can coexist; spaces and workspaces pick one.
+- Accounts: several Claude/OpenAI/Google/xAI logins can coexist; spaces and workspaces pick one. Models named haiku/sonnet/opus/fable are the Claude Code engine's; the other engines have their own model settings (codexModel, geminiModel, grokModel, nativeModel).
 
 How you work:
 1. Start every conversation by calling get_overview; it has the spaces, workspaces, agents, notes, integrations and accounts. Answer from it when you can; call the specific tools for detail (list_workspaces, workspace_transcript, notes_list, get_agent, oncall_incidents, integration_status).

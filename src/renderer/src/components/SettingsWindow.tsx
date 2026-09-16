@@ -1,14 +1,15 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import clsx from 'clsx'
-import { Plus, RefreshCw, Trash2, FolderGit2, Settings as SettingsIcon, Layers, Server, UserCircle2, Users, Plug, Ticket, GitPullRequest, MessageSquarePlus, Info, FolderTree, ChevronRight, Gauge, Siren, CircleDot, Hash, Activity, Cloud, Sparkles, Database, Gem, FileJson, Smartphone } from 'lucide-react'
+import { Plus, RefreshCw, Trash2, FolderGit2, Settings as SettingsIcon, Layers, Server, UserCircle2, Users, Plug, Ticket, GitPullRequest, MessageSquarePlus, Info, ChevronRight, Gauge, Siren, CircleDot, Hash, Activity, Cloud, Sparkles, Database, Gem, FileJson, Smartphone } from 'lucide-react'
 import { GcpSection } from './GcpSection'
 import { DatabasesSection } from './DatabasesSection'
 import { api } from '@/lib/api'
 import { useApp, type SettingsTarget, type AppPage, type SpacePage } from '@/stores/app'
-import { Badge, Button, Field, inputCls } from './ui'
+import { Badge, Button, Field, hasOpenDialog, inputCls } from './ui'
 import { shortPath } from '@/lib/format'
 import { PERMISSION_MODES, SPACE_COLORS, SPACE_FILE, jiraConnectionFor, linearConnectionFor, type AppMode, type Space } from '@shared/types'
 import { useGuided } from '@/lib/guided'
+import { openMaestro } from '@/stores/maestro'
 import { GuidedRepoSetup, GuidedSpaceSection } from './GuidedSetup'
 import { JiraSection } from './JiraSection'
 import { LinearSection } from './LinearSection'
@@ -35,10 +36,10 @@ import { ACP_ENGINES, VENDORS } from '@shared/types'
 /** The app-level pages, grouped as the rail shows them. The single Integrations page carries its own tabs. */
 const APP_PAGES: { id: AppPage; label: string; icon: React.ReactNode; desc: string; group: string }[] = [
   { id: 'preferences', label: 'Preferences', icon: <SettingsIcon size={14} />, desc: 'How Sinfonie presents itself to you.', group: 'You' },
-  { id: 'general', label: 'General', icon: <SettingsIcon size={14} />, desc: 'Defaults every space starts from: engine, models, permission mode, folders, ports.', group: 'Workspace' },
-  { id: 'spaces', label: 'Spaces', icon: <Layers size={14} />, desc: 'Create and remove spaces. Each space has its own pages below.', group: 'Workspace' },
-  { id: 'repos', label: 'Repositories', icon: <FolderGit2 size={14} />, desc: 'Every repository the app knows, and which space each belongs to.', group: 'Workspace' },
-  { id: 'accounts', label: 'Accounts', icon: <UserCircle2 size={14} />, desc: 'Logins for Anthropic, OpenAI, Google and xAI agents. Several per vendor; spaces and workspaces pick one.', group: 'Agents' },
+  { id: 'general', label: 'General', icon: <SettingsIcon size={14} />, desc: 'Defaults every space starts from: engine, models, permission mode, folders, ports.', group: 'Spaces' },
+  { id: 'spaces', label: 'Spaces', icon: <Layers size={14} />, desc: 'Create and remove spaces. Each space has its own pages below.', group: 'Spaces' },
+  { id: 'repos', label: 'Repositories', icon: <FolderGit2 size={14} />, desc: 'Every repository the app knows, and which space each belongs to.', group: 'Spaces' },
+  { id: 'accounts', label: 'Accounts', icon: <UserCircle2 size={14} />, desc: 'Logins for the Anthropic, OpenAI and xAI agents (Gemini uses an API key from Model providers). Several per vendor; spaces and workspaces pick one.', group: 'Agents' },
   { id: 'providers', label: 'Model providers', icon: <Server size={14} />, desc: 'API keys and local servers for the native engine. Shared by all spaces.', group: 'Agents' },
   { id: 'crew', label: 'Crew', icon: <Users size={14} />, desc: 'Which agents orchestrators delegate to, and on which model. Agents are built under Agents in the sidebar.', group: 'Agents' },
   { id: 'resources', label: 'Resources', icon: <Gauge size={14} />, desc: 'Memory per session, subagent and session limits, and what happens under pressure.', group: 'Agents' },
@@ -63,24 +64,30 @@ const INTEGRATION_IDS: string[] = INTEGRATION_TABS.map((t) => t.id)
 /** Guided mode's rail: the person's own things. Everything about the team's apps is set up by the tech lead in expert mode. */
 const GUIDED_PAGES: { id: AppPage; label: string; icon: React.ReactNode; desc: string; group: string }[] = [
   { id: 'preferences', label: 'Preferences', icon: <SettingsIcon size={14} />, desc: 'How Sinfonie presents itself to you.', group: 'You' },
-  { id: 'accounts', label: 'Claude sign-in', icon: <UserCircle2 size={14} />, desc: 'The Claude account the assistant runs on.', group: 'You' },
+  { id: 'accounts', label: 'Sign-in', icon: <UserCircle2 size={14} />, desc: 'The AI account the assistant runs on.', group: 'You' },
   { id: 'plan', label: 'Account & team', icon: <Gem size={14} />, desc: 'Your Sinfonie account, your emails and the teams you are in.', group: 'You' },
   { id: 'feedback', label: 'Feedback', icon: <MessageSquarePlus size={14} />, desc: 'Tell us what works and what does not.', group: 'You' },
   { id: 'about', label: 'About & updates', icon: <Info size={14} />, desc: 'Version, links, and update checks.', group: 'You' }
 ]
 /** Which rail entry a page id belongs to: integration tabs fold into Integrations, the legacy logins page into Accounts. */
 const railFor = (id: AppPage): AppPage => (INTEGRATION_IDS.includes(id) ? 'integrations' : id === 'logins' ? 'accounts' : id)
+/** The "see the application page" link on a space page: integration tabs live inside Settings → Integrations. */
+const overrideLabel = (id: AppPage): string => {
+  const tab = INTEGRATION_TABS.find((t) => t.id === id)
+  if (tab) return `See Settings → Integrations → ${tab.label}`
+  return `See Settings → ${APP_PAGES.find((p) => p.id === railFor(id))?.label ?? id}`
+}
 const SPACE_PAGES: { id: SpacePage; label: string; icon: React.ReactNode; desc: string; overrides?: AppPage; group?: string }[] = [
   { id: 'general', label: 'General', icon: <SettingsIcon size={14} />, desc: 'Name, colour, and this space’s engine, model, permission mode, folder and account.', overrides: 'general' },
   { id: 'repos', label: 'Repositories', icon: <FolderGit2 size={14} />, desc: 'Repositories this space owns. New workspaces here offer these.', overrides: 'repos' },
   { id: 'crew', label: 'Crew', icon: <Users size={14} />, desc: 'Which agents the orchestrator delegates to in this space, and on which model.', overrides: 'crew' },
-  { id: 'oncall', label: 'On call', icon: <Siren size={14} />, desc: 'Slack channels this space\u2019s on-call agent watches, and how it triages.' },
+  { id: 'oncall', label: 'On call', icon: <Siren size={14} />, desc: 'Slack channels this space\u2019s on-call agent watches, and how it triages.', overrides: 'oncall' },
   { id: 'jira', label: 'Jira', icon: <Ticket size={14} />, desc: 'This space’s Jira site and login.', overrides: 'jira', group: 'Integrations' },
   { id: 'linear', label: 'Linear', icon: <CircleDot size={14} />, desc: 'This space’s Linear login.', overrides: 'linear', group: 'Integrations' },
   { id: 'slack', label: 'Slack', icon: <Hash size={14} />, desc: 'This space\u2019s Slack sign-in, when it lives in a different Slack workspace than the application default.', overrides: 'slack', group: 'Integrations' },
   { id: 'github', label: 'GitHub', icon: <GitPullRequest size={14} />, desc: 'Which GitHub owners the review cockpit lists for this space.', group: 'Integrations' },
   { id: 'gcp', label: 'Google Cloud', icon: <Cloud size={14} />, desc: 'This space’s Google Cloud project, when it differs from the application default.', overrides: 'gcp', group: 'Integrations' },
-  { id: 'databases', label: 'Databases', icon: <Database size={14} />, desc: 'Postgres and MySQL connections for the Data tab and read-only agent tools: direct, SSH tunnel or Cloud SQL.', group: 'Integrations' },
+  { id: 'databases', label: 'Databases', icon: <Database size={14} />, desc: 'Postgres, MySQL, SQLite, MongoDB and BigQuery, direct, through SSH, or through Cloud SQL.', group: 'Integrations' },
   { id: 'mcp', label: 'MCP servers', icon: <Plug size={14} />, desc: 'Servers for this space, on top of the application-wide ones.', overrides: 'mcp', group: 'Integrations' }
 ]
 
@@ -101,7 +108,8 @@ export function SettingsWindow({ target, onClose }: { target: SettingsTarget; on
   }, [])
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose()
+      if (e.key !== 'Escape' || hasOpenDialog()) return
+      onClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -175,7 +183,7 @@ export function SettingsWindow({ target, onClose }: { target: SettingsTarget; on
                 <p className="mt-1 text-[11px] text-muted">
                   Values set here override the application defaults for this space only.{' '}
                   <button className="text-accent hover:underline" onClick={() => openSettings({ scope: 'app', page: page.overrides as AppPage })}>
-                    See application {APP_PAGES.find((p) => p.id === page.overrides)?.label.toLowerCase()}
+                    {overrideLabel(page.overrides)}
                   </button>
                 </p>
               )}
@@ -184,7 +192,7 @@ export function SettingsWindow({ target, onClose }: { target: SettingsTarget; on
               ✕
             </button>
           </header>
-          <div className="flex-1 overflow-auto px-6 py-4">{target.scope === 'app' ? <AppPageView page={target.page} /> : space ? <SpacePageView space={space} page={target.page} /> : null}</div>
+          <div className="flex-1 overflow-auto px-6 py-4">{target.scope === 'app' ? <AppPageView key={target.page} page={target.page} /> : space ? <SpacePageView key={space.id} space={space} page={target.page} /> : null}</div>
         </div>
       </div>
     </div>
@@ -235,6 +243,8 @@ function NavItem({ active, icon, label, onClick, small, chevron }: { active: boo
     </button>
   )
 }
+
+const confirmDeleteSpace = (name: string): boolean => window.confirm(`Delete space "${name}"? Its workspaces and repositories move to "No space"; its crew overrides, on-call channels and integrations are lost.`)
 
 function useGo(): (fn: () => Promise<unknown>) => Promise<void> {
   const setError = useApp((s) => s.setError)
@@ -300,7 +310,7 @@ function AppPageView({ page }: { page: AppPage }): React.JSX.Element {
                 <input type="checkbox" checked={Boolean(settings.completions?.enabled)} onChange={(e) => go(() => update({ completions: { ...(settings.completions ?? {}), enabled: e.target.checked } }))} /> On
               </label>
               <div className="min-w-0 flex-1">
-                <NativeModelSelect value={settings.completions?.model ?? ''} onChange={(model) => go(() => update({ completions: { enabled: settings.completions?.enabled ?? true, model } }))} />
+                <NativeModelSelect value={settings.completions?.model ?? ''} onChange={(model) => go(() => update({ completions: { enabled: settings.completions?.enabled ?? false, model } }))} />
               </div>
             </div>
           </Field>
@@ -404,7 +414,7 @@ function IntegrationBody({ tab }: { tab: IntegrationTab }): React.JSX.Element {
       return (
         <div className="max-w-[760px]">
           <SlackConnectionCard />
-          <p className="text-[11px] text-muted">The on-call agent uses this sign-in to watch channels and send the replies you approve. Set up channels under Application → On call.</p>
+          <p className="text-[11px] text-muted">The on-call agent uses this sign-in to watch channels and send the replies you approve. Set up channels under Settings → On call.</p>
         </div>
       )
     default:
@@ -485,7 +495,7 @@ function SpacesPage(): React.JSX.Element {
               <Button size="sm" onClick={() => openSettings({ scope: 'space', spaceId: s.id, page: 'general' })}>
                 Open
               </Button>
-              <button title="Delete space (workspaces and repos are kept)" className="rounded p-1 text-muted hover:text-danger" onClick={() => go(() => api.invoke('spaces:delete', s.id))}>
+              <button title="Delete space (workspaces and repos are kept)" className="rounded p-1 text-muted hover:text-danger" onClick={() => confirmDeleteSpace(s.name) && go(() => api.invoke('spaces:delete', s.id))}>
                 <Trash2 size={13} />
               </button>
             </div>
@@ -522,7 +532,7 @@ function ReposPage(): React.JSX.Element {
                 <div className="flex items-center gap-2 text-[13px] font-medium">
                   {r.name}
                   <Badge>{r.defaultBranch}</Badge>
-                  {r.config?.scripts ? <Badge tone="ok">sinfonie.json</Badge> : <Badge tone="warn">no conductor.json</Badge>}
+                  {r.config?.scripts ? <Badge tone="ok">sinfonie.json</Badge> : <Badge tone="warn">no sinfonie.json</Badge>}
                 </div>
                 <div className="truncate text-[11px] text-muted">{shortPath(r.path)}</div>
               </div>
@@ -537,7 +547,7 @@ function ReposPage(): React.JSX.Element {
               <button title="Reload sinfonie.json" className="rounded p-1 text-muted hover:text-text" onClick={() => go(() => api.invoke('repos:reloadConfig', r.id))}>
                 <RefreshCw size={13} />
               </button>
-              <button title={inUse ? `Used by ${inUse} workspace(s)` : 'Remove'} disabled={inUse > 0} className="rounded p-1 text-muted hover:text-danger disabled:opacity-30" onClick={() => go(() => api.invoke('repos:remove', r.id))}>
+              <button title={inUse ? `Used by ${inUse} workspace(s)` : 'Remove'} disabled={inUse > 0} className="rounded p-1 text-muted hover:text-danger disabled:opacity-30" onClick={() => window.confirm(`Remove repository "${r.name}" (${r.path}) from Sinfonie? The folder stays on disk.`) && go(() => api.invoke('repos:remove', r.id))}>
                 <Trash2 size={13} />
               </button>
             </div>
@@ -571,8 +581,11 @@ function AboutPage(): React.JSX.Element {
     <div className="max-w-[640px]">
       <div className="mb-4 flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-[12px]">
         <span className="text-muted">New here?</span>
-        <Button size="sm" variant="ghost" onClick={() => { closeSettings(); setOnboarding('setup') }}>
+        <Button size="sm" variant="ghost" onClick={() => { closeSettings(); void openMaestro() }}>
           Open Maestro
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => { closeSettings(); setOnboarding('setup') }}>
+          Run setup wizard
         </Button>
         <Button size="sm" variant="ghost" onClick={() => { closeSettings(); setOnboarding('tour') }}>
           Take the tour
@@ -629,7 +642,7 @@ function SpacePageView({ space, page }: { space: Space; page: SpacePage }): Reac
             </Field>
           </div>
           <Group title="Overrides for this space" hint="Leave a field on “App default” to inherit the application setting.">
-            <Field label="Engine" hint="Claude Code uses your Claude login; Sinfonie native runs any provider from Model providers.">
+            <Field label="Engine" hint="Each vendor’s agent uses its own agent account from Accounts; Sinfonie native runs any provider from Model providers.">
               <EngineSelect value={space.engine ?? ''} allowDefault onChange={(e) => go(() => upd({ engine: (e || undefined) as never }))} />
             </Field>
             {engine === 'claude-code' && (
@@ -641,7 +654,7 @@ function SpacePageView({ space, page }: { space: Space; page: SpacePage }): Reac
               </Field>
             )}
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Model" hint={engine === 'native' ? 'Orchestrator model as provider/model.' : ACP_ENGINES.some((e) => e.id === engine) ? 'From the agent’s own model list (see Agent logins).' : 'Orchestrator model for chats in this space.'}>
+              <Field label="Model" hint={engine === 'native' ? 'Orchestrator model as provider/model.' : ACP_ENGINES.some((e) => e.id === engine) ? 'From the agent’s own model list (see Accounts).' : 'Orchestrator model for chats in this space.'}>
                 {engine === 'native' ? (
                   <NativeModelSelect value={space.model ?? ''} allowDefault defaultLabel={`App default (${settings.nativeModel || 'not set'})`} onChange={(model) => go(() => upd({ model }))} />
                 ) : ACP_ENGINES.some((e) => e.id === engine) ? (
@@ -689,7 +702,7 @@ function SpacePageView({ space, page }: { space: Space; page: SpacePage }): Reac
             <Field label="Browser: sites that always ask" hint="One per line, host with optional path (e.g. admin.example.com or example.com/admin). Agent actions there prompt whatever the permission mode. AWS, Cloudflare, GCP, Azure, Vercel, Stripe and other consoles are always included.">
               <textarea className={clsx(inputCls, 'min-h-[64px] font-mono text-[12px]')} defaultValue={(space.browserSensitiveOrigins ?? []).join('\n')} onBlur={(e) => go(() => upd({ browserSensitiveOrigins: e.target.value.split('\n').map((l) => l.trim()).filter(Boolean) }))} />
             </Field>
-            <Field label="Account" hint="Which login the engine uses for workspaces in this space. Manage them under Application → Accounts.">
+            <Field label="Account" hint="Which login the engine uses for workspaces in this space. Manage them under Settings → Accounts.">
               <select className={inputCls} value={space.claudeAccountId ?? ''} onChange={(e) => go(() => upd({ claudeAccountId: e.target.value || undefined }))}>
                 <option value="">Vendor default</option>
                 {settings.claudeAccounts
@@ -704,7 +717,7 @@ function SpacePageView({ space, page }: { space: Space; page: SpacePage }): Reac
           </Group>
           <div className="mt-6 flex items-center gap-3 rounded-lg border border-danger/30 px-3 py-2 text-[12px]">
             <span className="flex-1 text-muted">Deleting a space keeps its workspaces and repositories; they move to “No space”.</span>
-            <Button size="sm" variant="danger" onClick={() => go(() => api.invoke('spaces:delete', space.id))}>
+            <Button size="sm" variant="danger" onClick={() => confirmDeleteSpace(space.name) && go(() => api.invoke('spaces:delete', space.id))}>
               <Trash2 size={12} /> Delete space
             </Button>
           </div>
@@ -867,4 +880,3 @@ function GithubOwnersSection({ spaceId, configured, onChange }: { spaceId: strin
   )
 }
 
-void FolderTree

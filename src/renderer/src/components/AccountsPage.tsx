@@ -6,13 +6,19 @@ import { Badge, Button, inputCls } from './ui'
 import { LoginDialog } from './LoginDialog'
 import { shortPath } from '@/lib/format'
 import { VENDORS, type AcpProbe, type Engine, type Vendor } from '@shared/types'
+import { useGuided } from '@/lib/guided'
 
 /** Module-level cache of the last probe per engine, for model pickers elsewhere. */
 export const acpProbeCache: Partial<Record<Engine, AcpProbe>> = {}
 
-/** One page for every login: Anthropic, OpenAI, Google, xAI, each with any number of accounts. */
-export function AccountsPage(): React.JSX.Element {
+/**
+ * One page for every login: Anthropic, OpenAI, Google, xAI, each with any number of accounts. Guided mode shows
+ * the same vendors with the product-terms intro and without the developer hints (CLI names, config folders).
+ */
+export function AccountsPage({ guided: guidedProp }: { guided?: boolean } = {}): React.JSX.Element {
   const { settings, setError, openSettings } = useApp()
+  const guidedMode = useGuided()
+  const guided = guidedProp ?? guidedMode
   const [names, setNames] = useState<Partial<Record<Vendor, string>>>({})
   const [login, setLogin] = useState<{ id: string; name: string; vendor: string } | null>(null)
   const [checking, setChecking] = useState<string | null>(null)
@@ -40,7 +46,7 @@ export function AccountsPage(): React.JSX.Element {
 
   return (
     <div className="max-w-[760px]">
-      <p className="mb-4 text-[12px] text-muted">Each vendor’s coding agent keeps its own login. Sinfonie can hold several accounts per vendor, each in its own config folder, and a space or workspace picks which one to use. The vendor’s engine is what you select under General.</p>
+      <p className="mb-4 text-[12px] text-muted">{guided ? 'Sign in to the AI you want to build with: Anthropic, OpenAI or xAI; Google uses an API key.' : 'Each vendor’s coding agent keeps its own login. Sinfonie can hold several accounts per vendor, each in its own config folder, and a space or workspace picks which one to use. The vendor’s engine is what you select under General.'}</p>
       <div className="flex flex-col gap-4">
         {VENDORS.map((v) => {
           const list = settings.claudeAccounts.filter((a) => (a.vendor ?? 'anthropic') === v.id)
@@ -52,9 +58,9 @@ export function AccountsPage(): React.JSX.Element {
               <div className="flex items-center gap-3 border-b border-border px-3 py-2">
                 <div className="min-w-0 flex-1">
                   <div className="text-[13px] font-semibold">
-                    {v.label} <span className="font-normal text-muted">· {v.agent}</span>
+                    {v.label} {!guided && <span className="font-normal text-muted">· {v.agent}</span>}
                   </div>
-                  <div className="text-[11px] text-muted">{v.hint}</div>
+                  {!guided && <div className="text-[11px] text-muted">{v.hint}</div>}
                 </div>
                 {v.id === 'google' && (
                   <Button size="sm" variant="ghost" onClick={() => openSettings({ scope: 'app', page: 'providers' })}>
@@ -73,9 +79,9 @@ export function AccountsPage(): React.JSX.Element {
                         {a.loggedIn === false && <Badge tone="warn">not signed in</Badge>}
                         {a.loggedIn === undefined && <Badge>unchecked</Badge>}
                       </div>
-                      <div className="truncate text-[11px] text-muted">{a.detail || (a.configDir ? shortPath(a.configDir) : 'your normal login on this Mac')}</div>
+                      {!guided && <div className="truncate text-[11px] text-muted">{a.detail || (a.configDir ? shortPath(a.configDir) : 'your normal login on this Mac')}</div>}
                     </div>
-                    <Button size="sm" variant="ghost" onClick={() => check(a.id)} disabled={checking === a.id} title="Ask the CLI whether this account is signed in">
+                    <Button size="sm" variant="ghost" onClick={() => check(a.id)} disabled={checking === a.id} title={guided ? 'Check whether this account is signed in' : 'Ask the CLI whether this account is signed in'}>
                       <RefreshCw size={12} className={checking === a.id ? 'animate-spin' : ''} /> {checking === a.id ? 'Checking…' : 'Check'}
                     </Button>
                     {v.id !== 'google' && (
@@ -89,7 +95,7 @@ export function AccountsPage(): React.JSX.Element {
                       </Button>
                     )}
                     {a.configDir !== null && (
-                      <button title="Remove this account (its config folder is kept on disk)" className="rounded p-1 text-muted hover:text-danger" onClick={() => go(() => api.invoke('accounts:remove', a.id))}>
+                      <button title="Remove this account (its config folder is kept on disk)" className="rounded p-1 text-muted hover:text-danger" onClick={() => window.confirm('Remove this account? Spaces and workspaces using it fall back to the default; its login folder stays on disk.') && go(() => api.invoke('accounts:remove', a.id))}>
                         <Trash2 size={13} />
                       </button>
                     )}
@@ -101,7 +107,7 @@ export function AccountsPage(): React.JSX.Element {
                     <Plus size={12} /> Add
                   </Button>
                 </div>
-                {v.engine !== 'claude-code' && probe?.signedIn && probe.models.length > 0 && (
+                {!guided && v.engine !== 'claude-code' && probe?.signedIn && probe.models.length > 0 && (
                   <div className="mt-1 flex items-center gap-2 text-[11px] text-muted">
                     <span>Default model for the {v.agent} engine:</span>
                     <select className="rounded-md border border-border bg-bg px-1.5 py-1 text-[11px]" value={(settings as unknown as Record<string, string | undefined>)[modelKey] ?? ''} onChange={(e) => go(() => update({ [modelKey]: e.target.value || undefined }))}>

@@ -96,7 +96,7 @@ export function SuggestCrewDialog({ spaceId, agents, orchestrator, onApply, onCl
           <Loader2 size={18} className="animate-spin text-accent" />
           <div>
             <div className="font-medium">Looking at every model you can use…</div>
-            <div className="text-[12px] text-muted">Your Claude login, signed-in vendor agents and API providers. This takes a few seconds.</div>
+            <div className="text-[12px] text-muted">Every signed-in agent account and API provider. This takes a few seconds.</div>
           </div>
         </div>
       )}

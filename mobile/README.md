@@ -6,7 +6,7 @@ Expo (React Native), one codebase for both stores.
 
 ## How it connects
 
-The Mac shows a QR in Settings → Phone. It carries a random key; the app derives the relay room
+The Mac shows a QR in Settings → Devices. It carries a random key; the app derives the relay room
 id and auth token from it and encrypts every message with it (AES-GCM through `@noble/ciphers`,
 identical to the desktop's WebCrypto envelopes). `relay.sinfonie.dev` forwards envelopes it
 cannot read. The key is kept in the device keychain (`expo-secure-store`).

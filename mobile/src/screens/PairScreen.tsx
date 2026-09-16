@@ -22,7 +22,7 @@ function Step({ n, icon, text }: { n: number; icon: IoniconName; text: string })
   )
 }
 
-/** First screen until paired: scan the QR from Settings → Phone on the Mac, or paste the link. */
+/** First screen until paired: scan the QR from Settings → Devices on the Mac, or paste the link. */
 export function PairScreen(): React.JSX.Element {
   const [permission, requestPermission] = useCameraPermissions()
   const [scanning, setScanning] = useState(false)
@@ -85,7 +85,7 @@ export function PairScreen(): React.JSX.Element {
             </View>
           ) : (
             <View style={s.card}>
-              <Step n={1} icon="laptop-outline" text="On the Mac, open Sinfonie → Settings → Phone and press Pair a phone." />
+              <Step n={1} icon="laptop-outline" text="On the Mac, open Sinfonie → Settings → Devices and press Pair a device." />
               <Step n={2} icon="qr-code-outline" text="Scan the code it shows." />
               <Step n={3} icon="notifications-outline" text="Allow notifications so the agents can reach you." />
               <Button title="Scan the QR code" kind="primary" icon="scan-outline" onPress={() => void startScan()} loading={busy} style={{ marginTop: S.sm }} />
@@ -105,7 +105,7 @@ export function PairScreen(): React.JSX.Element {
           )}
           <View style={s.privacy}>
             <Icon name="lock-closed-outline" size={13} color={C.dim} />
-            <Text style={[T.small, { flex: 1, fontSize: 12 }]}>The code holds the key that encrypts everything between this phone and your Mac. sinfonie.dev only relays and cannot read your conversations.</Text>
+            <Text style={[T.small, { flex: 1, fontSize: 12 }]}>The code holds the key that encrypts everything between this device and your Mac. sinfonie.dev only relays and cannot read your conversations.</Text>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>

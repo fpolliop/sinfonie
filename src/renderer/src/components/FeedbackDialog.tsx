@@ -232,7 +232,7 @@ function ErrorsView({ onReport }: { onReport: () => void }): React.JSX.Element {
           <Button size="sm" variant="ghost" onClick={() => void api.invoke('logs:open')}>
             <FolderOpen size={12} /> Logs folder
           </Button>
-          <Button size="sm" variant="ghost" disabled={entries.length === 0} onClick={() => api.invoke('logs:clear').then(load)}>
+          <Button size="sm" variant="ghost" disabled={entries.length === 0} onClick={() => window.confirm('Clear the error log? The captured errors are gone and can no longer be attached to feedback.') && api.invoke('logs:clear').then(load)}>
             <Trash2 size={12} /> Clear
           </Button>
         </span>

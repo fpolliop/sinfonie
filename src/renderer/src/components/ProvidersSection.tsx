@@ -64,7 +64,7 @@ export function ProvidersSection(): React.JSX.Element {
                 <Button size="sm" variant="ghost" disabled={busy === p.id} onClick={() => go(p.id, () => api.invoke('providers:models', p.id))} title="Fetch the model list">
                   <RefreshCw size={12} className={busy === p.id ? 'animate-spin' : ''} /> Models
                 </Button>
-                <button className="rounded p-1 text-muted hover:text-danger" title="Remove" onClick={() => go(p.id, () => api.invoke('providers:remove', p.id))}>
+                <button className="rounded p-1 text-muted hover:text-danger" title="Remove" onClick={() => window.confirm(`Remove provider "${p.name}"? Agents and spaces using ${p.name}/model stop resolving until you pick another.`) && go(p.id, () => api.invoke('providers:remove', p.id))}>
                   <Trash2 size={13} />
                 </button>
               </div>

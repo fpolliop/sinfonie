@@ -23,7 +23,7 @@ export interface State {
   loadingHistory: Record<string, boolean>
   busy: Record<string, boolean>
   lastError: string | null
-  /** Set when the Mac confirms a phone-started conversation; the New screen navigates to it, then clears it. */
+  /** Set when the Mac confirms a device-started conversation; the New screen navigates to it, then clears it. */
   created: string | null
   reviews: RemoteReviewPr[]
   onCall: RemoteIncident[]
@@ -197,7 +197,7 @@ export function connect(): void {
     set({ connected: false })
     if (e.code === 4001) {
       void unpair()
-      set({ lastError: 'The Mac unpaired this phone.' })
+      set({ lastError: 'The Mac unpaired this device.' })
       return
     }
     scheduleReconnect()

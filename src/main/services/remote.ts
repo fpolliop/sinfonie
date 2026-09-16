@@ -10,7 +10,12 @@
  */
 import { app, powerMonitor, powerSaveBlocker, safeStorage } from 'electron'
 import { createHash, randomBytes, webcrypto } from 'crypto'
-import { hostname } from 'os'
+import { hostname as osHostname } from 'os'
+
+/** The Mac's name as the phone shows it: "Franciscos-MacBook-Pro.local" reads better as "Franciscos MacBook Pro". */
+function hostname(): string {
+  return osHostname().replace(/\.local$/i, '').replace(/-/g, ' ').trim() || osHostname()
+}
 import QRCode from 'qrcode'
 import { getStore } from '../store'
 import { getTranscript } from './transcripts'

@@ -78,7 +78,7 @@ export function CrewModelSelect({ value, onChange, className, allowDefault, defa
       {allowDefault && <option value="">{defaultLabel ?? 'default'}</option>}
       {value && !known.has(value) && <option value={value}>{modelLabel(value, providers)} (custom)</option>}
       {MODEL_GROUPS.map((g) => (
-        <optgroup key={g.label} label={`Claude · your Claude login · ${g.label.toLowerCase()}`}>
+        <optgroup key={g.label} label={`Claude · Anthropic account · ${g.label.toLowerCase()}`}>
           {g.options.map((o) => (
             <option key={o.id} value={o.id}>
               {o.label}
