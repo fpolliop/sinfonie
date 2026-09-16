@@ -230,7 +230,30 @@ function PreferencesPage(): React.JSX.Element {
   return (
     <div className="max-w-[560px]">
       <ModeField />
+      <NotificationsField />
     </div>
+  )
+}
+
+/** Desktop notifications are opt-in: the macOS permission prompt appears here, deliberately, not mid-session. */
+function NotificationsField(): React.JSX.Element {
+  const enabled = useApp((s) => Boolean(s.settings.desktopNotifications))
+  const go = useGo()
+  const [state, setState] = React.useState<NotificationPermission | 'unsupported'>(() => (typeof Notification === 'undefined' ? 'unsupported' : Notification.permission))
+  const toggle = async (on: boolean): Promise<void> => {
+    if (!on) return go(() => api.invoke('settings:update', { desktopNotifications: false }))
+    if (typeof Notification === 'undefined') return
+    const perm = Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission()
+    setState(perm)
+    if (perm === 'granted') await go(() => api.invoke('settings:update', { desktopNotifications: true }))
+  }
+  return (
+    <Field label="Notifications" hint={state === 'denied' ? 'macOS is blocking notifications for Sinfonie. Allow them under System Settings → Notifications → Sinfonie, then switch this on.' : 'A notification when a turn finishes while Sinfonie is in the background. macOS asks for permission the first time you switch this on.'}>
+      <label className="flex items-center gap-2 text-[13px]">
+        <input type="checkbox" checked={enabled && state === 'granted'} disabled={state === 'unsupported'} onChange={(e) => void toggle(e.target.checked)} />
+        Tell me when a turn finishes in the background
+      </label>
+    </Field>
   )
 }
 

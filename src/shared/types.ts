@@ -765,6 +765,8 @@ export interface Settings {
   /** First-run setup, tour and getting-started checklist state. */
   onboarding?: { setupDoneAt?: string; tourDoneAt?: string; checklistDismissedAt?: string }
   maestro?: MaestroSettings
+  /** Desktop notification when a turn finishes while the app is in the background. Off until the user opts in under Preferences. */
+  desktopNotifications?: boolean
   /** The user's own todo statuses, shown as board columns between In progress and Done. */
   noteStatuses?: NoteStatusDef[]
   resources?: ResourceSettings
