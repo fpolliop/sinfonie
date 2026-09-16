@@ -20,18 +20,37 @@ export function Button({ variant = 'subtle', size = 'md', className, ...rest }: 
   )
 }
 
+/**
+ * Modal stack: every open Dialog counts itself so window-level Escape handlers (SettingsWindow, panes) can step
+ * aside while one is up. Dialog handles Escape in the capture phase and stops it from reaching anyone else.
+ */
+let dialogDepth = 0
+export const pushModal = (): void => {
+  dialogDepth += 1
+}
+export const popModal = (): void => {
+  dialogDepth = Math.max(0, dialogDepth - 1)
+}
+export const hasOpenDialog = (): boolean => dialogDepth > 0
+
 export function Dialog({ title, onClose, children, width = 520 }: { title: string; onClose: () => void; children: React.ReactNode; width?: number }): React.JSX.Element {
   // Native browser pages draw above the DOM; hide them while a modal is open.
   useEffect(() => {
+    pushModal()
     void window.sinfonie.invoke('browser:suspend', true)
-    return () => void window.sinfonie.invoke('browser:suspend', false)
+    return () => {
+      popModal()
+      void window.sinfonie.invoke('browser:suspend', false)
+    }
   }, [])
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose()
+      if (e.key !== 'Escape') return
+      onClose()
+      e.stopImmediatePropagation()
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    window.addEventListener('keydown', onKey, { capture: true })
+    return () => window.removeEventListener('keydown', onKey, { capture: true })
   }, [onClose])
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 no-drag" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>

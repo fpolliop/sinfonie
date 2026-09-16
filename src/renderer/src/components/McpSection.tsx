@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Plus, Trash2, Download, Plug } from 'lucide-react'
+import { Plus, Trash2, Download, Plug, Pencil } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { Badge, Button, Field, inputCls } from './ui'
@@ -130,9 +130,9 @@ export function McpSection({ servers, onChange, title, intro, jira, linear, stri
                 setAdding(true)
               }}
             >
-              ✎
+              <Pencil size={13} />
             </button>
-            <button className="rounded p-1 text-muted hover:text-danger" title="Remove" onClick={() => onChange(servers.filter((x) => x.id !== s.id))}>
+            <button className="rounded p-1 text-muted hover:text-danger" title="Remove" onClick={() => window.confirm(`Remove MCP server "${s.name}"? New sessions no longer get its tools.`) && onChange(servers.filter((x) => x.id !== s.id))}>
               <Trash2 size={13} />
             </button>
           </div>

@@ -59,7 +59,7 @@ export function LinearSection({ connId, title, intro }: { connId: string; title?
           )}
         </div>
         {linear.connected ? (
-          <Button size="sm" onClick={() => void api.invoke('linear:disconnect', connId).then(() => setStatus(null)).catch((e) => setError(String(e)))}>
+          <Button size="sm" onClick={() => window.confirm('Disconnect Linear? You will need to sign in again.') && void api.invoke('linear:disconnect', connId).then(() => setStatus(null)).catch((e) => setError(String(e)))}>
             Disconnect
           </Button>
         ) : (

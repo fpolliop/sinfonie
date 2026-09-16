@@ -9,7 +9,7 @@ import type { RemoteSettings, RemoteStatus } from '@shared/types'
 const EMPTY: RemoteSettings = {}
 
 /**
- * Application → Phone: pair a phone with this Mac. The QR carries the pairing key in the URL
+ * Settings → Devices: pair a phone or tablet with this Mac. The QR carries the pairing key in the URL
  * fragment; the relay only ever sees encrypted envelopes and notification titles.
  */
 export function RemotePage(): React.JSX.Element {
@@ -39,11 +39,13 @@ export function RemotePage(): React.JSX.Element {
       setPairing(await api.invoke('remote:pair'))
       setStatus(await api.invoke('remote:status'))
     })
-  const unpair = (): Promise<void> =>
-    run(async () => {
+  const unpair = (): Promise<void> => {
+    if (!window.confirm('Unpair all devices? Every paired phone and tablet stops working until it scans a new code.')) return Promise.resolve()
+    return run(async () => {
       setPairing(null)
       setStatus(await api.invoke('remote:unpair'))
     })
+  }
   const update = (patch: Record<string, unknown>): void => {
     void api.invoke('remote:updateSettings', patch).catch((err) => setError(err instanceof Error ? err.message : String(err)))
   }
@@ -105,9 +107,9 @@ export function RemotePage(): React.JSX.Element {
             <div className="h-[220px] w-[220px] shrink-0 rounded-md bg-panel-2 p-2 [&>svg]:h-full [&>svg]:w-full" dangerouslySetInnerHTML={{ __html: pairing.qrSvg }} />
             <div className="text-[12px] text-muted">
               <ol className="list-decimal space-y-1.5 pl-4">
-                <li>Install Sinfonie on the device (App Store or Google Play) and scan this code from its Pair screen.</li>
+                <li>Install Sinfonie on the device (TestFlight or Play beta for now) and scan this code from its Pair screen.</li>
                 <li>Or scan it with the camera: it opens sinfonie.dev/m, a web version you can add to the home screen.</li>
-                <li>Tap "Enable notifications" so it can wake you when an agent needs you.</li>
+                <li>Tap "Register this device for push" so it can wake you when an agent needs you.</li>
               </ol>
               <p className="mt-2">Scan the same code on every device you want — your iPhone and iPad can both be paired, and they stay in sync and both get notifications.</p>
               <p className="mt-2">The link holds the pairing key, so treat it like a password. Anyone who has it can read and reply to your workspaces. Unpair here if a device is lost (this signs out every paired device).</p>
@@ -126,7 +128,22 @@ export function RemotePage(): React.JSX.Element {
         <div className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-muted">Notifications</div>
         <Field label="Only when I have been away from the Mac for" hint="Prompts and results are pushed only if the Mac has had no input for this long. Set 0 to always push.">
           <div className="flex items-center gap-2">
-            <input type="number" min={0} max={120} className={`${inputCls} w-24`} value={settings.awayMinutes ?? 1} onChange={(e) => update({ awayMinutes: Math.max(0, Math.min(120, Number(e.target.value) || 0)) })} />
+            <input
+              type="number"
+              min={0}
+              max={120}
+              className={`${inputCls} w-24`}
+              key={settings.awayMinutes ?? 1}
+              defaultValue={settings.awayMinutes ?? 1}
+              onBlur={(e) => {
+                const raw = e.target.value.trim()
+                if (raw === '') return
+                const n = Number(raw)
+                if (!Number.isFinite(n)) return
+                const next = Math.max(0, Math.min(120, Math.round(n)))
+                if (next !== (settings.awayMinutes ?? 1)) update({ awayMinutes: next })
+              }}
+            />
             <span className="text-[12px] text-muted">minutes</span>
           </div>
         </Field>

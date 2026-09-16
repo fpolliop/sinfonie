@@ -7,11 +7,11 @@ import { useApp } from '@/stores/app'
 import { Badge, Button, Field, inputCls } from './ui'
 import { ModelSelect } from './ModelSelect'
 import { AccountPicker } from './AccountPicker'
-import type { OnCallChannel, OnCallSettings as OnCallSettingsT } from '@shared/types'
+import type { OnCallChannel, OnCallSettings as OnCallSettingsT, Space } from '@shared/types'
 
 const DEFAULTS: OnCallSettingsT = { enabled: false, channels: [], pollSeconds: 60, maxTriagesPerHour: 12, context: '' }
 
-/** Application → On call: the Slack connection, which channels to watch, and how the triage agent runs. */
+/** Settings → On call: the Slack connection, which channels to watch, and how the triage agent runs. */
 export function OnCallSettings({ spaceId = '' }: { spaceId?: string }): React.JSX.Element {
   const settings = useApp((s) => s.settings)
   const spaces = useApp((s) => s.spaces)
@@ -32,7 +32,9 @@ export function OnCallSettings({ spaceId = '' }: { spaceId?: string }): React.JS
       setError(err instanceof Error ? err.message : String(err))
     }
   }
-  const update = (patch: Partial<OnCallSettingsT>): Promise<unknown> => (spaceId ? api.invoke('spaces:update', spaceId, { oncall: { ...(space?.oncall ?? { enabled: false, channels: [], pollSeconds: oc.pollSeconds, maxTriagesPerHour: oc.maxTriagesPerHour, context: '' }), ...patch } }) : api.invoke('settings:update', { oncall: { ...oc, ...patch } }))
+  // A space stores only what it overrides; the main process fills the rest from the app values, so an
+  // untouched field keeps following Settings → On call. Seeding every field here would freeze them all.
+  const update = (patch: Partial<OnCallSettingsT>): Promise<unknown> => (spaceId ? api.invoke('spaces:update', spaceId, { oncall: { ...(space?.oncall ?? {}), ...patch } as NonNullable<Space['oncall']> }) : api.invoke('settings:update', { oncall: { ...oc, ...patch } }))
   const addChannel = (c: { id: string; name: string }, kind: OnCallChannel['kind']): void => {
     if (oc.channels.some((x) => x.id === c.id)) return
     void go(() => update({ channels: [...oc.channels, { id: c.id, name: c.name, kind }] }))
@@ -112,7 +114,7 @@ export function OnCallSettings({ spaceId = '' }: { spaceId?: string }): React.JS
         <Field label="Model" hint="Claude Code model for triage runs.">
           <ModelSelect value={oc.model ?? ''} onChange={(model) => go(() => update({ model: model || undefined }))} allowDefault defaultLabel="App default" />
         </Field>
-        <Field label="Account" hint="Which Claude login pays for triage.">
+        <Field label="Account" hint="Which agent account pays for triage.">
           <AccountPicker value={oc.claudeAccountId ?? ''} onChange={(id) => go(() => update({ claudeAccountId: id || undefined }))} always engine="claude-code" />
         </Field>
         <Field label="Check every (seconds)" hint="How often Slack is polled. 15 minimum.">

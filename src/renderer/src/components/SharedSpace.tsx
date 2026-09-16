@@ -60,7 +60,7 @@ export function SharedSpaceSection({ space }: { space: Space }): React.JSX.Eleme
               <Button size="sm" disabled={busy === 'write'} onClick={() => void run('write', () => api.invoke('shared:export', space.id, space.shared?.repoId ?? repoId).then(check))} title="Write this space's current settings to the file">
                 <Upload size={12} /> Write file
               </Button>
-              <Button size="sm" variant="ghost" disabled={busy === 'unlink'} onClick={() => void run('unlink', () => api.invoke('shared:unlink', space.id))} title="Stop following the file; the space keeps everything">
+              <Button size="sm" variant="ghost" disabled={busy === 'unlink'} onClick={() => window.confirm('Unlink this space from its shared file? Your edits no longer reach the team; the space keeps everything.') && void run('unlink', () => api.invoke('shared:unlink', space.id))} title="Stop following the file; the space keeps everything">
                 <Link2Off size={12} />
               </Button>
             </span>
@@ -145,7 +145,7 @@ function OrgShareCard({ space }: { space: Space }): React.JSX.Element {
             <Button size="sm" disabled={busy === 'push'} onClick={() => void run('push', () => api.invoke('orgSpaces:publish', space.id, org.id))} title="Push this space's current settings to the organisation">
               <Upload size={12} /> Push
             </Button>
-            <Button size="sm" variant="ghost" disabled={busy === 'unshare'} onClick={() => void run('unshare', () => api.invoke('orgSpaces:unshare', space.id, false))} title="Stop syncing; the space stays on this Mac">
+            <Button size="sm" variant="ghost" disabled={busy === 'unshare'} onClick={() => window.confirm('Stop syncing this space with the organisation? Your edits no longer reach the team; the space stays on this Mac.') && void run('unshare', () => api.invoke('orgSpaces:unshare', space.id, false))} title="Stop syncing; the space stays on this Mac">
               <Link2Off size={12} />
             </Button>
             {org.role === 'admin' && (

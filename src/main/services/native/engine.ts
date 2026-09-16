@@ -7,7 +7,7 @@ import { ToolLoopAgent, stepCountIs, tool, type ModelMessage, type ToolApprovalR
 import { z } from 'zod'
 import { createMCPClient, type MCPClient } from '@ai-sdk/mcp'
 import { Experimental_StdioMCPTransport as StdioMCPTransport } from '@ai-sdk/mcp/mcp-stdio'
-import type { AgentEvent, AgentSpec, McpServerSpec, PermissionMode, SubagentStep, Workspace } from '@shared/types'
+import type { AgentEvent, AgentSpec, McpServerSpec, PermissionMode, Workspace } from '@shared/types'
 import { parseModelRef } from '@shared/types'
 import { getStore } from '../../store'
 import * as library from '../agents'
@@ -98,7 +98,6 @@ function modelRefFor(ws: Workspace): string {
 
 function systemPrompt(ws: Workspace, crew: AgentSpec[], mcpNames: string[]): string {
   const primary = ws.repos.find((r) => r.repoId === ws.primaryRepoId) ?? ws.repos[0]
-  const wsCwd = primary?.worktreePath ?? ws.rootPath
   const lines = [
     `You are Sinfonie's coding agent working inside the workspace "${ws.name}", which spans ${ws.repos.length} git repositories, each checked out as a worktree on branch "${(primary?.branch ?? ws.slug)}":`,
     ...ws.repos.map((r) => `- ${r.repoName}: ${r.worktreePath} (based on ${r.baseBranch})`),

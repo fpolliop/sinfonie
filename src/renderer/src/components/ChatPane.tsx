@@ -76,7 +76,7 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
     <div className="flex h-full flex-col">
       {claude && !guided && (
         <div className="flex h-[30px] shrink-0 items-center gap-2 border-b border-border px-3">
-          <span className="text-[11px] text-muted">{mode === 'cli' ? 'The real Claude Code, on this conversation. Permissions, cost and the phone keep working.' : 'Agent'}</span>
+          <span className="text-[11px] text-muted">{mode === 'cli' ? 'The real Claude Code, on this conversation. Permissions, cost and your devices keep working.' : 'Agent'}</span>
           <div className="ml-auto flex rounded-md border border-border p-0.5 text-[11px]">
             {(['chat', 'cli'] as AgentMode[]).map((m) => (
               <button key={m} className={clsx('rounded px-2 py-0.5', mode === m ? 'bg-panel-2 text-text' : 'text-muted hover:text-text')} onClick={() => switchTo(m)} title={m === 'chat' ? 'Sinfonie chat through the Agent SDK' : "Claude Code's own terminal UI, same session"}>

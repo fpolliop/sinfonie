@@ -191,7 +191,7 @@ export function NotesView(): React.JSX.Element {
           <option value="agent">Agents</option>
         </select>
         <select className={select} value={kind} onChange={(e) => setKind(e.target.value as typeof kind)}>
-          <option value="all">Todos and notes</option>
+          <option value="all">Todos &amp; notes</option>
           <option value="todo">Todos</option>
           <option value="note">Notes</option>
         </select>

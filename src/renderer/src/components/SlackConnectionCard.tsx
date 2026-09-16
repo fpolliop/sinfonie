@@ -62,7 +62,7 @@ export function SlackConnectionCard({ connId = '', intro }: { connId?: string; i
                   Save client
                 </Button>
                 {slack.hasClient && (
-                  <Button size="sm" variant="ghost" onClick={() => go(() => api.invoke('oncall:slackClearClient', connId).then(setLive))}>
+                  <Button size="sm" variant="ghost" onClick={() => window.confirm('Use Sinfonie’s Slack client instead? Your own client id and secret are removed from this Mac.') && go(() => api.invoke('oncall:slackClearClient', connId).then(setLive))}>
                     Use Sinfonie&apos;s client instead
                   </Button>
                 )}
@@ -76,7 +76,11 @@ export function SlackConnectionCard({ connId = '', intro }: { connId?: string; i
             <Button size="sm" variant="ghost" className="ml-auto" title="Ask Slack's MCP server whether this sign-in is accepted, and show its exact answer" onClick={() => go(async () => setMcpTest(await api.invoke('slack:testMcp', connId)))}>
               Test MCP
             </Button>
-            <Button size="sm" variant="ghost" onClick={() => go(() => api.invoke('oncall:slackDisconnect', connId))}>
+            <Button size="sm" variant="ghost" onClick={() => window.confirm('Disconnect Slack? On-call stops watching Slack until you reconnect.') && go(async () => {
+              await api.invoke('oncall:slackDisconnect', connId)
+              setLive(null)
+              setMcpTest(null)
+            })}>
               Disconnect
             </Button>
           </div>

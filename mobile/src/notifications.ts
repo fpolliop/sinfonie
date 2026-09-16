@@ -92,7 +92,7 @@ export async function enablePush(): Promise<{ ok: boolean; reason?: string }> {
   const cur = await Notifications.getPermissionsAsync()
   let status = cur.status
   if (status !== 'granted') status = (await Notifications.requestPermissionsAsync()).status
-  if (status !== 'granted') return { ok: false, reason: 'Notifications are not allowed for Sinfonie in the phone settings.' }
+  if (status !== 'granted') return { ok: false, reason: "Notifications are not allowed for Sinfonie in this device's settings." }
   const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId
   if (!projectId) return { ok: false, reason: 'This build has no EAS project id, so it cannot get a push token.' }
   const token = (await Notifications.getExpoPushTokenAsync({ projectId })).data

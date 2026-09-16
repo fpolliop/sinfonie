@@ -429,6 +429,9 @@ export interface SinfonieEvents {
   /** A scheduled run's notification was clicked: open that agent. */
   'ui:openAgent': { agentId: string }
   'ui:openWorkspace': { workspaceId: string }
+  /** Menu items: toggle Maestro, open the New workspace dialog. */
+  'ui:openMaestro': Record<string, never>
+  'ui:newWorkspace': Record<string, never>
   /** A new error was logged; the sidebar badge updates. */
   'errors:new': ErrorEntry
   /** Memory and process sample, every few seconds. */

@@ -21,7 +21,7 @@ const ACTIVE = ['new', 'triaging', 'open', 'waiting']
 const sevTone = (s?: Severity): 'danger' | 'warn' | 'accent' | 'muted' => (s === 'critical' ? 'danger' : s === 'high' ? 'warn' : s === 'medium' ? 'accent' : 'muted')
 const needsYou = (i: RemoteIncident): boolean => i.needsHuman || i.proposals.some((p) => p.status === 'proposed')
 
-/** On-call incidents across your teams: Slack-sourced, triaged on the Mac. Tap one to act on it. */
+/** On-call incidents across your spaces: Slack-sourced, triaged on the Mac. Tap one to act on it. */
 export function OnCallScreen(): React.JSX.Element {
   const nav = useNavigation<DrawerNavigationProp<DrawerParams>>()
   const onCall = useStore((s) => s.onCall)
@@ -86,7 +86,7 @@ export function OnCallScreen(): React.JSX.Element {
         renderItem={({ item }) => <IncidentRow inc={item} onPress={() => nav.getParent<NativeStackNavigationProp<RootStack>>()?.navigate('Incident', { id: item.id })} />}
         ListEmptyComponent={
           loading ? (
-            <EmptyState icon="cloud-download-outline" title="Loading incidents…" body="Gathering the incidents your Mac is watching across your teams." />
+            <EmptyState icon="cloud-download-outline" title="Loading incidents…" body="Gathering the incidents your Mac is watching across your spaces." />
           ) : running ? (
             <EmptyState icon="shield-checkmark-outline" title="All quiet" body="No incidents in this view. New alerts and support messages from your watched channels show up here." />
           ) : (

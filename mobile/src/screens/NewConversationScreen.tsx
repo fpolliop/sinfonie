@@ -9,7 +9,7 @@ import { Dot, Icon, IconButton } from '../ui'
 import { clearCreated, createConversation, useStore } from '../store'
 import type { RootStack } from '../App'
 
-/** Start a conversation from the phone: pick a team, describe the task, and the Mac creates the workspace. */
+/** Start a conversation from this device: pick a space, describe the task, and the Mac creates the workspace. */
 export function NewConversationScreen(): React.JSX.Element {
   const nav = useNavigation<NativeStackNavigationProp<RootStack>>()
   const { params } = useRoute<RouteProp<RootStack, 'NewConversation'>>()
@@ -58,13 +58,13 @@ export function NewConversationScreen(): React.JSX.Element {
         contentContainerStyle={{ padding: S.md, gap: S.md }} keyboardShouldPersistTaps="handled">
           {spaces.length > 1 && (
             <View>
-              <Text style={s.label}>Team</Text>
+              <Text style={s.label}>Space</Text>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                 {spaces.map((sp) => (
                   <Pressable key={sp.id} onPress={() => setSpaceId(sp.id)} style={[s.space, spaceId === sp.id && { borderColor: sp.color, backgroundColor: C.panel2 }]}>
                     <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: sp.color }} />
                     <Text style={{ color: C.text, fontSize: 13 }}>{sp.name}</Text>
-                    <Text style={{ color: C.dim, fontSize: 11 }}>{sp.repoCount} app{sp.repoCount === 1 ? '' : 's'}</Text>
+                    <Text style={{ color: C.dim, fontSize: 11 }}>{sp.repoCount} {sp.repoCount === 1 ? 'repository' : 'repositories'}</Text>
                   </Pressable>
                 ))}
               </View>
@@ -77,13 +77,13 @@ export function NewConversationScreen(): React.JSX.Element {
               value={text}
               onChangeText={setText}
               editable={!busy}
-              placeholder="Describe the task. The agent works in this team's repos and you follow along here."
+              placeholder="Describe the task. The agent works in this space's repositories and you follow along here."
               placeholderTextColor={C.dim}
               multiline
               style={s.input}
             />
           </View>
-          <Text style={T.small}>The Mac creates a workspace in the chosen team and starts the agent on it. This can take a moment while it sets up the folders.</Text>
+          <Text style={T.small}>The Mac creates a workspace in the chosen space and starts the agent on it. This can take a moment while it sets up the folders.</Text>
         </ScrollView>
         <View style={[s.footer, { paddingBottom: Math.max(insets.bottom, 10) }]}>
           <Pressable onPress={start} disabled={!text.trim() || busy} style={({ pressed }) => [s.start, (!text.trim() || busy) && { opacity: 0.5 }, pressed && { opacity: 0.85 }]}>

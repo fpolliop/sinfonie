@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { Plus, Settings, Archive, Pencil, Folder, Code2, TerminalSquare, Trash2, GitPullRequest, Layers, ArrowDownWideNarrow, ArrowUpNarrowWide, Filter, ChevronRight, MessageSquarePlus, Siren, Activity, Sparkles, Users2, Bot, StickyNote, Wand2 } from 'lucide-react'
+import { Plus, Settings, Archive, Pencil, Folder, Code2, TerminalSquare, Trash2, GitPullRequest, Layers, ArrowDownWideNarrow, ArrowUpNarrowWide, Filter, ChevronRight, MessageSquarePlus, Siren, Activity, Users2, Bot, StickyNote, Wand2 } from 'lucide-react'
 import { ERRORS_SEEN_KEY } from './FeedbackDialog'
 import { useResources, subscribeResources, gb } from '@/stores/resources'
 import { useOnCall, subscribeOnCall } from '@/stores/oncall'
@@ -139,7 +139,6 @@ export function Sidebar(): React.JSX.Element {
         <button data-tour="new-workspace" className="no-drag rounded-md p-1.5 text-muted hover:bg-panel-2 hover:text-text" title={`${t.newWorkspace} (⇧⌘N)`} onClick={() => setShowNewWorkspace(true, currentId)}>
           <Plus size={16} />
         </button>
-        {!guided && <AssistantButton />}
         <FeedbackButton />
         <button data-tour="settings" className="no-drag rounded-md p-1.5 text-muted hover:bg-panel-2 hover:text-text" title="Settings (⌘,)" onClick={() => setShowSettings(true)}>
           <Settings size={16} />
@@ -291,25 +290,23 @@ export function Sidebar(): React.JSX.Element {
           y={spaceMenu.y}
           onClose={() => setSpaceMenu(null)}
           entries={[
-            { label: 'Rename', icon: <Pencil size={14} />, onClick: () => setRenaming(spaceMenu.id) },
             { label: 'Space settings…', icon: <Settings size={14} />, onClick: () => setSpaceSettings(spaceMenu.id) },
             { label: 'Rename space…', icon: <Pencil size={14} />, onClick: () => setRenaming(spaceMenu.id) },
             { label: 'New workspace here', icon: <Plus size={14} />, onClick: () => setShowNewWorkspace(true, spaceMenu.id) },
             { separator: true },
-            { label: 'Delete space', icon: <Trash2 size={14} />, danger: true, onClick: () => run(() => api.invoke('spaces:delete', spaceMenu.id)) }
+            {
+              label: 'Delete space',
+              icon: <Trash2 size={14} />,
+              danger: true,
+              onClick: () => {
+                const name = spaces.find((s) => s.id === spaceMenu.id)?.name ?? 'this space'
+                if (window.confirm(`Delete space "${name}"? Its workspaces and repositories move to "No space"; its crew overrides, on-call channels and integrations are lost.`)) void run(() => api.invoke('spaces:delete', spaceMenu.id))
+              }
+            }
           ]}
         />
       )}
     </aside>
-  )
-}
-
-/** Opens the assistant: one conversation that knows every space, workspace, agent, note and integration, and can act on them. */
-function AssistantButton(): React.JSX.Element {
-  return (
-    <button data-tour="assistant" className="no-drag rounded-md p-1.5 text-muted hover:bg-panel-2 hover:text-text" title="Maestro (⇧⌘A)" onClick={() => void openMaestro()}>
-      <Sparkles size={16} />
-    </button>
   )
 }
 

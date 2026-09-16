@@ -3,10 +3,11 @@ import { CheckCircle2, Circle, X } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { useGuided } from '@/lib/guided'
+import { openMaestro } from '@/stores/maestro'
 
 /** Eight things a new install does, ticked from real state. Lives on the empty page until dismissed or done. */
 export function GettingStarted(): React.JSX.Element | null {
-  const { settings, spaces, repos, workspaces, agents, openSettings, setShowNewWorkspace, setView, setOnboarding, setAssistantOpen } = useApp()
+  const { settings, spaces, repos, workspaces, agents, openSettings, setShowNewWorkspace, setView, setOnboarding } = useApp()
   const [reviewed, setReviewed] = useState(false)
   const [assisted, setAssisted] = useState(false)
   useEffect(() => {
@@ -23,7 +24,7 @@ export function GettingStarted(): React.JSX.Element | null {
   if (settings.onboarding?.checklistDismissedAt) return null
   const orgs = settings.cloud?.account?.orgs ?? []
   const items = guided ? [
-    { done: settings.claudeAccounts.some((a) => a.loggedIn), text: 'Sign in to Claude', go: () => openSettings({ scope: 'app', page: 'accounts' }) },
+    { done: settings.claudeAccounts.some((a) => a.loggedIn), text: 'Sign in to an agent', go: () => openSettings({ scope: 'app', page: 'accounts' }) },
     { done: orgs.length > 0, text: 'Join your team', go: () => openSettings({ scope: 'app', page: 'plan' }) },
     { done: workspaces.length > 0, text: 'Start a task', go: () => setShowNewWorkspace(true) },
     { done: workspaces.some((w) => w.stage === 'in-review' || w.stage === 'done'), text: 'Send one for review', go: () => workspaces[0] && useApp.getState().select(workspaces[0].id) }
@@ -34,7 +35,11 @@ export function GettingStarted(): React.JSX.Element | null {
     { done: workspaces.length > 0, text: 'Create a workspace', go: () => setShowNewWorkspace(true) },
     { done: workspaces.some((w) => w.sessionId || Object.keys(w).some((k) => k.startsWith('acp:'))), text: 'Send a first message', go: () => workspaces[0] && useApp.getState().select(workspaces[0].id) },
     { done: reviewed, text: 'Run an AI review on a pull request', go: () => setView('reviews') },
-    { done: assisted || agents.some((a) => a.source !== 'builtin'), text: 'Create an agent, or let the assistant design your crew', go: () => setView('agents') },
+    {
+      done: assisted || agents.some((a) => a.source !== 'builtin'),
+      text: 'Let Maestro design your crew, or create an agent',
+      go: () => void openMaestro({ fresh: true, prompt: 'Help me set up my crew: interview me about how we build, test, review and ship, then propose the agents.' })
+    },
     { done: spaces.some((s) => (s.databases?.length ?? 0) > 0 || Boolean(s.gcp?.projectId)) || Boolean(settings.gcp?.projectId), text: 'Connect a database or Google Cloud', go: () => (spaces[0] ? openSettings({ scope: 'space', spaceId: spaces[0].id, page: 'databases' }) : openSettings({ scope: 'app', page: 'gcp' })) }
   ]
   const left = items.filter((i) => !i.done).length

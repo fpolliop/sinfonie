@@ -98,7 +98,7 @@ export function TeamSection({ signedIn }: { signedIn: boolean }): React.JSX.Elem
                   {e.primary && <Badge tone="accent">primary</Badge>}
                   {e.provider && <span className="text-[11px] text-muted">via {e.provider}</span>}
                   {!e.primary && (
-                    <Button size="sm" variant="ghost" className="ml-auto" disabled={busy === `rm-email:${e.email}`} onClick={() => void run(`rm-email:${e.email}`, () => api.invoke('cloud:removeEmail', e.email))} title="Remove this email">
+                    <Button size="sm" variant="ghost" className="ml-auto" disabled={busy === `rm-email:${e.email}`} onClick={() => window.confirm(`Remove ${e.email} from your account? Invites sent to it no longer reach you.`) && void run(`rm-email:${e.email}`, () => api.invoke('cloud:removeEmail', e.email))} title="Remove this email">
                       <X size={12} />
                     </Button>
                   )}
@@ -179,7 +179,7 @@ export function TeamSection({ signedIn }: { signedIn: boolean }): React.JSX.Elem
                       <Plus size={12} /> Invite link
                     </Button>
                   )}
-                  <Button size="sm" variant="ghost" disabled={busy === `leave:${org.id}`} onClick={() => void run(`leave:${org.id}`, () => api.invoke('cloud:leaveOrg', org.id))} title="Leave this organisation">
+                  <Button size="sm" variant="ghost" disabled={busy === `leave:${org.id}`} onClick={() => window.confirm(`Leave ${org.name}? Its shared spaces stop syncing to this Mac; local copies stay.`) && void run(`leave:${org.id}`, () => api.invoke('cloud:leaveOrg', org.id))} title="Leave this organisation">
                     <LogOut size={12} />
                   </Button>
                   {admin && org.members.length === 1 && (
@@ -204,7 +204,7 @@ export function TeamSection({ signedIn }: { signedIn: boolean }): React.JSX.Elem
                       <Badge>{m.role}</Badge>
                     )}
                     {admin && (
-                      <Button size="sm" variant="ghost" className="ml-auto" disabled={busy === `rm:${m.id}`} onClick={() => void run(`rm:${m.id}`, () => api.invoke('cloud:removeMember', org.id, m.id))} title="Remove from the organisation">
+                      <Button size="sm" variant="ghost" className="ml-auto" disabled={busy === `rm:${m.id}`} onClick={() => window.confirm(`Remove ${m.name || m.login} from ${org.name}? They lose access to its shared spaces.`) && void run(`rm:${m.id}`, () => api.invoke('cloud:removeMember', org.id, m.id))} title="Remove from the organisation">
                         <UserMinus size={12} />
                       </Button>
                     )}
@@ -271,7 +271,7 @@ export function TeamSection({ signedIn }: { signedIn: boolean }): React.JSX.Elem
                           </Button>
                         )}
                         {admin && (
-                          <Button size="sm" variant="ghost" className="ml-auto" disabled={busy === `rm-domain:${d.domain}`} onClick={() => void run(`rm-domain:${d.domain}`, () => api.invoke('cloud:removeDomain', org.id, d.domain))} title="Remove this domain">
+                          <Button size="sm" variant="ghost" className="ml-auto" disabled={busy === `rm-domain:${d.domain}`} onClick={() => window.confirm(`Remove the domain ${d.domain}? People with that email no longer join ${org.name} automatically.`) && void run(`rm-domain:${d.domain}`, () => api.invoke('cloud:removeDomain', org.id, d.domain))} title="Remove this domain">
                             <Trash2 size={12} />
                           </Button>
                         )}
@@ -311,7 +311,7 @@ export function TeamSection({ signedIn }: { signedIn: boolean }): React.JSX.Elem
                       <Button size="sm" variant="ghost" onClick={() => void copy(inv.url)}>
                         {copied === inv.url ? <Check size={12} /> : <Copy size={12} />}
                       </Button>
-                      <Button size="sm" variant="ghost" disabled={busy === `revoke:${inv.token}`} onClick={() => void run(`revoke:${inv.token}`, () => api.invoke('cloud:revokeInvite', org.id, inv.token))} title="Revoke">
+                      <Button size="sm" variant="ghost" disabled={busy === `revoke:${inv.token}`} onClick={() => window.confirm('Revoke this invite link? Anyone who still has it can no longer join.') && void run(`revoke:${inv.token}`, () => api.invoke('cloud:revokeInvite', org.id, inv.token))} title="Revoke">
                         <Trash2 size={12} />
                       </Button>
                     </div>

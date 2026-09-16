@@ -33,7 +33,7 @@ function slugName(text: string): string {
 }
 
 export async function planTask(spaceId: string, description: string): Promise<TaskPlan> {
-  const { settings, repos, spaces } = getStore().get()
+  const { repos, spaces } = getStore().get()
   const space = spaces.find((s) => s.id === spaceId)
   const apps = repos.filter((r) => r.spaceId === spaceId)
   const fallback: TaskPlan = { repoIds: apps.map((r) => r.id), name: slugName(description) }

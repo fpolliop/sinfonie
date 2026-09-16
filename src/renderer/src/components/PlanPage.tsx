@@ -30,7 +30,7 @@ import { PLAN_LABELS, PLAN_LIMITS, type BillingPeriod, type Plan, type PlanLimit
 const PRICES: Record<Exclude<Plan, 'free'>, Record<BillingPeriod, number>> = { pro: { month: 15, year: 120 }, team: { month: 30, year: 300 } }
 const PLAN_ROWS: { plan: Plan; blurb: string; points: string[] }[] = [
   { plan: 'free', blurb: 'Parallel agents on your Mac, forever.', points: ['Unlimited single-repo workspaces', 'One space with up to two repositories', 'One account per vendor'] },
-  { plan: 'pro', blurb: 'For people who work across several repositories.', points: ['Unlimited spaces and repositories per space', 'Several accounts per vendor, and the crew', 'Review cockpit, Jira, Linear, on-call agent'] },
+  { plan: 'pro', blurb: 'For people who work across several repositories.', points: ['Unlimited spaces and repositories per space', 'Several accounts per vendor, and the crew', 'Review cockpit, Jira, Linear, on-call agent', 'Maestro, databases, devices'] },
   { plan: 'team', blurb: 'Per seat. Shared spaces for the whole team.', points: ['Everything in Pro', 'Space definitions shared with your team', 'Admin, invites and central billing'] }
 ]
 
@@ -84,7 +84,7 @@ function CouponBox({ signedIn }: { signedIn: boolean }): React.JSX.Element {
   )
 }
 
-/** Application → Plan: the Sinfonie account, the current plan, and upgrades. */
+/** Settings → Plan: the Sinfonie account, the current plan, and upgrades. */
 export function PlanPage(): React.JSX.Element {
   const cloud = useApp((s) => s.settings.cloud)
   const spaces = useApp((s) => s.spaces)
@@ -156,7 +156,7 @@ export function PlanPage(): React.JSX.Element {
                 <ExternalLink size={12} /> Manage billing
               </Button>
             )}
-            <Button size="sm" variant="ghost" disabled={busy === 'signout'} onClick={() => void run('signout', () => api.invoke('cloud:signOut'))}>
+            <Button size="sm" variant="ghost" disabled={busy === 'signout'} onClick={() => window.confirm('Sign out of Sinfonie? The app falls back to the Free plan on this Mac.') && void run('signout', () => api.invoke('cloud:signOut'))}>
               <LogOut size={12} /> Sign out
             </Button>
           </div>

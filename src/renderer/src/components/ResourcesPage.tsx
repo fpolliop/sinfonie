@@ -15,7 +15,7 @@ const LEVEL: Record<PressureLevel, { label: string; tone: 'ok' | 'warn' | 'dange
   critical: { label: 'critical', tone: 'danger', bar: 'bg-danger' }
 }
 
-/** Application → Resources: what Sinfonie costs the Mac right now, per workspace, and the limits the governor enforces. */
+/** Settings → Resources: what Sinfonie costs the Mac right now, per workspace, and the limits the governor enforces. */
 export function ResourcesPage(): React.JSX.Element {
   const snap = useResources((s) => s.snapshot)
   const settings = useApp((s) => s.settings)
@@ -103,13 +103,13 @@ export function ResourcesPage(): React.JSX.Element {
       </Field>
       <div className="grid grid-cols-3 gap-3">
         <Field label="Subagents per session" hint="The orchestrator is refused beyond this and told why.">
-          <input type="number" min={1} max={32} className={inputCls} defaultValue={r.maxSubagentsPerSession} onBlur={(e) => update({ maxSubagentsPerSession: Math.max(1, Number(e.target.value) || DEFAULTS.maxSubagentsPerSession) })} />
+          <input type="number" min={1} max={32} className={inputCls} key={r.maxSubagentsPerSession} defaultValue={r.maxSubagentsPerSession} onBlur={(e) => update({ maxSubagentsPerSession: Math.max(1, Number(e.target.value) || DEFAULTS.maxSubagentsPerSession) })} />
         </Field>
         <Field label="Sessions generating at once" hint="Further messages wait for a free slot.">
-          <input type="number" min={1} max={32} className={inputCls} defaultValue={r.maxActiveSessions} onBlur={(e) => update({ maxActiveSessions: Math.max(1, Number(e.target.value) || DEFAULTS.maxActiveSessions) })} />
+          <input type="number" min={1} max={32} className={inputCls} key={r.maxActiveSessions} defaultValue={r.maxActiveSessions} onBlur={(e) => update({ maxActiveSessions: Math.max(1, Number(e.target.value) || DEFAULTS.maxActiveSessions) })} />
         </Field>
         <Field label="Memory budget, % of RAM" hint="Pressure counts as warn at 80% of it and critical at 100%.">
-          <input type="number" min={10} max={95} className={inputCls} defaultValue={r.memoryBudgetPct} onBlur={(e) => update({ memoryBudgetPct: Math.min(95, Math.max(10, Number(e.target.value) || DEFAULTS.memoryBudgetPct)) })} />
+          <input type="number" min={10} max={95} className={inputCls} key={r.memoryBudgetPct} defaultValue={r.memoryBudgetPct} onBlur={(e) => update({ memoryBudgetPct: Math.min(95, Math.max(10, Number(e.target.value) || DEFAULTS.memoryBudgetPct)) })} />
         </Field>
       </div>
       <label className="flex items-center gap-2 text-[13px]">

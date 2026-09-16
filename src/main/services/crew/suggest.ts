@@ -23,7 +23,7 @@ export async function inventory(refresh = false): Promise<ModelInventoryItem[]> 
   const { settings } = getStore().get()
   const out: ModelInventoryItem[] = []
   const claudeOk = settings.claudeAccounts.some((a) => (a.vendor ?? 'anthropic') === 'anthropic' && a.loggedIn !== false)
-  for (const m of CLAUDE_MODELS) out.push({ ref: m.id, kind: 'claude', source: 'Claude (your Claude login)', label: m.alias ? `${m.id} · ${m.label}` : m.label, price: m.price ? `$${m.price[0]} / $${m.price[1]} per M tokens` : undefined, available: claudeOk, note: m.alias ? 'alias for the newest of its tier' : undefined })
+  for (const m of CLAUDE_MODELS) out.push({ ref: m.id, kind: 'claude', source: 'Claude (Anthropic account)', label: m.alias ? `${m.id} · ${m.label}` : m.label, price: m.price ? `$${m.price[0]} / $${m.price[1]} per M tokens` : undefined, available: claudeOk, note: m.alias ? 'alias for the newest of its tier' : undefined })
   for (const p of settings.providers ?? []) {
     const kind = PROVIDER_KINDS.find((k) => k.id === p.kind)
     const local = p.kind === 'ollama' || p.kind === 'lmstudio'

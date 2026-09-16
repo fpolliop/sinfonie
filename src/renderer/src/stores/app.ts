@@ -66,10 +66,13 @@ interface AppState {
   setFeedbackDialog: (v: 'feedback' | 'errors' | null) => void
   assistantOpen: boolean
   setAssistantOpen: (v: boolean) => void
-  /** The first-run setup assistant or the spotlight tour, when one is showing. */
+  /** A first message for the Maestro conversation the next assistantOpen starts fresh with (setup hand-off). */
+  maestroSeed: string | null
+  setMaestroSeed: (s: string | null) => void
+  /** The first-run setup wizard or the spotlight tour, when one is showing. */
   onboarding: 'setup' | 'tour' | null
   setOnboarding: (v: 'setup' | 'tour' | null) => void
-  /** What the setup assistant's First space step has collected so far. */
+  /** What the setup wizard's First space step has collected so far. */
   onboardingDraft: { name: string; color: string; root: string; repos: string[]; added: Set<string> }
   setOnboardingDraft: (patch: Partial<AppState['onboardingDraft']>) => void
 
@@ -190,6 +193,8 @@ export const useApp = create<AppState>((set, get) => ({
   setFeedbackDialog: (feedbackDialog) => set({ feedbackDialog }),
   assistantOpen: false,
   setAssistantOpen: (assistantOpen) => set({ assistantOpen }),
+  maestroSeed: null,
+  setMaestroSeed: (maestroSeed) => set({ maestroSeed }),
 
   onboarding: null,
   setOnboarding: (onboarding) => set({ onboarding }),

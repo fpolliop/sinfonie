@@ -11,7 +11,7 @@ function tone(u: number): 'ok' | 'warn' | 'danger' {
 }
 const BAR: Record<'ok' | 'warn' | 'danger', string> = { ok: 'bg-ok', warn: 'bg-warn', danger: 'bg-danger' }
 
-/** Application → Usage: subscription windows per account, spend per day, and where it went. */
+/** Settings → Usage: subscription windows per account, spend per day, and where it went. */
 export function UsagePage(): React.JSX.Element {
   const snap = useUsage((s) => s.snapshot)
   const settings = useApp((s) => s.settings)
@@ -30,11 +30,11 @@ export function UsagePage(): React.JSX.Element {
 
   return (
     <div className="max-w-[820px]">
-      <p className="mb-4 text-[12px] text-muted">Subscription windows come from Claude Code itself on every turn, so they reflect all your Claude use, not only Sinfonie. Spend figures are estimates at list price; on a subscription they show relative weight, not a bill.</p>
+      <p className="mb-4 text-[12px] text-muted">Subscription windows come from the agent itself on every turn, so they reflect all your use of that account, not only Sinfonie. Spend figures are estimates at list price; on a subscription they show relative weight, not a bill.</p>
 
       <section className="mb-5">
         <div className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-muted">Subscription windows</div>
-        {(snap?.accounts ?? []).length === 0 && <div className="text-[12px] text-muted">No Claude accounts yet.</div>}
+        {(snap?.accounts ?? []).length === 0 && <div className="text-[12px] text-muted">No agent accounts yet.</div>}
         {(snap?.accounts ?? []).map((a) => (
           <div key={a.accountId} className="mb-2 rounded-lg border border-border p-3">
             <div className="mb-1.5 flex items-center gap-2 text-[13px] font-medium">
@@ -96,16 +96,16 @@ export function UsagePage(): React.JSX.Element {
         <ul className="list-disc space-y-0.5 pl-5 text-muted">
           <li>Long sessions: every message re-reads the whole context. Start a new session per task; Sinfonie nudges you past {fmtTokens(snap?.contextWarnTokens ?? 120000)} tokens.</li>
           <li>Fan-out: several subagents each cost a full context. Budget mode caps them at two.</li>
-          <li>Opus for routine work. Use the crew optimizer's cost setting, or Budget mode on a space, to keep Sonnet and Haiku on the routine parts.</li>
+          <li>Opus for routine work. Use Suggest models on the Crew page, or Budget mode on a space, to keep Sonnet and Haiku on the routine parts.</li>
         </ul>
       </section>
 
       <div className="grid grid-cols-2 gap-3">
         <Field label="Warn before a task at (% of a window)" hint="Below this Sinfonie stays quiet; at or above it asks before starting a turn and offers the alternatives.">
-          <input type="number" min={50} max={99} className={inputCls} defaultValue={snap?.warnAtPct ?? 85} onBlur={(e) => update({ warnAtPct: Math.min(99, Math.max(50, Number(e.target.value) || 85)) })} />
+          <input type="number" min={50} max={99} className={inputCls} defaultValue={settings.usage?.warnAtPct ?? 85} onBlur={(e) => update({ warnAtPct: Math.min(99, Math.max(50, Number(e.target.value) || 85)) })} />
         </Field>
         <Field label="Long-session nudge (tokens)" hint="One warning per session when its context passes this size.">
-          <input type="number" min={20000} step={10000} className={inputCls} defaultValue={snap?.contextWarnTokens ?? 120000} onBlur={(e) => update({ contextWarnTokens: Math.max(20000, Number(e.target.value) || 120000) })} />
+          <input type="number" min={20000} step={10000} className={inputCls} defaultValue={settings.usage?.contextWarnTokens ?? 120000} onBlur={(e) => update({ contextWarnTokens: Math.max(20000, Number(e.target.value) || 120000) })} />
         </Field>
       </div>
     </div>

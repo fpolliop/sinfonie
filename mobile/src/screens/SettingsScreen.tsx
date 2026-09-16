@@ -34,20 +34,20 @@ export function SettingsScreen(): React.JSX.Element {
         <SectionHeader title="Mac" />
         <View style={s.group}>
           <Row icon="laptop-outline" title={host || 'Paired Mac'} subtitle={connected ? 'Connected through the relay' : 'Reconnecting…'} right={<Badge text={connected ? 'online' : 'offline'} tone={connected ? 'ok' : 'danger'} />} first />
-          <Row icon="key-outline" iconColor={C.violet} title="End-to-end encrypted" subtitle="The key from the pairing code never leaves this phone and the Mac. The relay forwards what it cannot read." />
+          <Row icon="key-outline" iconColor={C.violet} title="End-to-end encrypted" subtitle="The key from the pairing code never leaves this device and the Mac. The relay forwards what it cannot read." />
           <Row icon="server-outline" iconColor={C.muted} title={pairing?.relay.replace(/^https?:\/\//, '') ?? ''} subtitle={`Room ${pairing?.roomId.slice(0, 12) ?? ''}…`} last />
         </View>
 
         <SectionHeader title="Notifications" />
         <View style={s.group}>
-          <Row icon="notifications-outline" title="Push notifications" subtitle={perm === 'granted' ? 'Allowed on this phone' : perm === 'denied' ? 'Blocked in the phone settings' : 'Not enabled yet'} right={<Badge text={perm === 'granted' ? 'on' : 'off'} tone={perm === 'granted' ? 'ok' : 'muted'} />} first />
+          <Row icon="notifications-outline" title="Push notifications" subtitle={perm === 'granted' ? 'Allowed on this device' : perm === 'denied' ? "Blocked in this device's settings" : 'Not enabled yet'} right={<Badge text={perm === 'granted' ? 'on' : 'off'} tone={perm === 'granted' ? 'ok' : 'muted'} />} first />
           <Row
             icon="refresh-outline"
-            title="Register this phone for push"
+            title="Register this device for push"
             subtitle={pushMsg ?? 'Run this again if notifications stop arriving.'}
             onPress={() => void enablePush().then((r) => setPushMsg(r.ok ? 'Registered with the relay.' : r.reason ?? 'Failed.'))}
           />
-          <Row icon="time-outline" iconColor={C.warn} title="When to notify" subtitle="Set on the Mac under Settings → Phone: how long the Mac must be idle, and which events to push." last />
+          <Row icon="time-outline" iconColor={C.warn} title="When to notify" subtitle="Set on the Mac under Settings → Devices: how long the Mac must be idle, and which events to push." last />
         </View>
 
         <SectionHeader title="About" />
@@ -64,12 +64,12 @@ export function SettingsScreen(): React.JSX.Element {
           <Row
             icon="unlink-outline"
             iconColor={C.danger}
-            title="Unpair this phone"
-            subtitle="Forgets the key on this phone. The Mac keeps working with other phones."
+            title="Unpair this device"
+            subtitle="Forgets the key on this device. The Mac keeps working with other devices."
             destructive
             first
             last
-            onPress={() => Alert.alert('Unpair this phone?', 'It stops receiving anything from the Mac until you scan a new code.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Unpair', style: 'destructive', onPress: () => void unpair() }])}
+            onPress={() => Alert.alert('Unpair this device?', 'It stops receiving anything from the Mac until you scan a new code.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Unpair', style: 'destructive', onPress: () => void unpair() }])}
           />
         </View>
       </ScrollView>
