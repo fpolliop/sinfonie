@@ -8,11 +8,6 @@
     "scheme": "sinfonie",
     "userInterfaceStyle": "dark",
     "backgroundColor": "#0b0d11",
-    "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#0b0d11"
-    },
     "ios": {
       "bundleIdentifier": "dev.sinfonie.app",
       "supportsTablet": true,
@@ -92,7 +87,8 @@
           "resizeMode": "contain",
           "backgroundColor": "#0b0d11"
         }
-      ]
+      ],
+      "expo-font"
     ],
     "extra": {
       "eas": {
