@@ -158,7 +158,8 @@ export const useChat = create<ChatState>((set, get) => ({
           if (!onScreen && c.busy) {
             queueMicrotask(() => set((st) => ({ unseenDone: { ...st.unseenDone, [id]: true as const } })))
             const ws = app.workspaces.find((w) => w.id === id)
-            if (ws && (!document.hasFocus() || app.selectedId !== id)) {
+            // Only after the user opted in under Preferences; never let the first background turn trigger the macOS prompt.
+            if (ws && (!document.hasFocus() || app.selectedId !== id) && app.settings.desktopNotifications && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
               try {
                 const n = new Notification(e.result.isError ? `${ws.name}: the turn failed` : `${ws.name} is done`, { body: e.result.isError ? (e.result.errorText ?? 'See the chat for details.') : `Finished in ${(e.result.durationMs / 1000).toFixed(0)}s${e.result.costUsd ? ` · $${e.result.costUsd.toFixed(2)}` : ''}. Click to open.`, silent: false })
                 n.onclick = () => {

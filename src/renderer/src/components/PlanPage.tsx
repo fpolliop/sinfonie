@@ -23,20 +23,31 @@ function GithubMark({ size = 13 }: { size?: number }): React.JSX.Element {
 }
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
+import { useGuided, words } from '@/lib/guided'
 import { Badge, Button, inputCls } from './ui'
 import { TeamSection } from './TeamSection'
 import { PLAN_LABELS, PLAN_LIMITS, type BillingPeriod, type Plan, type PlanLimits } from '@shared/types'
 
 const PRICES: Record<Exclude<Plan, 'free'>, Record<BillingPeriod, number>> = { pro: { month: 15, year: 120 }, team: { month: 30, year: 300 } }
-const PLAN_ROWS: { plan: Plan; blurb: string; points: string[] }[] = [
-  { plan: 'free', blurb: 'Parallel agents on your Mac, forever.', points: ['Unlimited single-repo workspaces', 'One space with up to two repositories', 'One account per vendor'] },
-  { plan: 'pro', blurb: 'For people who work across several repositories.', points: ['Unlimited spaces and repositories per space', 'Several accounts per vendor, and the crew', 'Review cockpit, Jira, Linear, on-call agent', 'Maestro, databases, devices'] },
-  { plan: 'team', blurb: 'Per seat. Shared spaces for the whole team.', points: ['Everything in Pro', 'Space definitions shared with your team', 'Admin, invites and central billing'] }
-]
+/** Plan rows in the vocabulary of the mode: developers hear spaces and repositories, guided users hear teams and apps. */
+function planRows(guided: boolean): { plan: Plan; blurb: string; points: string[] }[] {
+  if (guided)
+    return [
+      { plan: 'free', blurb: 'Build with AI on your Mac, forever.', points: ['Unlimited tasks in a single app', 'One team with up to two apps', 'One account per AI vendor'] },
+      { plan: 'pro', blurb: 'For people who work across several apps.', points: ['Unlimited teams and apps', 'Several accounts per AI vendor', 'Reviews, Jira, Linear and on-call', 'Databases and devices'] },
+      { plan: 'team', blurb: 'Per seat. One setup shared with your whole team.', points: ['Everything in Pro', 'Your team’s setup shared with everyone', 'Admin, invites and central billing'] }
+    ]
+  return [
+    { plan: 'free', blurb: 'Parallel agents on your Mac, forever.', points: ['Unlimited single-repo workspaces', 'One space with up to two repositories', 'One account per vendor'] },
+    { plan: 'pro', blurb: 'For people who work across several repositories.', points: ['Unlimited spaces and repositories per space', 'Several accounts per vendor, and the crew', 'Review cockpit, Jira, Linear, on-call agent', 'Maestro, databases, devices'] },
+    { plan: 'team', blurb: 'Per seat. Shared spaces for the whole team.', points: ['Everything in Pro', 'Space definitions shared with your team', 'Admin, invites and central billing'] }
+  ]
+}
 
-function limitText(l: PlanLimits): string {
+function limitText(l: PlanLimits, guided: boolean): string {
   const n = (v: number | null, one: string, many: string): string => (v === null ? `unlimited ${many}` : `${v} ${v === 1 ? one : many}`)
-  return `${n(l.spaces, 'space', 'spaces')} · ${n(l.reposPerSpace, 'repo', 'repos')} per space · ${n(l.accountsPerVendor, 'account', 'accounts')} per vendor`
+  const w = words(guided)
+  return `${n(l.spaces, w.space, `${w.space}s`)} · ${n(l.reposPerSpace, w.repo, `${w.repo}s`)} per ${w.space} · ${n(l.accountsPerVendor, 'account', 'accounts')} per vendor`
 }
 
 /** "Have a code?": redeems a coupon, including one that arrived through a sinfonie://redeem link. */
@@ -86,6 +97,7 @@ function CouponBox({ signedIn }: { signedIn: boolean }): React.JSX.Element {
 
 /** Settings → Plan: the Sinfonie account, the current plan, and upgrades. */
 export function PlanPage(): React.JSX.Element {
+  const guided = useGuided()
   const cloud = useApp((s) => s.settings.cloud)
   const spaces = useApp((s) => s.spaces)
   const setError = useApp((s) => s.setError)
@@ -174,7 +186,7 @@ export function PlanPage(): React.JSX.Element {
         </div>
       </div>
       <div className="grid grid-cols-3 gap-3">
-        {PLAN_ROWS.map(({ plan: p, blurb, points }) => {
+        {planRows(guided).map(({ plan: p, blurb, points }) => {
           const current = p === plan
           const price = p === 'free' ? null : PRICES[p][period]
           return (
@@ -217,7 +229,7 @@ export function PlanPage(): React.JSX.Element {
       </div>
       <CouponBox signedIn={Boolean(account)} />
       <p className="mt-3 text-[11px] text-muted">
-        Your plan: {limitText(PLAN_LIMITS[plan])}. You have {spaces.length} space{spaces.length === 1 ? '' : 's'}.
+        Your plan: {limitText(PLAN_LIMITS[plan], guided)}. You have {spaces.length} {words(guided).space}{spaces.length === 1 ? '' : 's'}.
         {account && !account.enforce ? ' Limits are not enforced yet; nothing you have today will be locked.' : ''} Agent subscriptions and API keys are yours and are billed by their vendors, never through Sinfonie.
       </p>
       <TeamSection signedIn={Boolean(account)} />
