@@ -1,11 +1,12 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { ArrowLeft, ArrowRight, RotateCw, Plus, X, Globe, Pause, Play, ExternalLink, ShieldAlert, Download, PanelRight, PanelRightClose } from 'lucide-react'
+import { ArrowLeft, ArrowRight, RotateCw, Plus, X, Globe, Pause, Play, ExternalLink, ShieldAlert, Download, PanelRight, PanelRightClose, KeyRound } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { useGuided, previewUrlFor } from '@/lib/guided'
 import { useBrowser, subscribeBrowser, loadBrowserState } from '@/stores/browser'
 import { useScripts } from '@/stores/scripts'
+import { ImportLogins } from './ImportLogins'
 import type { PermissionRequest } from '@shared/types'
 
 /** Workspaces whose run script guided mode already kicked off, so switching tabs does not restart it. */
@@ -27,6 +28,7 @@ export function BrowserPane({ workspaceId, visible }: { workspaceId: string; vis
   const [address, setAddress] = useState('')
   const [editing, setEditing] = useState(false)
   const [pending, setPending] = useState<PermissionRequest | null>(null)
+  const [showImport, setShowImport] = useState(false)
   useEffect(() => {
     subscribeBrowser()
     loadBrowserState(workspaceId)
@@ -185,12 +187,26 @@ export function BrowserPane({ workspaceId, visible }: { workspaceId: string; vis
             <Download size={12} className={state.downloads.some((d) => d.state === 'progressing') ? 'animate-pulse' : ''} /> {state.downloads.length}
           </button>
         )}
+        <button className={clsx('rounded-md p-1 hover:bg-panel-2 hover:text-text', showImport ? 'text-accent' : 'text-muted')} title="Import your logins from Chrome, Arc, Brave or Edge so this browser is already signed in" onClick={() => setShowImport((v) => !v)}>
+          <KeyRound size={13} />
+        </button>
         {active?.url && (
           <button className="rounded-md p-1 text-muted hover:bg-panel-2 hover:text-text" title="Open in your default browser" onClick={() => void api.invoke('shell:openExternal', active.url)}>
             <ExternalLink size={13} />
           </button>
         )}
       </div>
+      {showImport && (
+        <div className="flex items-center gap-3 border-b border-border bg-panel/40 px-3 py-2 text-[12px]">
+          <span className="text-muted">Bring your existing logins into this space's browser:</span>
+          <div className="min-w-0 flex-1">
+            <ImportLogins spaceId={ws?.spaceId} alwaysShow onImported={() => act('reload')} />
+          </div>
+          <button className="rounded p-1 text-muted hover:text-text" title="Hide" onClick={() => setShowImport(false)}>
+            <X size={13} />
+          </button>
+        </div>
+      )}
       {runState && (
         <div className={clsx('flex items-center gap-2 border-b px-3 py-1 text-[11px]', runState === 'failed' ? 'border-danger/30 bg-danger/10 text-danger' : 'border-border bg-panel/40 text-muted')}>
           {runState === 'failed' ? (
@@ -258,6 +274,7 @@ export function BrowserPane({ workspaceId, visible }: { workspaceId: string; vis
                 </>
               )}
             </div>
+            {!guided && <ImportLogins spaceId={ws?.spaceId} onImported={() => act('reload')} />}
             <div className="max-w-[460px] text-center text-[11px]">{guided ? 'Nobody else sees it until you send for review. Sign-ins are remembered.' : 'Logins persist per space. Actions on infrastructure consoles ask you first; use Pause to take over, for example to sign in.'}</div>
           </div>
         )}

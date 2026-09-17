@@ -50,6 +50,7 @@ import * as scheduler from './services/crew/scheduler'
 import * as resources from './services/resources'
 import * as browser from './services/browser/service'
 import * as browserHttp from './services/browser/http'
+import * as logins from './services/logins'
 import * as workspaceTools from './services/workspace-tools'
 import { saveImages } from './services/images'
 import * as files from './services/files'
@@ -898,6 +899,8 @@ export function registerIpc(): void {
     (workspaceId) => send('browser:agentActive', { workspaceId })
   )
   handle('browser:state', (id) => browser.snapshot(id))
+  handle('logins:detect', () => logins.detect())
+  handle('logins:import', (spaceId, browserId) => logins.importLogins(spaceId ?? undefined, browserId))
   handle('browser:setBounds', (id, bounds) => browser.setBounds(id, bounds))
   handle('browser:open', (id, url) => {
     browser.newTab(id, url)
