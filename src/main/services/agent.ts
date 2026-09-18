@@ -69,6 +69,8 @@ interface Session {
   /** Cumulative per-model usage already written to the ledger (SDK totals are cumulative per session). */
   usageSeen: Record<string, { costUsd: number; inputTokens: number; outputTokens: number; cacheReadTokens: number }>
   contextWarned: boolean
+  /** When the Jira/Linear MCP bearer this session was built with expires; past it, reload for a fresh one. */
+  tokenExpiresAt?: number
   /** Last known context size and window, for the pill and for the awareness note the model gets. */
   context: { tokens: number; window?: number; notedBand: number }
   contextUsageCache?: { at: number; value: import('@shared/types').ContextUsage }
@@ -230,7 +232,7 @@ export async function mcpServersFor(ws: Workspace, onWarning?: (text: string) =>
   const expose = space ? space.exposeJiraMcp !== false : true
   if (expose && !out.jira) {
     try {
-      const token = await jira.accessToken(connId)
+      const token = await jira.warmToken(connId)
       if (token) out.jira = { type: 'http', url: jira.JIRA_MCP_URL, headers: { Authorization: `Bearer ${token}` } }
     } catch (err) {
       // An expired Jira login must not take the other MCP servers down with it, and must never open a browser here.
@@ -240,7 +242,7 @@ export async function mcpServersFor(ws: Workspace, onWarning?: (text: string) =>
   const exposeLinear = space ? space.exposeLinearMcp !== false : true
   if (exposeLinear && !out.linear) {
     try {
-      const token = await linear.accessToken(linear.connectionForSpace(ws.spaceId))
+      const token = await linear.warmToken(linear.connectionForSpace(ws.spaceId))
       if (token) out.linear = { type: 'http', url: linear.LINEAR_MCP_URL, headers: { Authorization: `Bearer ${token}` } }
     } catch (err) {
       onWarning?.(`Linear tools are off for this session: ${err instanceof Error ? err.message : String(err)}`)
@@ -493,7 +495,14 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
     if (stderrLines.length > 40) stderrLines.splice(0, stderrLines.length - 40)
   }
   const q = query({ prompt: input.iterable, options })
-  const session: Session = { workspaceId, q, push: input.push, end: input.end, abort, busy: false, stderr: stderrLines, queue: [], interrupted: false, mcpNames: Object.keys(mcpServers).filter((n) => n !== 'crew' && n !== 'notes' && n !== 'browser' && n !== 'workspace'), crewCalls, flags, lean, emitPermission, usageSeen: {}, contextWarned: false, context: { tokens: 0, notedBand: 0 } }
+  // The agent's Jira/Linear MCP is handed a static bearer it cannot refresh; note when it expires so the
+  // next turn past that point reloads the session (resuming the conversation) with a fresh token.
+  const oauthExpiries: number[] = []
+  if (mcpServers.jira) oauthExpiries.push(jira.tokenExpiresAt(jira.connectionForSpace(ws.spaceId)))
+  if (mcpServers.linear) oauthExpiries.push(linear.tokenExpiresAt(linear.connectionForSpace(ws.spaceId)))
+  const positiveExpiries = oauthExpiries.filter((e) => e > 0)
+  const tokenExpiresAt = positiveExpiries.length ? Math.min(...positiveExpiries) : undefined
+  const session: Session = { workspaceId, q, push: input.push, end: input.end, abort, busy: false, stderr: stderrLines, queue: [], interrupted: false, mcpNames: Object.keys(mcpServers).filter((n) => n !== 'crew' && n !== 'notes' && n !== 'browser' && n !== 'workspace'), crewCalls, flags, lean, emitPermission, usageSeen: {}, contextWarned: false, context: { tokens: 0, notedBand: 0 }, tokenExpiresAt }
   sessions.set(workspaceId, session)
   void pump(session, emit)
   return session
@@ -834,8 +843,14 @@ export async function sendMessage(workspaceId: string, text: string, emit: EmitE
       emit({ type: 'queue', workspaceId, items: [...live.queue] })
       return
     }
-    deliver(live, text, emit, true, images)
-    return
+    // If the Jira/Linear bearer this session holds has expired, reload the session (it resumes the
+    // conversation) so the agent's MCP is rebuilt with a refreshed token instead of a dead static one.
+    if (!(live.tokenExpiresAt && Date.now() >= live.tokenExpiresAt)) {
+      deliver(live, text, emit, true, images)
+      return
+    }
+    closeSession(workspaceId)
+    // fall through: the fresh-session path below warms and re-reads the tokens, then resumes.
   }
   if (starting.has(workspaceId)) {
     emit({ type: 'notice', workspaceId, itemId: nanoid(8), level: 'warn', text: 'The session is still starting; send again in a moment.', createdAt: new Date().toISOString() })
