@@ -100,6 +100,10 @@ class StoreOAuthProvider implements OAuthClientProvider {
   }
   saveTokens(tokens: OAuthTokens): void {
     writeSecret(this.k('tokens'), tokens)
+    writeSecret(this.k('tokensAt'), Date.now())
+  }
+  tokensObtainedAt(): number | undefined {
+    return readSecret<number>(this.k('tokensAt'))
   }
   redirectToAuthorization(url: URL): void {
     if (!this.interactive) throw new LinearReauthRequired(this.connId)
@@ -269,6 +273,33 @@ export async function accessToken(connId: string): Promise<string | null> {
     }
     console.warn('Linear MCP connect for token failed', err)
     return null
+  }
+  return new StoreOAuthProvider(connId).tokens()?.access_token ?? null
+}
+
+/** When this connection's Linear access token expires (ms epoch), or 0 if unknown. */
+export function tokenExpiresAt(connId: string): number {
+  const p = new StoreOAuthProvider(connId)
+  const at = p.tokensObtainedAt()
+  const tok = p.tokens()
+  if (!at || !tok) return 0
+  const ttl = (typeof tok.expires_in === 'number' && tok.expires_in > 0 ? tok.expires_in : 3300) * 1000
+  return at + ttl
+}
+
+/** A definitely-fresh access token for the agent's Linear MCP: a real call refreshes it on a 401. */
+export async function warmToken(connId: string): Promise<string | null> {
+  if (!linearSettings(connId).connected) return null
+  try {
+    const conn = await withTimeout(connect(connId), 10_000, 'Linear token refresh')
+    await withTimeout(conn.client.listTools(), 10_000, 'Linear token refresh')
+  } catch (err) {
+    dropClient(connId)
+    if (err instanceof LinearReauthRequired || err instanceof UnauthorizedError) {
+      updateLinearSettings(connId, { connected: false, connectedAt: undefined })
+      throw new LinearReauthRequired(connId)
+    }
+    console.warn('Linear token warm failed', err)
   }
   return new StoreOAuthProvider(connId).tokens()?.access_token ?? null
 }
