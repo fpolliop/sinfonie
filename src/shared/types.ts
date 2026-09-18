@@ -801,6 +801,13 @@ export interface RemoteSettings {
   notifyFinished?: boolean
   notifyErrors?: boolean
 }
+/** A Chromium browser whose saved logins can be imported into a space's in-app browser. */
+export interface LoginBrowser {
+  id: 'chrome' | 'arc' | 'brave' | 'edge'
+  name: string
+  /** Installed on this Mac with cookies to import. */
+  available: boolean
+}
 /** A paired device as the Mac knows it, from the identity the device reports when it connects. */
 export interface RemoteDevice {
   id: string

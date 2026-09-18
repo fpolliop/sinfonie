@@ -5,6 +5,7 @@ import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { Button, Badge, inputCls } from '../ui'
 import { LoginDialog } from '../LoginDialog'
+import { ImportLogins } from '../ImportLogins'
 import { shortPath } from '@/lib/format'
 import logo from '../../assets/logo.svg'
 import { SPACE_COLORS, VENDORS, type AppMode, type DiscoveredOrg, type ScannedRepo, type Vendor } from '@shared/types'
@@ -667,6 +668,11 @@ function Ready({ spaceId, onWorkspace, onTour, onAssistant, onDone }: { spaceId:
         ))}
       </div>
       <p className="mx-auto mt-4 max-w-[460px] text-[13px] text-muted">A workspace is one branch across the repos you pick. Create the first one now, let Maestro design your crew and connect your tools, or take a two-minute tour of the app.</p>
+      <div className="mx-auto mt-5 max-w-[460px] rounded-lg border border-border p-3 text-left">
+        <div className="text-[13px] font-medium">Bring your browser logins (optional)</div>
+        <p className="mb-2 mt-0.5 text-[12px] text-muted">Sinfonie has its own browser for previews and for agents. Import your Chrome or Arc logins so it — and they — start already signed in.</p>
+        <ImportLogins spaceId={spaceId ?? undefined} alwaysShow />
+      </div>
       <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
         <Button variant="primary" onClick={onWorkspace}>
           Create your first workspace
