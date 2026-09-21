@@ -1,4 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { ViewHost } from './views/ViewHost'
+import { ViewHeader } from './views/HomeView'
+import { findView } from '@/lib/views'
 import { renameWorkspace } from '@/lib/rename'
 import { InlineRename } from './InlineRename'
 import { StagePicker } from './StagePicker'
@@ -293,6 +296,7 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
         <div className={clsx('h-full', (tab !== 'browser' || browserDock) && 'hidden')}>
           {!browserDock && <BrowserPane workspaceId={ws.id} visible={tab === 'browser'} />}
         </div>
+        {tab.startsWith('view:') && <WorkspaceViewTab workspaceId={ws.id} viewId={tab.slice(5)} />}
       </div>
 
       {archiveDlg && <ArchiveDialog workspaceId={ws.id} name={ws.name} mode={archiveDlg} guided={guided} onClose={() => setArchiveDlg(null)} />}
@@ -528,6 +532,25 @@ function HealthBanner({ workspaceId }: { workspaceId: string }): React.JSX.Eleme
       <Button size="sm" variant="primary" disabled={busy} onClick={() => void repair()} title="Recreate the missing worktrees from their branches">
         <RefreshCw size={12} className={clsx(busy && 'animate-spin')} /> Repair
       </Button>
+    </div>
+  )
+}
+
+/** A generated view shown as a workspace tab, with the workspace as its context. */
+function WorkspaceViewTab({ workspaceId, viewId }: { workspaceId: string; viewId: string }): React.JSX.Element | null {
+  const settings = useApp((s) => s.settings)
+  const spaces = useApp((s) => s.spaces)
+  const ws = useApp((s) => s.workspaces.find((w) => w.id === workspaceId))
+  const setError = useApp((s) => s.setError)
+  const view = useMemo(() => findView(viewId, settings, spaces), [viewId, settings, spaces])
+  if (!view || !ws) return null
+  const space = spaces.find((s) => s.id === ws.spaceId)
+  return (
+    <div className="h-full overflow-auto">
+      <div className="mx-auto flex max-w-[1200px] flex-col gap-4 px-6 py-5">
+        <ViewHeader view={view} guided={false} spaceName={space?.name} onError={setError} compact />
+        <ViewHost key={`${view.id}:${ws.id}`} view={view} context={{ spaceId: ws.spaceId, spaceName: space?.name ?? 'Personal', workspaceId: ws.id, workspaceName: ws.name, branch: ws.repos[0]?.branch ?? '' }} />
+      </div>
     </div>
   )
 }

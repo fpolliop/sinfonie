@@ -1,6 +1,14 @@
 # Generative views: Maestro adapts the Sinfonie UI
 
-Status: in progress (branch `generative-views`). Started 2026-09-21.
+Status: phase 1 built (branch `generative-views`, 2026-09-21), not merged.
+
+Verified in a dev run against a sanitized copy of the real store: gallery, Morning cockpit with 30 real
+PRs (CI, review, Merge only when mergeable, Workspace/Fix links by branch), Branch panel tab on a real
+workspace (per-repo ahead/behind, dirty, PR, CI), repeat + $item lanes (a stage board over `workspaces`),
+the rebase confirmation (cancelled), the source error banner (Jira offline in the copy), and Maestro
+adding a "Waiting for my review" card in one pass (ui_catalog → ui_get_view → ui_patch_view) with Undo.
+Not verified: Ticket board with a live Jira/Linear, any outward action actually run (merge, push, open PRs),
+createWorkspaceFromTicket, sharing a space view with a teammate, guided-mode Home.
 
 ## Goal
 
