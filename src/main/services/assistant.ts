@@ -32,6 +32,7 @@ import * as runs from './crew/runs'
 import * as scheduler from './crew/scheduler'
 import * as slackTools from './slack-tools'
 import * as reviews from './reviews'
+import { viewTools } from './views/tools'
 import { mcpServersFor } from './agent'
 import { getTranscript } from './transcripts'
 import { agentOwner, type MaestroConversation, type MaestroConversationMeta, type MaestroContext, type MaestroEvent, type MaestroSuggestion, type MaestroAutonomy, type MaestroMemoryCategory, type MaestroMemoryEntry, type CreateWorkspaceInput, type WorkspaceStage, type ReviewPr, type IncidentStatus, type Severity } from '@shared/types'
@@ -50,6 +51,8 @@ interface Host {
   /** Send a message into a workspace's conversation, as if typed there. */
   sendToWorkspace: (workspaceId: string, text: string) => Promise<void> | void
   openWorkspace: (workspaceId: string) => void
+  /** Show a generated view: the Home page on it, or a workspace on its tab. */
+  openView: (viewId: string, workspaceId?: string) => void
 }
 let host: Host | null = null
 export function setHost(h: Host): void {
@@ -1033,6 +1036,8 @@ const TOOLS: ToolDef[] = [
   }
 ]
 
+TOOLS.push(...viewTools({ openView: (id, ws) => needHost().openView(id, ws) }))
+
 function server(c: Conversation): NonNullable<Options['mcpServers']>[string] {
   return createSdkMcpServer({
     name: 'sinfonie',
@@ -1090,6 +1095,7 @@ How you work:
 8. Sign-ins open the browser; you cannot complete them. Say so, wait for the user, then verify with integration_status. Things that need a terminal or a secret (account sign-ins, provider API keys, MCP servers, Slack advanced client) are done by the user on the settings page you open with open_settings.
 9. If something is outside what the tools can do, say so and open the right settings page.
 10. Link what you mention so the user can jump there: [name](sinfonie://workspace/<id>), [name](sinfonie://agent/<id>), [name](sinfonie://space/<id>), [Notes](sinfonie://notes), [Agents](sinfonie://agents), [Settings › page](sinfonie://settings/app/<page>) or sinfonie://settings/space/<spaceId>/<page>. Use the ids from get_overview.
+11. VIEWS: the user can have Sinfonie's own UI shaped to how they work: Home pages (a morning cockpit, a ticket board, an on-call board) and extra workspace tabs (a branch panel), built from Sinfonie's components, bound to live data, with buttons that act. When they ask for a screen, a dashboard, a board, a tab, or to change or remove what they see there, call ui_catalog first, then ui_list_views. Start from a template when one is close (ui_get_template). Prefer ui_patch_view for changes to an existing view. Personal ("user") unless they want it for their team's space. Do not ask for confirmation to create or change a view (they can undo); ask before deleting one. After saving, say in one line what it shows and that Undo is in the view's header.
 Reply in the user's language.`
 
 // ---------- a turn ----------

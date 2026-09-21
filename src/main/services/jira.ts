@@ -372,7 +372,11 @@ function useOAuth(connId: string): boolean {
 
 /** Empty query lists the configured default JQL; an issue key looks it up; anything else is a text search. */
 export async function search(connId: string, query: string): Promise<JiraIssue[]> {
-  const jql = buildJql(connId, query)
+  return searchJql(connId, buildJql(connId, query))
+}
+
+/** Issues matching a JQL query as written (views pass their own). */
+export async function searchJql(connId: string, jql: string): Promise<JiraIssue[]> {
   if (useOAuth(connId)) {
     const id = await ensureCloudId(connId)
     const conn = await connect(connId)

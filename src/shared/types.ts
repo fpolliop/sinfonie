@@ -1,4 +1,6 @@
 // Shared types between main, preload and renderer.
+import type { ViewDef } from './views/types'
+export type * from './views/types'
 
 export interface ConductorScripts {
   setup?: string
@@ -447,6 +449,8 @@ export interface Space {
   orgSpace?: { id: string; version: number; syncedAt: string; updatedBy?: string; repos?: SharedRepo[] }
   /** What guided-mode members of this space get: who reviews, how the assistant should behave, what it may do. */
   guided?: GuidedSpace
+  /** Generated views of this space (Home pages, workspace tabs), shared with its team. */
+  views?: ViewDef[]
 }
 
 /** The tech lead's setup for guided-mode members of a space. Travels with the shared definition. */
@@ -495,7 +499,7 @@ export interface SharedRepo {
   description?: string
 }
 /** The keys of a Space that are shared; everything about accounts, secrets and local paths stays personal. */
-export type SharedSpaceSettings = Pick<Space, 'engine' | 'model' | 'permissionMode' | 'useCrew' | 'agents' | 'budgetMode' | 'leanMode' | 'strictMcp' | 'githubOwners' | 'browserSensitiveOrigins' | 'exposeGcpMcp' | 'exposeJiraMcp' | 'exposeLinearMcp' | 'guided'> & {
+export type SharedSpaceSettings = Pick<Space, 'engine' | 'model' | 'permissionMode' | 'useCrew' | 'agents' | 'budgetMode' | 'leanMode' | 'strictMcp' | 'githubOwners' | 'browserSensitiveOrigins' | 'exposeGcpMcp' | 'exposeJiraMcp' | 'exposeLinearMcp' | 'guided' | 'views'> & {
   mcpServers?: McpServerSpec[]
   jira?: Pick<JiraSettings, 'siteUrl' | 'defaultJql'>
   linear?: Pick<LinearSettings, 'defaultQuery'>
@@ -789,6 +793,10 @@ export interface Settings {
   ignoredOrgSpaces?: string[]
   /** The phone companion: pairing state and what to be notified about. The pairing key lives in secrets. */
   remote?: RemoteSettings
+  /** The user's own generated views (Home pages, workspace tabs), for every space. */
+  views?: ViewDef[]
+  /** Space views this user replaced with a personal copy or hid: space view id -> 'hidden' or the personal view id. */
+  viewOverrides?: Record<string, string>
 }
 
 // ---------- phone companion ----------
