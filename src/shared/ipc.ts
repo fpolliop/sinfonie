@@ -33,7 +33,7 @@ import type { MaestroMemoryCategory, MaestroMemoryEntry, MaestroConversation, Ma
   Space,
   StoreData,
   TerminalDataEvent,
-  Workspace, CostMode, CostModeScope, GcpStatus, AssistantItem, DbConnection, DbSecrets, DbSchema, DbQueryResult, DbHistoryEntry } from './types'
+  Workspace, CostMode, CostModeScope, GcpStatus, AssistantItem, DbConnection, DbSecrets, DbSchema, DbQueryResult, DbHistoryEntry, ScopedView, ViewInput, ViewScope, ViewSourceBinding, ViewDataResult, ViewSlot } from './types'
 
 /** Request/response channels (ipcRenderer.invoke). */
 export interface SinfonieInvoke {
@@ -401,6 +401,23 @@ export interface SinfonieInvoke {
   'browser:setPaused': (workspaceId: string, paused: boolean) => void
   /** A modal is open (true) or closed (false): pages are hidden while any modal is up. */
   'browser:suspend': (on: boolean) => void
+  // ---- generated views (Home pages, workspace tabs) ----
+  /** Create or replace a view (validated; throws with the issues). */
+  'views:save': (input: ViewInput, scope: ViewScope) => ScopedView
+  'views:undo': (id: string) => ScopedView
+  'views:delete': (id: string) => void
+  /** A personal copy of a space view that replaces it for this user. */
+  'views:fork': (id: string) => ScopedView
+  /** Drop a personal copy and go back to the team's view. */
+  'views:resetToTeam': (id: string) => void
+  'views:setHidden': (spaceViewId: string, hidden: boolean) => void
+  'views:move': (id: string, dir: -1 | 1) => void
+  'views:installTemplate': (templateId: string, scope?: ViewScope) => ScopedView
+  'views:templates': () => { id: string; title: string; description: string; scope: 'user' | 'space'; guided: boolean; slot: ViewSlot; icon?: string }[]
+  /** Rows for a main-side source (GitHub, git, Jira/Linear), cached briefly unless forced. */
+  'views:data': (binding: ViewSourceBinding, ctx: { spaceId?: string; workspaceId?: string }, force?: boolean) => ViewDataResult
+  /** A git/GitHub action from a view; confirm/outward tiers need confirmed = true. Returns a summary. */
+  'views:action': (name: string, params: Record<string, unknown>, confirmed: boolean) => string
   // ---- resources ----
   'resources:get': () => ResourceSnapshot
   'resources:stopTask': (workspaceId: string, taskId: string) => void
@@ -460,6 +477,8 @@ export interface SinfonieEvents {
   'maestro:event': MaestroEvent
   /** Open the On call view on this incident (notification click, deep link). */
   'ui:openOnCall': { incidentId?: string }
+  /** Show a generated view (Maestro saved or opened one): Home on it, or the workspace on its tab. */
+  'ui:openView': { viewId: string; workspaceId?: string }
   /** An agent started using the browser of this workspace; the renderer brings the pane forward. */
   'browser:agentActive': { workspaceId: string }
 }

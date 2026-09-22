@@ -21,6 +21,8 @@ import { ReviewCockpit } from './components/ReviewCockpit'
 import { FeedbackDialog } from './components/FeedbackDialog'
 import { MaestroSide } from './components/maestro/MaestroSide'
 import { MaestroView } from './components/maestro/MaestroView'
+import { HomeView } from './components/views/HomeView'
+import { findView } from '@/lib/views'
 import { useMaestro, openMaestro } from './stores/maestro'
 import { SetupWizard } from './components/onboarding/SetupWizard'
 import { Tour } from './components/onboarding/Tour'
@@ -64,6 +66,25 @@ export default function App(): React.JSX.Element {
         if (m.open) m.setOpen(false)
         else if (m.shape === 'full' && useApp.getState().view === 'maestro') useApp.getState().setView('workspace')
         else void openMaestro()
+      }),
+    []
+  )
+  useEffect(
+    () =>
+      api.on('ui:openView', ({ viewId, workspaceId }) => {
+        const app = useApp.getState()
+        const v = findView(viewId, app.settings, app.spaces)
+        if (!v) return
+        if (v.slot === 'home') {
+          if (v.scope.kind === 'space' && app.activeSpaceId !== v.scope.spaceId) app.setActiveSpace(v.scope.spaceId)
+          app.setHomeViewId(v.id)
+          app.setView('home')
+          return
+        }
+        const target = workspaceId ?? app.selectedId
+        if (!target) return
+        app.select(target)
+        app.setTab(`view:${v.id}`)
       }),
     []
   )
@@ -152,7 +173,7 @@ export default function App(): React.JSX.Element {
     <div className="flex h-full">
       <Sidebar />
       <main className="flex min-w-0 flex-1 flex-col">
-        {view === 'reviews' ? <ReviewCockpit /> : view === 'oncall' ? <OnCallView /> : view === 'agents' ? <AgentsView /> : view === 'notes' ? <NotesView /> : view === 'maestro' ? <MaestroView /> : selectedId ? <WorkspaceView key={selectedId} workspaceId={selectedId} /> : <EmptyState />}
+        {view === 'reviews' ? <ReviewCockpit /> : view === 'oncall' ? <OnCallView /> : view === 'agents' ? <AgentsView /> : view === 'notes' ? <NotesView /> : view === 'maestro' ? <MaestroView /> : view === 'home' ? <HomeView /> : selectedId ? <WorkspaceView key={selectedId} workspaceId={selectedId} /> : <EmptyState />}
       </main>
       {showNewWorkspace && (guided ? <NewTaskDialog onClose={() => setShowNewWorkspace(false)} /> : <NewWorkspaceDialog onClose={() => setShowNewWorkspace(false)} />)}
       {settingsTarget && <SettingsWindow target={settingsTarget} onClose={closeSettings} />}
