@@ -106,12 +106,12 @@ export function ViewHeader({ view, guided, spaceName, onDeleted, onError, compac
   ]
   return (
     <div className={clsx('flex items-center gap-2', compact && 'text-[12px]')}>
-      <span className={clsx('inline-flex items-center gap-1 rounded-full px-2 py-px text-[10.5px] font-medium', view.scope.kind === 'space' ? 'bg-accent/15 text-accent' : 'bg-panel-2 text-muted')}>
+      <span className={clsx('inline-flex items-center gap-1 rounded-full px-2 py-px text-[11px] font-medium', view.scope.kind === 'space' ? 'bg-accent/15 text-accent' : 'bg-panel-2 text-muted')}>
         {view.scope.kind === 'space' ? <Users size={10} /> : <User size={10} />}
         {view.scope.kind === 'space' ? `Team · ${spaceName ?? 'space'}` : view.basedOn ? 'Your copy' : 'Personal'}
       </span>
       {byMaestro && (
-        <span className="inline-flex items-center gap-1 text-[11.5px] text-muted">
+        <span className="inline-flex items-center gap-1 text-[12px] text-muted">
           <Wand2 size={11} className="text-accent" /> Changed by Maestro
           <button className="ml-1 text-accent hover:underline" onClick={() => act(api.invoke('views:undo', view.id))}>
             Undo
@@ -170,7 +170,7 @@ function Gallery({ spaceId, spaceName, guided, onInstalled, onError }: { spaceId
   return (
     <div className="mx-auto flex max-w-[980px] flex-col gap-5 px-6 py-8">
       <div>
-        <h1 className="text-[19px] font-semibold tracking-tight">Make Sinfonie yours</h1>
+        <h1 className="text-[18px] font-semibold tracking-tight">Make Sinfonie yours</h1>
         <p className="mt-1 max-w-2xl text-[13px] text-muted">
           Start from a view below{guided ? '' : ', or describe what you want to see and Maestro builds it'}. Views show live data from your workspaces, GitHub and tickets, and their buttons act on it.
         </p>
@@ -195,7 +195,7 @@ function Gallery({ spaceId, spaceName, guided, onInstalled, onError }: { spaceId
                 <ViewIcon name={t.icon} size={14} />
               </span>
               <span className="text-[13px] font-semibold">{t.title}</span>
-              <span className="ml-auto rounded-full bg-panel-2 px-2 py-px text-[10.5px] text-muted">{t.slot === 'home' ? 'Home page' : 'Workspace tab'}</span>
+              <span className="ml-auto rounded-full bg-panel-2 px-2 py-px text-[11px] text-muted">{t.slot === 'home' ? 'Home page' : 'Workspace tab'}</span>
             </div>
             <p className="flex-1 text-[12px] text-muted">{t.description}</p>
             <div className="flex flex-wrap gap-2">

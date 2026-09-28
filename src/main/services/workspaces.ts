@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, rmSync } from 'fs'
+import { createServer } from 'node:net'
 import { join } from 'path'
 import { nanoid } from 'nanoid'
 import type { CreateWorkspaceInput, Repo, RepoSafety, ScriptOutputEvent, Workspace, WorkspaceRepo, WorkspaceStage } from '@shared/types'
@@ -30,9 +31,29 @@ function uniqueSlug(base: string): string {
   return `${base}-${i}`
 }
 
-function allocatePort(): number {
+/** True when nothing on this Mac is listening on `port` (IPv4 or IPv6). */
+function portFree(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const srv = createServer()
+    srv.once('error', () => resolve(false))
+    srv.once('listening', () => srv.close(() => resolve(true)))
+    srv.listen(port)
+  })
+}
+
+/**
+ * The first block of 10 ports no other workspace holds and nothing else on the Mac is using, so a workspace's app
+ * never fails to start because another server (another app, another Sinfonie profile) already took its port.
+ */
+async function allocatePort(): Promise<number> {
   const { workspaces, settings } = getStore().get()
   const used = new Set(workspaces.filter((w) => w.status !== 'archived').map((w) => w.port))
+  for (let port = settings.basePort, tries = 0; tries < 200; port += 10, tries++) {
+    if (used.has(port)) continue
+    const block = await Promise.all(Array.from({ length: 10 }, (_, i) => portFree(port + i)))
+    if (block.every(Boolean)) return port
+  }
+  // Everything nearby is busy: fall back to the old rule rather than failing to create the workspace.
   let port = settings.basePort
   while (used.has(port)) port += 10
   return port
@@ -95,7 +116,7 @@ export async function createWorkspace(input: CreateWorkspaceInput, emit: Emit): 
     rootPath,
     repos: wsRepos,
     primaryRepoId,
-    port: allocatePort(),
+    port: await allocatePort(),
     status: 'creating',
     stage: 'in-progress',
     createdAt: new Date().toISOString(),

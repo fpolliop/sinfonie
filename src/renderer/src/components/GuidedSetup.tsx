@@ -37,10 +37,10 @@ export function GuidedRepoSetup({ repo }: { repo: Repo }): React.JSX.Element {
   const saveConfig = (): Promise<void> => run(() => api.invoke('repos:writeConfig', repo.id, { scripts, preview }))
   return (
     <div className="mt-1.5 rounded-md border border-border/70 bg-bg/40">
-      <button className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-left text-[11px] font-medium text-muted hover:text-text" onClick={() => setOpen(!open)}>
+      <button type="button" aria-expanded={open} className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-left text-[11px] font-medium text-muted hover:text-text" onClick={() => setOpen(!open)}>
         <ChevronRight size={11} className={clsx('transition-transform', open && 'rotate-90')} />
         <Wand2 size={11} /> Guided setup
-        {(repo.displayName || repo.config?.preview) && !open && <span className="ml-1 rounded-full bg-panel-2 px-1.5 text-[10px]">set</span>}
+        {(repo.displayName || repo.config?.preview) && !open && <span className="ml-1 rounded-full bg-panel-2 px-1.5 text-[11px]">set</span>}
       </button>
       {open && (
         <div className="border-t border-border/70 p-3">

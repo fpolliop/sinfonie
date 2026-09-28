@@ -4,7 +4,8 @@ import { Siren, ExternalLink, RefreshCw, Send, Trash2, MessageSquare, Sparkles, 
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { useOnCall, subscribeOnCall, matchesFilters, type OnCallFilters, type OnCallView as ViewId } from '@/stores/oncall'
-import { Badge, Button, Spinner, inputCls } from './ui'
+import { Badge, Button, IconButton, Spinner, inputCls } from './ui'
+import { ErrorNote } from './ErrorNote'
 import { Markdown } from '@/lib/markdown'
 import { timeAgo } from '@/lib/format'
 import { incidentBrief } from '@shared/oncall-brief'
@@ -40,7 +41,9 @@ export function OnCallView(): React.JSX.Element {
   const settings = useApp((s) => s.settings)
   const openSettings = useApp((s) => s.openSettings)
   const setError = useApp((s) => s.setError)
+  const notify = useApp((s) => s.notify)
   useEffect(() => subscribeOnCall(), [])
+  // Removing one incident happens at once; Undo puts it back through oncall:restore.
   const [checking, setChecking] = useState(false)
   const [showFilters, setShowFilters] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -85,6 +88,21 @@ export function OnCallView(): React.JSX.Element {
       setError(err instanceof Error ? err.message : String(err))
     }
   }
+  const removeIncident = (inc: Incident): void => {
+    select(null)
+    void go(() => api.invoke('oncall:remove', inc.id))
+    notify({
+      kind: 'info',
+      text: `Removed “${inc.title}”.`,
+      undo: () => {
+        void go(async () => {
+          await api.invoke('oncall:restore', inc)
+          select(inc.id)
+        })
+      }
+    })
+  }
+
   const narrowed = Boolean(filters.channel || filters.severity || filters.kind || filters.spaceId)
   const visibleIds = incidents.map((i) => i.id)
   const allVisibleChecked = visibleIds.length > 0 && visibleIds.every((id) => checked.includes(id))
@@ -113,19 +131,19 @@ export function OnCallView(): React.JSX.Element {
           )}
           <span className={clsx('ml-1 h-2 w-2 rounded-full', state?.running ? 'bg-ok' : 'bg-muted/50')} title={state?.running ? `Watching ${state.activeSpaces.map((id) => spaceOf(id)?.name ?? 'application').join(', ')}${state.lastPollAt ? `, last check ${timeAgo(state.lastPollAt)}` : ''}. Slack allows one channel or thread read per minute, so watched channels and open threads are checked in turn.` : 'Not running'} />
           <div className="no-drag ml-auto flex items-center gap-1">
-            <button className="rounded-md p-1 text-muted hover:bg-panel-2 hover:text-text disabled:opacity-40" title="Check Slack now" onClick={checkNow} disabled={!configured || checking}>
+            <IconButton label="Check Slack now" className="disabled:opacity-40" onClick={checkNow} disabled={!configured || checking}>
               <RefreshCw size={13} className={clsx(checking && 'animate-spin')} />
-            </button>
-            <button className="rounded-md p-1 text-muted hover:bg-panel-2 hover:text-text" title="On call settings" onClick={() => openSettings(activeSpaceId ? { scope: 'space', spaceId: activeSpaceId, page: 'oncall' } : { scope: 'app', page: 'oncall' })}>
+            </IconButton>
+            <IconButton label="On call settings" onClick={() => openSettings(activeSpaceId ? { scope: 'space', spaceId: activeSpaceId, page: 'oncall' } : { scope: 'app', page: 'oncall' })}>
               <SettingsIcon size={13} />
-            </button>
+            </IconButton>
           </div>
         </div>
         <div className="flex items-center gap-0.5 border-b border-border px-2 py-1.5 text-[11px]">
           {VIEWS.map((v) => (
             <button key={v.id} onClick={() => setFilters({ view: v.id })} className={clsx('flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5', filters.view === v.id ? 'bg-panel-2 text-text' : 'text-muted hover:text-text')} title={`${v.hint}${counts[v.id] ? ` (${counts[v.id]})` : ''}`}>
               {v.label}
-              {v.counted && counts[v.id] > 0 && <span className={clsx('rounded-full px-1 text-[10px] tabular-nums', v.id === 'needs' && filters.view !== v.id ? 'bg-warn/15 text-warn' : 'bg-panel text-muted')}>{counts[v.id]}</span>}
+              {v.counted && counts[v.id] > 0 && <span className={clsx('rounded-full px-1 text-[11px] tabular-nums', v.id === 'needs' && filters.view !== v.id ? 'bg-warn/15 text-warn' : 'bg-panel text-muted')}>{counts[v.id]}</span>}
             </button>
           ))}
         </div>
@@ -234,7 +252,7 @@ export function OnCallView(): React.JSX.Element {
                   <div className="flex items-center gap-1.5 text-[11px] text-muted">
                     {i.severity ? <Badge tone={SEV[i.severity].tone}>{SEV[i.severity].label}</Badge> : <Badge>{i.status === 'triaging' ? 'triaging' : 'untriaged'}</Badge>}
                     {(i.occurrences ?? 1) > 1 && (
-                      <span className="rounded bg-panel px-1 text-[10px] tabular-nums" title={`Fired ${i.occurrences} times${i.lastSeenAt ? `, last ${timeAgo(i.lastSeenAt)}` : ''}`}>
+                      <span className="rounded bg-panel px-1 text-[11px] tabular-nums" title={`Fired ${i.occurrences} times${i.lastSeenAt ? `, last ${timeAgo(i.lastSeenAt)}` : ''}`}>
                         ×{i.occurrences}
                       </span>
                     )}
@@ -255,7 +273,7 @@ export function OnCallView(): React.JSX.Element {
           })}
         </div>
       </div>
-      <div className="min-w-0 flex-1 overflow-auto">{selected ? <IncidentDetail inc={selected} go={go} /> : <div className="drag flex h-[52px]" />}</div>
+      <div className="min-w-0 flex-1 overflow-auto">{selected ? <IncidentDetail inc={selected} go={go} onRemove={() => removeIncident(selected)} /> : <div className="drag flex h-[52px]" />}</div>
     </div>
   )
 }
@@ -269,7 +287,7 @@ function BulkButton({ icon, label, title, onClick, disabled, danger }: { icon: R
   )
 }
 
-function IncidentDetail({ inc, go }: { inc: Incident; go: (fn: () => Promise<unknown>) => Promise<void> }): React.JSX.Element {
+function IncidentDetail({ inc, go, onRemove }: { inc: Incident; go: (fn: () => Promise<unknown>) => Promise<void>; onRemove: () => void }): React.JSX.Element {
   const setNewWorkspaceSeed = useApp((s) => s.setNewWorkspaceSeed)
   const setShowNewWorkspace = useApp((s) => s.setShowNewWorkspace)
   const setView = useApp((s) => s.setView)
@@ -288,7 +306,7 @@ function IncidentDetail({ inc, go }: { inc: Incident; go: (fn: () => Promise<unk
   return (
     <div className="flex h-full flex-col">
       <div className="drag flex h-[52px] items-center gap-2 border-b border-border px-5">
-        <span className="truncate text-[14px] font-semibold">{inc.title}</span>
+        <span className="truncate text-[15px] font-semibold">{inc.title}</span>
         <div className="no-drag ml-auto flex items-center gap-2">
           {inc.permalink && (
             <Button size="sm" variant="ghost" onClick={() => void api.invoke('shell:openExternal', inc.permalink!)}>
@@ -301,9 +319,9 @@ function IncidentDetail({ inc, go }: { inc: Incident; go: (fn: () => Promise<unk
           <Button size="sm" onClick={toWorkspace} title="Open a new workspace in this space with the thread and the triage as the first message">
             <FolderPlus size={12} /> Work on it
           </Button>
-          <button className="rounded p-1 text-muted hover:text-danger" title="Remove this incident from the list" onClick={() => go(() => api.invoke('oncall:remove', inc.id))}>
+          <IconButton label="Remove this incident from the list" className="hover:text-danger" onClick={onRemove}>
             <Trash2 size={13} />
-          </button>
+          </IconButton>
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-2 border-b border-border px-5 py-2 text-[12px]">
@@ -331,7 +349,11 @@ function IncidentDetail({ inc, go }: { inc: Incident; go: (fn: () => Promise<unk
         {r?.category && <Badge>{r.category}</Badge>}
       </div>
       <div className="flex-1 space-y-4 overflow-auto px-5 py-4 text-[13px]">
-        {inc.error && <div className="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-[12px] text-danger">Triage failed: {inc.error}</div>}
+        {inc.error && (
+          <div className="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2">
+            <ErrorNote summary="The triage run failed. Re-triage to try again." detail={inc.error} />
+          </div>
+        )}
         {inc.status === 'triaging' && (
           <div className="flex items-center gap-2 text-muted">
             <Spinner /> Investigating…
@@ -403,7 +425,7 @@ function IncidentDetail({ inc, go }: { inc: Incident; go: (fn: () => Promise<unk
                     <ExternalLink size={12} /> {inc.fix.prUrl.replace(/^https?:\/\/github\.com\//, '')}
                   </Button>
                 )}
-                {inc.fix?.status === 'failed' && <span className="text-[12px] text-danger">Failed: {inc.fix.error}</span>}
+                {inc.fix?.status === 'failed' && <ErrorNote summary="The draft PR could not be opened." detail={inc.fix.error} />}
                 {inc.fix?.costUsd ? <span className="text-[11px] text-muted">${inc.fix.costUsd.toFixed(2)}</span> : null}
               </div>
             )}

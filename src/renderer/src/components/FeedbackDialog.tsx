@@ -4,31 +4,60 @@ import { MessageSquarePlus, Bug, ChevronRight, Trash2, FolderOpen, Copy, Send, C
 import { imageFiles, prepareImage, type PendingImage } from '@/lib/images'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
-import { Badge, Button, Dialog, inputCls } from './ui'
+import { Badge, Button, Dialog, Segmented, Toggle, inputCls } from './ui'
 import type { ErrorEntry } from '@shared/types'
+import { useGuided } from '@/lib/guided'
+import { friendlyError } from '@/lib/errors'
 
 export const ERRORS_SEEN_KEY = 'orchestra.errorsSeen'
 
+type FeedbackTab = 'feedback' | 'errors'
+
 /** Feedback, feature requests, bugs, and the captured error log, in one place. ⌘⇧F or the sidebar button. */
-export function FeedbackDialog({ tab: initial, onClose }: { tab: 'feedback' | 'errors'; onClose: () => void }): React.JSX.Element {
-  const [tab, setTab] = useState(initial)
+export function FeedbackDialog({ tab, onClose }: { tab: FeedbackTab; onClose: () => void }): React.JSX.Element {
   return (
     <Dialog title="Feedback and diagnostics" onClose={onClose} width={680}>
-      <div className="mb-4 flex rounded-md bg-bg p-0.5 text-[12px]">
-        <button onClick={() => setTab('feedback')} className={clsx('flex flex-1 items-center justify-center gap-1.5 rounded px-3 py-1.5', tab === 'feedback' ? 'bg-panel-2 text-text' : 'text-muted hover:text-text')}>
-          <MessageSquarePlus size={13} /> Feedback and requests
-        </button>
-        <button onClick={() => setTab('errors')} className={clsx('flex flex-1 items-center justify-center gap-1.5 rounded px-3 py-1.5', tab === 'errors' ? 'bg-panel-2 text-text' : 'text-muted hover:text-text')}>
-          <Bug size={13} /> Errors
-        </button>
-      </div>
-      {tab === 'feedback' ? <FeedbackForm onClose={onClose} /> : <ErrorsView onReport={() => setTab('feedback')} />}
+      <FeedbackPanel initialTab={tab} onClose={onClose} autoFocus />
     </Dialog>
   )
 }
 
-function FeedbackForm({ prefill, onClose }: { prefill?: string; onClose?: () => void }): React.JSX.Element {
+/**
+ * The dialog's content, also embedded in Settings → Feedback. It owns the "Report this" prefill: the errors tab
+ * unmounts when the form tab shows, so the error text has to live up here to reach the form.
+ */
+export function FeedbackPanel({ initialTab, onClose, autoFocus }: { initialTab: FeedbackTab; onClose?: () => void; autoFocus?: boolean }): React.JSX.Element {
+  const guided = useGuided()
+  const [tab, setTab] = useState<FeedbackTab>(initialTab)
+  const [prefill, setPrefill] = useState<string | undefined>(undefined)
+  return (
+    <div>
+      <Segmented
+        className="mb-4"
+        value={tab}
+        onChange={setTab}
+        options={[
+          { id: 'feedback', label: <span className="flex items-center gap-1.5"><MessageSquarePlus size={13} /> Feedback and requests</span> },
+          { id: 'errors', label: <span className="flex items-center gap-1.5"><Bug size={13} /> {guided ? 'Problems' : 'Errors'}</span> }
+        ]}
+      />
+      {tab === 'feedback' ? (
+        <FeedbackForm key={prefill ?? ''} prefill={prefill} onClose={onClose} autoFocus={autoFocus} />
+      ) : (
+        <ErrorsView
+          onReport={(text) => {
+            setPrefill(text)
+            setTab('feedback')
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+function FeedbackForm({ prefill, onClose, autoFocus }: { prefill?: string; onClose?: () => void; autoFocus?: boolean }): React.JSX.Element {
   const { settings, setError } = useApp()
+  const guided = useGuided()
   const [kind, setKind] = useState<'feature' | 'bug' | 'feedback'>(prefill ? 'bug' : 'feature')
   const [message, setMessage] = useState(prefill ?? '')
   const [email, setEmail] = useState(() => localStorage.getItem('orchestra.feedbackEmail') ?? '')
@@ -50,7 +79,7 @@ function FeedbackForm({ prefill, onClose }: { prefill?: string; onClose?: () => 
       try {
         prepared.push(await prepareImage(f, f.name || 'screenshot', { maxSide: 1600, maxBytes: 450 * 1024 }))
       } catch (err) {
-        setFailure(err instanceof Error ? err.message : String(err))
+        setFailure(friendlyError(err, 'That image could not be added.'))
       }
     }
     if (prepared.length) setShots((s) => [...s, ...prepared])
@@ -76,9 +105,9 @@ function FeedbackForm({ prefill, onClose }: { prefill?: string; onClose?: () => 
         setIncludeLogs(false)
         shots.forEach((s) => URL.revokeObjectURL(s.preview))
         setShots([])
-      } else setFailure(r.error ?? 'Unknown error')
+      } else setFailure(friendlyError(r.error ?? '', 'Try again in a moment.'))
     } catch (err) {
-      setFailure(err instanceof Error ? err.message : String(err))
+      setFailure(friendlyError(err, 'Try again in a moment.'))
     } finally {
       setSending(false)
     }
@@ -90,7 +119,7 @@ function FeedbackForm({ prefill, onClose }: { prefill?: string; onClose?: () => 
         <span className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-ok/15 text-ok">
           <CheckCircle2 size={26} />
         </span>
-        <div className="text-[16px] font-semibold">Thanks for the {what}</div>
+        <div className="text-[15px] font-semibold">Thanks for the {what}</div>
         <p className="mt-1 max-w-sm text-[13px] text-muted">
           It's in the queue and will be read. {sent.withEmail ? 'If there is anything to say back, it goes to the email you left.' : 'Add an email next time if you want a reply.'}
         </p>
@@ -109,19 +138,17 @@ function FeedbackForm({ prefill, onClose }: { prefill?: string; onClose?: () => 
   }
   return (
     <div>
-      <div className="mb-2 flex gap-1.5">
-        {(
-          [
-            ['feature', 'Feature request'],
-            ['bug', 'Bug'],
-            ['feedback', 'Feedback']
-          ] as const
-        ).map(([id, label]) => (
-          <button key={id} onClick={() => setKind(id)} className={clsx('rounded-full border px-2.5 py-0.5 text-[12px]', kind === id ? 'border-accent/60 bg-accent/15 text-accent' : 'border-border text-muted hover:text-text')}>
-            {label}
-          </button>
-        ))}
-      </div>
+      <Segmented
+        size="sm"
+        className="mb-2"
+        value={kind}
+        onChange={setKind}
+        options={[
+          { id: 'feature', label: 'Feature request' },
+          { id: 'bug', label: guided ? 'Something is broken' : 'Bug' },
+          { id: 'feedback', label: 'Feedback' }
+        ]}
+      />
       <div
         className={clsx('rounded-md', dragging && 'ring-2 ring-accent/60')}
         onDragOver={(e) => {
@@ -140,7 +167,8 @@ function FeedbackForm({ prefill, onClose }: { prefill?: string; onClose?: () => 
         }}
       >
         <textarea
-          autoFocus
+          autoFocus={autoFocus}
+          aria-label="Your message"
           rows={6}
           className={inputCls}
           placeholder={kind === 'bug' ? 'What happened, what did you expect, and how to reproduce it? Paste or drop screenshots here.' : kind === 'feature' ? 'What would you like Sinfonie to do?' : 'Anything at all.'}
@@ -159,7 +187,7 @@ function FeedbackForm({ prefill, onClose }: { prefill?: string; onClose?: () => 
           {shots.map((s) => (
             <div key={s.id} className="group relative h-16 w-24 overflow-hidden rounded-md border border-border bg-bg" title={s.name}>
               <img src={s.preview} alt={s.name} className="h-full w-full object-cover" />
-              <button onClick={() => removeShot(s.id)} className="absolute right-0.5 top-0.5 hidden rounded-full bg-black/70 p-0.5 text-white group-hover:block" title="Remove">
+              <button type="button" onClick={() => removeShot(s.id)} className="reveal-on-focus absolute right-0.5 top-0.5 rounded-full opacity-0 group-hover:opacity-100 bg-black/70 p-0.5 text-white" aria-label={`Remove screenshot ${s.name}`} title="Remove">
                 <X size={11} />
               </button>
             </div>
@@ -179,10 +207,10 @@ function FeedbackForm({ prefill, onClose }: { prefill?: string; onClose?: () => 
         }}
       />
       <div className="mt-2 flex flex-wrap items-center gap-2">
-        <input className={clsx(inputCls, 'max-w-[260px]')} placeholder="Email for a reply (optional)" value={email} onChange={(e) => setEmail(e.target.value)} />
-        <label className="flex items-center gap-1.5 text-[12px] text-muted" title="Attaches the last 30 captured errors. No chat content.">
-          <input type="checkbox" checked={includeLogs} onChange={(e) => setIncludeLogs(e.target.checked)} /> attach error log
-        </label>
+        <input className={clsx(inputCls, 'max-w-[260px]')} aria-label="Email for a reply (optional)" placeholder="Email for a reply (optional)" value={email} onChange={(e) => setEmail(e.target.value)} />
+        <span title={guided ? 'Adds the details of the last 30 problems Sinfonie noticed. No chat content.' : 'Attaches the last 30 captured errors. No chat content.'}>
+          <Toggle checked={includeLogs} onChange={setIncludeLogs} label={guided ? 'Attach recent problems' : 'Attach error log'} />
+        </span>
         <Button size="sm" variant="ghost" disabled={shots.length >= MAX_SHOTS} onClick={() => fileInput.current?.click()} title="Add screenshots (or paste / drop them in the text box)">
           <ImagePlus size={12} /> {shots.length ? `${shots.length}/${MAX_SHOTS} screenshots` : 'Screenshot'}
         </Button>
@@ -193,28 +221,30 @@ function FeedbackForm({ prefill, onClose }: { prefill?: string; onClose?: () => 
           </Button>
         </span>
       </div>
-      <label className="mt-4 flex items-start gap-2 rounded-md border border-border px-3 py-2 text-[12px]">
-        <input type="checkbox" className="mt-0.5" checked={settings.usageStats !== false} onChange={(e) => api.invoke('settings:update', { usageStats: e.target.checked }).catch((err) => setError(String(err)))} />
-        <span>
-          Share anonymous usage statistics
-          <span className="block text-[11px] text-muted">Once a day: a random install id, app version, macOS version, which engines were used, and how many workspaces and messages. No content, no account, no repo names.</span>
-        </span>
-      </label>
-      <label className="mt-2 flex items-start gap-2 rounded-md border border-border px-3 py-2 text-[12px]">
-        <input type="checkbox" className="mt-0.5" checked={settings.crashReports !== false} onChange={(e) => api.invoke('settings:update', { crashReports: e.target.checked }).catch((err) => setError(String(err)))} />
-        <span>
-          Send crash reports automatically
-          <span className="block text-[11px] text-muted">Error message, stack trace, app version and macOS version, once per distinct error per hour. Never chat content, repo paths or tokens.</span>
-        </span>
-      </label>
+      <div className="mt-4 flex flex-col gap-3 rounded-md border border-border px-3 py-3">
+        <Toggle
+          checked={settings.usageStats !== false}
+          onChange={(v) => void api.invoke('settings:update', { usageStats: v }).catch((err) => setError(friendlyError(err)))}
+          label="Share anonymous usage statistics"
+          hint={guided ? 'Once a day: a random install id, the app and macOS versions, and how many tasks and messages. No content, no account, no app names.' : 'Once a day: a random install id, app version, macOS version, which engines were used, and how many workspaces and messages. No content, no account, no repo names.'}
+        />
+        <Toggle
+          checked={settings.crashReports !== false}
+          onChange={(v) => void api.invoke('settings:update', { crashReports: v }).catch((err) => setError(friendlyError(err)))}
+          label="Send crash reports automatically"
+          hint={guided ? 'The technical details of a crash, and the app and macOS versions, at most once an hour per problem. Never chat content, file names or passwords.' : 'Error message, stack trace, app version and macOS version, once per distinct error per hour. Never chat content, repo paths or tokens.'}
+        />
+      </div>
     </div>
   )
 }
 
-function ErrorsView({ onReport }: { onReport: () => void }): React.JSX.Element {
+function ErrorsView({ onReport }: { onReport: (prefill: string) => void }): React.JSX.Element {
+  const guided = useGuided()
   const [entries, setEntries] = useState<ErrorEntry[]>([])
   const [open, setOpen] = useState<string | null>(null)
-  const [prefill, setPrefill] = useState<string | null>(null)
+  // Guided: the technical side (where, raw message, stack, logs folder) is one deliberate click away.
+  const [technical, setTechnical] = useState(!guided)
   const load = (): void => {
     api.invoke('logs:list').then(setEntries).catch(() => setEntries([]))
   }
@@ -223,45 +253,53 @@ function ErrorsView({ onReport }: { onReport: () => void }): React.JSX.Element {
     localStorage.setItem(ERRORS_SEEN_KEY, new Date().toISOString())
     return api.on('errors:new', () => load())
   }, [])
-  if (prefill !== null) return <FeedbackForm prefill={prefill} />
+  const noun = guided ? 'problem' : 'error'
   return (
     <div>
       <div className="mb-2 flex items-center gap-2 text-[12px] text-muted">
-        <span>{entries.length === 0 ? 'No errors captured.' : `${entries.length} captured error${entries.length === 1 ? '' : 's'}, newest first.`}</span>
+        <span>{entries.length === 0 ? `No ${noun}s captured.` : `${entries.length} captured ${noun}${entries.length === 1 ? '' : 's'}, newest first.`}</span>
         <span className="ml-auto flex gap-1.5">
-          <Button size="sm" variant="ghost" onClick={() => void api.invoke('logs:open')}>
-            <FolderOpen size={12} /> Logs folder
-          </Button>
-          <Button size="sm" variant="ghost" disabled={entries.length === 0} onClick={() => window.confirm('Clear the error log? The captured errors are gone and can no longer be attached to feedback.') && api.invoke('logs:clear').then(load)}>
+          {guided && entries.length > 0 && (
+            <Button size="sm" variant="ghost" aria-expanded={technical} onClick={() => setTechnical(!technical)}>
+              <ChevronRight size={12} className={clsx('transition-transform', technical && 'rotate-90')} /> {technical ? 'Hide technical details' : 'Show technical details'}
+            </Button>
+          )}
+          {technical && (
+            <Button size="sm" variant="ghost" onClick={() => void api.invoke('logs:open')}>
+              <FolderOpen size={12} /> Logs folder
+            </Button>
+          )}
+          <Button size="sm" variant="ghost" disabled={entries.length === 0} onClick={() => window.confirm(`Clear the ${noun} list? The captured ${noun}s are gone and can no longer be attached to feedback.`) && api.invoke('logs:clear').then(load)}>
             <Trash2 size={12} /> Clear
           </Button>
         </span>
       </div>
-      <div className="flex max-h-[52vh] flex-col gap-1 overflow-auto">
+      <div className="flex max-h-[52vh] flex-col gap-1 overflow-auto" {...(guided && technical ? { 'data-expert-ok': '' } : {})}>
         {entries.map((e) => {
           const isOpen = open === e.id
+          const shown = technical ? e.message : friendlyError(e.message, 'Something went wrong.', true)
           return (
             <div key={e.id} className="rounded-md border border-border">
-              <button onClick={() => setOpen(isOpen ? null : e.id)} className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[12px] hover:bg-panel-2">
+              <button aria-expanded={isOpen} onClick={() => setOpen(isOpen ? null : e.id)} className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[12px] hover:bg-panel-2">
                 <ChevronRight size={12} className={clsx('shrink-0 transition-transform', isOpen && 'rotate-90')} />
-                <Badge tone={/renderer/.test(e.where) ? 'warn' : 'danger'}>{e.where}</Badge>
-                <span className="min-w-0 flex-1 truncate font-mono">{e.message}</span>
+                {technical && <Badge tone={/renderer/.test(e.where) ? 'warn' : 'danger'}>{e.where}</Badge>}
+                <span className={clsx('min-w-0 flex-1 truncate', technical && 'font-mono')}>{shown}</span>
                 <span className="shrink-0 text-[11px] text-muted">{e.ts ? new Date(e.ts).toLocaleString() : ''}</span>
               </button>
               {isOpen && (
-                <div className="border-t border-border bg-bg px-2.5 py-2 font-mono text-[11px]">
-                  <pre className="max-h-64 overflow-auto whitespace-pre-wrap">{e.message}{e.stack ? '\n' + e.stack : ''}{e.extra ? '\n' + e.extra : ''}</pre>
+                <div className="border-t border-border bg-bg px-2.5 py-2 text-[11px]">
+                  {technical ? (
+                    <pre className="max-h-64 overflow-auto whitespace-pre-wrap font-mono">{e.message}{e.stack ? '\n' + e.stack : ''}{e.extra ? '\n' + e.extra : ''}</pre>
+                  ) : (
+                    <p className="text-[12px] text-muted">Report it and the details go along with your note, so nobody has to ask you for them.</p>
+                  )}
                   <div className="mt-2 flex gap-1.5">
-                    <Button size="sm" variant="ghost" onClick={() => void navigator.clipboard.writeText(`${e.ts} [${e.where}] ${e.message}\n${e.stack ?? ''}\n${e.extra ?? ''}`)}>
-                      <Copy size={12} /> Copy
-                    </Button>
-                    <Button
-                      size="sm"
-                      onClick={() => {
-                        setPrefill(`Error: ${e.message}\n\nWhat I was doing:\n`)
-                        onReport()
-                      }}
-                    >
+                    {technical && (
+                      <Button size="sm" variant="ghost" onClick={() => void navigator.clipboard.writeText(`${e.ts} [${e.where}] ${e.message}\n${e.stack ?? ''}\n${e.extra ?? ''}`)}>
+                        <Copy size={12} /> Copy
+                      </Button>
+                    )}
+                    <Button size="sm" onClick={() => onReport(guided ? `Problem: ${shown}\n\nWhat I was doing:\n` : `Error: ${e.message}\n\nWhat I was doing:\n`)}>
                       <Bug size={12} /> Report this
                     </Button>
                   </div>

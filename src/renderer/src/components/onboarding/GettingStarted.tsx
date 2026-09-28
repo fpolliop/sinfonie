@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { CheckCircle2, Circle, X } from 'lucide-react'
+import { IconButton } from '../ui'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { useGuided } from '@/lib/guided'
@@ -24,8 +25,8 @@ export function GettingStarted(): React.JSX.Element | null {
   if (settings.onboarding?.checklistDismissedAt) return null
   const orgs = settings.cloud?.account?.orgs ?? []
   const items = guided ? [
-    { done: settings.claudeAccounts.some((a) => a.loggedIn), text: 'Sign in to an agent', go: () => openSettings({ scope: 'app', page: 'accounts' }) },
-    { done: orgs.length > 0, text: 'Join your team', go: () => openSettings({ scope: 'app', page: 'plan' }) },
+    { done: settings.claudeAccounts.some((a) => a.loggedIn), text: 'Sign in so the assistant can work', go: () => openSettings({ scope: 'app', page: 'accounts' }) },
+    { done: orgs.length > 0 || repos.length > 0, text: 'Join your team or add your app', go: () => useApp.getState().openSetupAt(2) },
     { done: workspaces.length > 0, text: 'Start a task', go: () => setShowNewWorkspace(true) },
     { done: workspaces.some((w) => w.stage === 'in-review' || w.stage === 'done'), text: 'Send one for review', go: () => workspaces[0] && useApp.getState().select(workspaces[0].id) }
   ] : [
@@ -54,9 +55,9 @@ export function GettingStarted(): React.JSX.Element | null {
         <span className="text-[11px] text-muted">
           {items.length - left} of {items.length}
         </span>
-        <button className="ml-auto text-muted hover:text-text" onClick={dismiss} title="Hide this checklist">
+        <IconButton label="Hide this checklist" className="ml-auto" onClick={dismiss}>
           <X size={13} />
-        </button>
+        </IconButton>
       </div>
       <div className="mt-2 flex flex-col">
         {items.map((it) => (
@@ -66,11 +67,9 @@ export function GettingStarted(): React.JSX.Element | null {
           </button>
         ))}
       </div>
-      {!guided && (
-        <button className="mt-2 text-[12px] text-accent hover:underline" onClick={() => setOnboarding('tour')}>
-          Take the tour
-        </button>
-      )}
+      <button className="mt-2 text-[12px] text-accent hover:underline" onClick={() => setOnboarding('tour')}>
+        Take the tour
+      </button>
     </div>
   )
 }

@@ -4,35 +4,26 @@ import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { useChat } from '@/stores/chat'
 import { Button, Dialog, inputCls } from './ui'
+import { friendlyError } from '@/lib/errors'
+import { humanTitle, repoLabel } from '@/lib/labels'
+import { PERSONAL_SPACE_NAME } from '@/lib/soloApp'
+import { SoloApp } from './onboarding/SetupWizard'
 import { IssuePicker } from './NewWorkspaceDialog'
 import { jiraConnectionFor, linearConnectionFor, type JiraIssue, type LinearIssue, type WorkspaceJira, type WorkspaceLinear } from '@shared/types'
 
-/** "Make the add-to-cart button bigger on mobile" -> "make-add-cart-button-bigger-mobile" */
-function slugFor(text: string): string {
-  const words = text
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim()
-    .split(' ')
-    .filter((w) => w && !['a', 'an', 'the', 'to', 'of', 'in', 'on', 'for', 'and', 'or', 'with', 'from', 'as', 'at', 'by', 'is', 'be', 'i', 'we', 'want', 'please', 'can', 'you', 'it', 'so', 'that'].includes(w))
-  let out = ''
-  for (const w of words) {
-    if (out && (out + '-' + w).length > 40) break
-    out = out ? out + '-' + w : w
-  }
-  return out || 'task'
-}
-
 /**
- * Guided mode's New task: one question, "what do you want to build or change?". The team's apps are all in
- * by default (Phase 2 lets the assistant pick), the task takes its name from the description, and the
- * description becomes the first message, sent as soon as the task is ready.
+ * Guided mode's New task: one question, "what do you want to build or change?". The assistant picks the apps
+ * (or the person does), the task gets a readable name (the planner's, else the request in sentence case; the
+ * branch is derived from it behind the scenes), and the description becomes the first message, sent as soon
+ * as the task is ready. With no app yet, the dialog offers to add one right here instead of a dead end.
  */
 export function NewTaskDialog({ onClose }: { onClose: () => void }): React.JSX.Element {
   const { repos: allRepos, spaces, select, setError, settings, newWorkspaceSpaceId, newWorkspaceSeed, setNewWorkspaceSeed, openSettings } = useApp()
   const orgs = settings.cloud?.account?.orgs ?? []
   const teamSpaces = useMemo(() => spaces.filter((sp) => sp.orgId && orgs.some((o) => o.id === sp.orgId)), [spaces, orgs])
-  const candidates = teamSpaces.length ? teamSpaces : spaces
+  // The team's apps, plus the person's own ("My apps") when they also added one on their own.
+  const candidates = useMemo(() => (teamSpaces.length ? [...teamSpaces, ...spaces.filter((s) => !s.orgId && s.name === PERSONAL_SPACE_NAME)] : spaces), [teamSpaces, spaces])
+  const [addFrom, setAddFrom] = useState<'mac' | 'github'>('mac')
   const [spaceId, setSpaceId] = useState(() => (candidates.some((s) => s.id === newWorkspaceSpaceId) ? newWorkspaceSpaceId : candidates[0]?.id ?? ''))
   const space = spaces.find((s) => s.id === spaceId)
   const repos = useMemo(() => allRepos.filter((r) => r.spaceId === spaceId), [allRepos, spaceId])
@@ -66,7 +57,8 @@ export function NewTaskDialog({ onClose }: { onClose: () => void }): React.JSX.E
         picked = byPlan.length ? byPlan : repos
         planned = p.name
       }
-      const name = jira ? `${jira.key.toLowerCase()}-${slugFor(jira.summary)}`.slice(0, 48) : linear ? `${linear.identifier.toLowerCase()}-${slugFor(linear.title)}`.slice(0, 48) : planned || slugFor(text)
+      // A readable name; workspaces:create derives the branch and folder from it.
+      const name = jira ? humanTitle(`${jira.key}: ${jira.summary}`) : linear ? humanTitle(`${linear.identifier}: ${linear.title}`) : planned || humanTitle(text)
       const ws = await api.invoke('workspaces:create', {
         name,
         repos: picked.map((r) => ({ repoId: r.id, baseBranch: r.defaultBranch })),
@@ -82,7 +74,7 @@ export function NewTaskDialog({ onClose }: { onClose: () => void }): React.JSX.E
       const first = [text.trim(), jira ? `\nThis is for ticket ${jira.key}: ${jira.summary}\n${jira.url}` : '', linear ? `\nThis is for ${linear.identifier}: ${linear.title}\n${linear.url}` : ''].join('')
       sendWhenReady(ws.id, first)
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(friendlyError(err, 'The task could not start. Try again, or ask a teammate.'))
     } finally {
       setBusy(false)
     }
@@ -156,9 +148,29 @@ export function NewTaskDialog({ onClose }: { onClose: () => void }): React.JSX.E
         )}
       </div>
       {repos.length === 0 ? (
-        <div className="mb-4 rounded-md border border-border p-3 text-[12px] text-muted">Your team's apps are still being set up. Try again in a minute, or ask whoever set up Sinfonie for your team.</div>
+        <div className="mb-4 rounded-md border border-border p-3 text-[12px]">
+          <p className="mb-2 text-muted">{teamSpaces.some((sp) => sp.id === spaceId) ? 'Your team’s apps are still being set up. Try again in a minute, or add an app of your own:' : 'Add the app this task is for. You only do this once.'}</p>
+          <div role="radiogroup" aria-label="Where your app is" className="mb-2 flex gap-1">
+            {(
+              [
+                ['mac', 'It’s on this Mac'],
+                ['github', 'It’s on GitHub']
+              ] as const
+            ).map(([id, label]) => (
+              <button key={id} type="button" role="radio" aria-checked={addFrom === id} className={clsx('rounded-md px-2 py-1 text-[12px]', addFrom === id ? 'bg-panel-2 text-text' : 'text-muted hover:text-text')} onClick={() => setAddFrom(id)}>
+                {label}
+              </button>
+            ))}
+            {orgs.length === 0 && (
+              <button type="button" className="ml-auto text-[12px] text-accent hover:underline" onClick={() => (onClose(), openSettings({ scope: 'app', page: 'plan' }))}>
+                My team already uses Sinfonie
+              </button>
+            )}
+          </div>
+          <SoloApp key={addFrom} source={addFrom} onSpace={(id) => (setSpaceId(id), setOff(new Set()))} />
+        </div>
       ) : auto ? (
-        <div className="mb-4 rounded-md border border-dashed border-border p-3 text-[12px] text-muted">The assistant picks the right apps from what you describe, out of {repos.map((r) => r.name).join(', ')}. It only changes what the task needs.</div>
+        <div className="mb-4 rounded-md border border-dashed border-border p-3 text-[12px] text-muted">The assistant picks the right apps from what you describe, out of {repos.map((r) => repoLabel(r)).join(', ')}. It only changes what the task needs.</div>
       ) : (
         <>
           <div className="mb-1 flex flex-wrap gap-1.5">
@@ -178,7 +190,7 @@ export function NewTaskDialog({ onClose }: { onClose: () => void }): React.JSX.E
                   className={clsx('rounded-full border px-2.5 py-1 text-[12px]', on ? 'border-accent/50 bg-accent/10 text-text' : 'border-border text-muted')}
                   title={on ? 'Included. Click to leave it out.' : 'Left out. Click to include it.'}
                 >
-                  {r.name}
+                  {repoLabel(r)}
                 </button>
               )
             })}
@@ -188,8 +200,9 @@ export function NewTaskDialog({ onClose }: { onClose: () => void }): React.JSX.E
       )}
       <div className="flex justify-end gap-2">
         <Button onClick={onClose}>Cancel</Button>
-        <Button variant="primary" disabled={!canStart} onClick={() => void submit()}>
+        <Button variant="primary" disabled={!canStart} onClick={() => void submit()} aria-keyshortcuts="Meta+Enter" title="Start (⌘↵)">
           {busy ? 'Starting…' : 'Start'}
+          {!busy && <kbd className="ml-1 rounded bg-black/30 px-1 text-[11px]" aria-hidden>⌘↵</kbd>}
         </Button>
       </div>
     </Dialog>

@@ -45,6 +45,13 @@ interface ChatState {
   interrupt: (workspaceId: string) => Promise<void>
   unqueue: (workspaceId: string, id: string) => Promise<void>
   reset: (workspaceId: string) => Promise<void>
+  /**
+   * The session a cleared conversation can come back from: the Claude Code session id, when the engine keeps one
+   * on disk. null means a reset cannot be undone (another engine, or nothing sent yet).
+   */
+  restorableSession: (workspaceId: string) => string | null
+  /** Brings a cleared conversation back: resumes that session and reloads its transcript. */
+  restore: (workspaceId: string, sessionId: string) => Promise<void>
   setDraft: (workspaceId: string, draft: string) => void
   answerPermission: (requestId: string, decision: 'allow' | 'always' | 'deny') => Promise<void>
   handleEvent: (e: AgentEvent) => void
@@ -73,8 +80,9 @@ export const useChat = create<ChatState>((set, get) => ({
       return { unseenDone }
     }),
   answerQuestion: async (response) => {
-    set((s) => ({ questions: s.questions.filter((q) => q.requestId !== response.requestId) }))
+    // The card stays until main has the answer, so a failed send can be retried without retyping.
     await api.invoke('agent:answerQuestion', response)
+    set((s) => ({ questions: s.questions.filter((q) => q.requestId !== response.requestId) }))
   },
   ensure: (id) => get().chats[id] ?? empty(),
 
@@ -92,6 +100,8 @@ export const useChat = create<ChatState>((set, get) => ({
     const trimmed = text.trim()
     const images = get().chats[id]?.images ?? []
     if (!trimmed && images.length === 0) return
+    // Once the fresh conversation has a message, Undo would throw that message away: withdraw the offer.
+    if (useApp.getState().notice?.id === `chat-restore:${id}`) useApp.getState().notify(null)
     // The user item itself arrives back as a user_message event (or a queue event while a turn runs).
     set((s) => updateChat(s, id, (c) => ({ ...c, busy: c.busy || true, error: undefined, draft: '', images: [] })))
     try {
@@ -122,6 +132,17 @@ export const useChat = create<ChatState>((set, get) => ({
   reset: async (id) => {
     await api.invoke('agent:reset', id)
     set((s) => updateChat(s, id, () => ({ ...empty(), loaded: true })))
+  },
+  restorableSession: (id) => {
+    const app = useApp.getState()
+    const ws = app.workspaces.find((w) => w.id === id)
+    const engine = ws?.engine ?? app.spaces.find((sp) => sp.id === ws?.spaceId)?.engine ?? app.settings.engine ?? 'claude-code'
+    if (engine !== 'claude-code') return null
+    return get().chats[id]?.sessionId ?? ws?.sessionId ?? null
+  },
+  restore: async (id, sessionId) => {
+    await api.invoke('sessions:resume', id, sessionId)
+    await get().reload(id)
   },
   setDraft: (id, draft) => set((s) => updateChat(s, id, (c) => ({ ...c, draft }))),
 

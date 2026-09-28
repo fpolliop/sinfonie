@@ -3,7 +3,7 @@ import clsx from 'clsx'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { useUsage, subscribeUsage, windowLabel, clock, fmtTokens } from '@/stores/usage'
-import { Badge, Field, inputCls } from './ui'
+import { Badge, Field, SectionHeader, inputCls } from './ui'
 import type { UsageLimit } from '@shared/types'
 
 function tone(u: number): 'ok' | 'warn' | 'danger' {
@@ -33,7 +33,7 @@ export function UsagePage(): React.JSX.Element {
       <p className="mb-4 text-[12px] text-muted">Subscription windows come from the agent itself on every turn, so they reflect all your use of that account, not only Sinfonie. Spend figures are estimates at list price; on a subscription they show relative weight, not a bill.</p>
 
       <section className="mb-5">
-        <div className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-muted">Subscription windows</div>
+        <SectionHeader>Subscription windows</SectionHeader>
         {(snap?.accounts ?? []).length === 0 && <div className="text-[12px] text-muted">No agent accounts yet.</div>}
         {(snap?.accounts ?? []).map((a) => (
           <div key={a.accountId} className="mb-2 rounded-lg border border-border p-3">
@@ -72,13 +72,13 @@ export function UsagePage(): React.JSX.Element {
       </section>
 
       <section className="mb-5">
-        <div className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-muted">Last 14 days</div>
+        <SectionHeader>Last 14 days</SectionHeader>
         <div className="flex h-[96px] items-end gap-1 rounded-lg border border-border px-3 pt-3 pb-2">
           {last14.length === 0 && <div className="text-[12px] text-muted">Nothing recorded yet.</div>}
           {last14.map((d) => (
             <div key={d.day} className="group relative flex flex-1 flex-col items-center justify-end" title={`${d.day}: $${d.costUsd.toFixed(2)} · ${d.turns} turns`}>
               <div className="w-full rounded-t bg-accent/70 group-hover:bg-accent" style={{ height: `${Math.max(2, (d.costUsd / maxDay) * 70)}px` }} />
-              <div className="mt-1 text-[9px] text-muted">{d.day.slice(5)}</div>
+              <div className="mt-1 text-[11px] text-muted">{d.day.slice(5)}</div>
             </div>
           ))}
         </div>
@@ -116,7 +116,7 @@ function Tile({ label, value, sub }: { label: string; value: string; sub: string
   return (
     <div className="rounded-lg border border-border p-3">
       <div className="text-[11px] uppercase tracking-wide text-muted">{label}</div>
-      <div className="text-[20px] font-semibold">{value}</div>
+      <div className="text-[18px] font-semibold">{value}</div>
       <div className="text-[11px] text-muted">{sub}</div>
     </div>
   )

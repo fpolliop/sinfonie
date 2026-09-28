@@ -7,6 +7,8 @@ import { useNotes } from '@/stores/notes'
 import { useChat } from '@/stores/chat'
 import { Markdown } from '@/lib/markdown'
 import { Button, Dialog, inputCls } from './ui'
+import { ErrorNote } from './ErrorNote'
+import { useGuided } from '@/lib/guided'
 import { noteStatus, noteStatuses, BUILTIN_NOTE_STATUSES, type Note, type NotePatch, type NotePriority, type NoteStatus, type NoteStatusDef, type NotesFilter } from '@shared/types'
 
 const APP = 'app'
@@ -312,7 +314,7 @@ function Board({ columns, openId, onOpen, labelOf, statuses }: { columns: { id: 
         >
           <div className="flex items-center gap-2 px-3 py-2">
             <span className="text-[11px] font-semibold uppercase tracking-wide text-muted">{c.label}</span>
-            <span className="rounded-full bg-panel-2 px-1.5 text-[10px] text-muted">{c.notes.length}</span>
+            <span className="rounded-full bg-panel-2 px-1.5 text-[11px] text-muted">{c.notes.length}</span>
           </div>
           <div className="flex min-h-[80px] flex-1 flex-col gap-2 overflow-auto px-2 pb-2">
             {c.notes.map((n) => (
@@ -331,7 +333,7 @@ function Card({ note: n, selected, labelOf, statuses, onOpen, onDragStart, onDra
   return (
     <div draggable onDragStart={onDragStart} onDragEnd={onDragEnd} onClick={onOpen} className={clsx('cursor-pointer rounded-lg border bg-bg px-3 py-2 text-[12px] shadow-sm hover:border-accent/60', selected ? 'border-accent' : 'border-border', st === 'done' && 'opacity-60')}>
       <div className={clsx('whitespace-pre-wrap break-words', st === 'done' && 'line-through')}>{n.text.length > 220 ? `${n.text.slice(0, 220)}…` : n.text}</div>
-      <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[10px] text-muted">
+      <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted">
         {n.kind === 'note' ? <StickyNote size={10} /> : st !== 'todo' && st !== 'done' ? <span className={clsx('rounded bg-panel-2 px-1', stDef?.tone ?? 'text-accent')}>{stDef?.label ?? st}</span> : null}
         {n.priority && <span className={clsx('rounded px-1', PRIORITY.find((p) => p.id === n.priority)?.cls)}>{n.priority}</span>}
         {n.due && (
@@ -351,7 +353,7 @@ function Card({ note: n, selected, labelOf, statuses, onOpen, onDragStart, onDra
 function List({ notes, openId, onOpen, labelOf, onPatch, statuses }: { notes: Located[]; openId: string | null; onOpen: (id: string) => void; labelOf: (o: string) => string; onPatch: (n: Located, p: NotePatch) => void; statuses: NoteStatusDef[] }): React.JSX.Element {
   return (
     <div className="px-4 py-2">
-      <div className="grid grid-cols-[24px_1fr_110px_90px_90px_150px_70px] items-center gap-2 px-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted">
+      <div className="grid grid-cols-[24px_1fr_110px_90px_90px_150px_70px] items-center gap-2 px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-muted">
         <span />
         <span>Item</span>
         <span>Status</span>
@@ -433,12 +435,12 @@ function Detail({ note: n, owners, labelOf, statuses, onPatch, onMove, onRemove,
   const st = noteStatus(n)
   const isWs = n.owner !== APP && !isSpace(n.owner)
   const field = 'mb-3'
-  const label = 'mb-1 block text-[10px] font-semibold uppercase tracking-wide text-muted'
+  const label = 'mb-1 block text-[11px] font-semibold uppercase tracking-wide text-muted'
   return (
     <aside className="flex w-[360px] shrink-0 flex-col border-l border-border bg-panel">
       <div className="flex items-center gap-2 border-b border-border px-3 py-2">
         <span className="text-[12px] font-semibold">{n.kind === 'todo' ? 'Todo' : 'Note'}</span>
-        <span className="inline-flex items-center gap-1 text-[10px] text-muted">{n.source === 'agent' ? <Bot size={10} /> : <User size={10} />} {n.source === 'agent' ? 'by an agent' : 'by you'}</span>
+        <span className="inline-flex items-center gap-1 text-[11px] text-muted">{n.source === 'agent' ? <Bot size={10} /> : <User size={10} />} {n.source === 'agent' ? 'by an agent' : 'by you'}</span>
         <button className="ml-auto text-muted hover:text-text" onClick={onClose} aria-label="Close">
           <X size={14} />
         </button>
@@ -503,7 +505,7 @@ function Detail({ note: n, owners, labelOf, statuses, onPatch, onMove, onRemove,
             ))}
           </select>
         </div>
-        <div className="text-[10px] text-muted">
+        <div className="text-[11px] text-muted">
           Created {new Date(n.createdAt).toLocaleString()} · changed {new Date(n.updatedAt).toLocaleString()} · id {n.id}
         </div>
       </div>
@@ -537,6 +539,7 @@ function SummaryDialog({ filter, count, onClose }: { filter: NotesFilter; count:
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const guided = useGuided()
   const run = async (q?: string): Promise<void> => {
     setBusy(true)
     setError(null)
@@ -560,7 +563,7 @@ function SummaryDialog({ filter, count, onClose }: { filter: NotesFilter; count:
             <Loader2 size={14} className="animate-spin text-accent" /> Reading the notes shown…
           </div>
         )}
-        {error && <div className="text-danger">{error}</div>}
+        {error && <ErrorNote summary="The summary could not be written. Try again in a moment." detail={guided ? undefined : error} />}
         {result && <Markdown text={result} />}
       </div>
       <div className="mt-3 flex items-center gap-2">
@@ -620,7 +623,7 @@ function StatusesDialog({ custom, onClose }: { custom: NoteStatusDef[]; onClose:
         {BUILTIN_NOTE_STATUSES.slice(0, 2).map((b) => (
           <div key={b.id} className="flex items-center gap-2 border-b border-border px-3 py-1.5 text-[12px] text-muted">
             <span className={clsx('font-medium', b.tone)}>{b.label}</span>
-            <span className="ml-auto text-[10px]">built in</span>
+            <span className="ml-auto text-[11px]">built in</span>
           </div>
         ))}
         {custom.map((c) => (
@@ -640,7 +643,7 @@ function StatusesDialog({ custom, onClose }: { custom: NoteStatusDef[]; onClose:
         ))}
         <div className="flex items-center gap-2 px-3 py-1.5 text-[12px] text-muted">
           <span className="font-medium text-ok">Done</span>
-          <span className="ml-auto text-[10px]">built in</span>
+          <span className="ml-auto text-[11px]">built in</span>
         </div>
       </div>
       <div className="mt-3 flex items-center gap-2">

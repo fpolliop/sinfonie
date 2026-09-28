@@ -4,7 +4,7 @@ import { Square, X } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { useResources, subscribeResources, gb } from '@/stores/resources'
-import { Badge, Button, Field, inputCls } from './ui'
+import { Badge, Button, Field, IconButton, Toggle, inputCls } from './ui'
 import type { PressureLevel, ResourceSettings } from '@shared/types'
 
 const DEFAULTS: Required<ResourceSettings> = { governor: 'enforce', maxSubagentsPerSession: 4, maxActiveSessions: 6, memoryBudgetPct: 60, stopSubagentsOnCritical: true }
@@ -81,9 +81,9 @@ export function ResourcesPage(): React.JSX.Element {
                 {snap.waiting.map((id) => (
                   <span key={id} className="mr-2 inline-flex items-center gap-1">
                     {nameOf(id)}
-                    <button className="rounded p-0.5 hover:text-danger" title="Cancel this waiting message" onClick={() => api.invoke('resources:cancelWaiting', id)}>
+                    <IconButton label={`Cancel the waiting message in ${nameOf(id)}`} className="hover:text-danger" onClick={() => void api.invoke('resources:cancelWaiting', id).catch((err) => setError(String(err)))}>
                       <X size={11} />
-                    </button>
+                    </IconButton>
                   </span>
                 ))}
               </div>
@@ -112,10 +112,7 @@ export function ResourcesPage(): React.JSX.Element {
           <input type="number" min={10} max={95} className={inputCls} key={r.memoryBudgetPct} defaultValue={r.memoryBudgetPct} onBlur={(e) => update({ memoryBudgetPct: Math.min(95, Math.max(10, Number(e.target.value) || DEFAULTS.memoryBudgetPct)) })} />
         </Field>
       </div>
-      <label className="flex items-center gap-2 text-[13px]">
-        <input type="checkbox" checked={r.stopSubagentsOnCritical} onChange={(e) => update({ stopSubagentsOnCritical: e.target.checked })} />
-        Under critical pressure, stop the newest subagent until it eases
-      </label>
+      <Toggle checked={r.stopSubagentsOnCritical} onChange={(v) => update({ stopSubagentsOnCritical: v })} label="Under critical pressure, stop the newest subagent until it eases" />
       <p className="mt-3 text-[11px] text-muted">Samples are appended to logs/resources.jsonl in the app data folder, so a blowup can be traced afterwards.</p>
       <div className="mt-3">
         <Button size="sm" variant="ghost" onClick={() => update({ ...DEFAULTS })}>

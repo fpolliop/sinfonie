@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from 'react'
-import { Plus, Trash2, RefreshCw, LogIn, Star } from 'lucide-react'
+import { Plus, Trash2, RefreshCw, LogIn, Star, KeyRound, LogOut } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
-import { Badge, Button, inputCls } from './ui'
+import { Badge, Button, IconButton, inputCls } from './ui'
 import { LoginDialog } from './LoginDialog'
 import { shortPath } from '@/lib/format'
 import { VENDORS, type AcpProbe, type Engine, type Vendor } from '@shared/types'
-import { useGuided } from '@/lib/guided'
+import { useGuided, words } from '@/lib/guided'
+import { friendlyError } from '@/lib/errors'
 
 /** Module-level cache of the last probe per engine, for model pickers elsewhere. */
 export const acpProbeCache: Partial<Record<Engine, AcpProbe>> = {}
@@ -26,7 +27,7 @@ export function AccountsPage({ guided: guidedProp }: { guided?: boolean } = {}):
     try {
       await fn()
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(friendlyError(err))
     }
   }
   const check = async (id: string): Promise<void> => {
@@ -43,10 +44,11 @@ export function AccountsPage({ guided: guidedProp }: { guided?: boolean } = {}):
   }, [])
   const defaultFor = (vendor: Vendor): string | undefined => (vendor === 'anthropic' ? settings.defaultClaudeAccountId : settings.defaultAccounts?.[vendor] ?? `${vendor}-default`)
   const update = (patch: Record<string, unknown>): Promise<unknown> => api.invoke('settings:update', patch as never)
+  const w = words(guided)
 
   return (
     <div className="max-w-[760px]">
-      <p className="mb-4 text-[12px] text-muted">{guided ? 'Sign in to the AI you want to build with: Anthropic, OpenAI or xAI; Google uses an API key.' : 'Each vendor’s coding agent keeps its own login. Sinfonie can hold several accounts per vendor, each in its own config folder, and a space or workspace picks which one to use. The vendor’s engine is what you select under General.'}</p>
+      <p className="mb-4 text-[12px] text-muted">{guided ? 'Sign in to the AI you want to build with: Anthropic, OpenAI or xAI. For Google (Gemini), paste the key your admin gave you.' : 'Each vendor’s coding agent keeps its own login, and Sinfonie can hold several accounts per vendor. A space or workspace picks which one to use; the engine itself is chosen under Agents & models.'}</p>
       <div className="flex flex-col gap-4">
         {VENDORS.map((v) => {
           const list = settings.claudeAccounts.filter((a) => (a.vendor ?? 'anthropic') === v.id)
@@ -62,12 +64,14 @@ export function AccountsPage({ guided: guidedProp }: { guided?: boolean } = {}):
                   </div>
                   {!guided && <div className="text-[11px] text-muted">{v.hint}</div>}
                 </div>
-                {v.id === 'google' && (
+                {v.id === 'google' && !guided && (
                   <Button size="sm" variant="ghost" onClick={() => openSettings({ scope: 'app', page: 'providers' })}>
                     Model providers → Google
                   </Button>
                 )}
               </div>
+              {/* Guided has no Model providers page, so the Gemini key is pasted right here. */}
+              {v.id === 'google' && guided && <GoogleKeyField onSaved={() => list.forEach((a) => void check(a.id))} />}
               <div className="flex flex-col gap-1.5 p-2">
                 {list.map((a) => (
                   <div key={a.id} className="flex items-center gap-3 rounded-lg border border-border px-3 py-2">
@@ -90,27 +94,33 @@ export function AccountsPage({ guided: guidedProp }: { guided?: boolean } = {}):
                       </Button>
                     )}
                     {a.id !== def && (
-                      <Button size="sm" variant="ghost" onClick={() => go(() => api.invoke('accounts:setDefault', a.id))} title="Use this account unless a space or workspace picks another">
+                      <Button size="sm" variant="ghost" onClick={() => go(() => api.invoke('accounts:setDefault', a.id))} title={`Use this account unless a ${w.space} or ${w.workspace} picks another`}>
                         <Star size={12} /> Make default
                       </Button>
                     )}
-                    {a.configDir !== null && (
-                      <button title="Remove this account (its config folder is kept on disk)" className="rounded p-1 text-muted hover:text-danger" onClick={() => window.confirm('Remove this account? Spaces and workspaces using it fall back to the default; its login folder stays on disk.') && go(() => api.invoke('accounts:remove', a.id))}>
-                        <Trash2 size={13} />
-                      </button>
-                    )}
+                    {a.configDir !== null &&
+                      (guided ? (
+                        <IconButton label={`Sign out of ${a.name}`} className="hover:text-danger" onClick={() => window.confirm(`Sign out of ${a.name}? Teams and tasks using it switch to your default account.`) && go(() => api.invoke('accounts:remove', a.id))}>
+                          <LogOut size={13} />
+                        </IconButton>
+                      ) : (
+                        <IconButton label={`Remove ${a.name} (its config folder is kept on disk)`} className="hover:text-danger" onClick={() => window.confirm('Remove this account? Spaces and workspaces using it fall back to the default; its login folder stays on disk.') && go(() => api.invoke('accounts:remove', a.id))}>
+                          <Trash2 size={13} />
+                        </IconButton>
+                      ))}
                   </div>
                 ))}
                 <div className="flex items-center gap-2">
-                  <input className={inputCls} placeholder={`Add another ${v.label} account, e.g. Work`} value={names[v.id] ?? ''} onChange={(e) => setNames({ ...names, [v.id]: e.target.value })} onKeyDown={(e) => e.key === 'Enter' && names[v.id]?.trim() && go(() => api.invoke('accounts:add', names[v.id]!, v.id)).then(() => setNames({ ...names, [v.id]: '' }))} />
+                  <input className={inputCls} aria-label={`Add another ${v.label} account`} placeholder={`Add another ${v.label} account, e.g. Work`} value={names[v.id] ?? ''} onChange={(e) => setNames({ ...names, [v.id]: e.target.value })} onKeyDown={(e) => e.key === 'Enter' && names[v.id]?.trim() && go(() => api.invoke('accounts:add', names[v.id]!, v.id)).then(() => setNames({ ...names, [v.id]: '' }))} />
                   <Button variant="primary" size="sm" disabled={!names[v.id]?.trim()} onClick={() => go(() => api.invoke('accounts:add', names[v.id]!, v.id)).then(() => setNames({ ...names, [v.id]: '' }))}>
                     <Plus size={12} /> Add
                   </Button>
                 </div>
                 {!guided && v.engine !== 'claude-code' && probe?.signedIn && probe.models.length > 0 && (
                   <div className="mt-1 flex items-center gap-2 text-[11px] text-muted">
-                    <span>Default model for the {v.agent} engine:</span>
-                    <select className="rounded-md border border-border bg-bg px-1.5 py-1 text-[11px]" value={(settings as unknown as Record<string, string | undefined>)[modelKey] ?? ''} onChange={(e) => go(() => update({ [modelKey]: e.target.value || undefined }))}>
+                    <span className="shrink-0">Default model for the {v.agent} engine:</span>
+                    <div className="w-[220px] shrink-0">
+                    <select className={inputCls} aria-label={`Default model for the ${v.agent} engine`} value={(settings as unknown as Record<string, string | undefined>)[modelKey] ?? ''} onChange={(e) => go(() => update({ [modelKey]: e.target.value || undefined }))}>
                       <option value="">Agent default{probe.currentModel ? ` (${probe.currentModel})` : ''}</option>
                       {probe.models.map((m) => (
                         <option key={m} value={m}>
@@ -118,6 +128,7 @@ export function AccountsPage({ guided: guidedProp }: { guided?: boolean } = {}):
                         </option>
                       ))}
                     </select>
+                    </div>
                     {probe.modes.length > 0 && <span>· modes: {probe.modes.join(', ')}</span>}
                   </div>
                 )}
@@ -137,6 +148,50 @@ export function AccountsPage({ guided: guidedProp }: { guided?: boolean } = {}):
           }}
         />
       )}
+    </div>
+  )
+}
+
+/**
+ * Guided mode's Google key: the Gemini agent signs in with a key from a "Google Gemini" model provider. Guided users
+ * never see Model providers, so this saves to the same provider (creating it the first time) from the Sign-in page.
+ */
+function GoogleKeyField({ onSaved }: { onSaved: () => void }): React.JSX.Element {
+  const provider = useApp((s) => (s.settings.providers ?? []).find((p) => p.kind === 'google'))
+  const notify = useApp((s) => s.notify)
+  const [key, setKey] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [failure, setFailure] = useState<string | null>(null)
+  const save = async (): Promise<void> => {
+    if (!key.trim() || busy) return
+    setBusy(true)
+    setFailure(null)
+    try {
+      const id = provider ? provider.id : (await api.invoke('providers:add', { kind: 'google', name: 'Google Gemini', apiKey: key.trim() })).id
+      if (provider) await api.invoke('providers:update', provider.id, { apiKey: key.trim() })
+      setKey('')
+      await api.invoke('providers:models', id).catch(() => undefined)
+      notify({ kind: 'success', text: 'Google key saved.' })
+      onSaved()
+    } catch (err) {
+      setFailure(friendlyError(err, 'That key could not be saved. Check it and try again.'))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="border-b border-border px-3 py-2">
+      <label className="mb-1 flex items-center gap-2 text-[12px] text-muted" htmlFor="guided-google-key">
+        <KeyRound size={12} /> Google (Gemini) · paste the key your admin gave you
+        {provider?.hasKey && <Badge tone="ok">key saved</Badge>}
+      </label>
+      <div className="flex items-center gap-2">
+        <input id="guided-google-key" type="password" className={inputCls} placeholder={provider?.hasKey ? 'Paste a new key to replace the saved one' : 'Paste the key here'} value={key} onChange={(e) => setKey(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && void save()} />
+        <Button size="sm" variant="primary" disabled={!key.trim() || busy} onClick={() => void save()}>
+          {busy ? 'Saving…' : 'Save'}
+        </Button>
+      </div>
+      {failure && <p className="mt-1 text-[12px] text-danger">{failure}</p>}
     </div>
   )
 }

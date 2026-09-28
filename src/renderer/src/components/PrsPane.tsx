@@ -5,14 +5,15 @@ import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { useGithub } from '@/stores/github'
 import { useChat } from '@/stores/chat'
-import { Badge, Button, Dialog, Field, inputCls } from './ui'
+import { Badge, Button } from './ui'
+import { PrDialog } from './ChangesPane'
 import { timeAgo } from '@/lib/format'
 import type { PrCheck, RepoPr, ReviewThread, Workspace } from '@shared/types'
 
 export function PrsPane({ workspaceId }: { workspaceId: string }): React.JSX.Element {
   const ws = useApp((s) => s.workspaces.find((w) => w.id === workspaceId))
   const setTab = useApp((s) => s.setTab)
-  const setError = useApp((s) => s.setError)
+  const notify = useApp((s) => s.notify)
   const state = useGithub((s) => s.byWorkspace[workspaceId])
   const refresh = useGithub((s) => s.refresh)
   const send = useChat((s) => s.send)
@@ -76,17 +77,16 @@ export function PrsPane({ workspaceId }: { workspaceId: string }): React.JSX.Ele
         </div>
       </div>
       {prDlg && (
-        <CreatePrDialog
+        <PrDialog
           onClose={() => setPrDlg(null)}
           defaultTitle={ws.jira ? `${ws.jira.key}: ${ws.jira.summary}` : ws.linear ? `${ws.linear.identifier}: ${ws.linear.title}` : ws.name}
+          hint="The Jira link and the sibling branches of this workspace are appended automatically."
           onSubmit={async (t, b) => {
-            try {
-              const out = await api.invoke('git:createPr', workspaceId, prDlg, t, b)
-              setError(out)
-              await refresh(workspaceId)
-            } catch (err) {
-              setError(err instanceof Error ? err.message : String(err))
-            }
+            // Errors stay in the dialog; success is a toast, and the card below shows the new pull request's link.
+            const out = await api.invoke('git:createPr', workspaceId, prDlg, t, b)
+            const url = /https?:\/\/\S+/.exec(out ?? '')?.[0]
+            notify({ kind: 'success', text: 'Pull request opened', link: url ? { label: 'View on GitHub', url } : undefined })
+            void refresh(workspaceId)
           }}
         />
       )}
@@ -118,7 +118,7 @@ function RepoCard({ repoName, branch, data, loading, onOpenPr, onAddress }: { re
           <span className="text-[12px] text-muted">Loading…</span>
         ) : data?.error ? null : (
           <Button size="sm" variant="primary" onClick={onOpenPr}>
-            <GitPullRequest size={12} /> Open PR
+            <GitPullRequest size={12} /> Open pull request
           </Button>
         )}
       </header>
@@ -233,37 +233,6 @@ function CheckChip({ check }: { check: PrCheck }): React.JSX.Element {
     </button>
   ) : (
     inner
-  )
-}
-
-function CreatePrDialog({ onClose, onSubmit, defaultTitle }: { onClose: () => void; onSubmit: (title: string, body: string) => Promise<void>; defaultTitle: string }): React.JSX.Element {
-  const [title, setTitle] = useState(defaultTitle)
-  const [body, setBody] = useState('')
-  return (
-    <Dialog title="Open pull request" onClose={onClose} width={520}>
-      <form
-        onSubmit={async (e) => {
-          e.preventDefault()
-          await onSubmit(title, body)
-          onClose()
-        }}
-      >
-        <Field label="Title">
-          <input autoFocus className={inputCls} value={title} onChange={(e) => setTitle(e.target.value)} />
-        </Field>
-        <Field label="Body" hint="The Jira link and the sibling branches of this workspace are appended automatically.">
-          <textarea rows={6} className={inputCls} value={body} onChange={(e) => setBody(e.target.value)} />
-        </Field>
-        <div className="flex justify-end gap-2">
-          <Button type="button" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button type="submit" variant="primary" disabled={!title.trim()}>
-            Create PR
-          </Button>
-        </div>
-      </form>
-    </Dialog>
   )
 }
 

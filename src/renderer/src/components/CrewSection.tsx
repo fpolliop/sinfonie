@@ -15,7 +15,7 @@ const EMPTY_PROVIDERS: ProviderConfig[] = []
  * may delegate to, and which model each runs on there. The agents themselves are edited
  * under Agents in the sidebar.
  */
-export function CrewSection({ spaceId, title, intro, useCrew, orchestrator }: { spaceId?: string; title: string; intro: string; useCrew?: { value: boolean; onToggle: (v: boolean) => void }; /** The chat model, so Suggest can propose one for it too. */ orchestrator?: { value: string; label: string; onChange: (model: string) => void } }): React.JSX.Element {
+export function CrewSection({ spaceId, intro, useCrew, orchestrator }: { spaceId?: string; intro: string; useCrew?: { value: boolean; onToggle: (v: boolean) => void }; /** The chat model, so Suggest can propose one for it too. */ orchestrator?: { value: string; label: string; onChange: (model: string) => void } }): React.JSX.Element {
   const agents = useApp((s) => s.agents)
   const space = useApp((s) => s.spaces.find((x) => x.id === spaceId))
   const providersRaw = useApp((s) => s.settings.providers)
@@ -51,10 +51,11 @@ export function CrewSection({ spaceId, title, intro, useCrew, orchestrator }: { 
   const crew = visible.filter(inCrew).map(effective)
 
   return (
-    <section className="mt-4">
-      <div className="mb-1 flex items-center">
-        <h3 className="text-[12px] font-medium uppercase tracking-wide text-muted">{title}</h3>
-        <span className="ml-auto flex gap-1.5">
+    <section>
+      {/* The page heading already names this section; the intro and actions lead it. */}
+      <div className="mb-3 flex items-start gap-3">
+        <p className="flex-1 text-[11px] text-muted">{intro}</p>
+        <span className="flex shrink-0 gap-1.5">
           <Button size="sm" variant="ghost" onClick={() => setSuggesting(true)} title="Let Claude pick a model for the orchestrator and each agent from every model you can use">
             <Sparkles size={12} /> Suggest models
           </Button>
@@ -70,7 +71,6 @@ export function CrewSection({ spaceId, title, intro, useCrew, orchestrator }: { 
           </Button>
         </span>
       </div>
-      <p className="mb-2 text-[11px] text-muted">{intro}</p>
       {useCrew && (
         <label className="mb-2 flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-[12px]">
           <input type="checkbox" checked={useCrew.value} onChange={(e) => useCrew.onToggle(e.target.checked)} />
@@ -88,8 +88,8 @@ export function CrewSection({ spaceId, title, intro, useCrew, orchestrator }: { 
           const model = spaceId ? (models[a.id] ?? '') : a.model
           return (
             <div key={a.id} className={clsx('flex items-center gap-2 rounded-lg border px-3 py-2', on ? 'border-border' : 'border-border/60 opacity-60')}>
-              <input type="checkbox" checked={on} onChange={(e) => toggle(a, e.target.checked)} title={spaceId ? 'In this space’s crew' : 'Offered to orchestrators as a subagent'} />
-              <span className="w-5 text-center text-[14px]">{a.icon || <Bot size={13} className="inline text-muted" />}</span>
+              <input type="checkbox" checked={on} onChange={(e) => toggle(a, e.target.checked)} aria-label={`${a.name}: ${spaceId ? 'in this space’s crew' : 'offered to orchestrators as a subagent'}`} title={spaceId ? 'In this space’s crew' : 'Offered to orchestrators as a subagent'} />
+              <span className="w-5 text-center text-[15px]">{a.icon || <Bot size={13} className="inline text-muted" />}</span>
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-1.5 text-[13px] font-medium">
                   {a.name}

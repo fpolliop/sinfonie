@@ -2,7 +2,8 @@ import React, { useEffect, useState } from 'react'
 import { Check, Copy, Globe, Smartphone, Tablet, Unlink } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
-import { Badge, Button, Field, inputCls } from './ui'
+import { Badge, Button, Field, SectionHeader, Toggle, inputCls } from './ui'
+import { ErrorNote } from './ErrorNote'
 import { timeAgo } from '@/lib/format'
 import type { RemoteSettings, RemoteStatus } from '@shared/types'
 
@@ -81,7 +82,7 @@ export function RemotePage(): React.JSX.Element {
             )}
           </span>
         </div>
-        {status?.lastError && <div className="mt-1 text-[12px] text-warn">{status.lastError}</div>}
+        {status?.lastError && <ErrorNote className="mt-1" tone="warn" summary="The connection to your devices hit a problem." detail={status.lastError} />}
         {status?.paired && status.devices.length > 0 && (
           <div className="mt-3 space-y-1.5">
             {status.devices.map((d) => {
@@ -125,14 +126,15 @@ export function RemotePage(): React.JSX.Element {
       </section>
 
       <section className="rounded-lg border border-border p-3">
-        <div className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-muted">Notifications</div>
+        <SectionHeader>Notifications</SectionHeader>
         <Field label="Only when I have been away from the Mac for" hint="Prompts and results are pushed only if the Mac has had no input for this long. Set 0 to always push.">
           <div className="flex items-center gap-2">
+            <span className="w-24 shrink-0">
             <input
               type="number"
               min={0}
               max={120}
-              className={`${inputCls} w-24`}
+              className={inputCls}
               key={settings.awayMinutes ?? 1}
               defaultValue={settings.awayMinutes ?? 1}
               onBlur={(e) => {
@@ -144,10 +146,11 @@ export function RemotePage(): React.JSX.Element {
                 if (next !== (settings.awayMinutes ?? 1)) update({ awayMinutes: next })
               }}
             />
+            </span>
             <span className="text-[12px] text-muted">minutes</span>
           </div>
         </Field>
-        <div className="mt-2 space-y-1.5 text-[13px]">
+        <div className="mt-2 space-y-2">
           {(
             [
               ['notifyPrompts', 'Permission prompts and questions'],
@@ -155,10 +158,7 @@ export function RemotePage(): React.JSX.Element {
               ['notifyErrors', 'Errors']
             ] as const
           ).map(([k, label]) => (
-            <label key={k} className="flex items-center gap-2">
-              <input type="checkbox" checked={settings[k] !== false} onChange={(e) => update({ [k]: e.target.checked })} />
-              {label}
-            </label>
+            <Toggle key={k} checked={settings[k] !== false} onChange={(v) => update({ [k]: v })} label={label} />
           ))}
         </div>
         <p className="mt-3 text-[11px] text-muted">While a device is connected and an agent is running, Sinfonie keeps the Mac from sleeping. The lid still has to stay open, or the Mac connected to power with sleep disabled in System Settings.</p>

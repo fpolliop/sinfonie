@@ -313,9 +313,9 @@ class ViewErrorBoundary extends React.Component<{ viewId: string; children: Reac
   render(): React.ReactNode {
     if (!this.state.error) return this.props.children
     return (
-      <div className="flex flex-col items-start gap-2 rounded-lg border border-danger/40 bg-danger/5 p-4 text-[12.5px]">
+      <div className="flex flex-col items-start gap-2 rounded-lg border border-danger/40 bg-danger/5 p-4 text-[13px]">
         <div className="font-medium text-danger">This view could not be drawn.</div>
-        <div className="font-mono text-[11.5px] text-muted">{this.state.error}</div>
+        <div className="font-mono text-[12px] text-muted">{this.state.error}</div>
         <div className="flex gap-2">
           <Button size="sm" onClick={() => void api.invoke('views:undo', this.props.viewId).catch(() => undefined)}>
             Undo last change

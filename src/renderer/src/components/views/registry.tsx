@@ -80,7 +80,7 @@ export const { registry } = defineRegistry(componentCatalog, {
           <header className="flex items-center gap-2 border-b border-border px-3 py-2">
             <ViewIcon name={props.icon} className={TONE_TEXT[props.tone && props.tone !== 'default' ? props.tone : 'accent']} />
             <div className="min-w-0">
-              {props.title && <div className="truncate text-[12.5px] font-semibold">{props.title}</div>}
+              {props.title && <div className="truncate text-[13px] font-semibold">{props.title}</div>}
               {props.subtitle && <div className="truncate text-[11px] text-muted">{props.subtitle}</div>}
             </div>
           </header>
@@ -89,7 +89,7 @@ export const { registry } = defineRegistry(componentCatalog, {
       </section>
     ),
     Heading: ({ props }) => {
-      const cls = props.level === 3 ? 'text-[13px] font-semibold' : props.level === 2 ? 'text-[15px] font-semibold' : 'text-[19px] font-semibold tracking-tight'
+      const cls = props.level === 3 ? 'text-[13px] font-semibold' : props.level === 2 ? 'text-[15px] font-semibold' : 'text-[18px] font-semibold tracking-tight'
       return <div className={clsx('min-w-0 truncate', cls)}>{str(props.text)}</div>
     },
     Text: ({ props }) => (
@@ -105,7 +105,7 @@ export const { registry } = defineRegistry(componentCatalog, {
         {str(props.text)}
       </p>
     ),
-    Badge: ({ props }) => <span className={clsx('inline-flex shrink-0 items-center whitespace-nowrap rounded-full px-2 py-px text-[10.5px] font-medium', TONE_BADGE[props.tone ?? 'default'])}>{str(props.label)}</span>,
+    Badge: ({ props }) => <span className={clsx('inline-flex shrink-0 items-center whitespace-nowrap rounded-full px-2 py-px text-[11px] font-medium', TONE_BADGE[props.tone ?? 'default'])}>{str(props.label)}</span>,
     Status: ({ props }) => (
       <span className="inline-flex items-center gap-1.5 text-[12px] text-muted">
         <StatusDot status={str(props.status)} />
@@ -152,7 +152,7 @@ export const { registry } = defineRegistry(componentCatalog, {
         >
           {props.status !== undefined ? <StatusDot status={str(props.status)} /> : <ViewIcon name={props.icon} className="shrink-0 text-muted" />}
           <div className="min-w-0 flex-1">
-            <div className="truncate text-[12.5px]">{str(props.title)}</div>
+            <div className="truncate text-[13px]">{str(props.title)}</div>
             {props.subtitle && <div className="truncate text-[11px] text-muted">{str(props.subtitle)}</div>}
           </div>
           {props.meta && <span className="shrink-0 text-[11px] text-muted">{str(props.meta)}</span>}
@@ -168,7 +168,7 @@ export const { registry } = defineRegistry(componentCatalog, {
       <div className="flex min-w-[210px] flex-1 flex-col rounded-lg border border-border bg-panel/60">
         <div className={clsx('flex items-center justify-between border-b border-border px-3 py-2 text-[12px] font-semibold', TONE_TEXT[props.tone ?? 'default'])}>
           <span>{props.title}</span>
-          {props.count !== undefined && <span className="rounded-full bg-panel-2 px-1.5 text-[10.5px] tabular-nums text-muted">{props.count}</span>}
+          {props.count !== undefined && <span className="rounded-full bg-panel-2 px-1.5 text-[11px] tabular-nums text-muted">{props.count}</span>}
         </div>
         <div className="flex min-h-[60px] flex-col gap-2 p-2">{children}</div>
       </div>
@@ -183,7 +183,7 @@ export const { registry } = defineRegistry(componentCatalog, {
         >
           <div className="flex items-start gap-2">
             {props.status !== undefined && <StatusDot status={str(props.status)} className="mt-1" />}
-            <div className="min-w-0 flex-1 text-[12.5px] leading-snug">{str(props.title)}</div>
+            <div className="min-w-0 flex-1 text-[13px] leading-snug">{str(props.title)}</div>
           </div>
           {(props.subtitle || props.meta) && (
             <div className="flex items-center justify-between gap-2 text-[11px] text-muted">
@@ -207,8 +207,8 @@ export const { registry } = defineRegistry(componentCatalog, {
         }}
         className={clsx(
           'no-drag inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md font-medium transition-colors',
-          props.size === 'sm' ? 'px-2 py-0.5 text-[11.5px]' : 'px-3 py-1.5 text-[12.5px]',
-          props.variant === 'primary' ? 'bg-accent-2 text-white hover:bg-accent' : props.variant === 'danger' ? 'bg-danger/15 text-danger hover:bg-danger/25' : props.variant === 'ghost' ? 'text-muted hover:bg-panel-2 hover:text-text' : 'bg-panel-2 text-text hover:bg-border'
+          props.size === 'sm' ? 'px-2 py-0.5 text-[12px]' : 'px-3 py-1.5 text-[13px]',
+          props.variant === 'primary' ? 'bg-primary text-white hover:bg-primary-hover' : props.variant === 'danger' ? 'bg-danger/15 text-danger hover:bg-danger/25' : props.variant === 'ghost' ? 'text-muted hover:bg-panel-2 hover:text-text' : 'bg-panel-2 text-text hover:bg-border'
         )}
       >
         <ViewIcon name={props.icon} size={12} />

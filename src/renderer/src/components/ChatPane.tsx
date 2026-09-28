@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useEffect, useId, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { ChevronRight, ChevronDown, ChevronsUpDown, Square, RotateCcw, Send, ShieldCheck, XCircle, AlertTriangle, Info, History, Users, GitFork, ListTree, ArrowLeft, StickyNote, Paperclip, X } from 'lucide-react'
+import { ChevronRight, ChevronDown, ChevronsUpDown, Square, RotateCcw, Send, ShieldCheck, XCircle, AlertTriangle, Info, History, Users, GitFork, ListTree, ArrowLeft, StickyNote, Paperclip, X, Plus, Coffee, Check } from 'lucide-react'
 import { imageFiles } from '@/lib/images'
 import type { AgentMode, ContextUsage, ChatTurnResult, AgentEvent, ChatImageRef, LimitAlternative, CostMode, CostModeScope } from '@shared/types'
 import { CliView, closeCliView } from './TerminalPane'
@@ -11,13 +11,15 @@ import { api } from '@/lib/api'
 import { PERMISSION_MODES, type PermissionMode } from '@shared/types'
 import { QuestionCard } from './QuestionCard'
 import { ResumeDialog } from './ResumeDialog'
-import { Dialog, Field, inputCls } from './ui'
+import { Dialog, Field, IconButton, hasOpenDialog, inputCls } from './ui'
 import { useChat } from '@/stores/chat'
 import { useApp } from '@/stores/app'
 import { useResources, subscribeResources } from '@/stores/resources'
 import { Markdown } from '@/lib/markdown'
 import { Button, Spinner } from './ui'
 import { useGuided, words } from '@/lib/guided'
+import { friendlyError, rawMessage } from '@/lib/errors'
+import { expertToolName, formatDuration, formatElapsed, guidedNotice, recentGuidedSteps, turnActivity } from '@/lib/activity'
 import { AskTeammate, AskTeammateButton } from './AskTeammate'
 import { CaffeineButton } from './CaffeineButton'
 import type { ChatBlock, ChatItem, ChatToolBlock } from '@shared/types'
@@ -70,7 +72,7 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
           void load(workspaceId)
         }
       })
-      .catch((err) => setError(err instanceof Error ? err.message : String(err)))
+      .catch((err) => setError(friendlyError(err)))
   }
   return (
     <div className="flex h-full flex-col">
@@ -97,9 +99,12 @@ function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Elem
   const guided = useGuided()
   const chat = useChat((s) => s.chats[workspaceId])
   const allQuestions = useChat((s) => s.questions)
+  const allPermissions = useChat((s) => s.permissions)
   // Filter outside the selector: a selector that returns a fresh array re-renders forever.
   const questions = useMemo(() => allQuestions.filter((q) => q.workspaceId === workspaceId), [allQuestions, workspaceId])
-  const { send, interrupt, reset, setDraft, load, unqueue, addImages, removeImage } = useChat()
+  const waitingForOk = useMemo(() => allPermissions.some((p) => p.workspaceId === workspaceId), [allPermissions, workspaceId])
+  const { send, interrupt, reset, setDraft, load, unqueue, addImages, removeImage, restorableSession, restore } = useChat()
+  const notify = useApp((s) => s.notify)
 
   useEffect(() => {
     void load(workspaceId)
@@ -122,12 +127,19 @@ function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Elem
   const fileInput = useRef<HTMLInputElement>(null)
   const taRef = useRef<HTMLTextAreaElement>(null)
   const [taHeight, setTaHeight] = useState<number>(() => Number(localStorage.getItem('sinfonie.composerHeight')) || 0)
+  const saveHeight = (h: number): void => {
+    setTaHeight(h)
+    if (h) localStorage.setItem('sinfonie.composerHeight', String(h))
+    else localStorage.removeItem('sinfonie.composerHeight')
+    if (taRef.current) taRef.current.style.height = h ? `${h}px` : ''
+  }
+  const maxComposer = (): number => Math.floor(window.innerHeight * 0.6)
   // Custom resize handle in the top-right corner: the composer's bottom edge is pinned, so dragging up makes it taller.
   const startResize = (e: React.MouseEvent): void => {
     e.preventDefault()
     const startY = e.clientY
     const startH = taRef.current?.offsetHeight ?? taHeight ?? 64
-    const maxH = Math.floor(window.innerHeight * 0.6)
+    const maxH = maxComposer()
     let h = startH
     const onMove = (ev: MouseEvent): void => {
       h = Math.min(maxH, Math.max(64, startH - (ev.clientY - startY)))
@@ -137,15 +149,25 @@ function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Elem
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
       document.body.style.cursor = ''
-      setTaHeight(h)
-      localStorage.setItem('sinfonie.composerHeight', String(h))
+      saveHeight(h)
     }
     document.body.style.cursor = 'ns-resize'
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
   }
+  // The same handle from the keyboard: ↑ taller, ↓ shorter (Shift for bigger steps), Home resets.
+  const resizeKey = (e: React.KeyboardEvent): void => {
+    const cur = taRef.current?.offsetHeight ?? (taHeight || 64)
+    const step = e.shiftKey ? 64 : 16
+    if (e.key === 'ArrowUp') saveHeight(Math.min(maxComposer(), cur + step))
+    else if (e.key === 'ArrowDown') saveHeight(Math.max(64, cur - step))
+    else if (e.key === 'Home' || e.key === 'Enter') saveHeight(0)
+    else return
+    e.preventDefault()
+  }
   const queue = chat?.queue ?? []
   const disabled = ws?.status !== 'ready'
+  const notReady = notReadyText(ws, guided)
   const canSend = !disabled && (Boolean(draft.trim()) || pendingImages.length > 0)
   const settingsModel = useApp((s) => s.settings.model)
   const settingsMode = useApp((s) => s.settings.permissionMode)
@@ -163,8 +185,6 @@ function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Elem
     const sp = s.spaces.find((x) => x.id === w?.spaceId)
     return sp?.leanMode !== undefined || sp?.budgetMode !== undefined ? 'space' : 'app'
   })
-  const budgetMode = costMode === 'budget'
-  const leanMode = costMode === 'lean'
   const engineLabel = useApp((s) => {
     const sp = s.spaces.find((x) => x.id === ws?.spaceId)
     const e = sp?.engine ?? s.settings.engine ?? 'claude-code'
@@ -173,6 +193,7 @@ function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Elem
   // Select stable references, derive outside the selector (a fresh array per read loops React).
   const space = useApp((s) => s.spaces.find((x) => x.id === ws?.spaceId))
   const library = useApp((s) => s.agents)
+  const leanMode = costMode === 'lean'
   const crew = useMemo(() => {
     if (space?.useCrew === false || leanMode) return []
     const off = new Set(space?.crewDisabled ?? [])
@@ -202,6 +223,7 @@ function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Elem
   const mode: PermissionMode = ws?.permissionMode ?? settingsMode
   const [resumeDlg, setResumeDlg] = useState(false)
   const [forkDlg, setForkDlg] = useState(false)
+  const [confirmFresh, setConfirmFresh] = useState(false)
   // Follow new output only while the view is already at the bottom; scrolling up detaches.
   const [atBottom, setAtBottom] = useState(true)
   const [unseen, setUnseen] = useState(false)
@@ -220,11 +242,37 @@ function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Elem
   }
 
   const changeMode = (next: PermissionMode): void => {
-    api.invoke('agent:setMode', workspaceId, next).catch((err) => setError(err instanceof Error ? err.message : String(err)))
+    api.invoke('agent:setMode', workspaceId, next).catch((err) => setError(friendlyError(err)))
   }
   const cycleMode = (): void => {
     const i = PERMISSION_MODES.findIndex((m) => m.id === mode)
     changeMode(PERMISSION_MODES[(i + 1) % PERMISSION_MODES.length].id)
+  }
+
+  /**
+   * Start over (guided) and New session (expert): clear the conversation, and offer Undo, which resumes the
+   * cleared session. When the engine keeps no session to come back to, ask first instead.
+   */
+  const startFresh = async (confirmed = false): Promise<void> => {
+    const sessionId = items.length > 0 ? restorableSession(workspaceId) : null
+    if (items.length > 0 && !sessionId && !confirmed) {
+      setConfirmFresh(true)
+      return
+    }
+    try {
+      await reset(workspaceId)
+    } catch (err) {
+      setError(friendlyError(err))
+      return
+    }
+    setChanged(null)
+    if (sessionId)
+      notify({
+        id: `chat-restore:${workspaceId}`,
+        kind: 'info',
+        text: guided ? 'Started a fresh conversation. Your changes are still there.' : 'Started a new session',
+        undo: () => void restore(workspaceId, sessionId).catch((err) => setError(friendlyError(err, 'The earlier conversation could not be brought back.')))
+      })
   }
 
   useEffect(() => {
@@ -240,19 +288,39 @@ function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Elem
     if (!canSend) return
     void send(workspaceId, draft)
   }
+  const contextShare = chat?.contextTokens && chat?.contextWindow ? chat.contextTokens / chat.contextWindow : 0
 
   return (
     <div className="flex h-full">
     <div className="flex h-full min-w-0 flex-1 flex-col">
       {resumeDlg && <ResumeDialog workspaceId={workspaceId} onClose={() => setResumeDlg(false)} />}
       {forkDlg && ws && <ForkDialog wsId={ws.id} wsName={ws.name} branch={ws.repos[0]?.branch ?? ''} onClose={() => setForkDlg(false)} />}
+      {confirmFresh && (
+        <Dialog title={guided ? 'Start over?' : 'Start a new session?'} onClose={() => setConfirmFresh(false)} width={420}>
+          <p className="mb-4 text-[13px] text-muted">
+            {guided ? 'The assistant forgets this conversation and it cannot be brought back. Your changes to the app stay.' : 'This engine keeps no session to resume, so the current conversation cannot be restored afterwards. Changes in the worktrees stay.'}
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button onClick={() => setConfirmFresh(false)}>Cancel</Button>
+            <Button
+              variant="primary"
+              onClick={() => {
+                setConfirmFresh(false)
+                void startFresh(true)
+              }}
+            >
+              {guided ? 'Start over' : 'New session'}
+            </Button>
+          </div>
+        </Dialog>
+      )}
       <div ref={scrollRef} onScroll={onScroll} className="relative flex-1 overflow-auto px-6 py-4">
         {items.length === 0 && (
           <div className="mx-auto mt-16 max-w-md text-center text-muted">
-            <p className="mb-2">Claude Code runs here with every worktree of this workspace in scope.</p>
+            <p className="mb-2">{guided ? 'Describe what should change. You’ll see it in Preview.' : 'Claude Code runs here with every worktree of this workspace in scope.'}</p>
             <p className="text-[12px]">
               {ws?.repos.map((r) => r.repoName).join(' · ')}
-              {ws?.sessionId && <span className="block mt-1">Previous session will be resumed.</span>}
+              {ws?.sessionId && <span className="mt-1 block">{guided ? 'You can pick up where you left off.' : 'Previous session will be resumed.'}</span>}
             </p>
           </div>
         )}
@@ -263,39 +331,35 @@ function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Elem
           {questions.map((q) => (
             <QuestionCard key={q.requestId} req={q} />
           ))}
-          {busy && questions.length === 0 && items[items.length - 1]?.role === 'user' && (
-            <div className="flex items-center gap-2 text-muted">
-              <Spinner /> Thinking…
-            </div>
-          )}
           {chat?.error && (
             guided ? (
-              <div className="flex items-center gap-2 rounded-md border border-warn/30 bg-warn/10 px-3 py-2 text-[12px]">
-                <span className="min-w-0 flex-1">Something went wrong. Try asking again in different words, or ask a teammate.</span>
-                <AskTeammate workspaceId={workspaceId} prefill={`I hit a problem on this task: ${chat.error.slice(0, 300)}`} trigger={(open) => <Button size="sm" onClick={open}>Ask a teammate</Button>} />
+              <div role="alert" className="flex items-center gap-2 rounded-md border border-warn/30 bg-warn/10 px-3 py-2 text-[12px]">
+                <span className="min-w-0 flex-1">{friendlyError(chat.error, 'Something went wrong. Try asking again in different words, or ask a teammate.')}</span>
+                <AskTeammate workspaceId={workspaceId} prefill={`I hit a problem on this task: ${rawMessage(chat.error).slice(0, 300)}`} trigger={(open) => <Button size="sm" onClick={open}>Ask a teammate</Button>} />
               </div>
             ) : (
-              <div className="rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-[12px] text-danger whitespace-pre-wrap">{chat.error}</div>
+              <div role="alert" className="whitespace-pre-wrap rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-[12px] text-danger">{rawMessage(chat.error)}</div>
             )
           )}
         </div>
       </div>
       <div className="relative border-t border-border px-4 py-3">
         {!atBottom && (
-          <button onClick={jumpToLatest} className={clsx('absolute -top-9 left-1/2 z-10 -translate-x-1/2 rounded-full border px-3 py-1 text-[12px] shadow-lg', unseen ? 'border-accent/50 bg-accent-2 text-white' : 'border-border bg-panel text-muted hover:text-text')}>
+          <button onClick={jumpToLatest} className={clsx('absolute -top-9 left-1/2 z-10 -translate-x-1/2 rounded-full border px-3 py-1 text-[12px] shadow-lg', unseen ? 'border-accent/50 bg-primary text-white' : 'border-border bg-panel text-muted hover:text-text')}>
             ↓ {unseen ? 'New output below' : 'Jump to latest'}
           </button>
         )}
         <div className="mx-auto max-w-4xl">
+          <WorkingLine items={items} busy={busy} result={chat?.lastResult} waiting={questions.length > 0 ? 'question' : waitingForOk ? 'permission' : null} onStop={() => void interrupt(workspaceId)} />
           {queue.length > 0 && (
             <div className="mb-2 flex flex-col gap-1">
               {queue.map((m) => (
-                <div key={m.id} className="flex items-center gap-2 rounded-md border border-dashed border-border px-2.5 py-1 text-[12px] text-muted">
-                  <span className="shrink-0 text-[10px] uppercase tracking-wide">queued</span>
-                  <span className="truncate">{m.text}</span>
-                  <button className="ml-auto shrink-0 hover:text-danger" title="Remove from queue" onClick={() => void unqueue(workspaceId, m.id)}>
-                    ✕
-                  </button>
+                <div key={m.id} className="flex items-center gap-2 rounded-md border border-dashed border-border py-0.5 pl-2.5 pr-1 text-[12px] text-muted">
+                  <span className="shrink-0 text-[11px] uppercase tracking-wide">{guided ? 'Up next' : 'Queued'}</span>
+                  <span className="min-w-0 flex-1 truncate">{m.text}</span>
+                  <IconButton label={guided ? 'Don’t send this' : 'Remove from queue'} className="shrink-0 hover:text-danger" onClick={() => void unqueue(workspaceId, m.id)}>
+                    <X size={12} />
+                  </IconButton>
                 </div>
               ))}
             </div>
@@ -307,12 +371,18 @@ function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Elem
               <Button size="sm" variant="primary" onClick={() => { setTab('browser'); setChanged(null) }}>
                 Look
               </Button>
-              <button className="rounded p-1 text-muted hover:text-text" title="Dismiss" onClick={() => setChanged(null)}>
+              <IconButton label="Dismiss" onClick={() => setChanged(null)}>
                 <X size={12} />
-              </button>
+              </IconButton>
             </div>
           )}
           {!guided && <CrewBar items={items} busy={busy} model={chat?.model ?? settingsModel} crewNames={crewNames} />}
+          {disabled && notReady && (
+            <div role="status" className="mb-2 flex items-center gap-2 px-1 text-[12px] text-muted">
+              {ws?.status === 'creating' || ws?.status === 'archiving' ? <Spinner /> : <Info size={13} className="shrink-0" />}
+              <span>{notReady}</span>
+            </div>
+          )}
           <div
             className="rounded-xl border border-border bg-panel focus-within:border-accent"
             onDragOver={(e) => {
@@ -331,9 +401,9 @@ function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Elem
                 {pendingImages.map((img) => (
                   <div key={img.id} className="group relative">
                     <img src={img.preview} alt={img.name} className="h-16 w-16 rounded-md border border-border object-cover" />
-                    <button className="absolute -right-1.5 -top-1.5 rounded-full border border-border bg-panel p-0.5 text-muted opacity-0 hover:text-danger group-hover:opacity-100" title="Remove" onClick={() => removeImage(workspaceId, img.id)}>
+                    <IconButton label={`Remove ${img.name}`} className="reveal-on-focus absolute -right-2 -top-2 rounded-full border border-border bg-panel opacity-0 hover:text-danger group-hover:opacity-100" onClick={() => removeImage(workspaceId, img.id)}>
                       <X size={10} />
-                    </button>
+                    </IconButton>
                   </div>
                 ))}
               </div>
@@ -342,13 +412,13 @@ function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Elem
             <div className="relative">
               {mentionOptions.length > 0 && (
                 <div className="absolute bottom-full left-2 z-20 mb-1 w-[360px] overflow-hidden rounded-lg border border-border bg-panel shadow-xl">
-                  <div className="px-3 py-1.5 text-[10px] uppercase tracking-wide text-muted">Send straight to an agent</div>
+                  <div className="px-3 py-1.5 text-[11px] uppercase tracking-wide text-muted">Send straight to an agent</div>
                   {mentionOptions.map((a, i) => (
                     <button key={a.id} onMouseDown={(e) => e.preventDefault()} onClick={() => pickMention(a.name)} className={clsx('flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px]', i === mentionIdx ? 'bg-panel-2' : 'hover:bg-panel-2/60')}>
                       <span className="w-5 text-center">{a.icon || '🤖'}</span>
                       <span className="font-medium">@{a.name}</span>
                       <span className="truncate text-muted">{a.description}</span>
-                      <span className="ml-auto shrink-0 font-mono text-[10px] text-muted">{a.model}</span>
+                      <span className="ml-auto shrink-0 font-mono text-[11px] text-muted">{a.model}</span>
                     </button>
                   ))}
                 </div>
@@ -359,20 +429,25 @@ function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Elem
                 </div>
               )}
               <div
-                className="absolute right-1.5 top-1.5 z-10 cursor-ns-resize rounded p-1 text-muted/60 hover:bg-panel-2 hover:text-text"
-                title="Drag to resize"
+                role="separator"
+                aria-orientation="horizontal"
+                aria-label="Resize the message box"
+                aria-valuemin={64}
+                aria-valuemax={maxComposer()}
+                aria-valuenow={taHeight || 64}
+                tabIndex={0}
+                className="absolute right-1.5 top-1.5 z-10 cursor-ns-resize rounded p-1 text-muted hover:bg-panel-2 hover:text-text"
+                title="Drag to resize (or focus and use ↑ ↓). Double-click resets."
                 onMouseDown={startResize}
-                onDoubleClick={() => {
-                  setTaHeight(0)
-                  localStorage.removeItem('sinfonie.composerHeight')
-                  if (taRef.current) taRef.current.style.height = ''
-                }}
+                onKeyDown={resizeKey}
+                onDoubleClick={() => saveHeight(0)}
               >
                 <ChevronsUpDown size={12} />
               </div>
             <textarea
               value={draft}
               disabled={disabled}
+              aria-label={guided ? 'Message to the assistant' : 'Message'}
               onChange={(e) => setDraft(workspaceId, e.target.value)}
               onPaste={(e) => {
                 const files = imageFiles(e.clipboardData)
@@ -410,34 +485,41 @@ function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Elem
               rows={3}
               ref={taRef}
               style={taHeight ? { height: taHeight } : undefined}
-              placeholder={disabled ? (guided ? 'The task is getting ready…' : 'Workspace is not ready') : busy ? (guided ? 'Type the next thing; it goes when the assistant is done (Enter)' : 'Type to queue a message for when this turn ends… (Enter to queue)') : words(guided).composerPlaceholder}
+              placeholder={disabled ? notReady ?? '' : busy ? (guided ? 'Type the next thing; it goes when the assistant is done (Enter)' : 'Type to queue a message for when this turn ends… (Enter to queue)') : words(guided).composerPlaceholder}
               className="block min-h-[64px] max-h-[60vh] w-full resize-none bg-transparent pt-3 pl-3 pr-8 text-[13px] outline-none placeholder:text-muted"
             />
             </div>
-            <div className="flex min-w-0 flex-wrap items-center gap-2 px-2 pb-2">
-              {!guided && <ModePicker mode={mode} onChange={changeMode} />}
-              {guided && <StartOver busy={busy} disabled={disabled} long={Boolean(chat?.contextTokens && chat?.contextWindow && chat.contextTokens / chat.contextWindow > 0.6)} onNew={() => void reset(workspaceId)} />}
-              {!guided && <SessionPill workspaceId={workspaceId} spaceId={ws?.spaceId} engineLabel={engineLabel} budgetMode={budgetMode} leanMode={leanMode} costMode={costMode} costModeSource={costModeSource} model={chat?.model ?? settingsModel} contextTokens={chat?.contextTokens} contextWindow={chat?.contextWindow} cacheRead={chat?.contextCacheRead} history={chat?.contextHistory} result={chat?.lastResult} busy={busy} onNewSession={() => void reset(workspaceId)} />}
-              <span className="ml-auto" />
-              <Button size="sm" variant="ghost" title="Attach images (or paste / drop them into the message)" onClick={() => fileInput.current?.click()} disabled={disabled}>
-                <Paperclip size={13} />
-              </Button>
-              {guided && <AskTeammateButton workspaceId={workspaceId} />}
-              <CaffeineButton compact />
-              {!guided && <NotesButton workspaceId={workspaceId} />}
-              {!guided && <SessionMenu busy={busy} disabled={disabled} onFork={() => setForkDlg(true)} onResume={() => setResumeDlg(true)} onNew={() => void reset(workspaceId)} />}
-              {busy ? (
-                <div className="flex shrink-0 items-center gap-2">
-                  <Button size="sm" onClick={onSubmit} disabled={!canSend} title="Deliver when the current turn ends">
-                    <Send size={12} /> Queue
-                  </Button>
-                  <Button size="sm" variant="danger" onClick={() => void interrupt(workspaceId)}>
-                    <Square size={12} /> Stop
-                  </Button>
-                </div>
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5 px-2 pb-2">
+              {guided ? (
+                <StartOver busy={busy} disabled={disabled} long={contextShare > 0.6} onNew={() => void startFresh()} />
               ) : (
-                <Button size="sm" variant="primary" onClick={onSubmit} disabled={!canSend}>
-                  <Send size={12} /> Send
+                <>
+                  <ModePicker mode={mode} onChange={changeMode} />
+                  <span className="max-w-[140px] truncate font-mono text-[11px] text-muted" title={`Model: ${chat?.model ?? settingsModel}. Change the default in Settings.`}>
+                    {shortModel(chat?.model ?? settingsModel)}
+                  </span>
+                  <SessionPill workspaceId={workspaceId} spaceId={ws?.spaceId} engineLabel={engineLabel} costMode={costMode} costModeSource={costModeSource} model={chat?.model ?? settingsModel} contextTokens={chat?.contextTokens} contextWindow={chat?.contextWindow} cacheRead={chat?.contextCacheRead} history={chat?.contextHistory} result={chat?.lastResult} busy={busy} onNewSession={() => void startFresh()} />
+                </>
+              )}
+              <span className="ml-auto" />
+              {guided ? (
+                <>
+                  <IconButton label="Attach images (or paste or drop them into the message)" className="px-1.5" onClick={() => fileInput.current?.click()} disabled={disabled}>
+                    <Paperclip size={13} />
+                  </IconButton>
+                  <AskTeammateButton workspaceId={workspaceId} />
+                  <CaffeineButton compact />
+                </>
+              ) : (
+                <ComposerMenu workspaceId={workspaceId} busy={busy} disabled={disabled} onAttach={() => fileInput.current?.click()} onFork={() => setForkDlg(true)} onResume={() => setResumeDlg(true)} onNew={() => void startFresh()} />
+              )}
+              {busy ? (
+                <Button size="sm" onClick={onSubmit} disabled={!canSend} title="Queue: delivered when the current turn ends (Enter)">
+                  <Send size={12} /> Queue <kbd className="ml-0.5 font-sans text-[11px] opacity-60">↵</kbd>
+                </Button>
+              ) : (
+                <Button size="sm" variant="primary" onClick={onSubmit} disabled={!canSend} title="Send (Enter). Shift+Enter adds a new line.">
+                  <Send size={12} /> Send <kbd className="ml-0.5 font-sans text-[11px] opacity-70">↵</kbd>
                 </Button>
               )}
             </div>
@@ -450,48 +532,238 @@ function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Elem
   )
 }
 
-/** Guided mode's only session control: a fresh conversation when the current one has grown long. */
-function StartOver({ busy, disabled, long, onNew }: { busy: boolean; disabled: boolean; long: boolean; onNew: () => void }): React.JSX.Element | null {
-  if (!long) return null
+/** Why the composer is off, in the mode's words; null when the workspace is ready. */
+function notReadyText(ws: { status: string; error?: string } | undefined, guided: boolean): string | null {
+  if (!ws) return guided ? 'This task is no longer available.' : 'This workspace no longer exists.'
+  switch (ws.status) {
+    case 'ready':
+      return null
+    case 'creating':
+      return guided ? 'The task is getting ready…' : 'Setting up the workspace: creating worktrees and running setup…'
+    case 'error':
+      return guided ? 'This task could not be set up. Ask a teammate for help.' : `Workspace setup failed${ws.error ? `: ${rawMessage(ws.error)}` : '.'}`
+    case 'archiving':
+      return guided ? 'Finishing this task…' : 'Archiving this workspace…'
+    case 'archived':
+      return guided ? 'This task is finished.' : 'This workspace is archived.'
+    default:
+      return guided ? 'The task is not ready yet.' : 'Workspace is not ready.'
+  }
+}
+
+/**
+ * The turn in progress, pinned above the composer so a long turn never looks frozen. Both modes show the elapsed
+ * time and Stop; guided adds the last few steps in plain words, expert the tool running now. When a guided turn
+ * ends it folds into one "Done in … · N steps" line; expert drops it, since the tool rows tell the story.
+ */
+function WorkingLine({ items, busy, result, waiting, onStop }: { items: ChatItem[]; busy: boolean; result?: ChatTurnResult; waiting: 'question' | 'permission' | null; onStop: () => void }): React.JSX.Element | null {
+  const guided = useGuided()
+  const { startedAt, tools } = useMemo(() => turnActivity(items), [items])
+  const [now, setNow] = useState(() => Date.now())
+  // When the turn began before this view mounted and the transcript has no timestamp, count from the mount.
+  const since = useRef<number | null>(null)
+  if (busy && since.current === null) since.current = Date.now()
+  if (!busy) since.current = null
+  useEffect(() => {
+    if (!busy) return
+    setNow(Date.now())
+    const t = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(t)
+  }, [busy])
+  const steps = useMemo(() => (guided ? recentGuidedSteps(tools, 3) : []), [guided, tools])
+
+  if (!busy) {
+    // A finished guided turn: one quiet line, until the next message.
+    if (!guided || !result || items[items.length - 1]?.role === 'user' || startedAt === null) return null
+    const n = tools.length
+    return (
+      <div className="mb-2 flex items-center gap-1.5 px-1 text-[11px] text-muted">
+        {result.isError ? <Square size={10} className="shrink-0" aria-hidden /> : <Check size={12} className="shrink-0 text-ok" aria-hidden />}
+        <span>
+          {result.isError ? 'Stopped after' : 'Done in'} {formatDuration(result.durationMs)}
+          {n > 0 && ` · ${n} step${n === 1 ? '' : 's'}`}
+        </span>
+      </div>
+    )
+  }
+
+  const start = startedAt !== null && startedAt <= now ? startedAt : since.current ?? now
+  const elapsed = formatElapsed(now - start)
+  const label = waiting === 'question' ? 'Waiting for your answer' : waiting === 'permission' ? 'Waiting for your OK' : guided ? 'Working on it' : 'Working'
+  const dot = (
+    <span className="relative flex h-2 w-2 shrink-0" aria-hidden>
+      {!waiting && <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent/40 [animation-duration:2s]" />}
+      <span className={clsx('relative inline-flex h-2 w-2 rounded-full', waiting ? 'bg-warn' : 'bg-accent')} />
+    </span>
+  )
+
+  if (!guided) {
+    const current = [...tools].reverse().find((t) => !t.done)
+    return (
+      <div className="mb-2 flex h-6 items-center gap-2 px-1 text-[11px] text-muted">
+        {dot}
+        <span className="text-text">{label}</span>
+        <span className="tabular-nums">· {elapsed}</span>
+        {current && !waiting && <span className="min-w-0 truncate font-mono">· {expertToolName(current)}</span>}
+        <Button size="sm" variant="ghost" className="ml-auto h-6 py-0 text-danger hover:text-danger" onClick={onStop} title="Stop this turn">
+          <Square size={10} /> Stop
+        </Button>
+      </div>
+    )
+  }
+
   return (
-    <Button size="sm" variant="ghost" disabled={busy || disabled} onClick={onNew} title="This conversation has grown long, which makes the assistant slower and costlier. Starting over keeps your changes and forgets the chat.">
-      Start over
-    </Button>
+    <div className="mb-2 rounded-lg border border-border bg-panel/60 px-3 py-2 text-[12px]">
+      <div className="flex items-center gap-2">
+        {dot}
+        <span className="text-text">{label}</span>
+        <span className="tabular-nums text-muted">· {elapsed}</span>
+        <Button size="sm" variant="ghost" className="ml-auto" onClick={onStop} title="Stop the assistant. What it already changed stays.">
+          <Square size={10} /> Stop
+        </Button>
+      </div>
+      {steps.length > 0 && (
+        <ul aria-live="polite" className="mt-1 flex flex-col gap-0.5 pl-4 text-muted">
+          {steps.map((st) => (
+            <li key={st.key} className="flex items-center gap-1.5">
+              {st.done ? <Check size={11} className="shrink-0 text-ok/80" aria-hidden /> : <span className="mx-[3px] h-1 w-1 shrink-0 rounded-full bg-muted" aria-hidden />}
+              <span className="truncate">{st.text}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+/** Guided mode's only session control: a fresh conversation. Always there; highlighted once the chat has grown long. */
+function StartOver({ busy, disabled, long, onNew }: { busy: boolean; disabled: boolean; long: boolean; onNew: () => void }): React.JSX.Element {
+  return (
+    <span className="inline-flex items-center gap-2">
+      <Button
+        size="sm"
+        variant={long ? 'subtle' : 'ghost'}
+        disabled={busy || disabled}
+        onClick={onNew}
+        title={long ? 'This conversation has grown long, which makes the assistant slower. Starting over keeps your changes; you can undo it right after.' : 'Start a fresh conversation. Your changes stay; you can undo it right after.'}
+      >
+        <RotateCcw size={12} /> Start over
+      </Button>
+      {long && !busy && <span className="text-[11px] text-warn">The chat is getting long</span>}
+    </span>
   )
 }
 
 function ModePicker({ mode, onChange }: { mode: PermissionMode; onChange: (m: PermissionMode) => void }): React.JSX.Element {
   const current = PERMISSION_MODES.find((m) => m.id === mode) ?? PERMISSION_MODES[0]
   const tone = mode === 'bypassPermissions' ? 'text-danger bg-danger/15' : mode === 'plan' ? 'text-warn bg-warn/15' : mode === 'default' ? 'text-muted bg-panel-2' : 'text-ok bg-ok/15'
+  const id = useId()
   return (
-    <label data-tour="mode" className={clsx('relative inline-flex cursor-pointer items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-medium', tone)} title={`${current.hint}. Shift+Tab cycles modes.`}>
-      <ShieldCheck size={12} />
-      <span>{current.label}</span>
-      <span className="opacity-60">▾</span>
-      <select className="absolute inset-0 cursor-pointer opacity-0" value={mode} onChange={(e) => onChange(e.target.value as PermissionMode)}>
+    <span data-tour="mode" className={clsx('relative inline-flex h-6 items-center gap-1 rounded-md pl-1.5 text-[11px] font-medium', tone)} title={`${current.label}: ${current.hint}. Shift+Tab in the message box cycles modes.`}>
+      <ShieldCheck size={12} aria-hidden />
+      <label htmlFor={id} className="cursor-pointer opacity-80">
+        Permissions:
+      </label>
+      <select id={id} className="h-full cursor-pointer appearance-none rounded-md bg-transparent pl-0.5 pr-5 font-medium text-current" value={mode} onChange={(e) => onChange(e.target.value as PermissionMode)}>
         {PERMISSION_MODES.map((m) => (
-          <option key={m.id} value={m.id}>
-            {m.label} — {m.hint}
+          <option key={m.id} value={m.id} title={m.hint} className="bg-panel text-text">
+            {m.label}
           </option>
         ))}
       </select>
-    </label>
+      <ChevronDown size={11} className="pointer-events-none absolute right-1.5 opacity-70" aria-hidden />
+    </span>
   )
 }
 
-export function Message({ item }: { item: ChatItem }): React.JSX.Element {
+/** Composer extras behind one "+": attach, keep awake, notes, and the session actions. */
+function ComposerMenu({ workspaceId, busy, disabled, onAttach, onFork, onResume, onNew }: { workspaceId: string; busy: boolean; disabled: boolean; onAttach: () => void; onFork: () => void; onResume: () => void; onNew: () => void }): React.JSX.Element {
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  const [awake, setAwake] = useState(false)
+  useEffect(() => {
+    void api.invoke('power:get').then(setAwake)
+    return api.on('power:changed', setAwake)
+  }, [])
+  const [view, setView] = usePanel()
+  const openTodos = useOpenTodos(workspaceId)
+  const notesOn = view.kind === 'notes'
+  const entries = [
+    { label: 'Attach images…', icon: <Paperclip size={13} />, onClick: onAttach, disabled },
+    { label: awake ? 'Let the Mac sleep' : 'Keep the Mac awake', icon: <Coffee size={13} className={awake ? 'text-accent' : undefined} />, onClick: () => void api.invoke('power:set').then(setAwake) },
+    { label: notesOn ? 'Hide notes' : `Notes${openTodos ? ` · ${openTodos} open` : ''}`, icon: <StickyNote size={13} />, onClick: () => setView(notesOn ? { kind: 'closed' } : { kind: 'notes' }) },
+    { separator: true },
+    { label: 'Fork into a new workspace…', icon: <GitFork size={13} />, onClick: onFork, disabled: busy || disabled },
+    { label: 'Resume a past session…', icon: <History size={13} />, onClick: onResume, disabled: busy },
+    { label: 'New session', icon: <RotateCcw size={13} />, onClick: onNew, disabled: busy }
+  ]
+  const open = (e: React.MouseEvent<HTMLButtonElement>): void => {
+    const r = e.currentTarget.getBoundingClientRect()
+    const height = entries.reduce((h, m) => h + (m.separator ? 9 : 30), 8)
+    setMenu({ x: r.right - 224, y: r.top - 6 - height })
+  }
+  return (
+    <>
+      <IconButton data-tour="notes" label={`More: attach, keep awake, notes, session${openTodos ? ` (${openTodos} open todos)` : ''}`} aria-haspopup="menu" aria-expanded={Boolean(menu)} className={clsx('relative px-1.5', (menu || notesOn) && 'bg-panel-2 text-text')} onClick={open}>
+        <Plus size={14} />
+        {(openTodos > 0 || awake) && <span className={clsx('absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full', awake ? 'bg-accent' : 'bg-warn')} aria-hidden />}
+      </IconButton>
+      {menu && <ContextMenu x={menu.x} y={menu.y} label="Composer actions" onClose={() => setMenu(null)} entries={entries} />}
+    </>
+  )
+}
+
+/** Open todos in a workspace's notes, loading them once. */
+function useOpenTodos(workspaceId: string): number {
+  const notes = useNotes((s) => s.byWorkspace[workspaceId]) ?? NO_NOTES
+  const { load, subscribe } = useNotes()
+  useEffect(() => {
+    subscribe()
+    void load(workspaceId)
+  }, [workspaceId, load, subscribe])
+  return notes.filter((n) => n.kind === 'todo' && !n.done).length
+}
+
+/** A system notice: the first paragraph always shows; anything after a blank line folds behind "Details". */
+function NoticeText({ text }: { text: string }): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  const cut = text.indexOf('\n\n')
+  if (cut < 0) return <span className="whitespace-pre-wrap">{text}</span>
+  return (
+    <span className="min-w-0 flex-1">
+      <span className="whitespace-pre-wrap">{text.slice(0, cut)}</span>{' '}
+      <button type="button" className="text-accent hover:underline" aria-expanded={open} onClick={() => setOpen(!open)}>
+        {open ? 'Hide details' : 'Details'}
+      </button>
+      {open && (
+        <span data-expert-ok className="mt-1.5 block whitespace-pre-wrap font-mono text-[11px]">
+          {text.slice(cut + 2)}
+        </span>
+      )}
+    </span>
+  )
+}
+
+export function Message({ item }: { item: ChatItem }): React.JSX.Element | null {
+  const guided = useGuided()
   if (item.role === 'system') {
-    const text = item.blocks.map((b) => (b.type === 'text' ? b.text : '')).join('')
+    const raw = item.blocks.map((b) => (b.type === 'text' ? b.text : '')).join('')
     const level = item.level ?? 'info'
+    // Guided: errors in plain words, notices it can act on rewritten, purely technical ones left out.
+    const text = !guided ? raw : level === 'error' ? friendlyError(raw) : guidedNotice(raw, level)
+    if (text === null) return null
     return (
-      <div className={clsx('flex items-start gap-2 rounded-md border px-3 py-2 text-[12px]', level === 'error' ? 'border-danger/40 bg-danger/10 text-danger' : level === 'warn' ? 'border-warn/40 bg-warn/10 text-warn' : 'border-border bg-panel text-muted')}>
-        {level === 'error' ? <XCircle size={14} className="mt-0.5 shrink-0" /> : level === 'warn' ? <AlertTriangle size={14} className="mt-0.5 shrink-0" /> : <Info size={14} className="mt-0.5 shrink-0" />}
-        <span className="whitespace-pre-wrap">{text}</span>
+      <div role={level === 'error' ? 'alert' : undefined} className={clsx('flex items-start gap-2 rounded-md border px-3 py-2 text-[12px]', level === 'error' ? 'border-danger/40 bg-danger/10 text-danger' : level === 'warn' ? 'border-warn/40 bg-warn/10 text-warn' : 'border-border bg-panel text-muted')}>
+        {level === 'error' ? <XCircle size={14} className="mt-0.5 shrink-0" aria-hidden /> : level === 'warn' ? <AlertTriangle size={14} className="mt-0.5 shrink-0" aria-hidden /> : <Info size={14} className="mt-0.5 shrink-0" aria-hidden />}
+        <NoticeText text={text} />
       </div>
     )
   }
   if (item.role === 'user') {
-    const text = item.blocks.map((b) => (b.type === 'text' ? b.text : '')).join('')
+    const full = item.blocks.map((b) => (b.type === 'text' ? b.text : '')).join('')
+    // Guided: technical output attached to a message (for example "Ask the assistant to fix it") folds away.
+    const fence = guided ? full.indexOf('\n\n```') : -1
+    const text = fence > 0 ? full.slice(0, fence) : full
+    const attached = fence > 0 ? full.slice(fence).trim().replace(/^```\w*\n?|```$/g, '').trim() : ''
     const images = item.blocks.filter((b): b is Extract<typeof b, { type: 'image' }> => b.type === 'image').map((b) => b.image)
     return (
       <div className="flex flex-col items-end gap-1.5">
@@ -502,16 +774,38 @@ export function Message({ item }: { item: ChatItem }): React.JSX.Element {
             ))}
           </div>
         )}
-        {text.trim() && <div className="max-w-[80%] whitespace-pre-wrap rounded-2xl rounded-br-sm bg-accent-2/25 px-3.5 py-2 text-[13px]">{text}</div>}
+        {text.trim() && (
+          <div className="max-w-[80%] whitespace-pre-wrap rounded-2xl rounded-br-sm bg-accent-2/25 px-3.5 py-2 text-[13px]">
+            {text}
+            {attached && <AttachedDetails text={attached} />}
+          </div>
+        )}
       </div>
     )
   }
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-2 empty:hidden">
       {item.blocks.map((b, i) => (
         <Block key={i} block={b} />
       ))}
     </div>
+  )
+}
+
+/** Technical text sent along with a guided message, closed by default; opening it is a deliberate choice. */
+function AttachedDetails({ text }: { text: string }): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  return (
+    <span className="mt-1.5 block">
+      <button className="inline-flex items-center gap-1 text-[11px] text-muted hover:text-text" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <ChevronRight size={11} className={clsx('transition-transform', open && 'rotate-90')} aria-hidden /> Details sent along
+      </button>
+      {open && (
+        <pre data-expert-ok className="mt-1 max-h-48 overflow-auto rounded-md bg-sunken p-2 font-mono text-[11px] text-muted">
+          {text}
+        </pre>
+      )}
+    </span>
   )
 }
 
@@ -538,15 +832,18 @@ const COST_MODES: { id: CostMode; label: string; hint: string }[] = [
 function CostModeControl({ workspaceId, spaceId, mode, source, busy }: { workspaceId: string; spaceId?: string; mode: CostMode; source: 'workspace' | 'space' | 'app'; busy: boolean }): React.JSX.Element {
   const [scope, setScope] = useState<'workspace' | 'space' | 'app'>(source)
   const [saving, setSaving] = useState(false)
+  // A switch restarts the session, so it waits for a confirmation right here.
+  const [pending, setPending] = useState<CostMode | null>(null)
   const setError = useApp((s) => s.setError)
   useEffect(() => setScope(source), [source])
   const apply = (next: CostMode): void => {
     if (saving || next === mode) return
     const target: CostModeScope = scope === 'workspace' ? { kind: 'workspace', id: workspaceId } : scope === 'space' && spaceId ? { kind: 'space', id: spaceId } : { kind: 'app' }
     setSaving(true)
+    setPending(null)
     api
       .invoke('costMode:set', target, next)
-      .catch((err) => setError(String(err)))
+      .catch((err) => setError(friendlyError(err)))
       .finally(() => setSaving(false))
   }
   const current = COST_MODES.find((m) => m.id === mode) ?? COST_MODES[0]
@@ -556,7 +853,7 @@ function CostModeControl({ workspaceId, spaceId, mode, source, busy }: { workspa
         <span className="w-[76px] shrink-0 text-muted">Cost mode</span>
         <div className="flex flex-1 rounded-md bg-bg p-0.5">
           {COST_MODES.map((m) => (
-            <button key={m.id} title={m.hint} disabled={saving} onClick={() => apply(m.id)} className={clsx('flex-1 rounded px-2 py-0.5 text-[11px]', mode === m.id ? (m.id === 'standard' ? 'bg-panel-2 text-text' : 'bg-ok/20 text-ok') : 'text-muted hover:text-text')}>
+            <button key={m.id} title={m.hint} disabled={saving} aria-pressed={mode === m.id} onClick={() => m.id !== mode && setPending(m.id)} className={clsx('flex-1 rounded px-2 py-0.5 text-[11px]', mode === m.id ? (m.id === 'standard' ? 'bg-panel-2 text-text' : 'bg-ok/20 text-ok') : pending === m.id ? 'bg-panel-2 text-text ring-1 ring-accent/60' : 'text-muted hover:text-text')}>
               {m.label}
             </button>
           ))}
@@ -570,14 +867,34 @@ function CostModeControl({ workspaceId, spaceId, mode, source, busy }: { workspa
           <option value="app">Everywhere</option>
         </select>
       </div>
-      <div className="mt-1 text-[11px] text-muted">
-        {current.hint} Set {source === 'workspace' ? 'on this workspace' : source === 'space' ? 'on this space' : 'app-wide'}.{busy ? ' Changes apply after the current turn.' : ' Changing it restarts the session; the conversation continues.'}
-      </div>
+      {pending ? (
+        <div role="alert" className="mt-1.5 rounded-md border border-warn/40 bg-warn/10 p-2 text-[11px]">
+          <div className="mb-1.5">
+            Switch to {COST_MODES.find((m) => m.id === pending)?.label} {scope === 'workspace' ? 'for this workspace' : scope === 'space' ? 'for this space' : 'everywhere'}? Changing cost mode restarts the session{busy ? ' after the current turn' : ''}; the conversation continues.
+          </div>
+          <div className="flex justify-end gap-1.5">
+            <Button size="sm" variant="ghost" onClick={() => setPending(null)}>
+              Cancel
+            </Button>
+            <Button size="sm" variant="primary" disabled={saving} onClick={() => apply(pending)}>
+              Restart with {COST_MODES.find((m) => m.id === pending)?.label}
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="mt-1 text-[11px] text-muted">
+          {current.hint} Set {source === 'workspace' ? 'on this workspace' : source === 'space' ? 'on this space' : 'app-wide'}.
+        </div>
+      )}
     </div>
   )
 }
 
-function SessionPill({ workspaceId, spaceId, engineLabel, budgetMode, leanMode, costMode, costModeSource, model, contextTokens, contextWindow, cacheRead, history, result, busy, onNewSession }: { workspaceId: string; spaceId?: string; engineLabel: string; budgetMode: boolean; leanMode: boolean; costMode: CostMode; costModeSource: 'workspace' | 'space' | 'app'; model: string; contextTokens?: number; contextWindow?: number; cacheRead?: number; history?: number[]; result?: ChatTurnResult; busy: boolean; onNewSession: () => void }): React.JSX.Element {
+/**
+ * Read-only session status next to the composer ("42% context · $1.20 · lean"); a click opens the diagnostics:
+ * the context breakdown, Compact, cost by model and the cost mode.
+ */
+function SessionPill({ workspaceId, spaceId, engineLabel, costMode, costModeSource, model, contextTokens, contextWindow, cacheRead, history, result, busy, onNewSession }: { workspaceId: string; spaceId?: string; engineLabel: string; costMode: CostMode; costModeSource: 'workspace' | 'space' | 'app'; model: string; contextTokens?: number; contextWindow?: number; cacheRead?: number; history?: number[]; result?: ChatTurnResult; busy: boolean; onNewSession: () => void }): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const [usage, setUsage] = useState<ContextUsage | null>(null)
   const [detail, setDetail] = useState(false)
@@ -589,8 +906,15 @@ function SessionPill({ workspaceId, spaceId, engineLabel, budgetMode, leanMode, 
     const onDown = (e: MouseEvent): void => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
     }
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape' && !hasOpenDialog()) setOpen(false)
+    }
     document.addEventListener('mousedown', onDown)
-    return () => document.removeEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
   }, [open])
   useEffect(() => {
     if (!open) return
@@ -609,31 +933,31 @@ function SessionPill({ workspaceId, spaceId, engineLabel, budgetMode, leanMode, 
     setCompacting(true)
     api.invoke('agent:compact', workspaceId).catch((err) => {
       setCompacting(false)
-      setError(err instanceof Error ? err.message : String(err))
+      setError(friendlyError(err))
     })
   }
+  const statusParts = [contextTokens ? `${Math.round(pct)}% context` : '0% context', result ? `$${result.costUsd.toFixed(2)}` : null, costMode !== 'standard' ? costMode : null].filter(Boolean)
   const usedCats = (usage?.categories ?? []).filter((c) => c.kind === 'used' && c.tokens > 0).sort((a, b) => b.tokens - a.tokens)
   const buffer = (usage?.categories ?? []).find((c) => c.kind === 'buffer')
   const byServer = Object.entries((usage?.mcpTools ?? []).reduce<Record<string, number>>((m, t) => ((m[t.serverName] = (m[t.serverName] ?? 0) + t.tokens), m), {})).sort((a, b) => b[1] - a[1])
   return (
     <div ref={ref} className="relative">
-      <button data-tour="session" onClick={() => setOpen(!open)} className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[11px] text-muted hover:bg-panel-2 hover:text-text" title="Session and context details">
-        <span className="rounded bg-panel-2 px-1 py-px text-[10px] uppercase tracking-wide">{engineLabel}</span>
-        {leanMode ? <span className="rounded bg-ok/15 px-1 py-px text-[10px] uppercase tracking-wide text-ok" title="Lean mode: one Sonnet agent, no crew, trimmed context, 25 tool calls per message">lean</span> : budgetMode && <span className="rounded bg-ok/15 px-1 py-px text-[10px] uppercase tracking-wide text-ok">budget</span>}
-        <span className="font-mono">{shortModel(model)}</span>
-        {contextTokens ? (
-          <span className={clsx('inline-flex items-center gap-1 font-mono', tone === 'danger' ? 'text-danger' : tone === 'warn' ? 'text-warn' : '')} title={`Context: ${contextTokens.toLocaleString()} of ${window.toLocaleString()} tokens`}>
-            · <span className="inline-block h-1.5 w-8 overflow-hidden rounded-full bg-panel-2 align-middle"><span className={clsx('block h-full', tone === 'danger' ? 'bg-danger' : tone === 'warn' ? 'bg-warn' : 'bg-accent/70')} style={{ width: `${pct}%` }} /></span> {k(contextTokens)}
-          </span>
-        ) : null}
-        {result && <span className="font-mono">· ${result.costUsd.toFixed(2)}</span>}
-        <ChevronRight size={11} className={clsx('transition-transform', open ? '-rotate-90' : 'rotate-90')} />
+      <button
+        data-tour="session"
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        className={clsx('inline-flex h-6 items-center gap-1 rounded-md px-1.5 text-[11px] tabular-nums hover:bg-panel-2 hover:text-text', tone === 'danger' && contextTokens ? 'text-danger' : tone === 'warn' && contextTokens ? 'text-warn' : 'text-muted')}
+        title={`Session details${contextTokens ? `: ${contextTokens.toLocaleString()} of ${window.toLocaleString()} context tokens used` : ''}. Click for the breakdown, Compact and cost mode.`}
+      >
+        {statusParts.join(' · ')}
+        <ChevronRight size={11} className={clsx('transition-transform', open ? '-rotate-90' : 'rotate-90')} aria-hidden />
       </button>
       {open && (
-        <div className="absolute bottom-full left-0 z-20 mb-1 w-[360px] rounded-lg border border-border bg-panel p-3 text-[12px] shadow-2xl">
+        <div role="dialog" aria-label="Session details" className="absolute bottom-full left-0 z-20 mb-1 w-[360px] rounded-lg border border-border bg-panel p-3 text-[12px] shadow-2xl">
           {/* context window */}
           <div className="mb-1 flex items-center justify-between">
-            <span className="text-[10px] uppercase tracking-wide text-muted">Context window</span>
+            <span className="text-[11px] uppercase tracking-wide text-muted">Context window</span>
             <span className="font-mono text-[11px]">
               {k(used)} / {k(window)} · {Math.round(pct)}%
             </span>
@@ -670,7 +994,7 @@ function SessionPill({ workspaceId, spaceId, engineLabel, budgetMode, leanMode, 
             <Button size="sm" variant={pct >= 60 ? 'primary' : 'subtle'} disabled={busy || compacting || !contextTokens} onClick={compact} title="Ask Claude Code to summarise the conversation so far in place. Detail becomes a summary; the work continues with a much smaller context.">
               {compacting ? <Spinner /> : <History size={12} />} {compacting ? 'Compacting…' : 'Compact conversation'}
             </Button>
-            <Button size="sm" variant="ghost" disabled={busy} onClick={onNewSession} title="Start from an empty context">
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => (setOpen(false), onNewSession())} title="Start from an empty context. You can undo it right after.">
               <RotateCcw size={12} /> New session
             </Button>
             {(byServer.length > 0 || (usage?.agents.length ?? 0) > 0 || (usage?.memoryFiles.length ?? 0) > 0) && (
@@ -683,7 +1007,7 @@ function SessionPill({ workspaceId, spaceId, engineLabel, budgetMode, leanMode, 
             <div className="mb-2 max-h-[220px] overflow-auto rounded-md border border-border bg-bg p-2 text-[11px]">
               {byServer.length > 0 && (
                 <>
-                  <div className="mb-0.5 text-[10px] uppercase tracking-wide text-muted">MCP tool definitions</div>
+                  <div className="mb-0.5 text-[11px] uppercase tracking-wide text-muted">MCP tool definitions</div>
                   {byServer.map(([srv, t]) => (
                     <div key={srv} className="flex justify-between">
                       <span>{srv}</span>
@@ -694,7 +1018,7 @@ function SessionPill({ workspaceId, spaceId, engineLabel, budgetMode, leanMode, 
               )}
               {usage.agents.length > 0 && (
                 <>
-                  <div className="mb-0.5 mt-1.5 text-[10px] uppercase tracking-wide text-muted">Crew and agents</div>
+                  <div className="mb-0.5 mt-1.5 text-[11px] uppercase tracking-wide text-muted">Crew and agents</div>
                   {usage.agents.map((a) => (
                     <div key={a.agentType} className="flex justify-between">
                       <span>{a.agentType}</span>
@@ -705,7 +1029,7 @@ function SessionPill({ workspaceId, spaceId, engineLabel, budgetMode, leanMode, 
               )}
               {usage.memoryFiles.length > 0 && (
                 <>
-                  <div className="mb-0.5 mt-1.5 text-[10px] uppercase tracking-wide text-muted">Memory and instructions</div>
+                  <div className="mb-0.5 mt-1.5 text-[11px] uppercase tracking-wide text-muted">Memory and instructions</div>
                   {usage.memoryFiles.map((m) => (
                     <div key={m.path} className="flex justify-between gap-2">
                       <span className="truncate" title={m.path}>{m.path.split('/').slice(-2).join('/')}</span>
@@ -716,7 +1040,7 @@ function SessionPill({ workspaceId, spaceId, engineLabel, budgetMode, leanMode, 
               )}
               {usage.skills.length > 0 && (
                 <>
-                  <div className="mb-0.5 mt-1.5 text-[10px] uppercase tracking-wide text-muted">Skills</div>
+                  <div className="mb-0.5 mt-1.5 text-[11px] uppercase tracking-wide text-muted">Skills</div>
                   {usage.skills.map((sk) => (
                     <div key={sk.name} className="flex justify-between">
                       <span>{sk.name}</span>
@@ -738,7 +1062,7 @@ function SessionPill({ workspaceId, spaceId, engineLabel, budgetMode, leanMode, 
                 <Row k="Last turn" v={`${(result.durationMs / 1000).toFixed(1)}s · ${result.numTurns} step${result.numTurns === 1 ? '' : 's'}`} />
                 {result.byModel && result.byModel.length > 0 && (
                   <div className="mt-1.5">
-                    <div className="mb-0.5 text-[10px] uppercase tracking-wide text-muted">By model</div>
+                    <div className="mb-0.5 text-[11px] uppercase tracking-wide text-muted">By model</div>
                     {result.byModel.map((m) => (
                       <div key={m.model} className="flex justify-between font-mono text-[11px]">
                         <span>{shortModel(m.model)}</span>
@@ -770,12 +1094,16 @@ function Row({ k, v, warn }: { k: string; v: string; warn?: boolean }): React.JS
 /** Near or past a subscription limit: what happened and the ways forward, each one click. */
 function LimitCard({ workspaceId, ev }: { workspaceId: string; ev: Extract<AgentEvent, { type: 'limit' }> }): React.JSX.Element {
   const [busyChoice, setBusyChoice] = useState<string | null>(null)
+  const setError = useApp((s) => s.setError)
   const pick = (a: LimitAlternative): void => {
     setBusyChoice(a.kind + (a.id ?? ''))
-    void api.invoke('usage:resolveLimit', workspaceId, ev.itemId, a).catch(() => setBusyChoice(null))
+    void api.invoke('usage:resolveLimit', workspaceId, ev.itemId, a).catch((err) => {
+      setBusyChoice(null)
+      setError(friendlyError(err))
+    })
   }
   return (
-    <div className={clsx('mb-2 rounded-xl border p-3 text-[12px]', ev.mode === 'hit' ? 'border-danger/40 bg-danger/10' : 'border-warn/40 bg-warn/10')}>
+    <div role="alert" className={clsx('mb-2 rounded-xl border p-3 text-[12px]', ev.mode === 'hit' ? 'border-danger/40 bg-danger/10' : 'border-warn/40 bg-warn/10')}>
       <div className="mb-1 flex items-center gap-2 font-medium">
         <AlertTriangle size={14} className={ev.mode === 'hit' ? 'text-danger' : 'text-warn'} />
         {ev.mode === 'hit' ? 'Usage limit reached' : 'Low on usage'}
@@ -789,7 +1117,7 @@ function LimitCard({ workspaceId, ev }: { workspaceId: string; ev: Extract<Agent
             disabled={busyChoice !== null}
             title={a.hint}
             onClick={() => pick(a)}
-            className={clsx('rounded-md px-2 py-1 text-[11px]', a.kind === 'proceed' || (ev.mode === 'hit' && a.kind === 'account') ? 'bg-accent-2 text-white hover:bg-accent' : a.kind === 'cancel' ? 'text-muted hover:text-text' : 'border border-border hover:bg-panel-2', busyChoice === a.kind + (a.id ?? '') && 'opacity-60')}
+            className={clsx('rounded-md px-2 py-1 text-[11px]', a.kind === 'proceed' || (ev.mode === 'hit' && a.kind === 'account') ? 'bg-primary text-white hover:bg-primary-hover' : a.kind === 'cancel' ? 'text-muted hover:text-text' : 'border border-border hover:bg-panel-2', busyChoice === a.kind + (a.id ?? '') && 'opacity-60')}
           >
             {a.label}
           </button>
@@ -860,7 +1188,7 @@ function ForkDialog({ wsId, wsName, branch, onClose }: { wsId: string; wsName: s
       select(ws.id)
       onClose()
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(friendlyError(err))
     } finally {
       setBusy(false)
     }
@@ -897,7 +1225,7 @@ function SubagentSteps({ block, compact }: { block: ChatToolBlock; compact?: boo
     if (!compact) endRef.current?.scrollIntoView({ block: 'end' })
   }, [steps.length, compact])
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-2 empty:hidden">
       {typeof input.prompt === 'string' && (
         <div>
           <div className="mb-1 text-[11px] uppercase tracking-wide text-muted">Brief from the orchestrator</div>
@@ -951,17 +1279,17 @@ function SubagentPanel({ items, model, workspaceId }: { items: ChatItem[]; model
     return (
       <aside className="flex w-[440px] shrink-0 flex-col border-l border-border bg-panel">
         <div className="flex items-center gap-2 border-b border-border px-3 py-2">
-          <button className="text-muted hover:text-text" onClick={() => setView({ kind: 'activity' })} title="Back to activity">
+          <IconButton label="Back to activity" onClick={() => setView({ kind: 'activity' })}>
             <ArrowLeft size={14} />
-          </button>
+          </IconButton>
           <Users size={14} className="text-accent" />
           <span className="text-[13px] font-semibold">{agentTypeOf(block)}</span>
-          {block.sub?.model && <span className="rounded bg-panel-2 px-1 py-px font-mono text-[10px] text-muted">{shortModel(block.sub.model)}</span>}
+          {block.sub?.model && <span className="rounded bg-panel-2 px-1 py-px font-mono text-[11px] text-muted">{shortModel(block.sub.model)}</span>}
           <span className="ml-auto text-[11px]">{block.done ? (block.isError ? <span className="text-danger">error</span> : <span className="text-ok">done</span>) : <span className="inline-flex items-center gap-1 text-warn"><Spinner /> running</span>}</span>
           {!block.done && <StopTaskButton workspaceId={workspaceId} toolUseId={block.toolUseId} />}
-          <button className="ml-1 text-muted hover:text-text" onClick={() => setView({ kind: 'closed' })} aria-label="Close">
-            ✕
-          </button>
+          <IconButton label="Close panel" className="ml-1" onClick={() => setView({ kind: 'closed' })}>
+            <X size={14} />
+          </IconButton>
         </div>
         <div className="flex-1 overflow-auto p-3">
           <SubagentSteps block={block} />
@@ -976,9 +1304,9 @@ function SubagentPanel({ items, model, workspaceId }: { items: ChatItem[]; model
       <div className="flex items-center gap-2 border-b border-border px-3 py-2">
         <ListTree size={14} className="text-accent" />
         <span className="text-[13px] font-semibold">Activity</span>
-        <button className="ml-auto text-muted hover:text-text" onClick={() => setView({ kind: 'closed' })} aria-label="Close">
-          ✕
-        </button>
+        <IconButton label="Close activity" className="ml-auto" onClick={() => setView({ kind: 'closed' })}>
+          <X size={14} />
+        </IconButton>
       </div>
       <div className="flex-1 overflow-auto p-2">
         <ActivityTree items={items} model={model} onOpen={(id) => setView({ kind: 'delegation', id })} />
@@ -1029,7 +1357,7 @@ function ActivityTree({ items, model, onOpen }: { items: ChatItem[]; model: stri
   const Tags = ({ pairs }: { pairs: [string, number][] }): React.JSX.Element => (
     <div className="flex flex-wrap gap-1">
       {pairs.map(([n, c]) => (
-        <span key={n} className="rounded bg-panel-2 px-1.5 py-px text-[10px] text-muted">
+        <span key={n} className="rounded bg-panel-2 px-1.5 py-px text-[11px] text-muted">
           {n.replace(/^mcp__/, '')} ×{c}
         </span>
       ))}
@@ -1044,7 +1372,7 @@ function ActivityTree({ items, model, onOpen }: { items: ChatItem[]; model: stri
         <Chevron on={rootOpen} />
         <Users size={12} className="shrink-0 text-accent" />
         <span className="font-medium">orchestrator</span>
-        <span className="font-mono text-[10px] text-muted">{shortModel(model)}</span>
+        <span className="font-mono text-[11px] text-muted">{shortModel(model)}</span>
         <span className="ml-auto shrink-0 text-[11px] text-muted">
           {assistant.length} turn{assistant.length === 1 ? '' : 's'} · think ×{thinking} · delegate ×{delegations.length}
         </span>
@@ -1068,7 +1396,7 @@ function ActivityTree({ items, model, onOpen }: { items: ChatItem[]; model: stri
                 <button onClick={() => toggle(key, true)} className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1.5 text-left hover:bg-panel-2">
                   <Chevron on={on} />
                   <span className="font-medium">{name}</span>
-                  {agentModel && <span className="font-mono text-[10px] text-muted">{shortModel(agentModel)}</span>}
+                  {agentModel && <span className="font-mono text-[11px] text-muted">{shortModel(agentModel)}</span>}
                   <span className="ml-auto shrink-0 text-[11px] text-muted">
                     {list.length} task{list.length === 1 ? '' : 's'}
                     {running ? <span className="text-warn"> · {running} running</span> : ''} · {calls} calls
@@ -1086,7 +1414,13 @@ function ActivityTree({ items, model, onOpen }: { items: ChatItem[]; model: stri
                           <div className="flex items-center gap-1.5 rounded-md px-1.5 py-1 hover:bg-panel-2">
                             <button onClick={() => toggle(tkey, !d.done)} className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
                               <Chevron on={ton} />
-                              {d.done ? <span className={clsx('h-1.5 w-1.5 shrink-0 rounded-full', d.isError ? 'bg-danger' : 'bg-ok')} /> : <Spinner />}
+                              {d.done ? (
+                                <span role="img" aria-label={d.isError ? 'Failed' : 'Done'} title={d.isError ? 'Failed' : 'Done'} className={clsx('h-1.5 w-1.5 shrink-0 rounded-full', d.isError ? 'bg-danger' : 'bg-ok')} />
+                              ) : (
+                                <span role="img" aria-label="Running" title="Running" className="inline-flex">
+                                  <Spinner />
+                                </span>
+                              )}
                               <span className="min-w-0 flex-1 truncate" title={descOf(d)}>
                                 {descOf(d)}
                               </span>
@@ -1140,8 +1474,11 @@ function ToolCall({ block }: { block: ChatToolBlock }): React.JSX.Element {
   const openPanel = (id: string): void => setPanel({ kind: 'delegation', id })
   const input = (block.input ?? {}) as Record<string, unknown>
   const isAgent = block.name === 'Agent' || block.name === 'Task'
-  const headline =
+  // Paths read relative to the open workspace: "shop-website/index.html", not the full folder on disk.
+  const root = useApp((s) => s.workspaces.find((w) => w.id === s.selectedId)?.rootPath)
+  const rawHeadline =
     typeof input.command === 'string' ? input.command : typeof input.file_path === 'string' ? input.file_path : typeof input.pattern === 'string' ? input.pattern : typeof input.description === 'string' ? input.description : ''
+  const headline = root ? rawHeadline.split(`${root}/`).join('').split(root).join('.') : rawHeadline
   const agentType = typeof input.subagent_type === 'string' ? input.subagent_type : 'agent'
   return (
     <div className={clsx('rounded-md border text-[12px]', block.isError ? 'border-danger/40' : isAgent ? 'border-accent/40' : 'border-border')}>
@@ -1151,7 +1488,7 @@ function ToolCall({ block }: { block: ChatToolBlock }): React.JSX.Element {
           <>
             <Users size={12} className="shrink-0 text-accent" />
             <span className="font-medium text-accent">{agentType}</span>
-            {block.sub?.model && <span className="rounded bg-panel-2 px-1 py-px font-mono text-[10px] text-muted">{shortModel(block.sub.model)}</span>}
+            {block.sub?.model && <span className="rounded bg-panel-2 px-1 py-px font-mono text-[11px] text-muted">{shortModel(block.sub.model)}</span>}
             <span className="truncate text-muted">{headline}</span>
             <span className="ml-auto shrink-0 text-muted">
               {block.sub ? `${block.sub.toolCalls} tool call${block.sub.toolCalls === 1 ? '' : 's'}${!block.done && block.sub.lastTool ? ` · ${block.sub.lastTool}` : ''}` : ''}
@@ -1202,50 +1539,3 @@ function Collapsible({ label, body, muted }: { label: string; body: string; mute
 }
 
 const NO_NOTES: never[] = []
-
-/** Fork, Resume and New session behind one button, so the composer row stays short. */
-function SessionMenu({ busy, disabled, onFork, onResume, onNew }: { busy: boolean; disabled: boolean; onFork: () => void; onResume: () => void; onNew: () => void }): React.JSX.Element {
-  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
-  const open = (e: React.MouseEvent<HTMLButtonElement>): void => {
-    const r = e.currentTarget.getBoundingClientRect()
-    setMenu({ x: r.left, y: r.top - 8 - 3 * 34 })
-  }
-  return (
-    <>
-      <Button size="sm" variant="ghost" title="Fork, resume or restart this session" onClick={open}>
-        Session <ChevronDown size={12} />
-      </Button>
-      {menu && (
-        <ContextMenu
-          x={menu.x}
-          y={menu.y}
-          onClose={() => setMenu(null)}
-          entries={[
-            { label: 'Fork into a new workspace', icon: <GitFork size={13} />, onClick: onFork, disabled: busy || disabled },
-            { label: 'Resume a past session…', icon: <History size={13} />, onClick: onResume, disabled: busy },
-            { separator: true },
-            { label: 'New session', icon: <RotateCcw size={13} />, onClick: onNew, disabled: busy }
-          ]}
-        />
-      )}
-    </>
-  )
-}
-
-/** Toggles the Notes panel; shows how many todos are open. */
-function NotesButton({ workspaceId }: { workspaceId: string }): React.JSX.Element {
-  const [view, setView] = usePanel()
-  const notes = useNotes((s) => s.byWorkspace[workspaceId]) ?? NO_NOTES
-  const { load, subscribe } = useNotes()
-  useEffect(() => {
-    subscribe()
-    void load(workspaceId)
-  }, [workspaceId, load, subscribe])
-  const open = notes.filter((n) => n.kind === 'todo' && !n.done).length
-  const on = view.kind === 'notes'
-  return (
-    <Button size="sm" variant="ghost" data-tour="notes" title="Session notes and todos for this workspace (the agent can read and add to them)" onClick={() => setView(on ? { kind: 'closed' } : { kind: 'notes' })} className={on ? 'bg-panel-2 text-text' : ''}>
-      <StickyNote size={13} /> Notes{open > 0 && <span className="rounded-full bg-accent/20 px-1.5 text-[10px] text-accent">{open}</span>}
-    </Button>
-  )
-}

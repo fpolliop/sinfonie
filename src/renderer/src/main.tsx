@@ -8,3 +8,6 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <App />
   </React.StrictMode>
 )
+
+// Development only: flag expert words that reach the screen in guided mode.
+if (import.meta.env.DEV) void import('./lib/guidedLint').then((m) => m.startGuidedLint())

@@ -5,6 +5,11 @@ import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { useGithub } from '@/stores/github'
 import { Button, Dialog, Field, inputCls } from './ui'
+import { friendlyError, rawMessage } from '@/lib/errors'
+import { AskTeammate } from './AskTeammate'
+
+/** A problem this dialog explains itself, in plain words; shown as is. */
+class PlainError extends Error {}
 
 /**
  * Guided mode's one way out of a task: save what changed, send it to GitHub, open a pull request in every
@@ -12,10 +17,29 @@ import { Button, Dialog, Field, inputCls } from './ui'
  */
 export function SendForReviewButton({ ws }: { ws: Workspace }): React.JSX.Element | null {
   const [open, setOpen] = useState(false)
+  // The button only takes the primary colour once there is something to send, so a fresh task doesn't invite
+  // sending nothing. Checked every 15 seconds; cheap (a status per app).
+  const [hasChanges, setHasChanges] = useState(false)
+  useEffect(() => {
+    if (ws.status !== 'ready') return
+    let alive = true
+    const poll = (): void => {
+      void api
+        .invoke('workspaces:safety', ws.id)
+        .then((rows) => alive && setHasChanges(rows.some((r) => !r.error && (r.uncommitted > 0 || r.unpushed > 0))))
+        .catch(() => undefined)
+    }
+    poll()
+    const t = setInterval(poll, 15_000)
+    return () => {
+      alive = false
+      clearInterval(t)
+    }
+  }, [ws.id, ws.status])
   if (ws.status !== 'ready' || ws.repos.length === 0) return null
   return (
     <>
-      <Button size="sm" variant="primary" className="no-drag" onClick={() => setOpen(true)} title="Save your changes and ask a colleague to review them">
+      <Button size="sm" variant={hasChanges ? 'primary' : 'subtle'} className="no-drag" onClick={() => setOpen(true)} title={hasChanges ? 'Save your changes and ask a colleague to review them' : 'Nothing has changed yet. Describe what you want in the chat first.'}>
         <Send size={12} /> Send for review
       </Button>
       {open && <SendDialog ws={ws} onClose={() => setOpen(false)} />}
@@ -31,7 +55,8 @@ function SendDialog({ ws, onClose }: { ws: Workspace; onClose: () => void }): Re
   const [title, setTitle] = useState(ws.name)
   const [note, setNote] = useState('')
   const [phase, setPhase] = useState<Phase>('idle')
-  const [error, setError] = useState<string | null>(null)
+  // What the person reads, and the raw text kept for a teammate who may need it.
+  const [error, setError] = useState<{ text: string; raw: string } | null>(null)
   const [checkFail, setCheckFail] = useState<{ name: string; output: string }[] | null>(null)
   const [links, setLinks] = useState<{ repo: string; url: string }[]>([])
   const refresh = useGithub((s) => s.refresh)
@@ -68,14 +93,14 @@ function SendDialog({ ws, onClose }: { ws: Workspace; onClose: () => void }): Re
           out.push({ repo: r.repoName, url })
         }
       }
-      if (out.length === 0) throw new Error('Nothing has changed yet, so there is nothing to send. Describe what you want in the chat first.')
+      if (out.length === 0) throw new PlainError('Nothing has changed yet, so there is nothing to send. Describe what you want in the chat first.')
       await api.invoke('workspaces:setStage', ws.id, 'in-review')
       void refresh(ws.id)
       setLinks(out)
       setPhase('done')
     } catch (err) {
       setPhase('idle')
-      setError(err instanceof Error ? err.message : String(err))
+      setError({ text: err instanceof PlainError ? err.message : friendlyError(err, 'Sending did not work. Try again, or ask a teammate.'), raw: rawMessage(err) })
     }
   }
   const busy = phase === 'checking' || phase === 'saving' || phase === 'sending'
@@ -117,7 +142,14 @@ function SendDialog({ ws, onClose }: { ws: Workspace; onClose: () => void }): Re
           <Field label="Note for the reviewer (optional)">
             <textarea className={`${inputCls} min-h-[72px]`} value={note} onChange={(e) => setNote(e.target.value)} disabled={busy} placeholder="What to look at, what you were not sure about…" />
           </Field>
-          {error && <div className="mb-3 rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-[12px] text-danger">{error}</div>}
+          {error && (
+            <div role="alert" className="mb-3 flex items-start gap-2 rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-[12px] text-danger">
+              <span className="min-w-0 flex-1 whitespace-pre-wrap">{error.text}</span>
+              {error.text !== error.raw && (
+                <AskTeammate workspaceId={ws.id} prefill={`I could not send "${title.trim() || ws.name}" for review. The error was: ${error.raw.slice(0, 400)}`} trigger={(open) => <Button size="sm" onClick={open}>Ask a teammate</Button>} />
+              )}
+            </div>
+          )}
           <div className="flex items-center justify-end gap-2">
             {busy && (
               <span className="mr-auto inline-flex items-center gap-1 text-[12px] text-muted">

@@ -4,7 +4,7 @@ import { useApp } from '@/stores/app'
 import { Badge, Button, Field, inputCls } from './ui'
 
 /** Linear connection for the app default ('') or one space. */
-export function LinearSection({ connId, title, intro }: { connId: string; title?: string; intro?: string }): React.JSX.Element {
+export function LinearSection({ connId, intro }: { connId: string; intro?: string }): React.JSX.Element {
   const { settings, spaces, setError } = useApp()
   const space = spaces.find((s) => s.id === connId)
   const linear = (connId ? space?.linear : settings.linear) ?? { connected: false, defaultQuery: '' }
@@ -39,8 +39,7 @@ export function LinearSection({ connId, title, intro }: { connId: string; title?
     }
   }
   return (
-    <section className="mt-5">
-      <h3 className="mb-2 text-[12px] font-medium uppercase tracking-wide text-muted">{title ?? 'Linear'}</h3>
+    <section>
       <p className="mb-3 text-[11px] text-muted">{intro ?? 'Lets "New workspace" start from a Linear issue and suggest a name, shows the issue state on the workspace, and gives agents Linear tools.'}</p>
       <div className="mb-3 flex items-center gap-3 rounded-lg border border-border px-3 py-2.5">
         <div className="min-w-0 flex-1">

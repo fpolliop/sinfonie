@@ -1737,6 +1737,8 @@ export interface BrowserTabInfo {
   url: string
   title: string
   loading: boolean
+  /** The last page load failed (nothing answered at that address). */
+  failed?: boolean
 }
 /** The workspace browser as the renderer sees it. */
 export interface BrowserState {

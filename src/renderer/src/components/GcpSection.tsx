@@ -2,11 +2,12 @@ import React, { useEffect, useState } from 'react'
 import { RefreshCw, LogIn, PlugZap } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
-import { Badge, Button, Field, inputCls } from './ui'
+import { Badge, Button, Field, Toggle, inputCls } from './ui'
+import { ErrorNote } from './ErrorNote'
 import type { GcpSettings, GcpStatus } from '@shared/types'
 
 /** Google Cloud for the app ('' connId) or for one space: local gcloud login, project, default region, tool exposure. */
-export function GcpSection({ connId, title, intro }: { connId: string; title?: string; intro?: string }): React.JSX.Element {
+export function GcpSection({ connId, intro }: { connId: string; intro?: string }): React.JSX.Element {
   const { settings, spaces, setError } = useApp()
   const space = spaces.find((s) => s.id === connId)
   const cfg: GcpSettings = (connId ? space?.gcp : settings.gcp) ?? { projectId: '' }
@@ -57,20 +58,18 @@ export function GcpSection({ connId, title, intro }: { connId: string; title?: s
     api
       .invoke('gcp:test', connId)
       .then(setTestResult)
-      .catch((err) => setTestResult(`Failed: ${err instanceof Error ? err.message : String(err)}`))
+      .catch((err) => setTestResult(`The test could not read the error log: ${err instanceof Error ? err.message : String(err)}`))
       .finally(() => setBusy(null))
   }
   return (
     <div className="space-y-4">
       <div>
-        <div className="text-[14px] font-semibold">{title ?? 'Google Cloud'}</div>
-        <p className="mt-1 text-[12px] text-muted">{intro ?? 'Sinfonie uses your local gcloud login. Sessions and the on-call agent get read-only tools: Cloud Logging, Cloud Run, Error Reporting, and any list / describe gcloud command. Nothing can change infrastructure.'}</p>
+        <p className="text-[12px] text-muted">{intro ?? 'Sinfonie uses your local gcloud login. Sessions and the on-call agent get read-only tools: Cloud Logging, Cloud Run, Error Reporting, and any list / describe gcloud command. Nothing can change infrastructure.'}</p>
       </div>
       <div className="rounded-lg border border-border p-3 text-[12px]">
         <div className="flex items-center gap-2">
           <span className="font-medium">gcloud</span>
           {status === null ? <Badge>checking…</Badge> : status.installed ? <Badge tone="ok">installed{status.version ? ` · ${status.version}` : ''}</Badge> : <Badge tone="danger">not installed</Badge>}
-          {status?.error && <span className="text-danger">{status.error}</span>}
           <span className="ml-auto flex gap-1.5">
             <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => load(true)}>
               <RefreshCw size={12} className={busy === 'status' ? 'animate-spin' : ''} /> Refresh
@@ -80,6 +79,7 @@ export function GcpSection({ connId, title, intro }: { connId: string; title?: s
             </Button>
           </span>
         </div>
+        {status?.error && <ErrorNote className="mt-2" summary="Sinfonie could not ask gcloud for its status." detail={status.error} />}
         {status && !status.installed && (
           <p className="mt-2 text-muted">
             Install the Google Cloud SDK, then come back: <code className="rounded bg-bg px-1">brew install --cask google-cloud-sdk</code>
@@ -136,13 +136,7 @@ export function GcpSection({ connId, title, intro }: { connId: string; title?: s
         <input className={inputCls} placeholder="us-central1" defaultValue={cfg.region ?? ''} onBlur={(e) => (e.target.value.trim() || undefined) !== cfg.region && void save({ region: e.target.value.trim() || undefined })} />
       </Field>
       {connId && (
-        <label className="flex items-start gap-2 text-[13px]">
-          <input type="checkbox" className="mt-0.5" checked={space?.exposeGcpMcp !== false} onChange={(e) => api.invoke('spaces:update', connId, { exposeGcpMcp: e.target.checked }).catch((err) => setError(String(err)))} />
-          <span>
-            Give sessions in this space the Google Cloud tools
-            <span className="block text-[11px] text-muted">Read-only. The on-call agent uses them regardless when a project is set.</span>
-          </span>
-        </label>
+        <Toggle checked={space?.exposeGcpMcp !== false} onChange={(v) => void api.invoke('spaces:update', connId, { exposeGcpMcp: v }).catch((err) => setError(String(err)))} label="Give sessions in this space the Google Cloud tools" hint="Read-only. The on-call agent uses them regardless when a project is set." />
       )}
       <div className="flex items-center gap-2">
         <Button size="sm" variant="ghost" disabled={busy !== null || !(cfg.projectId || inherited?.projectId)} onClick={test}>

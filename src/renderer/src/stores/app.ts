@@ -1,9 +1,20 @@
+import { tokens } from '@/lib/theme'
 import { create } from 'zustand'
 import type { AgentSpec, Engine, Label, Repo, Settings, Space, StoreData, Workspace } from '@shared/types'
 
 export type View = 'workspace' | 'reviews' | 'oncall' | 'agents' | 'notes' | 'maestro' | 'home'
 import { api } from '@/lib/api'
 
+export interface Notice {
+  kind: 'success' | 'info'
+  text: string
+  /** Shown as an Undo button; the notice closes after it runs. */
+  undo?: () => void
+  /** Identifies the notice so a later action can withdraw it (e.g. sending a message cancels "undo new session"). */
+  id?: string
+  /** A button that opens a web page (e.g. the pull request just opened). */
+  link?: { label: string; url: string }
+}
 /** A generated view tab is `view:<id>`. */
 export type Tab = 'chat' | 'code' | 'prs' | 'terminal' | 'run' | 'browser' | 'data' | `view:${string}`
 export type AppPage = 'preferences' | 'general' | 'spaces' | 'repos' | 'providers' | 'accounts' | 'logins' | 'crew' | 'resources' | 'usage' | 'oncall' | 'mcp' | 'jira' | 'linear' | 'slack' | 'gcp' | 'integrations' | 'feedback' | 'phone' | 'plan' | 'about'
@@ -65,6 +76,12 @@ interface AppState {
   closeSettings: () => void
   showArchived: boolean
   error: string | null
+  /** A non-error toast: success or info, optionally with an Undo that runs before the notice times out. */
+  notice: Notice | null
+  notify: (n: Notice | null) => void
+  /** Ids hidden from lists while their removal waits out its Undo window (see lib/undo). */
+  pendingRemoval: string[]
+  setPendingRemoval: (id: string, pending: boolean) => void
   branchPrompt: { workspaceId: string; name: string; newSlug: string; currentBranch: string } | null
   feedbackDialog: 'feedback' | 'errors' | null
   setFeedbackDialog: (v: 'feedback' | 'errors' | null) => void
@@ -76,6 +93,10 @@ interface AppState {
   /** The first-run setup wizard or the spotlight tour, when one is showing. */
   onboarding: 'setup' | 'tour' | null
   setOnboarding: (v: 'setup' | 'tour' | null) => void
+  /** The step the setup wizard opens on (0 = Welcome); set by openSetupAt, reset when the wizard opens. */
+  setupStartStep: number
+  /** Open the setup wizard straight on one step, e.g. 2 for "Your team" / "First space". */
+  openSetupAt: (step: number) => void
   /** What the setup wizard's First space step has collected so far. */
   onboardingDraft: { name: string; color: string; root: string; repos: string[]; added: Set<string> }
   setOnboardingDraft: (patch: Partial<AppState['onboardingDraft']>) => void
@@ -198,6 +219,10 @@ export const useApp = create<AppState>((set, get) => ({
   closeSettings: () => set({ settingsTarget: null }),
   showArchived: false,
   error: null,
+  notice: null,
+  notify: (notice) => set({ notice }),
+  pendingRemoval: [],
+  setPendingRemoval: (id, pending) => set((s) => ({ pendingRemoval: pending ? [...new Set([...s.pendingRemoval, id])] : s.pendingRemoval.filter((x) => x !== id) })),
   branchPrompt: null,
   feedbackDialog: null,
   setFeedbackDialog: (feedbackDialog) => set({ feedbackDialog }),
@@ -208,7 +233,9 @@ export const useApp = create<AppState>((set, get) => ({
 
   onboarding: null,
   setOnboarding: (onboarding) => set({ onboarding }),
-  onboardingDraft: { name: 'Personal', color: '#7c9cff', root: '', repos: [], added: new Set() },
+  setupStartStep: 0,
+  openSetupAt: (setupStartStep) => set({ setupStartStep, onboarding: 'setup' }),
+  onboardingDraft: { name: 'Personal', color: tokens.accent, root: '', repos: [], added: new Set() },
   setOnboardingDraft: (patch) => set((s) => ({ onboardingDraft: { ...s.onboardingDraft, ...patch } })),
   load: async () => {
     const d = await api.invoke('store:get')

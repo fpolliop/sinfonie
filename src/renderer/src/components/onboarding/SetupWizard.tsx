@@ -1,18 +1,21 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { ArrowLeft, ArrowRight, Check, CheckCircle2, FolderOpen, GitBranch, Loader2, LogIn, RefreshCw, Sparkles, Users, Palette, X } from 'lucide-react'
+import { AlertCircle, ArrowLeft, Database, GitPullRequest, ArrowRight, Check, CheckCircle2, FolderOpen, GitBranch, Globe, Loader2, LogIn, RefreshCw, Sparkles, Users, Palette, X } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
-import { Button, Badge, inputCls } from '../ui'
+import { Button, Badge, IconButton, inputCls } from '../ui'
 import { LoginDialog } from '../LoginDialog'
 import { ImportLogins } from '../ImportLogins'
 import { shortPath } from '@/lib/format'
 import logo from '../../assets/logo.svg'
 import { SPACE_COLORS, VENDORS, type AppMode, type DiscoveredOrg, type ScannedRepo, type Vendor } from '@shared/types'
 import { useGuided } from '@/lib/guided'
+import { friendlyError } from '@/lib/errors'
+import { GUIDED_VENDORS, guidedVendorHint, repoLabel, vendorLabel } from '@/lib/labels'
+import { addSoloApp, pickAppFolder } from '@/lib/soloApp'
 
 const EXPERT_STEPS = ['Welcome', 'Sign in', 'First space', 'Ready'] as const
-const GUIDED_STEPS = ['Welcome', 'Sign in', 'Your team', 'Ready'] as const
+const GUIDED_STEPS = ['Welcome', 'Sign in', 'Your app', 'Ready'] as const
 
 /** What Maestro starts with when setup hands off to it. */
 const SETUP_HANDOFF_PROMPT = 'I just finished setup. Look at my space and repositories and help me set up my crew and integrations.'
@@ -24,21 +27,26 @@ const SETUP_HANDOFF_PROMPT = 'I just finished setup. Look at my space and reposi
  * carries whatever was skipped.
  */
 export function SetupWizard({ onClose }: { onClose: () => void }): React.JSX.Element {
-  const [step, setStep] = useState(0)
+  // Opens on Welcome, unless something asked for a specific step (Getting started → "Join your team or add your app").
+  const [step, setStep] = useState(() => useApp.getState().setupStartStep)
+  // Consume the requested step once mounted (not in the initializer, which StrictMode runs twice).
+  useEffect(() => {
+    if (useApp.getState().setupStartStep) useApp.setState({ setupStartStep: 0 })
+  }, [])
   const [spaceId, setSpaceId] = useState<string | null>(null)
   const guided = useGuided()
   const STEPS = guided ? GUIDED_STEPS : EXPERT_STEPS
   const { settings, error, setError, setShowNewWorkspace, setOnboarding, setActiveSpace, setAssistantOpen, setMaestroSeed } = useApp()
   const rerun = Boolean(settings.onboarding?.setupDoneAt)
-  const finish = async (then?: 'workspace' | 'tour' | 'assistant'): Promise<void> => {
+  const finish = async (then?: 'workspace' | 'tour' | 'assistant', sid: string | null = spaceId): Promise<void> => {
     try {
       await api.invoke('settings:update', { onboarding: { ...(settings.onboarding ?? {}), setupDoneAt: new Date().toISOString() } })
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(friendlyError(err))
     }
     onClose()
-    if (spaceId) setActiveSpace(spaceId)
-    if (then === 'workspace') setShowNewWorkspace(true, spaceId ?? undefined)
+    if (sid) setActiveSpace(sid)
+    if (then === 'workspace') setShowNewWorkspace(true, sid ?? undefined)
     if (then === 'tour') setOnboarding('tour')
     if (then === 'assistant') {
       setMaestroSeed(SETUP_HANDOFF_PROMPT)
@@ -59,13 +67,16 @@ export function SetupWizard({ onClose }: { onClose: () => void }): React.JSX.Ele
     return () => window.removeEventListener('keydown', onKey)
   }, [])
   const anySignedIn = settings.claudeAccounts.some((a) => a.loggedIn)
+  const hasApps = useApp((s) => s.repos.length > 0)
+  // A step passed without doing it shows amber in the stepper, not green: Sign in with nobody signed in, the app/space step with no app.
+  const skipped = (i: number): boolean => (i === 1 && !anySignedIn) || (i === 2 && !hasApps)
   return (
     <div className="fixed inset-0 z-[60] flex flex-col bg-bg text-text">
       <div className="drag flex h-[52px] shrink-0 items-center justify-between pl-[88px] pr-4">
         <div className="flex items-center gap-2">
           {STEPS.map((s, i) => (
             <button key={s} className={clsx('no-drag flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px]', i === step ? 'bg-panel-2 text-text' : 'text-muted')} onClick={() => i < step && setStep(i)}>
-              <span className={clsx('h-1.5 w-1.5 rounded-full', i < step ? 'bg-ok' : i === step ? 'bg-accent' : 'bg-border')} />
+              <span className={clsx('h-1.5 w-1.5 rounded-full', i < step ? (skipped(i) ? 'bg-warn' : 'bg-ok') : i === step ? 'bg-accent' : 'bg-border')} />
               {s}
             </button>
           ))}
@@ -81,13 +92,13 @@ export function SetupWizard({ onClose }: { onClose: () => void }): React.JSX.Ele
         <div className="w-full max-w-[760px]">
           {step === 0 && <Welcome />}
           {step === 1 && <SignIn onModal={(open) => (modalRef.current = open)} />}
-          {step === 2 && (guided ? <JoinTeam onSpace={setSpaceId} /> : <FirstSpace spaceId={spaceId} onSpace={setSpaceId} />)}
-          {step === 3 && (guided ? <GuidedReady spaceId={spaceId} onWorkspace={() => void finish('workspace')} onDone={() => void finish()} /> : <Ready spaceId={spaceId} onWorkspace={() => void finish('workspace')} onTour={() => void finish('tour')} onAssistant={() => void finish('assistant')} onDone={() => void finish()} />)}
+          {step === 2 && (guided ? <GuidedAppStep onSpace={setSpaceId} /> : <FirstSpace spaceId={spaceId} onSpace={setSpaceId} />)}
+          {step === 3 && (guided ? <GuidedReady spaceId={spaceId} onWorkspace={(sid) => void finish('workspace', sid)} onTour={() => void finish('tour')} onGoto={setStep} onDone={() => void finish()} /> : <Ready spaceId={spaceId} onWorkspace={() => void finish('workspace')} onAssistant={() => void finish('assistant')} onDone={() => void finish()} />)}
         </div>
       </div>
       {error && (
         <div className="flex shrink-0 items-center gap-3 border-t border-danger/40 bg-danger/10 px-8 py-2 text-[12px]" role="alert">
-          <span className="min-w-0 flex-1 break-words text-danger">{error}</span>
+          <span className="min-w-0 flex-1 break-words text-danger">{guided ? friendlyError(error) : error}</span>
           <Button size="sm" variant="ghost" onClick={() => setError(null)}>
             Dismiss
           </Button>
@@ -95,10 +106,14 @@ export function SetupWizard({ onClose }: { onClose: () => void }): React.JSX.Ele
       )}
       {step < 3 && (
         <div className="flex h-[64px] shrink-0 items-center justify-between border-t border-border px-8">
-          <Button variant="ghost" disabled={step === 0} onClick={() => setStep(step - 1)}>
-            <ArrowLeft size={14} /> Back
-          </Button>
-          <ContinueButton step={guided && step === 2 ? -1 : step} label={step === 1 && !anySignedIn ? 'Sign in later' : undefined} spaceId={spaceId} onSpace={setSpaceId} onNext={() => setStep(step + 1)} />
+          {step > 0 ? (
+            <Button variant="ghost" onClick={() => setStep(step - 1)}>
+              <ArrowLeft size={14} /> Back
+            </Button>
+          ) : (
+            <span />
+          )}
+          <ContinueButton key={step} autoFocus={step === 0} step={guided && step === 2 ? -1 : step} label={step === 1 && !anySignedIn ? 'Sign in later' : undefined} spaceId={spaceId} onSpace={setSpaceId} onNext={() => setStep(step + 1)} />
         </div>
       )}
     </div>
@@ -106,13 +121,13 @@ export function SetupWizard({ onClose }: { onClose: () => void }): React.JSX.Ele
 }
 
 /** Continue is plain on most steps; on First space it creates the space (or reuses the existing one) and adds the repos first. */
-function ContinueButton({ step, spaceId, onSpace, onNext, label }: { step: number; spaceId: string | null; onSpace: (id: string) => void; onNext: () => void; label?: string }): React.JSX.Element {
+function ContinueButton({ step, spaceId, onSpace, onNext, label, autoFocus }: { step: number; spaceId: string | null; onSpace: (id: string) => void; onNext: () => void; label?: string; autoFocus?: boolean }): React.JSX.Element {
   const pending = useApp((s) => s.onboardingDraft)
   const setError = useApp((s) => s.setError)
   const [busy, setBusy] = useState(false)
   if (step !== 2) {
     return (
-      <Button variant="primary" onClick={onNext}>
+      <Button variant="primary" autoFocus={autoFocus} onClick={onNext}>
         {label ?? 'Continue'} <ArrowRight size={14} />
       </Button>
     )
@@ -132,7 +147,7 @@ function ContinueButton({ step, spaceId, onSpace, onNext, label }: { step: numbe
       if (paths.length) await api.invoke('repos:addPaths', paths, id)
       onNext()
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(friendlyError(err))
     } finally {
       setBusy(false)
     }
@@ -160,7 +175,7 @@ const FEATURES = [
     art: <ArtCrew />
   },
   {
-    icon: <Sparkles size={16} />,
+    icon: <GitPullRequest size={16} />,
     title: 'Review cockpit',
     text: 'Open pull requests across your repos in one list. AI review reads the diff, you approve the findings that matter, and it fixes what you approve.',
     art: <ArtReview />
@@ -172,7 +187,7 @@ const FEATURES = [
     art: <ArtAssistant />
   },
   {
-    icon: <GitBranch size={16} />,
+    icon: <Database size={16} />,
     title: 'Databases and on-call',
     text: 'A Data tab for Postgres, MySQL, SQLite, MongoDB and BigQuery, read-only by default. An on-call agent that triages Slack alerts against your code and cloud logs and drafts the fix as a PR.',
     art: <ArtData />
@@ -198,21 +213,22 @@ function Welcome(): React.JSX.Element {
     return () => clearInterval(t)
   }, [guided, paused])
   const choose = (m: AppMode): void => {
-    api.invoke('settings:update', { mode: m }).catch((err) => setError(err instanceof Error ? err.message : String(err)))
+    api.invoke('settings:update', { mode: m }).catch((err) => setError(friendlyError(err)))
   }
   return (
     <div className="text-center">
       <img src={logo} alt="" className="mx-auto h-16 w-16 rounded-2xl shadow-[0_20px_60px_rgba(91,124,255,.25)]" />
-      <h1 className="mt-4 text-[26px] font-semibold tracking-tight">Welcome to Sinfonie</h1>
-      <p className="mx-auto mt-2 max-w-[520px] text-[14px] text-muted">First, how do you work? This sets up the app for you; you can change it any time in Settings.</p>
-      <div className="mx-auto mt-5 grid max-w-[560px] grid-cols-2 gap-3 text-left">
+      <h1 className="mt-4 text-[24px] font-semibold tracking-tight">Welcome to Sinfonie</h1>
+      <p className="mx-auto mt-2 max-w-[520px] text-[15px] text-muted">First, how do you work? This sets up the app for you; you can change it any time in Settings.</p>
+      {/* data-expert-ok: the expert card names the expert toolbox on purpose; guided users choose between the two here. */}
+      <div role="radiogroup" aria-label="How you work" data-expert-ok className="mx-auto mt-5 grid max-w-[560px] grid-cols-2 gap-3 text-left">
         {(
           [
             { id: 'expert', title: 'I write code', text: 'Repositories, branches, terminals, diffs, pull requests: the whole toolbox.' },
             { id: 'guided', title: 'I build with AI, I don’t write code', text: 'Describe what you want, watch the preview, send it for review. No code, no commands.' }
           ] as { id: AppMode; title: string; text: string }[]
         ).map((o) => (
-          <button key={o.id} onClick={() => choose(o.id)} className={clsx('rounded-xl border p-4 text-left transition-colors', mode === o.id ? 'border-accent bg-panel shadow-[0_10px_40px_rgba(91,124,255,.12)]' : 'border-border bg-panel/40 hover:border-accent/50')}>
+          <button key={o.id} role="radio" aria-checked={mode === o.id} onClick={() => choose(o.id)} className={clsx('flex flex-col justify-start rounded-xl border p-4 text-left transition-colors', mode === o.id ? 'border-accent bg-panel shadow-[0_10px_40px_rgba(91,124,255,.12)]' : 'border-border bg-panel/40 hover:border-accent/50')}>
             <div className="flex items-center gap-2 text-[13px] font-semibold">
               <span className={clsx('h-3 w-3 rounded-full border', mode === o.id ? 'border-accent bg-accent' : 'border-border')} /> {o.title}
             </div>
@@ -232,8 +248,8 @@ function Welcome(): React.JSX.Element {
           ))}
         </div>
       ) : (
-        <div className="mx-auto mt-6 max-w-[680px] rounded-xl border border-border bg-panel/40 p-4 text-left">
-          <div className="flex items-center gap-5">
+        <div className="mx-auto mt-6 max-w-[680px] rounded-xl border border-border bg-panel/40 p-4 text-left" onFocus={() => setPaused(true)}>
+          <div className="flex min-h-[112px] items-center gap-5">
             <div className="flex h-[96px] w-[260px] shrink-0 items-center justify-center overflow-hidden">{FEATURES[active].art}</div>
             <div className="min-w-0">
               <div className="flex items-center gap-2 text-[13px] font-semibold">
@@ -318,7 +334,7 @@ function ArtCrew(): React.JSX.Element {
 
 function ArtAssistant(): React.JSX.Element {
   return (
-    <div className="w-[190px] rounded-lg border border-border bg-bg p-2 text-[10px]">
+    <div className="w-[190px] rounded-lg border border-border bg-bg p-2 text-[11px]">
       <div className="ml-auto w-[80%] rounded-md bg-accent/15 px-2 py-1">Set up my crew</div>
       <div className="mt-1 w-[88%] rounded-md bg-panel px-2 py-1 text-muted">How do you test? Unit and e2e, or just unit?</div>
       <div className="mt-1 flex gap-1">
@@ -335,7 +351,7 @@ function ArtAssistant(): React.JSX.Element {
 
 function ArtData(): React.JSX.Element {
   return (
-    <div className="w-[190px] rounded-lg border border-border bg-bg p-2 font-mono text-[9px]">
+    <div data-scale-exempt className="w-[190px] rounded-lg border border-border bg-bg p-2 font-mono text-[9px]">
       <div className="text-muted">SELECT id, email FROM users LIMIT 3</div>
       <div className="mt-1 grid grid-cols-[28px_1fr] gap-x-1 border-t border-border pt-1">
         {[
@@ -358,7 +374,7 @@ function ArtData(): React.JSX.Element {
 
 function ArtReview(): React.JSX.Element {
   return (
-    <div className="w-[180px] rounded-lg border border-border bg-bg p-2 text-[10px]">
+    <div className="w-[180px] rounded-lg border border-border bg-bg p-2 text-[11px]">
       <div className="flex items-center gap-1.5 font-medium">
         <span className="h-1.5 w-1.5 rounded-full bg-ok" /> #482 Add login flow
       </div>
@@ -392,7 +408,7 @@ function SignIn({ onModal }: { onModal?: (open: boolean) => void }): React.JSX.E
     try {
       await api.invoke('accounts:check', id)
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(friendlyError(err))
     }
     setChecking(null)
   }
@@ -404,6 +420,16 @@ function SignIn({ onModal }: { onModal?: (open: boolean) => void }): React.JSX.E
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+  // No account for this vendor yet: create one, then start its browser sign-in.
+  const signInNew = async (vendor: Vendor, name: string): Promise<void> => {
+    try {
+      const next = await api.invoke('accounts:add', name, vendor)
+      const created = next.claudeAccounts.filter((a) => a.vendor === vendor).at(-1)
+      if (created) setLogin({ id: created.id, name: created.name, vendor: name })
+    } catch (err) {
+      setError(friendlyError(err))
+    }
+  }
   const saveKey = async (): Promise<void> => {
     setSavingKey(true)
     try {
@@ -412,30 +438,34 @@ function SignIn({ onModal }: { onModal?: (open: boolean) => void }): React.JSX.E
       setGeminiKey('')
       await check(idFor('google'))
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(friendlyError(err))
     }
     setSavingKey(false)
   }
   const signedIn = settings.claudeAccounts.filter((a) => a.loggedIn).length
   const guided = useGuided()
+  // Guided: browser sign-ins only (no API keys), named after the product the person pays for.
+  const vendors = guided ? GUIDED_VENDORS : VENDORS
   return (
     <div>
-      <h2 className="text-[22px] font-semibold tracking-tight">{guided ? 'Sign in to an agent' : 'Sign in to the agents you use'}</h2>
+      <h2 className="text-[24px] font-semibold tracking-tight">{guided ? 'Sign in so the assistant can work' : 'Sign in to the agents you use'}</h2>
       <p className="mt-1 text-[13px] text-muted">
         {guided
-          ? 'The assistant runs on an agent account: Claude Code, Codex, Gemini CLI or Grok Build. One is enough. Sign in with the account your team uses; a browser window opens and comes back here.'
+          ? 'The assistant works through an AI account you already have. One is enough: sign in with your Claude account, or ChatGPT or Grok if that is what your team uses. A browser window opens and brings you back here.'
           : 'Claude Code, Codex, Gemini CLI or Grok Build: one is enough to start, and the first one you sign in to becomes the default engine for chats. Each uses the vendor’s own login, so your subscription applies. You can add more accounts per vendor later under Settings → Accounts, and change the engine under Settings → General.'}
       </p>
       <div className="mt-5 flex flex-col gap-2">
-        {VENDORS.map((v) => {
-          const acc = settings.claudeAccounts.find((a) => a.id === idFor(v.id))
+        {vendors.map((v) => {
+          // The vendor's default account, else any account of that vendor.
+          const acc = settings.claudeAccounts.find((a) => a.id === idFor(v.id)) ?? settings.claudeAccounts.find((a) => (a.vendor ?? 'anthropic') === v.id)
           const ok = acc?.loggedIn === true
+          const name = guided ? vendorLabel(v.id, true) : v.label
           return (
             <div key={v.id} className={clsx('rounded-xl border px-4 py-3', ok ? 'border-ok/40 bg-ok/5' : 'border-border bg-panel/40')}>
               <div className="flex items-center gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 text-[13px] font-semibold">
-                    {v.label} <span className="font-normal text-muted">· {v.agent}</span>
+                    {name} {!guided && <span className="font-normal text-muted">· {v.agent}</span>}
                     {ok && (
                       <Badge tone="ok">
                         <CheckCircle2 size={10} className="mr-1 inline" />
@@ -444,20 +474,25 @@ function SignIn({ onModal }: { onModal?: (open: boolean) => void }): React.JSX.E
                     )}
                   </div>
                   {/* The check's own words once it has run (signed in as…, or why not: CLI missing, not logged in); the vendor hint before that. */}
-                  <div className="text-[11px] text-muted">{acc?.detail && acc.loggedIn !== undefined ? acc.detail : v.hint}</div>
+                  <div className="text-[11px] text-muted">{guided ? (ok ? 'Ready to use.' : guidedVendorHint(v.id)) : acc?.detail && acc.loggedIn !== undefined ? acc.detail : v.hint}</div>
                 </div>
                 {acc && (
-                  <Button size="sm" variant="ghost" onClick={() => void check(acc.id)} disabled={checking === acc.id} title="Ask the CLI whether this account is signed in">
+                  <IconButton label={guided ? 'Check again' : 'Ask the CLI whether this account is signed in'} className="h-7 w-7" onClick={() => void check(acc.id)} disabled={checking === acc.id}>
                     <RefreshCw size={12} className={checking === acc.id ? 'animate-spin' : ''} />
+                  </IconButton>
+                )}
+                {!acc && v.id !== 'google' && (
+                  <Button size="sm" variant="primary" onClick={() => void signInNew(v.id, name)}>
+                    <LogIn size={12} /> Sign in
                   </Button>
                 )}
                 {acc && v.id !== 'google' && (
-                  <Button size="sm" variant={ok ? 'subtle' : 'primary'} onClick={() => setLogin({ id: acc.id, name: acc.name, vendor: v.label })}>
+                  <Button size="sm" variant={ok ? 'subtle' : 'primary'} onClick={() => setLogin({ id: acc.id, name: acc.name, vendor: name })}>
                     <LogIn size={12} /> {ok ? 'Sign in again' : 'Sign in'}
                   </Button>
                 )}
               </div>
-              {v.id === 'google' && !ok && (
+              {!guided && v.id === 'google' && !ok && (
                 <div className="mt-2 flex items-center gap-2">
                   <input className={inputCls} type="password" placeholder={google?.hasKey ? 'Gemini API key is set; paste a new one to replace it' : 'Gemini API key from aistudio.google.com'} value={geminiKey} onChange={(e) => setGeminiKey(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && geminiKey.trim() && void saveKey()} />
                   <Button size="sm" variant="primary" disabled={!geminiKey.trim() || savingKey} onClick={() => void saveKey()}>
@@ -469,7 +504,7 @@ function SignIn({ onModal }: { onModal?: (open: boolean) => void }): React.JSX.E
           )
         })}
       </div>
-      <p className="mt-3 text-[12px] text-muted">{signedIn === 0 ? (guided ? 'Not signed in yet. You can sign in later from Settings → Accounts, but the assistant will not work until you do.' : 'Nothing signed in yet. You can continue and sign in later, but chats will not run until you do.') : guided ? 'Signed in. Continue to join your team.' : `${signedIn} account${signedIn === 1 ? '' : 's'} ready.`}</p>
+      <p className="mt-3 text-[12px] text-muted">{signedIn === 0 ? (guided ? 'Not signed in yet. You can do it later from Settings → Accounts, but the assistant cannot work until you do.' : 'Nothing signed in yet. You can continue and sign in later, but chats will not run until you do.') : guided ? 'Signed in. Continue to add your app.' : `${signedIn} account${signedIn === 1 ? '' : 's'} ready.`}</p>
       {login && (
         <LoginDialog
           accountId={login.id}
@@ -555,7 +590,7 @@ function FirstSpace({ spaceId, onSpace }: { spaceId: string | null; onSpace: (id
   const root = draft.root || settings.workspacesRoot
   return (
     <div>
-      <h2 className="text-[22px] font-semibold tracking-tight">{existing ? `Add repositories to ${existing.name}` : 'Your first space'}</h2>
+      <h2 className="text-[24px] font-semibold tracking-tight">{existing ? `Add repositories to ${existing.name}` : 'Your first space'}</h2>
       <p className="mt-1 text-[13px] text-muted">
         {existing
           ? 'A space groups repositories, workspaces and settings. This one already exists; pick the repositories to add to it, or rename it. More spaces come from the dots at the bottom of the sidebar.'
@@ -570,11 +605,11 @@ function FirstSpace({ spaceId, onSpace }: { spaceId: string | null; onSpace: (id
           <span className="mb-1 block text-[12px] text-muted">Color</span>
           <div className="grid grid-cols-8 gap-1.5">
             {SPACE_COLORS.map((c) => (
-              <button key={c} type="button" title={c} aria-pressed={draft.color === c} className={clsx('flex h-6 w-6 items-center justify-center rounded-full ring-offset-2 ring-offset-bg transition-shadow', draft.color === c ? 'ring-2 ring-text' : 'hover:ring-2 hover:ring-border')} style={{ background: c }} onClick={() => setOnboardingDraft({ color: c })}>
+              <button key={c} type="button" title={c} aria-label={`Colour ${c}`} aria-pressed={draft.color === c} className={clsx('flex h-6 w-6 items-center justify-center rounded-full ring-offset-2 ring-offset-bg transition-shadow', draft.color === c ? 'ring-2 ring-text' : 'hover:ring-2 hover:ring-border')} style={{ background: c }} onClick={() => setOnboardingDraft({ color: c })}>
                 {draft.color === c && <Check size={13} className="text-black/70" />}
               </button>
             ))}
-            <label title="Custom colour" className="relative flex h-6 w-6 cursor-pointer items-center justify-center rounded-full border border-dashed border-border text-muted hover:border-text">
+            <label title="Custom colour" aria-label="Custom colour" className="relative flex h-6 w-6 cursor-pointer items-center justify-center rounded-full border border-dashed border-border text-muted hover:border-text">
               <Palette size={12} />
               <input type="color" className="absolute inset-0 cursor-pointer opacity-0" value={draft.color} onChange={(e) => setOnboardingDraft({ color: e.target.value })} />
             </label>
@@ -642,23 +677,22 @@ function FirstSpace({ spaceId, onSpace }: { spaceId: string | null; onSpace: (id
 
 // ---------- 4. Ready ----------
 
-function Ready({ spaceId, onWorkspace, onTour, onAssistant, onDone }: { spaceId: string | null; onWorkspace: () => void; onTour: () => void; onAssistant: () => void; onDone: () => void }): React.JSX.Element {
-  const { settings, spaces, repos, workspaces } = useApp()
+/** Expert hand-off. The tour lives in the Getting started checklist and Help → Take the Tour, not here too. */
+function Ready({ spaceId, onWorkspace, onAssistant, onDone }: { spaceId: string | null; onWorkspace: () => void; onAssistant: () => void; onDone: () => void }): React.JSX.Element {
+  const { settings, spaces, repos } = useApp()
   const space = spaces.find((s) => s.id === spaceId)
   const mine = useMemo(() => repos.filter((r) => r.spaceId === spaceId), [repos, spaceId])
-  const hasWorkspace = workspaces.some((w) => w.status !== 'archived')
   const signedIn = settings.claudeAccounts.filter((a) => a.loggedIn)
   const rows = [
-    { ok: signedIn.length > 0, text: signedIn.length ? `Signed in: ${signedIn.map((a) => VENDORS.find((v) => v.id === (a.vendor ?? 'anthropic'))?.agent).join(', ')}` : 'No account signed in yet (Settings → Accounts)' },
+    { ok: signedIn.length > 0, text: signedIn.length ? `Signed in: ${[...new Set(signedIn.map((a) => vendorLabel(a.vendor, false)))].join(', ')}` : 'No account signed in yet (Settings → Accounts)' },
     { ok: Boolean(space), text: space ? `Space “${space.name}” ready` : 'No space yet' },
     { ok: mine.length > 0, text: mine.length ? `${mine.length} repositor${mine.length === 1 ? 'y' : 'ies'}: ${mine.map((r) => r.name).join(', ')}` : 'No repositories yet (space settings → Repositories)' }
   ]
+  const allOk = rows.every((r) => r.ok)
   return (
     <div className="text-center">
-      <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-ok/15 text-ok">
-        <Check size={28} />
-      </div>
-      <h2 className="mt-4 text-[22px] font-semibold tracking-tight">You’re set</h2>
+      <div className={clsx('mx-auto flex h-14 w-14 items-center justify-center rounded-2xl', allOk ? 'bg-ok/15 text-ok' : 'bg-warn/15 text-warn')}>{allOk ? <Check size={28} /> : <AlertCircle size={28} />}</div>
+      <h2 className="mt-4 text-[24px] font-semibold tracking-tight">{allOk ? 'You’re set' : 'Almost there'}</h2>
       <div className="mx-auto mt-4 max-w-[460px] text-left">
         {rows.map((r) => (
           <div key={r.text} className="flex items-center gap-2 py-1 text-[13px]">
@@ -667,7 +701,7 @@ function Ready({ spaceId, onWorkspace, onTour, onAssistant, onDone }: { spaceId:
           </div>
         ))}
       </div>
-      <p className="mx-auto mt-4 max-w-[460px] text-[13px] text-muted">A workspace is one branch across the repos you pick. Create the first one now, let Maestro design your crew and connect your tools, or take a two-minute tour of the app.</p>
+      <p className="mx-auto mt-4 max-w-[460px] text-[13px] text-muted">A workspace is one branch across the repos you pick. Create the first one now, or let Maestro design your crew and connect your tools.</p>
       <div className="mx-auto mt-5 max-w-[460px] rounded-lg border border-border p-3 text-left">
         <div className="text-[13px] font-medium">Bring your browser logins (optional)</div>
         <p className="mb-2 mt-0.5 text-[12px] text-muted">Sinfonie has its own browser for previews and for agents. Import your Chrome or Arc logins so it — and they — start already signed in.</p>
@@ -680,9 +714,6 @@ function Ready({ spaceId, onWorkspace, onTour, onAssistant, onDone }: { spaceId:
         <Button onClick={onAssistant}>
           <Sparkles size={13} /> Continue with Maestro
         </Button>
-        <Button onClick={onTour} title={hasWorkspace ? undefined : 'More stops appear once a workspace is open'}>
-          Take the tour
-        </Button>
         <Button variant="ghost" onClick={onDone}>
           Close
         </Button>
@@ -691,7 +722,129 @@ function Ready({ spaceId, onWorkspace, onTour, onAssistant, onDone }: { spaceId:
   )
 }
 
-// ---------- 3 (guided). Your team ----------
+// ---------- 3 (guided). Your team, or your own app ----------
+
+type AppSource = 'team' | 'mac' | 'github'
+
+/**
+ * Where the person's app lives. A team that already uses Sinfonie shares its apps; someone on their own adds
+ * one app, from a folder on this Mac or from GitHub, and it goes into a personal "My apps" team behind the scenes.
+ */
+function GuidedAppStep({ onSpace }: { onSpace: (id: string) => void }): React.JSX.Element {
+  const hasTeam = useApp((s) => Boolean(s.settings.cloud?.account?.orgs?.length))
+  const [source, setSource] = useState<AppSource | null>(hasTeam ? 'team' : null)
+  const options: { id: AppSource; title: string; text: string; icon: React.ReactNode }[] = [
+    { id: 'github', title: 'It’s on GitHub', text: 'Paste the link to your app and Sinfonie downloads it.', icon: <Globe size={16} /> },
+    { id: 'mac', title: 'It’s on this Mac', text: 'Choose the folder your app is in.', icon: <FolderOpen size={16} /> },
+    { id: 'team', title: 'My team already uses Sinfonie', text: 'Sign in with your work email and get your team’s apps.', icon: <Users size={16} /> }
+  ]
+  return (
+    <div>
+      <h2 className="text-[24px] font-semibold tracking-tight">Your app</h2>
+      <p className="mt-1 text-[13px] text-muted">Where is the app you want to work on? You can add more later.</p>
+      <div role="radiogroup" aria-label="Where your app is" className="mt-5 grid grid-cols-3 gap-3">
+        {options.map((o) => (
+          <button
+            key={o.id}
+            type="button"
+            role="radio"
+            aria-checked={source === o.id}
+            onClick={() => setSource(o.id)}
+            className={clsx('flex flex-col justify-start rounded-xl border p-4 text-left transition-colors', source === o.id ? 'border-accent bg-panel shadow-[0_10px_40px_rgba(91,124,255,.12)]' : 'border-border bg-panel/40 hover:border-accent/50')}
+          >
+            <div className="flex items-center gap-2 text-[13px] font-semibold">
+              <span className="text-accent">{o.icon}</span> {o.title}
+            </div>
+            <p className="mt-1 text-[12px] leading-relaxed text-muted">{o.text}</p>
+          </button>
+        ))}
+      </div>
+      <div className="mt-5">
+        {source === 'team' && <JoinTeam onSpace={onSpace} />}
+        {(source === 'mac' || source === 'github') && <SoloApp key={source} source={source} onSpace={onSpace} />}
+      </div>
+    </div>
+  )
+}
+
+/** Adds one app on its own: a folder on this Mac, or a GitHub link. Lists the solo apps already added. */
+export function SoloApp({ source, onSpace, onAdded }: { source: 'mac' | 'github'; onSpace: (id: string) => void; onAdded?: () => void }): React.JSX.Element {
+  const repos = useApp((s) => s.repos)
+  const spaces = useApp((s) => s.spaces)
+  const [link, setLink] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const [added, setAdded] = useState<string[]>([])
+  const mine = repos.filter((r) => added.includes(r.id))
+  const personal = spaces.find((s) => !s.orgId && repos.some((r) => r.spaceId === s.id && added.includes(r.id)))
+  const add = async (src: { path: string } | { github: string }): Promise<void> => {
+    setBusy(true)
+    setErr(null)
+    try {
+      const { repo, spaceId } = await addSoloApp(src)
+      setAdded((a) => (a.includes(repo.id) ? a : [...a, repo.id]))
+      onSpace(spaceId)
+      setLink('')
+      onAdded?.()
+    } catch (e) {
+      setErr(
+        friendlyError(
+          e,
+          'github' in src
+            ? 'Sinfonie could not download that app. Check the link, and that your GitHub account can open it.'
+            : 'That folder is not an app Sinfonie can work with. Choose the folder that holds your whole app, or ask a teammate which one it is.'
+        )
+      )
+    } finally {
+      setBusy(false)
+    }
+  }
+  const pick = async (): Promise<void> => {
+    const path = await pickAppFolder()
+    if (path) await add({ path })
+  }
+  return (
+    <div className="rounded-xl border border-border bg-panel/40 px-4 py-3">
+      {source === 'mac' ? (
+        <div className="flex items-center gap-3">
+          <div className="min-w-0 flex-1 text-[12px] text-muted">Choose the top folder of your app, the one that holds all of its files.</div>
+          <Button variant="primary" disabled={busy} onClick={() => void pick()}>
+            {busy ? <Loader2 size={13} className="animate-spin" /> : <FolderOpen size={13} />} {busy ? 'Adding…' : mine.length ? 'Add another app…' : 'Choose folder…'}
+          </Button>
+        </div>
+      ) : (
+        <form
+          className="flex items-center gap-2"
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (link.trim()) void add({ github: link })
+          }}
+        >
+          <input className={inputCls} aria-label="Link to your app on GitHub" placeholder="https://github.com/your-team/your-app" value={link} autoFocus onChange={(e) => setLink(e.target.value)} />
+          <Button type="submit" variant="primary" disabled={busy || !link.trim()}>
+            {busy ? <Loader2 size={13} className="animate-spin" /> : null} {busy ? 'Downloading…' : 'Add app'}
+          </Button>
+        </form>
+      )}
+      {busy && source === 'github' && <p className="mt-2 text-[11px] text-muted">Downloading your app. Large apps can take a minute.</p>}
+      {err && (
+        <p role="alert" className="mt-2 text-[12px] text-danger">
+          {err}
+        </p>
+      )}
+      {mine.length > 0 && (
+        <div className="mt-3 flex flex-col gap-1">
+          {mine.map((r) => (
+            <div key={r.id} className="flex items-center gap-2 text-[13px]">
+              <CheckCircle2 size={14} className="shrink-0 text-ok" /> {repoLabel(r)} is ready{personal ? ` in ${personal.name}` : ''}.
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 
 /**
  * Sinfonie sign-in with the work email, then the organisation that claimed that domain: join it, and its
@@ -712,7 +865,7 @@ function JoinTeam({ onSpace }: { onSpace: (id: string) => void }): React.JSX.Ele
     try {
       await fn()
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(friendlyError(err))
     } finally {
       setBusy(null)
     }
@@ -731,10 +884,9 @@ function JoinTeam({ onSpace }: { onSpace: (id: string) => void }): React.JSX.Ele
   const countOf = (orgId: string): number => teamSpaces.filter((sp) => sp.orgId === orgId).length
   return (
     <div>
-      <h2 className="text-[22px] font-semibold tracking-tight">Your team</h2>
-      <p className="mt-1 text-[13px] text-muted">Sign in with your work email. Your team's apps are set up for you once you are in.</p>
+      <p className="text-[13px] text-muted">Sign in with your work email. Your team's apps are set up for you once you are in.</p>
       {!account ? (
-        <div className="mt-5 flex flex-col gap-2">
+        <div className="mt-3 flex flex-col gap-2">
           <div className="rounded-xl border border-border bg-panel/40 px-4 py-3">
             <div className="text-[13px] font-semibold">Sign in to Sinfonie</div>
             <div className="mt-1 text-[11px] text-muted">Use the account that has your work email. A browser window opens and comes back here.</div>
@@ -749,7 +901,7 @@ function JoinTeam({ onSpace }: { onSpace: (id: string) => void }): React.JSX.Ele
           </div>
         </div>
       ) : (
-        <div className="mt-5 flex flex-col gap-2">
+        <div className="mt-3 flex flex-col gap-2">
           <div className="rounded-xl border border-ok/40 bg-ok/5 px-4 py-3 text-[13px]">
             <CheckCircle2 size={14} className="mr-1 inline text-ok" /> Signed in as {account.user.name || account.user.login}
             {account.emails?.length ? <span className="text-muted"> · {account.emails.map((e) => e.email).join(', ')}</span> : null}
@@ -762,12 +914,12 @@ function JoinTeam({ onSpace }: { onSpace: (id: string) => void }): React.JSX.Ele
               </div>
               <div className="mt-1 text-[11px] text-muted">
                 {countOf(o.id)
-                  ? `${countOf(o.id)} team space${countOf(o.id) === 1 ? '' : 's'} ready: ${teamSpaces
+                  ? `${countOf(o.id)} team${countOf(o.id) === 1 ? '' : 's'} ready: ${teamSpaces
                       .filter((sp) => sp.orgId === o.id)
                       .map((sp) => sp.name)
                       .join(', ')}`
                   : shared[o.id] === 0
-                    ? 'This team has not shared its apps yet. Ask whoever set up Sinfonie for your team to share a space with you.'
+                    ? 'This team has not shared its apps yet. Ask whoever set up Sinfonie for your team to share them with you.'
                     : 'Setting up the team’s apps… this can take a minute the first time.'}
               </div>
             </div>
@@ -800,40 +952,64 @@ function JoinTeam({ onSpace }: { onSpace: (id: string) => void }): React.JSX.Ele
   )
 }
 
-function GuidedReady({ spaceId, onWorkspace, onDone }: { spaceId: string | null; onWorkspace: () => void; onDone: () => void }): React.JSX.Element {
+function GuidedReady({ spaceId, onWorkspace, onTour, onGoto, onDone }: { spaceId: string | null; onWorkspace: (spaceId: string | null) => void; onTour: () => void; onGoto: (step: number) => void; onDone: () => void }): React.JSX.Element {
   const { settings, spaces, repos } = useApp()
   const orgs = settings.cloud?.account?.orgs ?? []
   const teamSpaces = spaces.filter((sp) => sp.orgId && orgs.some((o) => o.id === sp.orgId))
-  const apps = repos.filter((r) => teamSpaces.some((sp) => sp.id === r.spaceId))
+  // Apps the person can start a task in: the team's, plus any added on their own (the chosen space).
+  const apps = repos.filter((r) => r.spaceId && (r.spaceId === spaceId || teamSpaces.some((sp) => sp.id === r.spaceId)))
+  const startSpace = spaceId && repos.some((r) => r.spaceId === spaceId) ? spaceId : apps[0]?.spaceId ?? null
   const signedIn = settings.claudeAccounts.filter((a) => a.loggedIn)
-  const rows = [
-    { ok: signedIn.length > 0, text: signedIn.length ? `Signed in: ${signedIn.map((a) => VENDORS.find((v) => v.id === (a.vendor ?? 'anthropic'))?.agent).join(', ')}` : 'Not signed in to an agent yet (Settings → Accounts)' },
-    { ok: orgs.length > 0, text: orgs.length ? `In the team: ${orgs.map((o) => o.name).join(', ')}` : 'Not in a team yet' },
-    { ok: apps.length > 0, text: apps.length ? `${apps.length} app${apps.length === 1 ? '' : 's'} ready: ${apps.map((r) => r.name).join(', ')}` : 'The team’s apps are still being set up' }
+  const rows: { ok: boolean; text: string; fix?: { label: string; step: number } }[] = [
+    {
+      ok: signedIn.length > 0,
+      text: signedIn.length ? `Signed in with ${[...new Set(signedIn.map((a) => vendorLabel(a.vendor, true)))].join(', ')}` : 'Not signed in yet, so the assistant cannot work',
+      fix: { label: 'Sign in', step: 1 }
+    },
+    ...(orgs.length ? [{ ok: true, text: `In the team: ${orgs.map((o) => o.name).join(', ')}` }] : []),
+    {
+      ok: apps.length > 0,
+      text: apps.length ? `${apps.length} app${apps.length === 1 ? '' : 's'} ready: ${apps.map((r) => repoLabel(r)).join(', ')}` : orgs.length ? 'Your team’s apps are still being set up' : 'No app added yet',
+      fix: { label: orgs.length ? 'Check again' : 'Add your app', step: 2 }
+    }
   ]
+  const allOk = rows.every((r) => r.ok)
+  const canStart = Boolean(startSpace) && signedIn.length > 0
+  const missing = !startSpace ? 'Add your app first, then start a task.' : signedIn.length === 0 ? 'Sign in first, so the assistant can work on your task.' : ''
+  // The next thing to do carries the primary button: the first unfinished row, else Start.
+  const nextFix = rows.find((r) => !r.ok && r.fix)
   return (
     <div className="text-center">
-      <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-ok/15 text-ok">
-        <Check size={28} />
-      </div>
-      <h2 className="mt-4 text-[22px] font-semibold tracking-tight">You’re set</h2>
-      <div className="mx-auto mt-4 max-w-[460px] text-left">
+      <div className={clsx('mx-auto flex h-14 w-14 items-center justify-center rounded-2xl', allOk ? 'bg-ok/15 text-ok' : 'bg-warn/15 text-warn')}>{allOk ? <Check size={28} /> : <AlertCircle size={28} />}</div>
+      <h2 className="mt-4 text-[24px] font-semibold tracking-tight">{allOk ? 'You’re set' : 'Almost there'}</h2>
+      <div className="mx-auto mt-4 max-w-[480px] text-left">
         {rows.map((r) => (
-          <div key={r.text} className="flex items-center gap-2 py-1 text-[13px]">
-            {r.ok ? <CheckCircle2 size={15} className="shrink-0 text-ok" /> : <span className="h-[15px] w-[15px] shrink-0 rounded-full border border-border" />}
-            <span className={r.ok ? '' : 'text-muted'}>{r.text}</span>
+          <div key={r.text} className="flex min-h-[32px] items-center gap-2 py-1 text-[13px]">
+            {r.ok ? <CheckCircle2 size={15} className="shrink-0 text-ok" /> : <span className="h-[15px] w-[15px] shrink-0 rounded-full border border-warn" />}
+            <span className={clsx('min-w-0 flex-1', !r.ok && 'text-muted')}>{r.text}</span>
+            {!r.ok && r.fix && (
+              <Button size="sm" variant={r === nextFix ? 'primary' : 'subtle'} onClick={() => onGoto(r.fix!.step)}>
+                {r.fix.label}
+              </Button>
+            )}
           </div>
         ))}
       </div>
       <p className="mx-auto mt-4 max-w-[460px] text-[13px] text-muted">A task is one thing you want built or changed. Describe it, watch the preview, send it for review.</p>
       <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
-        <Button variant="primary" onClick={onWorkspace} disabled={!spaceId}>
+        <Button variant={canStart ? 'primary' : 'subtle'} onClick={() => onWorkspace(startSpace)} disabled={!canStart} aria-describedby={missing ? 'guided-ready-missing' : undefined}>
           Start your first task
         </Button>
+        <Button onClick={onTour}>Take the tour</Button>
         <Button variant="ghost" onClick={onDone}>
           Close
         </Button>
       </div>
+      {missing && (
+        <p id="guided-ready-missing" className="mt-2 text-[12px] text-muted">
+          {missing}
+        </p>
+      )}
     </div>
   )
 }

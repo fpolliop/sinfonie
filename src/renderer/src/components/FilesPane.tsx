@@ -5,17 +5,18 @@ import { api } from '@/lib/api'
 import { Markdown } from '@/lib/markdown'
 import { useApp } from '@/stores/app'
 import { useChat } from '@/stores/chat'
-import { Button, Spinner } from './ui'
+import { Button, IconButton, Spinner } from './ui'
 import { CodeView } from './CodeView'
-import { DiffView, CommitDialog, PrDialog, type ViewMode } from './ChangesPane'
+import { DiffView, CommitDialog, PrDialog, PushDialog, type ViewMode } from './ChangesPane'
 import { parseUnifiedDiff, type DiffFile } from '@/lib/diff'
-import type { FsEntry, GitFileStatus } from '@shared/types'
+import type { FsEntry, GitFileStatus, RepoGitStatus } from '@shared/types'
 
 type Node = FsEntry & { children?: Node[]; loading?: boolean }
 /** One visible row of the tree, in display order. */
 type Row = { root: string; node: Node; depth: number; parent: string | null }
 const fmtSize = (n: number): string => (n >= 1_048_576 ? `${(n / 1_048_576).toFixed(1)} MB` : n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n} B`)
 const isMarkdown = (path: string): boolean => /\.(md|markdown)$/i.test(path)
+const STATUS_WORDS: Record<string, string> = { M: 'Modified', A: 'Added', D: 'Deleted', R: 'Renamed', C: 'Copied', U: 'Conflicted', '?': 'New, not tracked yet' }
 
 /**
  * Code tab: the worktrees as a tree with git status, an editor with inline suggestions and change
@@ -49,6 +50,10 @@ export function FilesPane({ workspaceId }: { workspaceId: string }): React.JSX.E
   const [diffFile, setDiffFile] = useState<DiffFile | null>(null)
   const [commitDlg, setCommitDlg] = useState(false)
   const [prDlg, setPrDlg] = useState(false)
+  const [pushDlg, setPushDlg] = useState(false)
+  const notify = useApp((s) => s.notify)
+  /** Branch, ahead count and upstream per repo, for the push confirmation. */
+  const [repoInfo, setRepoInfo] = useState<Record<string, RepoGitStatus>>({})
   const treeRef = useRef<HTMLDivElement>(null)
   const dirtyRef = useRef(false)
   dirtyRef.current = dirty
@@ -75,6 +80,7 @@ export function FilesPane({ workspaceId }: { workspaceId: string }): React.JSX.E
         m[wt] = Object.fromEntries(r.files.map((f) => [`${wt}/${f.path}`, f]))
       }
       setStatus(m)
+      setRepoInfo(Object.fromEntries(st.map((r) => [r.repoId, r])))
     } catch {
       /* status is decoration only */
     }
@@ -144,6 +150,7 @@ export function FilesPane({ workspaceId }: { workspaceId: string }): React.JSX.E
         m[wt] = Object.fromEntries(r.files.map((f) => [`${wt}/${f.path}`, f]))
       }
       setStatus(m)
+      setRepoInfo(Object.fromEntries(st.map((r) => [r.repoId, r])))
     } catch {
       /* status is decoration only */
     }
@@ -253,15 +260,19 @@ export function FilesPane({ workspaceId }: { workspaceId: string }): React.JSX.E
             activate(row)
             treeRef.current?.focus({ preventScroll: true })
           }}
-          className={clsx('flex w-full items-center gap-1.5 rounded px-1 py-[3px] text-left text-[12.5px] hover:bg-panel-2', selected === n.path && 'bg-panel-2', focused === n.path && treeFocus && 'ring-1 ring-inset ring-accent/70')}
+          className={clsx('flex w-full items-center gap-1.5 rounded px-1 py-[3px] text-left text-[13px] hover:bg-panel-2', selected === n.path && 'bg-panel-2', focused === n.path && treeFocus && 'ring-1 ring-inset ring-accent/70')}
           style={{ paddingLeft: 6 + depth * 14 }}
           title={n.path}
         >
           {n.dir ? <ChevronRight size={11} className={clsx('shrink-0 text-muted transition-transform', open[n.path] && 'rotate-90')} /> : <span className="w-[11px] shrink-0" />}
           {n.dir ? open[n.path] ? <FolderOpen size={13} className="shrink-0 text-accent/80" /> : <Folder size={13} className="shrink-0 text-accent/80" /> : <File size={13} className="shrink-0 text-muted" />}
           <span className={clsx('truncate', st?.status === '?' ? 'text-ok' : st ? 'text-warn' : changed ? 'text-text' : '')}>{n.name}</span>
-          {st && <span className={clsx('ml-auto shrink-0 font-mono text-[10px]', st.status === '?' ? 'text-ok' : 'text-warn')}>{st.status}</span>}
-          {n.dir && changed && !open[n.path] && <span className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-warn" />}
+          {st && (
+            <span className={clsx('ml-auto shrink-0 font-mono text-[11px]', st.status === '?' ? 'text-ok' : 'text-warn')} title={STATUS_WORDS[st.status] ?? st.status} aria-label={STATUS_WORDS[st.status] ?? st.status}>
+              {st.status}
+            </span>
+          )}
+          {n.dir && changed && !open[n.path] && <span role="img" className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-warn" title="Contains changes" aria-label="Contains changes" />}
         </button>
         {n.dir && open[n.path] && !n.children && (
           <div className="py-1 pl-8 text-[11px] text-muted">
@@ -287,15 +298,15 @@ export function FilesPane({ workspaceId }: { workspaceId: string }): React.JSX.E
       <aside className="flex w-[320px] shrink-0 flex-col border-r border-border">
         <div className="flex items-center gap-1 border-b border-border px-2 py-1.5">
           <input className="min-w-0 flex-1 rounded-md border border-border bg-bg px-2 py-1 text-[12px] outline-none focus:border-accent" placeholder="Filter loaded files…" value={filter} onChange={(e) => setFilter(e.target.value)} />
-          <button className={clsx('rounded p-1 hover:bg-panel-2 hover:text-text', changedOnly ? 'text-warn' : 'text-muted')} title={changedOnly ? 'Show every file' : 'Show changed files only'} onClick={() => setChangedOnly(!changedOnly)}>
+          <IconButton className={clsx(changedOnly && 'text-warn')} aria-pressed={changedOnly} label={changedOnly ? 'Show every file' : 'Show changed files only'} onClick={() => setChangedOnly(!changedOnly)}>
             <GitCompare size={13} />
-          </button>
-          <button className="rounded p-1 text-muted hover:bg-panel-2 hover:text-text" title={hidden ? 'Hide dotfiles and build folders' : 'Show dotfiles and build folders'} onClick={() => setHidden(!hidden)}>
+          </IconButton>
+          <IconButton aria-pressed={hidden} label={hidden ? 'Hide dotfiles and build folders' : 'Show dotfiles and build folders'} onClick={() => setHidden(!hidden)}>
             {hidden ? <EyeOff size={13} /> : <Eye size={13} />}
-          </button>
-          <button className="rounded p-1 text-muted hover:bg-panel-2 hover:text-text" title="Refresh" onClick={() => void refresh()}>
+          </IconButton>
+          <IconButton label="Refresh files" onClick={() => void refresh()}>
             <RefreshCw size={13} />
-          </button>
+          </IconButton>
         </div>
         <div ref={treeRef} tabIndex={0} role="tree" className="flex-1 overflow-auto p-1 outline-none" onKeyDown={onTreeKey} onFocus={() => setTreeFocus(true)} onBlur={() => setTreeFocus(false)}>
           {roots.length === 0 && <div className="p-3 text-[12px] text-muted">No repositories in this workspace yet.</div>}
@@ -303,7 +314,7 @@ export function FilesPane({ workspaceId }: { workspaceId: string }): React.JSX.E
             <div key={r.path} className="mb-2">
               <div className="flex items-center gap-1.5 px-1 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted" title={r.path}>
                 {r.label}
-                {Object.keys(status[r.path] ?? {}).length > 0 && <span className="rounded-full bg-warn/20 px-1.5 text-[10px] font-semibold normal-case text-warn">{Object.keys(status[r.path]).length} changed</span>}
+                {Object.keys(status[r.path] ?? {}).length > 0 && <span className="rounded-full bg-warn/20 px-1.5 text-[11px] font-semibold normal-case text-warn">{Object.keys(status[r.path]).length} changed</span>}
               </div>
               {trees[r.path] ? (
                 rows.filter((row) => row.root === r.path).map(renderRow)
@@ -324,26 +335,50 @@ export function FilesPane({ workspaceId }: { workspaceId: string }): React.JSX.E
             <Button size="sm" onClick={() => setCommitDlg(true)} disabled={!changedIn(actionRoot.path)} title="Commit every change in this repository">
               <GitCommitHorizontal size={12} /> Commit
             </Button>
-            <Button size="sm" onClick={() => void api.invoke('git:push', workspaceId, actionRoot.id).then(refreshStatus).catch((e) => setError(String(e)))} title="Push the branch">
-              <Upload size={12} />
+            <Button size="sm" onClick={() => setPushDlg(true)} title={`Push ${repoInfo[actionRoot.id]?.branch ?? 'the branch'} to the remote`}>
+              <Upload size={12} /> Push
             </Button>
-            <Button size="sm" onClick={() => setPrDlg(true)} title="Open a pull request">
-              <GitPullRequest size={12} />
+            <Button size="sm" onClick={() => setPrDlg(true)} title="Open a pull request for this branch">
+              <GitPullRequest size={12} /> PR
             </Button>
           </div>
         )}
         {commitDlg && actionRoot && (
           <CommitDialog
+            repoName={actionRoot.label}
             onClose={() => setCommitDlg(false)}
             onSubmit={async (msg) => {
-              await api.invoke('git:commit', workspaceId, actionRoot.id, msg)
-              setCommitDlg(false)
+              const sha = await api.invoke('git:commit', workspaceId, actionRoot.id, msg)
+              notify({ kind: 'success', text: sha ? `Committed ${sha.slice(0, 7)} in ${actionRoot.label}` : `Committed in ${actionRoot.label}` })
               await refreshStatus()
               if (selected) setBase(await api.invoke('git:show', workspaceId, actionRoot.id, relIn(selected)).catch(() => null))
             }}
           />
         )}
-        {prDlg && actionRoot && <PrDialog onClose={() => setPrDlg(false)} onSubmit={(t, b) => api.invoke('git:createPr', workspaceId, actionRoot.id, t, b).then(() => setPrDlg(false))} />}
+        {prDlg && actionRoot && (
+          <PrDialog
+            onClose={() => setPrDlg(false)}
+            onSubmit={async (t, b) => {
+              const out = await api.invoke('git:createPr', workspaceId, actionRoot.id, t, b)
+              const url = /https?:\/\/\S+/.exec(out ?? '')?.[0]
+              notify({ kind: 'success', text: 'Pull request opened', link: url ? { label: 'View on GitHub', url } : undefined })
+            }}
+          />
+        )}
+        {pushDlg && actionRoot && (
+          <PushDialog
+            repoName={actionRoot.label}
+            branch={repoInfo[actionRoot.id]?.branch ?? ws?.repos.find((r) => r.repoId === actionRoot.id)?.branch}
+            ahead={repoInfo[actionRoot.id]?.ahead}
+            hasUpstream={repoInfo[actionRoot.id]?.hasUpstream}
+            onClose={() => setPushDlg(false)}
+            onConfirm={async () => {
+              await api.invoke('git:push', workspaceId, actionRoot.id)
+              notify({ kind: 'success', text: `Pushed ${repoInfo[actionRoot.id]?.branch ?? actionRoot.label}` })
+              await refreshStatus()
+            }}
+          />
+        )}
       </aside>
       <div className="flex min-w-0 flex-1 flex-col">
         {!selected ? (
@@ -355,22 +390,27 @@ export function FilesPane({ workspaceId }: { workspaceId: string }): React.JSX.E
                 {rel(selected)}
               </span>
               {content && <span className="shrink-0 text-muted">{fmtSize(content.size)}</span>}
-              {dirty && <span className="shrink-0 rounded-full bg-warn/20 px-1.5 text-[10px] font-semibold text-warn">modified</span>}
+              {dirty && <span className="shrink-0 rounded-full bg-warn/20 px-1.5 text-[11px] font-semibold text-warn">modified</span>}
               <span className="ml-auto flex shrink-0 items-center gap-1">
                 {dirty && (
                   <>
                     <Button size="sm" variant="primary" disabled={saving} onClick={() => void save()} title="Save (⌘S)">
                       <Save size={12} /> Save
                     </Button>
-                    <Button size="sm" variant="ghost" onClick={discard} title="Back to what is on disk">
+                    <IconButton label="Discard edits: back to what is on disk" onClick={discard}>
                       <Undo2 size={12} />
-                    </Button>
+                    </IconButton>
                   </>
                 )}
                 {canEdit && (
-                  <Button size="sm" variant="ghost" className={clsx(completions?.enabled && completions.model && 'text-accent')} onClick={toggleSuggestions} title={completions?.model ? (completions.enabled ? 'Inline suggestions on. Click to turn off.' : 'Inline suggestions off. Click to turn on.') : 'Pick a model for inline suggestions in Settings → General'}>
+                  <IconButton
+                    className={clsx(completions?.enabled && completions.model && 'text-accent')}
+                    aria-pressed={Boolean(completions?.enabled && completions.model)}
+                    onClick={toggleSuggestions}
+                    label={completions?.model ? (completions.enabled ? 'Inline suggestions on. Click to turn off.' : 'Inline suggestions off. Click to turn on.') : 'Pick a model for inline suggestions in Settings → General'}
+                  >
                     <Sparkles size={12} />
-                  </Button>
+                  </IconButton>
                 )}
                 {selectedStatus && selectedStatus.status !== '?' && (
                   <span className="mr-1 inline-flex rounded-md border border-border p-px text-[11px]">
@@ -395,9 +435,9 @@ export function FilesPane({ workspaceId }: { workspaceId: string }): React.JSX.E
                 <Button size="sm" variant="ghost" title="Add a reference to this file to the message" onClick={() => setDraft(workspaceId, `${draft}${draft && !draft.endsWith(' ') ? ' ' : ''}@${rel(selected)} `)}>
                   <MessageSquarePlus size={12} /> To message
                 </Button>
-                <Button size="sm" variant="ghost" title="Copy the absolute path" onClick={() => void navigator.clipboard.writeText(selected)}>
+                <IconButton label="Copy the absolute path" onClick={() => void navigator.clipboard.writeText(selected).then(() => notify({ kind: 'success', text: 'Path copied' }))}>
                   <Copy size={12} />
-                </Button>
+                </IconButton>
                 <Button size="sm" variant="ghost" title="Open in the default app" onClick={() => void api.invoke('fs:open', workspaceId, selected).catch((e) => setError(String(e)))}>
                   <ExternalLink size={12} /> Open
                 </Button>

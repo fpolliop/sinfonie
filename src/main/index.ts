@@ -1,6 +1,9 @@
-import { app, BrowserWindow, dialog, shell } from 'electron'
-import { cpSync, existsSync, readdirSync } from 'fs'
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { cpSync, existsSync, mkdirSync, readdirSync } from 'fs'
 import { dirname, join } from 'path'
+import { homedir } from 'os'
+import { simpleGit } from 'simple-git'
+import { getStore } from './store'
 import { registerIpc } from './ipc'
 import { startUpdateChecks } from './services/updates'
 import * as browser from './services/browser/service'
@@ -30,7 +33,15 @@ async function checkForUpdateFromMenu(): Promise<void> {
   else await dialog.showMessageBox(opts)
 }
 
+/** The mode the menu was last built for; the menu is rebuilt when Settings → mode changes. */
+let menuMode: 'guided' | 'expert' = 'expert'
+
+/**
+ * Guided mode's menu speaks its words (New Task…) and has no Maestro, matching the renderer, which also ignores
+ * the Maestro command in guided mode.
+ */
 function buildMenu(): void {
+  const guided = menuMode === 'guided'
   const settingsItem: Electron.MenuItemConstructorOptions = { label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: () => sendToWindows('ui:openSettings', { scope: 'app', page: 'general' }) }
   const appMenu: Electron.MenuItemConstructorOptions =
     process.platform === 'darwin'
@@ -60,8 +71,8 @@ function buildMenu(): void {
     {
       role: 'fileMenu',
       submenu: [
-        { label: 'New Workspace…', accelerator: 'CmdOrCtrl+Shift+N', click: () => sendToWindows('ui:newWorkspace', {}) },
-        { label: 'Maestro', accelerator: 'CmdOrCtrl+Shift+A', click: () => sendToWindows('ui:openMaestro', {}) },
+        { label: guided ? 'New Task…' : 'New Workspace…', accelerator: 'CmdOrCtrl+Shift+N', click: () => sendToWindows('ui:newWorkspace', {}) },
+        ...(guided ? [] : [{ label: 'Maestro', accelerator: 'CmdOrCtrl+Shift+A', click: () => sendToWindows('ui:openMaestro', {}) } as Electron.MenuItemConstructorOptions]),
         ...(process.platform === 'darwin' ? [{ type: 'separator' } as Electron.MenuItemConstructorOptions, { role: 'close' } as Electron.MenuItemConstructorOptions] : [{ type: 'separator' } as Electron.MenuItemConstructorOptions, settingsItem, { type: 'separator' } as Electron.MenuItemConstructorOptions, { role: 'quit' } as Electron.MenuItemConstructorOptions])
       ]
     },
@@ -84,6 +95,55 @@ function buildMenu(): void {
     }
   ]
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+}
+
+/** Rebuild the menu whenever the stored mode changes (the store notifies on every write; the mode rarely changes). */
+function watchModeForMenu(): void {
+  const modeOf = (): 'guided' | 'expert' => (getStore().get().settings.mode === 'guided' ? 'guided' : 'expert')
+  menuMode = modeOf()
+  buildMenu()
+  getStore().subscribe(() => {
+    const next = modeOf()
+    if (next === menuMode) return
+    menuMode = next
+    buildMenu()
+  })
+}
+
+/**
+ * Guided mode's "It's on GitHub": clone into ~/Sinfonie/<name> and hand the path back for repos:addPaths. An
+ * existing checkout of the same name there is reused instead of cloned twice.
+ */
+/** Clones in flight, by destination, so a double submit waits for the first clone instead of racing it. */
+const cloning = new Map<string, Promise<string>>()
+
+function registerCloneHandler(): void {
+  ipcMain.handle('repos:clone', async (_e, url: string) => {
+    const m = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+?)(?:\.git)?$/i.exec(String(url))
+    if (!m || [m[1], m[2]].some((part) => part === '.' || part === '..')) throw new Error('Not a GitHub repository link.')
+    // owner-name, so two repos that share a name (a/app, b/app) never land in the same folder.
+    const dest = join(homedir(), 'Sinfonie', `${m[1]}-${m[2]}`)
+    const running = cloning.get(dest)
+    if (running) return running
+    const job = (async (): Promise<string> => {
+      if (existsSync(join(dest, '.git'))) {
+        const origin = (await simpleGit(dest).remote(['get-url', 'origin']).catch(() => ''))?.trim().replace(/\.git$/i, '').toLowerCase()
+        if (origin === `https://github.com/${m[1]}/${m[2]}`.toLowerCase()) return dest
+        throw new Error(`${dest} already holds a different repository.`)
+      }
+      if (existsSync(dest)) throw new Error(`${dest} already exists and is not a git repository.`)
+      mkdirSync(dirname(dest), { recursive: true })
+      // No terminal to answer a password prompt: fail fast instead of hanging when git has no login for a private repo.
+      await simpleGit().env({ ...process.env, GIT_TERMINAL_PROMPT: '0' }).clone(url, dest)
+      return dest
+    })()
+    cloning.set(dest, job)
+    try {
+      return await job
+    } finally {
+      cloning.delete(dest)
+    }
+  })
 }
 
 /** The app used to be called Orchestra; move its data folder over on first launch. */
@@ -187,13 +247,14 @@ app.whenReady().then(async () => {
   await adoptShellPath()
   images.registerProtocol()
   if (!process.env.SINFONIE_USER_DATA) migrateLegacyUserData()
-  buildMenu()
   if (!app.isPackaged && process.platform === 'darwin') {
     // Packaged builds get the icon from the bundle; dev runs show Electron's unless we set it.
     const icon = nativeImage.createFromPath(join(process.cwd(), 'build', 'icon.png'))
     if (!icon.isEmpty()) app.dock?.setIcon(icon)
   }
   registerIpc()
+  registerCloneHandler()
+  watchModeForMenu()
   createWindow()
   startUpdateChecks()
   startUsagePings()

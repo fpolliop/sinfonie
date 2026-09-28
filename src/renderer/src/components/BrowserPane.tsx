@@ -6,6 +6,8 @@ import { useApp } from '@/stores/app'
 import { useGuided, previewUrlFor } from '@/lib/guided'
 import { useBrowser, subscribeBrowser, loadBrowserState } from '@/stores/browser'
 import { useScripts } from '@/stores/scripts'
+import { useChat } from '@/stores/chat'
+import { Button, IconButton } from './ui'
 import { ImportLogins } from './ImportLogins'
 import type { PermissionRequest } from '@shared/types'
 
@@ -52,11 +54,27 @@ export function BrowserPane({ workspaceId, visible }: { workspaceId: string; vis
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [guided, visible, ws?.status, workspaceId])
+  /** The end of the failed run's output, for the assistant to read when asked to fix it. */
+  const failedOutput = (): string =>
+    Object.entries(runs)
+      .filter(([k, r]) => k.startsWith(`${workspaceId}:`) && k.endsWith(':run') && (r.exitCode ?? 0) !== 0)
+      .map(([, r]) => r.output.trim().slice(-2000))
+      .filter(Boolean)
+      .join('\n\n')
+  const askToFix = (): void => {
+    const out = failedOutput()
+    const text = `The app did not start in the preview. Please find out why and fix it, then start it again.${out ? `\n\nWhat it printed:\n\n\`\`\`\n${out}\n\`\`\`` : ''}`
+    void useChat.getState().send(workspaceId, text)
+    const st = useApp.getState()
+    if (!st.browserDock && st.tab !== 'chat') st.setTab('chat')
+  }
   const runState = ((): 'starting' | 'running' | 'failed' | null => {
     if (!guided || !ws) return null
     const mine = Object.entries(runs).filter(([k]) => k.startsWith(`${workspaceId}:`) && k.endsWith(':run'))
     if (mine.some(([, r]) => r.running)) return active?.url ? 'running' : 'starting'
-    if (mine.length && mine.every(([, r]) => (r.exitCode ?? 0) !== 0)) return 'failed'
+    // The run script failing only matters when the preview can't load: the assistant may have started the app another way.
+    const pageUp = Boolean(active?.url && !active.loading && !active.failed)
+    if (mine.length && mine.every(([, r]) => (r.exitCode ?? 0) !== 0)) return pageUp ? null : 'failed'
     return null
   })()
 
@@ -111,60 +129,84 @@ export function BrowserPane({ workspaceId, visible }: { workspaceId: string; vis
     void api.invoke(state?.tabs.length ? 'browser:navigate' : 'browser:open', workspaceId, url.trim())
   }
   const localUrl = ws ? `http://localhost:${ws.port}` : ''
-  const engineLabel = (space?.engine ?? engine) === 'claude-code' ? 'Claude' : 'The agent'
+  const engineLabel = guided ? 'The assistant' : (space?.engine ?? engine) === 'claude-code' ? 'Claude' : 'The agent'
+  const pendingHost = ((): string => {
+    try {
+      return new URL(String(pending?.input.url)).hostname
+    } catch {
+      return 'this site'
+    }
+  })()
 
   return (
     <div className="flex h-full flex-col">
       <div className={clsx('flex items-center gap-1 border-b border-border px-2 py-1', state?.agentBusy && 'bg-accent/5')}>
         <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
-          {state?.tabs.map((t) => (
-            <div key={t.id} onClick={() => act('select', t.id)} className={clsx('group flex max-w-[180px] shrink-0 cursor-default items-center gap-1.5 rounded-md px-2 py-1 text-[12px]', t.id === state.activeId ? 'bg-panel-2 text-text' : 'text-muted hover:bg-panel-2/60')} title={t.url}>
-              {t.loading ? <span className="h-2 w-2 animate-pulse rounded-full bg-accent" /> : <Globe size={11} className="shrink-0 opacity-60" />}
-              <span className="truncate">{t.title}</span>
-              <button className="rounded p-0.5 opacity-0 hover:bg-bg group-hover:opacity-100" onClick={(e) => (e.stopPropagation(), act('close', t.id))} aria-label="Close tab">
-                <X size={11} />
+          {guided && active && (
+            <span className="flex min-w-0 items-center gap-1.5 px-2 py-1 text-[12px] text-text">
+              {active.loading ? <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-accent" aria-label="Loading" /> : <Globe size={11} className="shrink-0 opacity-60" />}
+              <span className="truncate">{active.title}</span>
+            </span>
+          )}
+          {!guided && state?.tabs.map((t) => (
+            <div key={t.id} className={clsx('group flex max-w-[180px] shrink-0 items-center gap-0.5 rounded-md pl-2 pr-0.5 text-[12px]', t.id === state.activeId ? 'bg-panel-2 text-text' : 'text-muted hover:bg-panel-2/60')} title={guided ? t.title : t.url}>
+              <button className="flex min-w-0 items-center gap-1.5 py-1" aria-current={t.id === state.activeId ? 'page' : undefined} onClick={() => act('select', t.id)}>
+                {t.loading ? <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-accent" aria-label="Loading" /> : <Globe size={11} className="shrink-0 opacity-60" />}
+                <span className="truncate">{t.title}</span>
               </button>
+              <IconButton label={`Close ${t.title}`} className="reveal-on-focus opacity-0 group-hover:opacity-100" onClick={() => act('close', t.id)}>
+                <X size={11} />
+              </IconButton>
             </div>
           ))}
-          <button className="rounded-md p-1 text-muted hover:bg-panel-2 hover:text-text" title="New tab" onClick={() => act('new')}>
-            <Plus size={13} />
-          </button>
+          {!guided && (
+            <IconButton label="New tab" onClick={() => act('new')}>
+              <Plus size={13} />
+            </IconButton>
+          )}
         </div>
         {state?.agentBusy && !state.paused && (
           <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-accent/50 bg-accent/10 px-2 py-0.5 text-[11px] text-accent">
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" /> {engineLabel} is browsing
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" /> {guided ? 'The assistant is using the preview' : `${engineLabel} is browsing`}
           </span>
         )}
-        <button
-          className={clsx('shrink-0 rounded-md p-1 hover:bg-panel-2', dock ? 'text-accent' : 'text-muted hover:text-text')}
-          title={dock ? 'Undock: show the browser as its own tab' : `Dock beside the chat, so you can watch the ${guided ? 'preview' : 'page'} while you talk`}
+        {guided && (
+          <IconButton label="Refresh the preview" className="shrink-0" disabled={!active} onClick={() => act('reload')}>
+            <RotateCw size={13} />
+          </IconButton>
+        )}
+        <IconButton
+          className={clsx('shrink-0', dock && 'text-accent')}
+          aria-pressed={dock}
+          label={dock ? `Undock: show the ${guided ? 'preview' : 'browser'} as its own tab` : `Dock beside the chat, so you can watch the ${guided ? 'preview' : 'page'} while you talk`}
           onClick={() => {
             setDock(!dock)
             if (!dock) useApp.getState().setTab('chat')
           }}
         >
           {dock ? <PanelRightClose size={14} /> : <PanelRight size={14} />}
-        </button>
+        </IconButton>
         {state?.paused ? (
           <button className="inline-flex shrink-0 items-center gap-1 rounded-full border border-warn/50 bg-warn/10 px-2 py-0.5 text-[11px] text-warn hover:bg-warn/20" title="Agent actions are waiting. Click to hand control back." onClick={() => void api.invoke('browser:setPaused', workspaceId, false)}>
             <Play size={11} /> {guided ? 'You have the preview · give it back' : 'You have control · resume agent'}
           </button>
         ) : (
-          <button className="shrink-0 rounded-md p-1 text-muted hover:bg-panel-2 hover:text-text" title={guided ? 'Take over the preview, for example to sign in yourself; the assistant waits until you give it back' : 'Pause agent control: its next browser action waits until you resume (e.g. to sign in yourself)'} onClick={() => void api.invoke('browser:setPaused', workspaceId, true)}>
+          <IconButton className="shrink-0" label={guided ? 'Take over the preview, for example to sign in yourself; the assistant waits until you give it back' : 'Pause agent control: its next browser action waits until you resume (e.g. to sign in yourself)'} onClick={() => void api.invoke('browser:setPaused', workspaceId, true)}>
             <Pause size={13} />
-          </button>
+          </IconButton>
         )}
       </div>
+      {!guided && (
       <div className="flex items-center gap-1 border-b border-border px-2 py-1">
-        <button className="rounded-md p-1 text-muted hover:bg-panel-2 hover:text-text disabled:opacity-40" onClick={() => act('back')} disabled={!active} title="Back">
+        <IconButton label="Back" className="disabled:opacity-40" onClick={() => act('back')} disabled={!active}>
           <ArrowLeft size={14} />
-        </button>
-        <button className="rounded-md p-1 text-muted hover:bg-panel-2 hover:text-text disabled:opacity-40" onClick={() => act('forward')} disabled={!active} title="Forward">
+        </IconButton>
+        <IconButton label="Forward" className="disabled:opacity-40" onClick={() => act('forward')} disabled={!active}>
           <ArrowRight size={14} />
-        </button>
-        <button className="rounded-md p-1 text-muted hover:bg-panel-2 hover:text-text disabled:opacity-40" onClick={() => act('reload')} disabled={!active} title="Reload">
+        </IconButton>
+        <IconButton label="Reload" className="disabled:opacity-40" onClick={() => act('reload')} disabled={!active}>
           <RotateCw size={13} />
-        </button>
+        </IconButton>
         <form
           className="min-w-0 flex-1"
           onSubmit={(e) => {
@@ -173,6 +215,7 @@ export function BrowserPane({ workspaceId, visible }: { workspaceId: string; vis
           }}
         >
           <input
+            aria-label="Address"
             className="w-full rounded-md border border-border bg-bg px-2.5 py-1 font-mono text-[12px] outline-none focus:border-accent"
             placeholder={localUrl ? `${localUrl}, a URL, or a search` : 'URL or search'}
             value={address}
@@ -187,34 +230,41 @@ export function BrowserPane({ workspaceId, visible }: { workspaceId: string; vis
             <Download size={12} className={state.downloads.some((d) => d.state === 'progressing') ? 'animate-pulse' : ''} /> {state.downloads.length}
           </button>
         )}
-        <button className={clsx('rounded-md p-1 hover:bg-panel-2 hover:text-text', showImport ? 'text-accent' : 'text-muted')} title="Import your logins from Chrome, Arc, Brave or Edge so this browser is already signed in" onClick={() => setShowImport((v) => !v)}>
+        <IconButton label="Import your logins from Chrome, Arc, Brave or Edge so this browser is already signed in" aria-pressed={showImport} className={clsx(showImport && 'text-accent')} onClick={() => setShowImport((v) => !v)}>
           <KeyRound size={13} />
-        </button>
+        </IconButton>
         {active?.url && (
-          <button className="rounded-md p-1 text-muted hover:bg-panel-2 hover:text-text" title="Open in your default browser" onClick={() => void api.invoke('shell:openExternal', active.url)}>
+          <IconButton label="Open in your default browser" onClick={() => void api.invoke('shell:openExternal', active.url)}>
             <ExternalLink size={13} />
-          </button>
+          </IconButton>
         )}
       </div>
+      )}
       {showImport && (
         <div className="flex items-center gap-3 border-b border-border bg-panel/40 px-3 py-2 text-[12px]">
           <span className="text-muted">Bring your existing logins into this space's browser:</span>
           <div className="min-w-0 flex-1">
             <ImportLogins spaceId={ws?.spaceId} alwaysShow onImported={() => act('reload')} />
           </div>
-          <button className="rounded p-1 text-muted hover:text-text" title="Hide" onClick={() => setShowImport(false)}>
+          <IconButton label="Hide" onClick={() => setShowImport(false)}>
             <X size={13} />
-          </button>
+          </IconButton>
         </div>
       )}
       {runState && (
-        <div className={clsx('flex items-center gap-2 border-b px-3 py-1 text-[11px]', runState === 'failed' ? 'border-danger/30 bg-danger/10 text-danger' : 'border-border bg-panel/40 text-muted')}>
+        <div className={clsx('flex items-center gap-2 border-b px-3', runState === 'failed' ? 'border-danger/30 bg-danger/10 py-2 text-[13px]' : 'border-border bg-panel/40 py-1 text-[11px] text-muted')}>
           {runState === 'failed' ? (
             <>
-              <span>The app did not start. Tell the assistant in the chat and it will look at it.</span>
-              <button className="ml-auto rounded border border-border px-1.5 py-0.5 hover:bg-panel-2" onClick={() => { started.delete(workspaceId); void api.invoke('workspaces:runScript', workspaceId, 'run') }}>
+              <span role="alert" className="min-w-0 flex-1">
+                <span className="font-medium text-danger">The app did not start.</span>{' '}
+                <span className="text-muted">{guided ? 'Often the latest change broke something; the assistant can usually fix it.' : 'The run script exited with an error; see the Run tab for its output.'}</span>
+              </span>
+              <Button size="sm" variant="ghost" onClick={() => { started.delete(workspaceId); void api.invoke('workspaces:runScript', workspaceId, 'run') }}>
                 Try again
-              </button>
+              </Button>
+              <Button size="sm" variant="primary" onClick={askToFix}>
+                Ask the assistant to fix it
+              </Button>
             </>
           ) : runState === 'starting' ? (
             <>
@@ -222,10 +272,7 @@ export function BrowserPane({ workspaceId, visible }: { workspaceId: string; vis
             </>
           ) : (
             <>
-              <span className="h-1.5 w-1.5 rounded-full bg-ok" /> Preview is live{active?.url ? '' : ''}. It updates as the assistant works.
-              <button className="ml-auto rounded border border-border px-1.5 py-0.5 hover:bg-panel-2" onClick={() => act('reload')}>
-                Refresh
-              </button>
+              <span className="h-1.5 w-1.5 rounded-full bg-ok" /> Preview is live. It updates as the assistant works.
             </>
           )}
         </div>
@@ -233,18 +280,26 @@ export function BrowserPane({ workspaceId, visible }: { workspaceId: string; vis
       {pending && (
         <div className="flex items-center gap-2 border-b border-warn/40 bg-warn/10 px-3 py-1.5 text-[12px]">
           <ShieldAlert size={14} className="shrink-0 text-warn" />
-          <span className="min-w-0 flex-1 truncate">
-            {engineLabel} wants to <code className="rounded bg-bg px-1">{pending.toolName.replace(/^mcp__browser__/, '')}</code> on <span className="font-medium">{(() => { try { return new URL(String(pending.input.url)).hostname } catch { return 'this site' } })()}</span>, a sensitive origin.
+          <span className="min-w-0 flex-1 truncate" role="alert">
+            {guided ? (
+              <>
+                The assistant wants to open <span className="font-medium">{pendingHost}</span>.
+              </>
+            ) : (
+              <>
+                {engineLabel} wants to <code className="rounded bg-bg px-1">{pending.toolName.replace(/^mcp__browser__/, '')}</code> on <span className="font-medium">{pendingHost}</span>, a sensitive origin.
+              </>
+            )}
           </span>
-          <button className="rounded-md bg-accent-2 px-2 py-0.5 text-[11px] text-white hover:bg-accent" onClick={() => answer('allow')}>
-            Allow once
-          </button>
-          <button className="rounded-md border border-border px-2 py-0.5 text-[11px] hover:bg-panel-2" onClick={() => answer('always')}>
-            Allow on this site
-          </button>
-          <button className="rounded-md border border-border px-2 py-0.5 text-[11px] text-danger hover:bg-panel-2" onClick={() => answer('deny')}>
-            Deny
-          </button>
+          <Button size="sm" variant="danger" onClick={() => answer('deny')}>
+            {guided ? 'No' : 'Deny'}
+          </Button>
+          <Button size="sm" onClick={() => answer('always')} title={`Allow on ${pendingHost} from now on, without asking`}>
+            {guided ? 'Always on this site' : 'Allow on this site'}
+          </Button>
+          <Button size="sm" variant="primary" onClick={() => answer('allow')}>
+            {guided ? 'Go ahead' : 'Allow once'}
+          </Button>
         </div>
       )}
       <div ref={host} className="relative min-h-0 flex-1 bg-bg">
@@ -258,19 +313,19 @@ export function BrowserPane({ workspaceId, visible }: { workspaceId: string; vis
             )}
             <div className="flex gap-2">
               {guided ? (
-                <button className="rounded-md bg-accent-2 px-3 py-1 text-[12px] text-white hover:bg-accent" onClick={() => { started.add(workspaceId); void api.invoke('workspaces:runScript', workspaceId, 'run'); go(previewUrl || localUrl) }}>
+                <Button variant="primary" onClick={() => { started.add(workspaceId); void api.invoke('workspaces:runScript', workspaceId, 'run'); go(previewUrl || localUrl) }}>
                   Open the preview
-                </button>
+                </Button>
               ) : (
                 <>
                   {localUrl && (
-                    <button className="rounded-md bg-accent-2 px-3 py-1 text-[12px] text-white hover:bg-accent" onClick={() => go(localUrl)}>
+                    <Button variant="primary" size="sm" onClick={() => go(localUrl)}>
                       Open {localUrl}
-                    </button>
+                    </Button>
                   )}
-                  <button className="rounded-md border border-border px-3 py-1 text-[12px] hover:bg-panel-2" onClick={() => act('new')}>
+                  <Button size="sm" onClick={() => act('new')}>
                     New tab
-                  </button>
+                  </Button>
                 </>
               )}
             </div>

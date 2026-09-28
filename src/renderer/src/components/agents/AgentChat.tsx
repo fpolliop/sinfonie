@@ -72,7 +72,7 @@ export function AgentChat({ agent }: { agent: AgentSpec }): React.JSX.Element {
             className="block min-h-[64px] w-full resize-none bg-transparent px-3 pt-3 text-[13px] outline-none placeholder:text-muted"
           />
           <div className="flex items-center gap-2 px-2 pb-2">
-            <span className="text-[10px] text-muted">
+            <span className="text-[11px] text-muted">
               {agent.tools?.length ? `Tools: ${agent.tools.join(', ')}` : 'All tools'} · {agent.model}
             </span>
             <span className="ml-auto" />
