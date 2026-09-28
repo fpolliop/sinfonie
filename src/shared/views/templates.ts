@@ -177,8 +177,142 @@ const board: ViewInput = {
   }
 }
 
+const oncall: ViewInput = {
+  title: 'On call',
+  slot: 'home',
+  icon: 'alert-triangle',
+  template: 'oncall-board',
+  sources: { open: { source: 'incidents', params: { open: true } } },
+  spec: {
+    root: 'page',
+    elements: {
+      page: { type: 'Stack', props: { gap: 'md' }, children: ['head', 'empty', 'list'] },
+      head: { type: 'Stack', props: { direction: 'row', justify: 'between', align: 'center' }, children: ['title', 'refresh'] },
+      title: { type: 'Heading', props: { text: 'Open incidents', level: 2 } },
+      refresh: { type: 'Button', props: { label: 'Refresh', size: 'sm', variant: 'ghost', icon: 'refresh-cw' }, on: { press: { action: 'refresh', params: {} } } },
+      empty: {
+        type: 'Empty',
+        props: { text: 'Nothing open', hint: 'The on-call agent watches your Slack channels and files incidents here.', icon: 'bell' },
+        visible: { $state: '/meta/open/count', eq: 0 }
+      },
+      list: {
+        type: 'List',
+        props: { emptyText: 'Nothing open.', count: { $state: '/meta/open/count' }, divided: true },
+        repeat: { statePath: '/data/open', key: 'id' },
+        children: ['row']
+      },
+      row: {
+        type: 'ListItem',
+        props: { title: item('title'), subtitle: { $template: '${channel} · ${summary}' }, meta: item('age'), status: item('dot') },
+        on: { press: { action: 'openIncident', params: { incidentId: item('id') } } },
+        children: ['sev', 'needs', 'props', 'triage', 'slack']
+      },
+      sev: { type: 'Badge', props: { label: item('severity'), tone: 'warn' }, visible: { $item: 'severity', neq: '' } },
+      needs: { type: 'Badge', props: { label: 'Needs you', tone: 'danger' }, visible: { $item: 'needsHuman', eq: true } },
+      props: { type: 'Badge', props: { label: { $template: '${proposals} to approve' }, tone: 'accent' }, visible: { $item: 'proposals', gt: 0 } },
+      triage: {
+        type: 'Button',
+        props: { label: 'Triage', size: 'sm', icon: 'wand' },
+        visible: { $item: 'triaged', eq: false },
+        on: { press: { action: 'triageIncident', params: { incidentId: item('id') } } }
+      },
+      slack: {
+        type: 'Button',
+        props: { label: 'Slack', size: 'sm', variant: 'ghost', icon: 'external-link' },
+        visible: { $item: 'url', neq: '' },
+        on: { press: { action: 'openUrl', params: { url: item('url') } } }
+      }
+    }
+  }
+}
+
+const reviewQueue: ViewInput = {
+  title: 'Review queue',
+  slot: 'home',
+  icon: 'eye',
+  template: 'review-queue',
+  sources: { queue: { source: 'reviewQueue' } },
+  spec: {
+    root: 'page',
+    elements: {
+      page: { type: 'Stack', props: { gap: 'md' }, children: ['head', 'card'] },
+      head: { type: 'Stack', props: { direction: 'row', justify: 'between', align: 'center' }, children: ['title', 'refresh'] },
+      title: { type: 'Heading', props: { text: 'Waiting for my review', level: 2 } },
+      refresh: { type: 'Button', props: { label: 'Refresh', size: 'sm', variant: 'ghost', icon: 'refresh-cw' }, on: { press: { action: 'refresh', params: {} } } },
+      card: { type: 'Card', props: {}, children: ['list'] },
+      list: {
+        type: 'List',
+        props: { emptyText: 'Nobody is waiting on you.', count: { $state: '/meta/queue/count' }, divided: true },
+        repeat: { statePath: '/data/queue', key: 'id' },
+        children: ['row']
+      },
+      row: {
+        type: 'ListItem',
+        props: { title: item('title'), subtitle: { $template: '${repo} #${number} · ${author}' }, meta: item('updated'), status: item('ci') },
+        on: { press: { action: 'openUrl', params: { url: item('url') } } },
+        children: ['size', 'open']
+      },
+      size: { type: 'Badge', props: { label: item('size'), tone: 'muted' } },
+      open: { type: 'Button', props: { label: 'Open', size: 'sm', variant: 'ghost', icon: 'external-link' }, on: { press: { action: 'openUrl', params: { url: item('url') } } } }
+    }
+  }
+}
+
+const simpleHome: ViewInput = {
+  title: 'My tasks',
+  slot: 'home',
+  icon: 'layout-dashboard',
+  template: 'simple-home',
+  sources: { needs: { source: 'attention' }, tasks: { source: 'workspaces', params: { limit: 12 } } },
+  spec: {
+    root: 'page',
+    elements: {
+      page: { type: 'Stack', props: { gap: 'md' }, children: ['head', 'needsCard', 'tasksCard'] },
+      head: { type: 'Stack', props: { direction: 'row', justify: 'between', align: 'center' }, children: ['title', 'start'] },
+      title: { type: 'Heading', props: { text: { $state: '/context/greeting' }, level: 1 } },
+      start: { type: 'Button', props: { label: 'Start a task', variant: 'primary', icon: 'plus' }, on: { press: { action: 'newWorkspace', params: {} } } },
+      needsCard: {
+        type: 'Card',
+        props: { title: 'Waiting for you', icon: 'bell' },
+        visible: { $state: '/meta/needs/count', gt: 0 },
+        children: ['needsList']
+      },
+      needsList: {
+        type: 'List',
+        props: { emptyText: 'Nothing right now.', count: { $state: '/meta/needs/count' } },
+        repeat: { statePath: '/data/needs', key: 'id' },
+        children: ['needsItem']
+      },
+      needsItem: {
+        type: 'ListItem',
+        props: { title: item('workspace'), subtitle: item('text'), status: item('status') },
+        on: { press: { action: 'openWorkspace', params: { workspaceId: item('workspaceId') } } },
+        children: ['needsOpen']
+      },
+      needsOpen: { type: 'Button', props: { label: 'Open', size: 'sm', icon: 'arrow-right' }, on: { press: { action: 'openWorkspace', params: { workspaceId: item('workspaceId') } } } },
+      tasksCard: { type: 'Card', props: { title: 'Your tasks', icon: 'folder' }, children: ['tasksList'] },
+      tasksList: {
+        type: 'List',
+        props: { emptyText: 'No tasks yet. Start one and describe it in plain words.', count: { $state: '/meta/tasks/count' }, divided: true },
+        repeat: { statePath: '/data/tasks', key: 'id' },
+        children: ['taskRow']
+      },
+      taskRow: {
+        type: 'ListItem',
+        props: { title: item('name'), subtitle: item('repos'), meta: item('lastActive'), status: item('status') },
+        on: { press: { action: 'openWorkspace', params: { workspaceId: item('id') } } },
+        children: ['taskOpen']
+      },
+      taskOpen: { type: 'Button', props: { label: 'Continue', size: 'sm', variant: 'ghost', icon: 'arrow-right' }, on: { press: { action: 'openWorkspace', params: { workspaceId: item('id') } } } }
+    }
+  }
+}
+
 export const TEMPLATES: ViewTemplate[] = [
   { id: 'morning-cockpit', title: 'Morning cockpit', description: 'What needs you, your open PRs with CI and review, and usage, across every space.', scope: 'user', guided: false, view: morning },
   { id: 'branch-panel', title: 'Branch panel', description: 'A workspace tab: the branch in every repo, ahead/behind, changes, PR and CI, with rebase, push and open PRs for all.', scope: 'user', guided: false, view: branch },
-  { id: 'ticket-board', title: 'Ticket board', description: "The space's Jira or Linear tickets as a board, with the state of each ticket's workspace and a Start button.", scope: 'space', guided: true, view: board }
+  { id: 'ticket-board', title: 'Ticket board', description: "The space's Jira or Linear tickets as a board, with the state of each ticket's workspace and a Start button.", scope: 'space', guided: true, view: board },
+  { id: 'review-queue', title: 'Review queue', description: 'Pull requests waiting for your review across every repository, oldest first, with CI and size.', scope: 'user', guided: false, view: reviewQueue },
+  { id: 'oncall-board', title: 'On-call board', description: "Open incidents from the on-call agent's Slack channels, with severity, what it found, and Triage for the ones it has not looked at.", scope: 'space', guided: false, view: oncall },
+  { id: 'simple-home', title: 'My tasks', description: 'A plain home: what is waiting for you, your tasks, and one button to start a new one.', scope: 'user', guided: true, view: simpleHome }
 ]

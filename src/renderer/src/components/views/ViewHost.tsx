@@ -14,6 +14,7 @@ import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { useChat } from '@/stores/chat'
 import { useUsage, subscribeUsage } from '@/stores/usage'
+import { useOnCall, subscribeOnCall } from '@/stores/oncall'
 import { openMaestro } from '@/stores/maestro'
 import { Button, Dialog } from '@/components/ui'
 import { registry, UnknownElement } from './registry'
@@ -37,7 +38,12 @@ function useLive(): LiveState {
   const unseenDone = useChat((s) => s.unseenDone)
   const chats = useChat((s) => s.chats)
   const usage = useUsage((s) => s.snapshot)
-  useEffect(() => subscribeUsage(), [])
+  const oncall = useOnCall((s) => s.state)
+  useEffect(() => {
+    subscribeUsage()
+    subscribeOnCall()
+  }, [])
+  const incidents = useMemo(() => oncall?.incidents ?? [], [oncall])
   // Busy flags only: chats changes on every streamed token, the flags rarely.
   const busyKey = Object.entries(chats)
     .filter(([, c]) => c.busy)
@@ -45,7 +51,7 @@ function useLive(): LiveState {
     .sort()
     .join(',')
   const busy = useMemo(() => Object.fromEntries(busyKey.split(',').filter(Boolean).map((id) => [id, true])), [busyKey])
-  return useMemo(() => ({ workspaces, spaces, permissions, questions, unseenDone, busy, usage }), [workspaces, spaces, permissions, questions, unseenDone, busy, usage])
+  return useMemo(() => ({ workspaces, spaces, permissions, questions, unseenDone, busy, usage, incidents }), [workspaces, spaces, permissions, questions, unseenDone, busy, usage, incidents])
 }
 
 function describe(name: ActionName, p: Record<string, unknown>, wsName: (id: unknown) => string): string {
@@ -58,6 +64,8 @@ function describe(name: ActionName, p: Record<string, unknown>, wsName: (id: unk
       return `Ask the agent in ${wsName(p.workspaceId)} to fix ${p.what ? String(p.what) : `the failing CI on PR #${String(p.number ?? '')}${p.repo ? ` (${String(p.repo)})` : ''}`}.`
     case 'runScript':
       return `Run the ${String(p.kind)} script of ${wsName(p.workspaceId)}.`
+    case 'triageIncident':
+      return 'Run the on-call agent over this incident: it reads the thread, logs and code, and writes a triage with proposals. Read-only, and it costs a few cents.'
     case 'rebaseAll':
       return `Fetch and rebase every repository of ${wsName(p.workspaceId)} onto its base branch. Repositories with uncommitted changes are skipped and conflicts are left as they were. Nothing is pushed.`
     case 'pushAll':
@@ -90,7 +98,17 @@ export function ViewHost({ view, context }: { view: ScopedView; context: ViewCon
 
   // /context
   useEffect(() => {
-    store.set('/context', { ...context, userName: settings.cloud?.account?.user.name ?? settings.cloud?.account?.user.login ?? '', today: new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }) })
+    const full = settings.cloud?.account?.user.name ?? settings.cloud?.account?.user.login ?? ''
+    const first = full.trim().split(/\s+/)[0] ?? ''
+    const hour = new Date().getHours()
+    const part = hour < 12 ? 'Good morning' : hour < 19 ? 'Good afternoon' : 'Good evening'
+    store.set('/context', {
+      ...context,
+      userName: full,
+      firstName: first,
+      greeting: first ? `${part}, ${first}` : part,
+      today: new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })
+    })
   }, [store, ctxKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Renderer sources and enrichment of main rows, whenever the live stores change.
@@ -181,6 +199,14 @@ export function ViewHost({ view, context }: { view: ScopedView; context: ViewCon
           return
         case 'askMaestro':
           void openMaestro({ fresh: true, prompt: String(p.prompt) })
+          return
+        case 'openIncident':
+          app.setView('oncall')
+          useOnCall.getState().select(String(p.incidentId))
+          return
+        case 'triageIncident':
+          await api.invoke('oncall:triage', String(p.incidentId))
+          setNotice({ text: 'Triage started; the incident updates when it finishes.', tone: 'ok' })
           return
         case 'newWorkspace':
           app.setShowNewWorkspace(true, p.spaceId ? String(p.spaceId) : ctxRef.current.spaceId)

@@ -7,8 +7,11 @@ PRs (CI, review, Merge only when mergeable, Workspace/Fix links by branch), Bran
 workspace (per-repo ahead/behind, dirty, PR, CI), repeat + $item lanes (a stage board over `workspaces`),
 the rebase confirmation (cancelled), the source error banner (Jira offline in the copy), and Maestro
 adding a "Waiting for my review" card in one pass (ui_catalog → ui_get_view → ui_patch_view) with Undo.
-Not verified: Ticket board with a live Jira/Linear, any outward action actually run (merge, push, open PRs),
-createWorkspaceFromTicket, sharing a space view with a teammate, guided-mode Home.
+**2026-09-28:** every action verified against a throwaway repo (fpolliop/sinfonie-views-test): pushAll,
+openPrsAll (PR #1), mergePr, rebaseAll, the refusal when a confirm/outward action arrives unconfirmed, and
+createWorkspaceFromTicket through the real button and confirm dialog. Guided-mode Home checked (no Maestro
+anywhere, tasks vocabulary). Still not verified: Ticket board with a live Jira/Linear, on-call board with
+real incidents, sharing a space view with a teammate.
 
 ## Goal
 
@@ -119,8 +122,9 @@ Every Maestro change records history; the view header shows "Changed by Maestro 
    - typecheck, test templates validate, drive the app to see them render
 2. **Polish**: fork/reset UX for shared views, edit mode (reorder/remove cards without Maestro),
    Maestro proactive offer ("you open PRs in 3 repos every morning…"), streaming preview while Maestro writes.
-3. **More templates**: Team review queue, On-call board, Data watch (saved queries), Cost & crew,
-   Simple home for guided users (Maestro is off in guided mode, so guided users get templates only).
+3. **More templates**: Review queue, On-call board and Simple home for guided users are DONE (2026-09-28,
+   with an `incidents` source and the openIncident / triageIncident actions). Left: Data watch (saved
+   database queries as metrics with thresholds) and Cost & crew.
 4. **Sidebar widgets** slot; phone (mobile app) rendering the same specs with `@json-render/react-native`.
 
 ## Risks
