@@ -1,0 +1,108 @@
+/* Sinfonie Next: the shared look for every redesign screen. Two themes, two densities, one set of parts. */
+.t-dark {
+  --bg: #0e0f13; --surface: #15171c; --surface-2: #1c1f26; --surface-3: #242832; --line: #272b34; --line-2: #333845;
+  --text: #eceef2; --text-2: #a8aebb; --text-3: #8a91a0;
+  --accent: #8aa4ff; --primary: #3b57d4; --primary-hover: #4a66e0; --on-primary: #ffffff;
+  --attn: #f5a524; --attn-bg: rgba(245,165,36,.12); --ok: #3ecf8e; --ok-bg: rgba(62,207,142,.12);
+  --danger: #ff7a7a; --danger-bg: rgba(255,122,122,.12); --run: #8aa4ff; --run-bg: rgba(138,164,255,.12);
+  --add: rgba(62,207,142,.14); --del: rgba(255,122,122,.13); --shadow: 0 30px 80px rgba(0,0,0,.5);
+  color-scheme: dark;
+}
+.t-light {
+  --bg: #f6f5f2; --surface: #ffffff; --surface-2: #f1f0ec; --surface-3: #e9e7e2; --line: #e4e2dc; --line-2: #d6d3cc;
+  --text: #1b1c20; --text-2: #55585f; --text-3: #6b6e75;
+  --accent: #3b57d4; --primary: #3b57d4; --primary-hover: #324cc0; --on-primary: #ffffff;
+  --attn: #9a5200; --attn-bg: #fff1dc; --ok: #137a4b; --ok-bg: #e2f5ea;
+  --danger: #b42318; --danger-bg: #fde8e6; --run: #3b57d4; --run-bg: #e9edfb;
+  --add: #e2f5ea; --del: #fde8e6; --shadow: 0 30px 80px rgba(30,30,40,.18);
+  color-scheme: light;
+}
+.sn { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif; color: var(--text); background: var(--bg); -webkit-font-smoothing: antialiased; }
+.sn * { box-sizing: border-box; }
+.mono { font-family: ui-monospace, 'SF Mono', Menlo, monospace; }
+.compact { font-size: 13px; line-height: 1.45; }
+.comfy { font-size: 15px; line-height: 1.55; }
+
+/* window chrome */
+.win { width: 1440px; height: 900px; display: flex; flex-direction: column; background: var(--bg); overflow: hidden; }
+.titlebar { height: 44px; flex-shrink: 0; display: flex; align-items: center; gap: 12px; padding: 0 14px; border-bottom: 1px solid var(--line); background: var(--surface); }
+.lights { display: flex; gap: 8px; width: 64px; }
+.lights span { width: 12px; height: 12px; border-radius: 99px; background: var(--surface-3); border: 1px solid var(--line-2); }
+.search { flex: 1; max-width: 520px; margin: 0 auto; height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-radius: 8px; background: var(--surface-2); border: 1px solid var(--line); color: var(--text-3); font-size: 13px; }
+.body { flex: 1; min-height: 0; display: flex; }
+
+/* global rail: the three roles */
+.rail { width: 72px; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 12px 0; border-right: 1px solid var(--line); background: var(--surface); }
+.rail-item { width: 60px; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 8px 0; border-radius: 10px; font-size: 11px; color: var(--text-2); position: relative; background: none; border: 0; font-family: inherit; }
+.rail-item.on { background: var(--surface-2); color: var(--text); }
+.rail-item .n { position: absolute; top: 4px; right: 10px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 99px; background: var(--attn); color: #1b1300; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+.rail-sp { flex: 1; }
+.avatar { width: 28px; height: 28px; border-radius: 99px; background: var(--surface-3); color: var(--text); font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.avatar.sm { width: 22px; height: 22px; font-size: 10px; }
+
+/* type */
+.h1 { font-size: 24px; font-weight: 650; letter-spacing: -0.01em; margin: 0; }
+.h2 { font-size: 18px; font-weight: 650; margin: 0; }
+.h3 { font-size: 15px; font-weight: 600; margin: 0; }
+.eyebrow { font-size: 11px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; color: var(--text-3); }
+.t2 { color: var(--text-2); }
+.t3 { color: var(--text-3); }
+.small { font-size: 12px; }
+
+/* controls */
+.btn { height: 30px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--surface); color: var(--text); font: inherit; font-size: 13px; font-weight: 550; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.btn.primary { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--text-2); }
+.btn.lg { height: 40px; padding: 0 18px; font-size: 15px; border-radius: 10px; }
+.btn.sm { height: 26px; padding: 0 9px; font-size: 12px; }
+.kbd { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11px; padding: 1px 5px; border-radius: 5px; border: 1px solid var(--line-2); color: var(--text-3); background: var(--surface-2); }
+.input { height: 34px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--surface); padding: 0 10px; display: flex; align-items: center; color: var(--text-3); font-size: 13px; }
+.seg { display: inline-flex; padding: 2px; border-radius: 8px; background: var(--surface-2); border: 1px solid var(--line); }
+.seg span { padding: 3px 10px; border-radius: 6px; font-size: 12px; color: var(--text-2); }
+.seg span.on { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.15); }
+
+/* status */
+.pill { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border-radius: 99px; font-size: 12px; font-weight: 550; white-space: nowrap; }
+.pill::before { content: ''; width: 6px; height: 6px; border-radius: 99px; background: currentColor; }
+.pill.attn { color: var(--attn); background: var(--attn-bg); }
+.pill.ok { color: var(--ok); background: var(--ok-bg); }
+.pill.run { color: var(--run); background: var(--run-bg); }
+.pill.danger { color: var(--danger); background: var(--danger-bg); }
+.pill.idle { color: var(--text-2); background: var(--surface-2); }
+.chip { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border-radius: 6px; font-size: 12px; color: var(--text-2); background: var(--surface-2); border: 1px solid var(--line); white-space: nowrap; }
+.pulse { width: 8px; height: 8px; border-radius: 99px; background: var(--run); box-shadow: 0 0 0 4px var(--run-bg); flex-shrink: 0; }
+
+/* surfaces */
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+.panel { background: var(--surface); border-left: 1px solid var(--line); }
+.divider { height: 1px; background: var(--line); }
+.row { display: flex; align-items: center; gap: 10px; }
+.col { display: flex; flex-direction: column; }
+.grow { flex: 1; min-width: 0; }
+.trunc { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* diff */
+.diff { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px; line-height: 20px; }
+.diff .l { display: flex; padding: 0 12px; white-space: pre; }
+.diff .n { width: 34px; color: var(--text-3); flex-shrink: 0; }
+.diff .add { background: var(--add); }
+.diff .del { background: var(--del); }
+
+/* app preview (the person's own product) */
+.site { background: #ffffff; color: #111; font-family: -apple-system, system-ui, sans-serif; }
+.site .buy { display: block; width: 100%; max-width: 360px; height: 52px; border: 0; border-radius: 10px; background: #0f8a3d; color: #fff; font-size: 17px; font-weight: 650; }
+.pick { outline: 2px solid #3b57d4; outline-offset: 4px; border-radius: 12px; position: relative; }
+.pick-label { position: absolute; top: -34px; left: -6px; background: #3b57d4; color: #fff; font-size: 12px; font-weight: 600; padding: 4px 8px; border-radius: 6px; white-space: nowrap; }
+
+/* Maestro: the conductor. Its mark, its dock (on every screen), and its cards. */
+.t-dark { --maestro: #c9b6ff; --maestro-bg: rgba(201,182,255,.12); --maestro-line: rgba(201,182,255,.35); }
+.t-light { --maestro: #5b3fc4; --maestro-bg: #f1ecff; --maestro-line: #d9cdfb; }
+.m-mark { width: 26px; height: 26px; border-radius: 8px; background: var(--maestro-bg); color: var(--maestro); display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; border: 1px solid var(--maestro-line); }
+.m-mark.lg { width: 40px; height: 40px; border-radius: 12px; }
+.dock { width: 360px; flex-shrink: 0; display: flex; flex-direction: column; background: var(--surface); border-left: 1px solid var(--line); }
+.dock-head { height: 48px; display: flex; align-items: center; gap: 10px; padding: 0 14px; border-bottom: 1px solid var(--line); }
+.m-say { font-size: 13px; line-height: 1.55; }
+.m-card { border: 1px solid var(--maestro-line); background: var(--maestro-bg); border-radius: 12px; padding: 12px 14px; }
+.m-input { margin: 12px; border: 1px solid var(--line-2); border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; background: var(--surface); }
+.note { border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.src { font-size: 11px; color: var(--text-3); display: inline-flex; align-items: center; gap: 5px; }
