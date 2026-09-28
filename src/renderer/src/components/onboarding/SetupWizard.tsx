@@ -27,11 +27,11 @@ const SETUP_HANDOFF_PROMPT = 'I just finished setup. Look at my space and reposi
  */
 export function SetupWizard({ onClose }: { onClose: () => void }): React.JSX.Element {
   // Opens on Welcome, unless something asked for a specific step (Getting started → "Join your team or add your app").
-  const [step, setStep] = useState(() => {
-    const s = useApp.getState().setupStartStep
-    if (s) useApp.setState({ setupStartStep: 0 })
-    return s
-  })
+  const [step, setStep] = useState(() => useApp.getState().setupStartStep)
+  // Consume the requested step once mounted (not in the initializer, which StrictMode runs twice).
+  useEffect(() => {
+    if (useApp.getState().setupStartStep) useApp.setState({ setupStartStep: 0 })
+  }, [])
   const [spaceId, setSpaceId] = useState<string | null>(null)
   const guided = useGuided()
   const STEPS = guided ? GUIDED_STEPS : EXPERT_STEPS

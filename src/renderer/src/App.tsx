@@ -14,7 +14,7 @@ import { useReviews } from './stores/reviews'
 import { NewWorkspaceDialog } from './components/NewWorkspaceDialog'
 import { NewTaskDialog } from './components/NewTaskDialog'
 import { useGuided, isGuided } from '@/lib/guided'
-import { friendlyError } from '@/lib/errors'
+import { yieldsToEditor } from '@/lib/keys'
 import { SettingsWindow } from './components/SettingsWindow'
 import { PermissionPrompt } from './components/PermissionPrompt'
 import { BranchRenamePrompt } from './components/BranchRenamePrompt'
@@ -102,6 +102,8 @@ export default function App(): React.JSX.Element {
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && (e.key.toLowerCase() === 'k' || e.key === '/')) {
+        // Editors keep their own ⌘K / ⌘/, and the setup wizard sits above the palette.
+        if (yieldsToEditor(e) || useApp.getState().onboarding) return
         const want = e.key === '/' ? 'shortcuts' : 'palette'
         if (overlayRef.current === want) {
           e.preventDefault()
@@ -183,7 +185,7 @@ export default function App(): React.JSX.Element {
       {onboarding === 'tour' && <Tour onClose={() => setOnboarding(null)} />}
       {error && (
         <div role="alert" className="fixed bottom-4 left-1/2 z-[80] flex max-w-[640px] -translate-x-1/2 items-center gap-3 rounded-lg border border-danger/40 bg-panel px-4 py-2 text-[12px] shadow-xl">
-          <span className="text-danger">{guided ? friendlyError(error) : error}</span>
+          <span className="text-danger">{error}</span>
           <Button size="sm" variant="ghost" onClick={() => setError(null)}>
             Dismiss
           </Button>

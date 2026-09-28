@@ -268,6 +268,7 @@ function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Elem
     setChanged(null)
     if (sessionId)
       notify({
+        id: `chat-restore:${workspaceId}`,
         kind: 'info',
         text: guided ? 'Started a fresh conversation. Your changes are still there.' : 'Started a new session',
         undo: () => void restore(workspaceId, sessionId).catch((err) => setError(friendlyError(err, 'The earlier conversation could not be brought back.')))

@@ -100,6 +100,8 @@ export const useChat = create<ChatState>((set, get) => ({
     const trimmed = text.trim()
     const images = get().chats[id]?.images ?? []
     if (!trimmed && images.length === 0) return
+    // Once the fresh conversation has a message, Undo would throw that message away: withdraw the offer.
+    if (useApp.getState().notice?.id === `chat-restore:${id}`) useApp.getState().notify(null)
     // The user item itself arrives back as a user_message event (or a queue event while a turn runs).
     set((s) => updateChat(s, id, (c) => ({ ...c, busy: c.busy || true, error: undefined, draft: '', images: [] })))
     try {

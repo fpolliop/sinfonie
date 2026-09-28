@@ -43,8 +43,7 @@ export function OnCallView(): React.JSX.Element {
   const setError = useApp((s) => s.setError)
   const notify = useApp((s) => s.notify)
   useEffect(() => subscribeOnCall(), [])
-  // Removing one incident waits out the Undo toast before it reaches the main process, which has no restore.
-  const [hidden, setHidden] = useState<string[]>([])
+  // Removing one incident happens at once; Undo puts it back through oncall:restore.
   const [checking, setChecking] = useState(false)
   const [showFilters, setShowFilters] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -56,7 +55,7 @@ export function OnCallView(): React.JSX.Element {
   // On call is per space: the view follows the sidebar's active space ('' = the application-level watch).
   const activeSpaceId = useApp((s) => s.activeSpaceId)
   const allIncidents = state?.incidents ?? NO_INCIDENTS
-  const all = useMemo(() => allIncidents.filter((i) => i.spaceId === activeSpaceId && !hidden.includes(i.id)), [allIncidents, activeSpaceId, hidden])
+  const all = useMemo(() => allIncidents.filter((i) => i.spaceId === activeSpaceId), [allIncidents, activeSpaceId])
   const incidents = useMemo(() => all.filter((i) => matchesFilters(i, filters)), [all, filters])
   const counts = useMemo(() => {
     const c = { open: 0, new: 0, needs: 0, waiting: 0, resolved: 0, all: all.length }

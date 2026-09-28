@@ -10,6 +10,8 @@ export interface Notice {
   text: string
   /** Shown as an Undo button; the notice closes after it runs. */
   undo?: () => void
+  /** Identifies the notice so a later action can withdraw it (e.g. sending a message cancels "undo new session"). */
+  id?: string
   /** A button that opens a web page (e.g. the pull request just opened). */
   link?: { label: string; url: string }
 }

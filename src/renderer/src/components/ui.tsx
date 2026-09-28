@@ -90,7 +90,8 @@ export function useFocusTrap(ref: React.RefObject<HTMLElement | null>): void {
     const before = document.activeElement as HTMLElement | null
     const box = ref.current
     const first = box?.querySelector<HTMLElement>('[autofocus], input:not([type=hidden]), textarea, select, button:not([aria-label="Close"])')
-    ;(first ?? box)?.focus()
+    // A child that focused itself (autoFocus) keeps it; otherwise the first field, else the box.
+    if (!box?.contains(document.activeElement)) (first ?? box)?.focus()
     const onKey = (e: KeyboardEvent): void => {
       if (e.key !== 'Tab' || !box) return
       const items = Array.from(box.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((el) => !el.hasAttribute('disabled') && el.offsetParent !== null)

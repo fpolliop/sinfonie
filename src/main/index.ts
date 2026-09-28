@@ -114,18 +114,35 @@ function watchModeForMenu(): void {
  * Guided mode's "It's on GitHub": clone into ~/Sinfonie/<name> and hand the path back for repos:addPaths. An
  * existing checkout of the same name there is reused instead of cloned twice.
  */
+/** Clones in flight, by destination, so a double submit waits for the first clone instead of racing it. */
+const cloning = new Map<string, Promise<string>>()
+
 function registerCloneHandler(): void {
   ipcMain.handle('repos:clone', async (_e, url: string) => {
-    const m = /^https:\/\/github\.com\/[\w.-]+\/([\w.-]+?)(?:\.git)?$/i.exec(String(url))
-    if (!m || m[1] === '.' || m[1] === '..') throw new Error('Not a GitHub repository link.')
-    const root = join(homedir(), 'Sinfonie')
-    const dest = join(root, m[1])
-    if (existsSync(join(dest, '.git'))) return dest
-    if (existsSync(dest)) throw new Error(`${dest} already exists and is not a git repository.`)
-    mkdirSync(root, { recursive: true })
-    // No terminal to answer a password prompt: fail fast instead of hanging when git has no login for a private repo.
-    await simpleGit().env({ ...process.env, GIT_TERMINAL_PROMPT: '0' }).clone(url, dest)
-    return dest
+    const m = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+?)(?:\.git)?$/i.exec(String(url))
+    if (!m || [m[1], m[2]].some((part) => part === '.' || part === '..')) throw new Error('Not a GitHub repository link.')
+    // owner-name, so two repos that share a name (a/app, b/app) never land in the same folder.
+    const dest = join(homedir(), 'Sinfonie', `${m[1]}-${m[2]}`)
+    const running = cloning.get(dest)
+    if (running) return running
+    const job = (async (): Promise<string> => {
+      if (existsSync(join(dest, '.git'))) {
+        const origin = (await simpleGit(dest).remote(['get-url', 'origin']).catch(() => ''))?.trim().replace(/\.git$/i, '').toLowerCase()
+        if (origin === `https://github.com/${m[1]}/${m[2]}`.toLowerCase()) return dest
+        throw new Error(`${dest} already holds a different repository.`)
+      }
+      if (existsSync(dest)) throw new Error(`${dest} already exists and is not a git repository.`)
+      mkdirSync(dirname(dest), { recursive: true })
+      // No terminal to answer a password prompt: fail fast instead of hanging when git has no login for a private repo.
+      await simpleGit().env({ ...process.env, GIT_TERMINAL_PROMPT: '0' }).clone(url, dest)
+      return dest
+    })()
+    cloning.set(dest, job)
+    try {
+      return await job
+    } finally {
+      cloning.delete(dest)
+    }
   })
 }
 

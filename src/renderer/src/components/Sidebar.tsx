@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
+import { yieldsToEditor } from '@/lib/keys'
 import clsx from 'clsx'
 import { Plus, Settings, Archive, Pencil, Folder, Code2, TerminalSquare, Trash2, GitPullRequest, Layers, ArrowDownWideNarrow, ArrowUpNarrowWide, Filter, ChevronRight, MessageSquarePlus, Siren, Activity, Users2, Bot, StickyNote, Wand2 } from 'lucide-react'
 import { ERRORS_SEEN_KEY } from './FeedbackDialog'
@@ -130,6 +131,7 @@ export function Sidebar(): React.JSX.Element {
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (!e.metaKey || !e.altKey || e.shiftKey || e.ctrlKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return
+      if (yieldsToEditor(e)) return
       const list = displayedRef.current
       if (!list.length) return
       e.preventDefault()
@@ -744,6 +746,8 @@ function WorkspaceRow({ ws, grouped, selected, busy, done, onClick }: { ws: Work
         }}
         aria-current={selected ? 'page' : undefined}
         onKeyDown={(e) => {
+          // Keys typed into the inline rename field belong to it, not to the row.
+          if (e.target !== e.currentTarget) return
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault()
             onClick()
