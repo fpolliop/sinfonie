@@ -15,7 +15,7 @@ export function AccountPicker({ value, onChange, className, always, engine }: { 
   return (
     <label className={clsx('inline-flex items-center gap-1.5 text-[12px]', className)} title={`${VENDORS.find((v) => v.id === vendor)?.label} account`}>
       <UserCircle2 size={14} className="text-muted" />
-      <select className="rounded-md border border-border bg-bg px-1.5 py-1 text-[12px]" value={accounts.some((a) => a.id === value) ? value : ''} onChange={(e) => onChange(e.target.value)}>
+      <select aria-label={`${VENDORS.find((v) => v.id === vendor)?.label ?? 'Vendor'} account`} className="rounded-md border border-border bg-bg px-1.5 py-1 text-[12px]" value={accounts.some((a) => a.id === value) ? value : ''} onChange={(e) => onChange(e.target.value)}>
         {!accounts.some((a) => a.id === value) && <option value="">Vendor default</option>}
         {accounts.map((a) => (
           <option key={a.id} value={a.id}>

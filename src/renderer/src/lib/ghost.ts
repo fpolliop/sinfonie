@@ -1,3 +1,4 @@
+import { tokens } from '@/lib/theme'
 import { Decoration, EditorView, WidgetType, keymap, type DecorationSet } from '@codemirror/view'
 import { StateEffect, StateField, type Extension } from '@codemirror/state'
 
@@ -97,6 +98,6 @@ export function ghostText(opts: GhostOptions): Extension {
       { key: 'Tab', run: acceptGhost },
       { key: 'Escape', run: dismissGhost }
     ]),
-    EditorView.theme({ '.cm-ghost': { color: '#6b7280', fontStyle: 'italic', opacity: '0.9', whiteSpace: 'pre' } })
+    EditorView.theme({ '.cm-ghost': { color: tokens.muted, fontStyle: 'italic', opacity: '0.9', whiteSpace: 'pre' } })
   ]
 }

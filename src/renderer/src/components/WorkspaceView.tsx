@@ -1,5 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { renameWorkspace } from '@/lib/rename'
+import { friendlyError } from '@/lib/errors'
+import { removeWithUndo } from '@/lib/undo'
+import { repoLabel, workspaceLabel } from '@/lib/labels'
+import { ContextMenu, type MenuEntry } from './ContextMenu'
 import { InlineRename } from './InlineRename'
 import { StagePicker } from './StagePicker'
 import { SpacePicker } from './SpacePicker'
@@ -7,7 +11,7 @@ import { LabelPicker } from './LabelPicker'
 import type { RepoSafety } from '@shared/types'
 import { ManageReposDialog } from './ManageReposDialog'
 import clsx from 'clsx'
-import { Folder, Code2, TerminalSquare, Archive, Trash2, MoreHorizontal, Pencil, GitBranch, ExternalLink, RefreshCw, AlertTriangle } from 'lucide-react'
+import { Folder, Code2, TerminalSquare, Archive, Trash2, MoreHorizontal, Pencil, GitBranch, ExternalLink, RefreshCw, AlertTriangle, SearchX } from 'lucide-react'
 import { useGithub } from '@/stores/github'
 import { useApp, type Tab } from '@/stores/app'
 import { api } from '@/lib/api'
@@ -15,7 +19,7 @@ import { ChatPane } from './ChatPane'
 import { TerminalPane } from './TerminalPane'
 import { RunPane } from './RunPane'
 import { PrsPane } from './PrsPane'
-import { Badge, Button, Dialog, Field, chipCls, inputCls } from './ui'
+import { Badge, Button, Dialog, Field, IconButton, chipCls, inputCls } from './ui'
 import { shortPath } from '@/lib/format'
 import { BrowserPane } from './BrowserPane'
 import { FilesPane } from './FilesPane'
@@ -29,6 +33,7 @@ import { SendForReviewButton, ReviewStatusLine } from './SendForReview'
 export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.JSX.Element {
   const ws = useApp((s) => s.workspaces.find((w) => w.id === workspaceId))
   const { tab, setTab, setError, browserDock, browserDockRatio, setBrowserDockRatio } = useApp()
+  const allRepos = useApp((s) => s.repos)
   const guided = useGuided()
   const browserBusy = useBrowser((s) => s.states[workspaceId]?.agentBusy ?? false)
   // An agent started a burst of browsing: bring the browser forward so the user sees it happen.
@@ -55,7 +60,9 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
     window.addEventListener('focus', seen)
     return () => window.removeEventListener('focus', seen)
   }, [workspaceId])
-  const [menu, setMenu] = useState(false)
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  // Clicking ⋯ while the menu is open: the menu's outside-click closes it first; don't reopen it on the same click.
+  const menuClosedAt = useRef(0)
   const [archiveDlg, setArchiveDlg] = useState<null | 'archive' | 'delete'>(null)
   const [jiraRefreshing, setJiraRefreshing] = useState(false)
   const [moveDlg, setMoveDlg] = useState(false)
@@ -94,13 +101,13 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
     if (jiraStatusAt && Date.now() - new Date(jiraStatusAt).getTime() < 5 * 60 * 1000) return
     api.invoke('workspaces:refreshJira', workspaceId).catch(() => undefined)
   }, [workspaceId, jiraKey, jiraStatusAt])
-  if (!ws) return <div />
+  if (!ws) return <MissingWorkspace guided={guided} />
   const refreshJira = async (): Promise<void> => {
     setJiraRefreshing(true)
     try {
       await api.invoke('workspaces:refreshJira', ws.id)
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(friendlyError(err))
     } finally {
       setJiraRefreshing(false)
     }
@@ -110,9 +117,45 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
     try {
       await fn()
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(friendlyError(err))
     }
   }
+  const title = workspaceLabel(ws, guided)
+  /** Archived rows leave the list at once; the delete itself waits for the Undo window. */
+  const removeFromList = (): void => {
+    const id = ws.id
+    removeWithUndo(id, `Removed “${title}” from the list.`, () => api.invoke('workspaces:delete', id))
+  }
+  const finishing: MenuEntry[] =
+    ws.status !== 'archived'
+      ? [
+          { label: guided ? 'Finish task…' : 'Archive workspace…', icon: <Archive size={14} />, onClick: () => setArchiveDlg('archive') },
+          { label: guided ? 'Delete task…' : 'Delete workspace…', icon: <Trash2 size={14} />, danger: true, onClick: () => setArchiveDlg('delete') }
+        ]
+      : [{ label: 'Remove from list', icon: <Trash2 size={14} />, danger: true, onClick: removeFromList }]
+  const menuEntries: MenuEntry[] = guided
+    ? [{ label: 'Rename task…', icon: <Pencil size={14} />, onClick: () => setEditingTitle(true) }, { separator: true }, ...finishing]
+    : [
+        { label: 'Reveal in Finder', icon: <Folder size={14} />, onClick: () => void run(() => api.invoke('workspaces:openIn', ws.id, 'finder')) },
+        { label: 'Open in VS Code', icon: <Code2 size={14} />, onClick: () => void run(() => api.invoke('workspaces:openIn', ws.id, 'vscode')) },
+        { label: 'Open in Cursor', icon: <Code2 size={14} />, onClick: () => void run(() => api.invoke('workspaces:openIn', ws.id, 'cursor')) },
+        { label: 'Open in Terminal', icon: <TerminalSquare size={14} />, onClick: () => void run(() => api.invoke('workspaces:openIn', ws.id, 'terminal')) },
+        {
+          label: 'Claude Code CLI in Terminal tab',
+          icon: <TerminalSquare size={14} />,
+          disabled: ws.status !== 'ready',
+          onClick: () => {
+            useApp.getState().setPendingShell({ workspaceId: ws.id, repoId: ws.primaryRepoId, agent: 'claude-code' })
+            setTab('terminal')
+          }
+        },
+        { separator: true },
+        { label: 'Manage repositories…', icon: <Folder size={14} />, disabled: ws.status !== 'ready', onClick: () => setReposDlg(true) },
+        { label: 'Rename workspace…', icon: <Pencil size={14} />, onClick: () => setEditingTitle(true) },
+        { label: 'Rename branch only (all repos)…', icon: <GitBranch size={14} />, disabled: ws.status !== 'ready', onClick: () => setRenameDlg('branch') },
+        { separator: true },
+        ...finishing
+      ]
 
   return (
     <div className="flex h-full flex-col">
@@ -123,7 +166,7 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
               <div className="no-drag w-72">
                 <InlineRename
                   value={ws.name}
-                  className="text-[14px] font-semibold"
+                  className="text-[15px] font-semibold"
                   onSave={(v) => {
                     setEditingTitle(false)
                     void renameWorkspace(ws, v)
@@ -132,8 +175,8 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
                 />
               </div>
             ) : (
-              <h1 className="no-drag min-w-0 max-w-[280px] shrink-0 cursor-text truncate text-[14px] font-semibold leading-none" title="Double-click to rename" onDoubleClick={() => setEditingTitle(true)}>
-                {ws.name}
+              <h1 className="no-drag min-w-0 max-w-[280px] shrink-0 cursor-text truncate text-[15px] font-semibold leading-none" title={`${title} · double-click to rename`} onDoubleClick={() => setEditingTitle(true)}>
+                {title}
               </h1>
             )}
             {ws.status === 'creating' && <Badge tone="warn">{guided ? 'getting ready' : 'creating'}</Badge>}
@@ -152,9 +195,10 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
                     const pr = prs?.find((p) => p.repoId === r.repoId)?.pr
                     const open = prs?.find((p) => p.repoId === r.repoId)?.threads.filter((t) => !t.isResolved).length ?? 0
                     if (guided) {
+                      const appName = repoLabel(allRepos.find((x) => x.id === r.repoId) ?? { name: r.repoName })
                       return (
-                        <span key={r.repoId} className={clsx(chipCls, 'min-w-0 shrink border border-border bg-panel text-muted')} title={pr ? pr.title : r.repoName}>
-                          <span className="truncate">{r.repoName}</span>
+                        <span key={r.repoId} className={clsx(chipCls, 'min-w-0 shrink border border-border bg-panel text-muted')} title={pr ? pr.title : appName}>
+                          <span className="truncate">{appName}</span>
                           {pr && <span className={clsx('h-1.5 w-1.5 shrink-0 rounded-full', pr.state === 'MERGED' ? 'bg-accent' : pr.state === 'CLOSED' ? 'bg-danger' : pr.reviewDecision === 'CHANGES_REQUESTED' || open > 0 ? 'bg-warn' : 'bg-ok')} />}
                         </span>
                       )
@@ -193,12 +237,12 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
                 <button className="inline-flex items-center gap-1 text-accent hover:underline" title={ws.jira.summary} onClick={() => void api.invoke('shell:openExternal', ws.jira!.url)}>
                   {ws.jira.key} <ExternalLink size={10} />
                 </button>
-                <span className="rounded bg-panel-2 px-1.5 py-px text-[10px] text-text" title={ws.jiraStatusAt ? `Jira status, checked ${new Date(ws.jiraStatusAt).toLocaleTimeString()}` : 'Jira status'}>
+                <span className="rounded bg-panel-2 px-1.5 py-px text-[11px] text-text" title={ws.jiraStatusAt ? `Jira status, checked ${new Date(ws.jiraStatusAt).toLocaleTimeString()}` : 'Jira status'}>
                   {ws.jiraStatus ?? '…'}
                 </span>
-                <button className="text-muted hover:text-text" title="Refresh Jira status" onClick={() => void refreshJira()}>
+                <IconButton label="Refresh Jira status" onClick={() => void refreshJira()}>
                   <RefreshCw size={10} className={clsx(jiraRefreshing && 'animate-spin')} />
-                </button>
+                </IconButton>
               </span>
             )}
             {ws.linear && (
@@ -207,70 +251,41 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
                 <button className="inline-flex items-center gap-1 text-accent hover:underline" title={ws.linear.title} onClick={() => void api.invoke('shell:openExternal', ws.linear!.url)}>
                   {ws.linear.identifier} <ExternalLink size={10} />
                 </button>
-                <span className="rounded bg-panel-2 px-1.5 py-px text-[10px] text-text" title={ws.linearStatusAt ? `Linear state, checked ${new Date(ws.linearStatusAt).toLocaleTimeString()}` : 'Linear state'}>
+                <span className="rounded bg-panel-2 px-1.5 py-px text-[11px] text-text" title={ws.linearStatusAt ? `Linear state, checked ${new Date(ws.linearStatusAt).toLocaleTimeString()}` : 'Linear state'}>
                   {ws.linearStatus ?? '…'}
                 </span>
-                <button className="text-muted hover:text-text" title="Refresh Linear state" onClick={() => void api.invoke('workspaces:refreshLinear', ws.id).catch((e) => setError(String(e)))}>
+                <IconButton label="Refresh Linear state" onClick={() => void api.invoke('workspaces:refreshLinear', ws.id).catch((e) => setError(friendlyError(e)))}>
                   <RefreshCw size={10} />
-                </button>
+                </IconButton>
               </span>
             )}
           </div>
         </div>
         {guided && <SendForReviewButton ws={ws} />}
         <div className="no-drag relative">
-          <button className="rounded-md p-1.5 text-muted hover:bg-panel-2 hover:text-text" onClick={() => setMenu(!menu)}>
+          <IconButton
+            label="More actions"
+            aria-haspopup="menu"
+            aria-expanded={menu !== null}
+            className="p-1.5"
+            onClick={(e) => {
+              if (menu || Date.now() - menuClosedAt.current < 250) return setMenu(null)
+              const r = e.currentTarget.getBoundingClientRect()
+              setMenu({ x: r.right - 224, y: r.bottom + 4 })
+            }}
+          >
             <MoreHorizontal size={16} />
-          </button>
-          {menu && guided && (
-            <div className="absolute right-0 top-8 z-20 w-56 rounded-lg border border-border bg-panel p-1 shadow-xl" onMouseLeave={() => setMenu(false)}>
-              <MenuItem icon={<Pencil size={14} />} label="Rename task" onClick={() => setEditingTitle(true)} />
-              <div className="my-1 border-t border-border" />
-              {ws.status !== 'archived' ? (
-                <>
-                  <MenuItem icon={<Archive size={14} />} label="Finish task…" onClick={() => setArchiveDlg('archive')} />
-                  <MenuItem icon={<Trash2 size={14} />} label="Delete task…" onClick={() => setArchiveDlg('delete')} danger />
-                </>
-              ) : (
-                <MenuItem icon={<Trash2 size={14} />} label="Remove from list" onClick={() => run(() => api.invoke('workspaces:delete', ws.id))} danger />
-              )}
-            </div>
-          )}
-          {menu && !guided && (
-            <div className="absolute right-0 top-8 z-20 w-56 rounded-lg border border-border bg-panel p-1 shadow-xl" onMouseLeave={() => setMenu(false)}>
-              <MenuItem icon={<Folder size={14} />} label="Reveal in Finder" onClick={() => run(() => api.invoke('workspaces:openIn', ws.id, 'finder'))} />
-              <MenuItem icon={<Code2 size={14} />} label="Open in VS Code" onClick={() => run(() => api.invoke('workspaces:openIn', ws.id, 'vscode'))} />
-              <MenuItem icon={<Code2 size={14} />} label="Open in Cursor" onClick={() => run(() => api.invoke('workspaces:openIn', ws.id, 'cursor'))} />
-              <MenuItem icon={<TerminalSquare size={14} />} label="Open in Terminal" onClick={() => run(() => api.invoke('workspaces:openIn', ws.id, 'terminal'))} />
-              <MenuItem
-                icon={<TerminalSquare size={14} />}
-                label="Claude Code CLI in Terminal tab"
-                onClick={() => {
-                  useApp.getState().setPendingShell({ workspaceId: ws.id, repoId: ws.primaryRepoId, agent: 'claude-code' })
-                  setTab('terminal')
-                }}
-                disabled={ws.status !== 'ready'}
-              />
-              <div className="my-1 border-t border-border" />
-              <MenuItem icon={<Folder size={14} />} label="Manage repositories…" onClick={() => setReposDlg(true)} disabled={ws.status !== 'ready'} />
-              <MenuItem icon={<Pencil size={14} />} label="Rename workspace" onClick={() => setEditingTitle(true)} />
-              <MenuItem icon={<GitBranch size={14} />} label="Rename branch only (all repos)" onClick={() => setRenameDlg('branch')} disabled={ws.status !== 'ready'} />
-              <div className="my-1 border-t border-border" />
-              {ws.status !== 'archived' ? (
-                <>
-                  <MenuItem icon={<Archive size={14} />} label="Archive workspace…" onClick={() => setArchiveDlg('archive')} />
-                  <MenuItem icon={<Trash2 size={14} />} label="Delete workspace…" onClick={() => setArchiveDlg('delete')} danger />
-                </>
-              ) : (
-                <MenuItem icon={<Trash2 size={14} />} label="Remove from list" onClick={() => run(() => api.invoke('workspaces:delete', ws.id))} danger />
-              )}
-            </div>
-          )}
+          </IconButton>
+          {menu && <ContextMenu x={menu.x} y={menu.y} label={guided ? 'Task actions' : 'Workspace actions'} entries={menuEntries} onClose={() => ((menuClosedAt.current = Date.now()), setMenu(null))} />}
         </div>
       </header>
 
       <WorkspaceTabs workspaceId={ws.id} />
-      {ws.status === 'error' && <div className="border-b border-danger/30 bg-danger/10 px-4 py-2 text-[12px] text-danger">{ws.error}</div>}
+      {ws.status === 'error' && (
+        <div role="alert" className="border-b border-danger/30 bg-danger/10 px-4 py-2 text-[12px] text-danger">
+          {guided ? friendlyError(ws.error ?? '', 'This task could not be set up. Try starting it again, or ask a teammate.', true) : ws.error}
+        </div>
+      )}
       <HealthBanner workspaceId={ws.id} />
 
       <div className="min-h-0 flex-1">
@@ -295,7 +310,7 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
         </div>
       </div>
 
-      {archiveDlg && <ArchiveDialog workspaceId={ws.id} name={ws.name} mode={archiveDlg} guided={guided} onClose={() => setArchiveDlg(null)} />}
+      {archiveDlg && <ArchiveDialog workspaceId={ws.id} name={title} mode={archiveDlg} guided={guided} onClose={() => setArchiveDlg(null)} />}
       {reposDlg && <ManageReposDialog workspaceId={ws.id} onClose={() => setReposDlg(false)} />}
       {moveDlg && (
         <Dialog title="Move to space" onClose={() => setMoveDlg(false)} width={380}>
@@ -350,14 +365,6 @@ function ChatBrowserSplit({ workspaceId, visible, ratio, onRatio }: { workspaceI
   )
 }
 
-function MenuItem({ icon, label, onClick, danger, disabled }: { icon: React.ReactNode; label: string; onClick: () => void; danger?: boolean; disabled?: boolean }): React.JSX.Element {
-  return (
-    <button disabled={disabled} onClick={onClick} className={clsx('flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] hover:bg-panel-2', danger ? 'text-danger' : 'text-text')}>
-      {icon} {label}
-    </button>
-  )
-}
-
 function ArchiveDialog({ workspaceId, name, mode, onClose, guided }: { workspaceId: string; name: string; mode: 'archive' | 'delete'; onClose: () => void; guided?: boolean }): React.JSX.Element {
   const [deleteBranches, setDeleteBranches] = useState(mode === 'delete')
   const [busy, setBusy] = useState(false)
@@ -382,7 +389,7 @@ function ArchiveDialog({ workspaceId, name, mode, onClose, guided }: { workspace
       if (!out) select(null)
       onClose()
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(friendlyError(err))
     } finally {
       setBusy(false)
     }
@@ -492,6 +499,7 @@ function BranchDialog({ initial, onClose, onSubmit }: { initial: string; onClose
 
 /** Worktrees recorded for the workspace that are gone from disk, with a one-click repair. */
 function HealthBanner({ workspaceId }: { workspaceId: string }): React.JSX.Element | null {
+  const guided = useGuided()
   const [missing, setMissing] = useState<{ repoName: string; worktreePath: string; branch: string }[]>([])
   const [busy, setBusy] = useState(false)
   const setError = useApp((s) => s.setError)
@@ -514,7 +522,7 @@ function HealthBanner({ workspaceId }: { workspaceId: string }): React.JSX.Eleme
       const h = await api.invoke('workspaces:health', workspaceId)
       setMissing(h.missing)
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(friendlyError(err, 'The fix did not work. Try again, or ask a teammate.'))
     } finally {
       setBusy(false)
     }
@@ -523,10 +531,31 @@ function HealthBanner({ workspaceId }: { workspaceId: string }): React.JSX.Eleme
     <div className="flex items-center gap-3 border-b border-warn/40 bg-warn/10 px-4 py-2 text-[12px]">
       <AlertTriangle size={14} className="shrink-0 text-warn" />
       <span className="min-w-0 flex-1">
-        {missing.length === 1 ? 'A worktree is' : `${missing.length} worktrees are`} missing on disk: {missing.map((m) => `${m.repoName} (${m.branch})`).join(', ')}. The agent cannot run here until they are back.
+        {guided ? (
+          'This task needs a quick fix before it can continue.'
+        ) : (
+          <>
+            {missing.length === 1 ? 'A worktree is' : `${missing.length} worktrees are`} missing on disk: {missing.map((m) => `${m.repoName} (${m.branch})`).join(', ')}. The agent cannot run here until they are back.
+          </>
+        )}
       </span>
-      <Button size="sm" variant="primary" disabled={busy} onClick={() => void repair()} title="Recreate the missing worktrees from their branches">
-        <RefreshCw size={12} className={clsx(busy && 'animate-spin')} /> Repair
+      <Button size="sm" variant="primary" disabled={busy} onClick={() => void repair()} title={guided ? undefined : 'Recreate the missing worktrees from their branches'}>
+        <RefreshCw size={12} className={clsx(busy && 'animate-spin')} /> {busy ? (guided ? 'Fixing…' : 'Repairing…') : guided ? 'Fix it' : 'Repair'}
+      </Button>
+    </div>
+  )
+}
+
+/** The selected workspace is gone (deleted elsewhere, or a stale selection): say so and offer a way back. */
+function MissingWorkspace({ guided }: { guided: boolean }): React.JSX.Element {
+  const select = useApp((s) => s.select)
+  return (
+    <div className="drag flex h-full flex-col items-center justify-center gap-3 text-center">
+      <SearchX size={28} className="text-muted" />
+      <div className="text-[15px] font-semibold">{guided ? 'This task no longer exists' : 'This workspace no longer exists'}</div>
+      <p className="max-w-sm text-[13px] text-muted">{guided ? 'It may have been finished or deleted.' : 'It may have been archived, deleted or removed on another window.'}</p>
+      <Button className="no-drag" onClick={() => select(null)}>
+        Back to {guided ? 'tasks' : 'workspaces'}
       </Button>
     </div>
   )

@@ -168,17 +168,17 @@ export function AgentsView(): React.JSX.Element {
         <div className="no-drag flex items-center gap-1 border-b border-border px-3 py-2">
           <div className="flex flex-1 rounded-md bg-panel p-0.5 text-[12px]">
             <button onClick={() => setSection('agents')} title="Agents you run yourself: in their chat, by @name, or on a schedule" className={clsx('flex flex-1 items-center justify-center gap-1.5 rounded px-2 py-1', section === 'agents' ? 'bg-panel-2 text-text' : 'text-muted hover:text-text')}>
-              <Bot size={12} /> Agents <span className="text-[10px] text-muted">{agents.length - crewCount}</span>
+              <Bot size={12} /> Agents <span className="text-[11px] text-muted">{agents.length - crewCount}</span>
             </button>
             <button onClick={() => setSection('crew')} title="Subagents the orchestrator delegates to inside workspaces" className={clsx('flex flex-1 items-center justify-center gap-1.5 rounded px-2 py-1', section === 'crew' ? 'bg-panel-2 text-text' : 'text-muted hover:text-text')}>
-              <Users size={12} /> Crew <span className="text-[10px] text-muted">{crewCount}</span>
+              <Users size={12} /> Crew <span className="text-[11px] text-muted">{crewCount}</span>
             </button>
           </div>
         </div>
         <div className="border-b border-border px-3 py-2">
           <input className={inputCls} placeholder={section === 'crew' ? 'Filter crew…' : 'Filter agents…'} value={filter} onChange={(e) => setFilter(e.target.value)} />
         </div>
-        <div className="border-b border-border px-3 py-1.5 text-[10px] text-muted">{section === 'crew' ? 'The orchestrator delegates to these inside a workspace: explore, implement, test, review. Which ones each space uses is under Settings → Crew.' : 'Yours to run: in their own chat, with @name in any workspace, or on a schedule.'}</div>
+        <div className="border-b border-border px-3 py-1.5 text-[11px] text-muted">{section === 'crew' ? 'The orchestrator delegates to these inside a workspace: explore, implement, test, review. Which ones each space uses is under Settings → Crew.' : 'Yours to run: in their own chat, with @name in any workspace, or on a schedule.'}</div>
         <div className="flex-1 overflow-auto p-2">
           {shown.length === 0 && <div className="px-2 py-6 text-center text-[12px] text-muted">{q ? 'Nothing matches.' : section === 'crew' ? 'No crew members. Reset built-ins brings back explorer, implementer, tester and reviewer.' : 'No agents yet. Create one with New agent, or describe one in a sentence.'}</div>}
           {shown.map((a) => (
@@ -304,7 +304,7 @@ function AgentCard({ agent: a, selected, spaceName, onClick, onDuplicate, onExpo
         <div className="truncate text-[11px] text-muted" title={a.description}>
           {a.description || 'No description yet'}
         </div>
-        <div className="mt-1 flex items-center gap-1.5 text-[10px] text-muted">
+        <div className="mt-1 flex items-center gap-1.5 text-[11px] text-muted">
           <span className="rounded bg-bg px-1 py-px font-mono">{modelLabel(a.model, providers)}</span>
           {a.effort && <span>{a.effort}</span>}
           <span>{a.tools?.length ? `${a.tools.length} tools` : 'all tools'}</span>
@@ -563,7 +563,7 @@ function TryIt({ draft, dirty }: { draft: AgentSpec; dirty: boolean }): React.JS
     <div className="flex w-[380px] shrink-0 flex-col border-l border-border">
       <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border px-3 text-[12px] font-medium">
         <Play size={12} className="text-accent" /> Try it
-        {dirty && <span className="text-[10px] font-normal text-muted">runs with your unsaved edits</span>}
+        {dirty && <span className="text-[11px] font-normal text-muted">runs with your unsaved edits</span>}
       </div>
       <div className="flex flex-col gap-2 border-b border-border p-3">
         <select
@@ -583,7 +583,7 @@ function TryIt({ draft, dirty }: { draft: AgentSpec; dirty: boolean }): React.JS
         </select>
         <textarea rows={3} className={inputCls} placeholder={ws ? `A task for ${draft.name || 'this agent'} in ${ws.name}…` : `A task for ${draft.name || 'this agent'}…`} value={prompt} onChange={(e) => setPrompt(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (e.metaKey || e.ctrlKey) && void run()} />
         <div className="flex items-center gap-2">
-          <span className="text-[10px] text-muted">⌘↵ runs. Permissions ask like a delegation would.</span>
+          <span className="text-[11px] text-muted">⌘↵ runs. Permissions ask like a delegation would.</span>
           <span className="ml-auto" />
           {runId ? (
             <Button size="sm" variant="danger" onClick={stop}>
@@ -602,7 +602,7 @@ function TryIt({ draft, dirty }: { draft: AgentSpec; dirty: boolean }): React.JS
           <div className="mb-3">
             <div className="mb-1 flex items-center gap-2 text-[11px] uppercase tracking-wide text-muted">
               Activity · {steps.filter((s) => s.step.kind === 'tool').length} tool calls
-              {model && <span className="rounded bg-panel-2 px-1 py-px font-mono text-[10px] normal-case">{model.replace(/^claude-/, '')}</span>}
+              {model && <span className="rounded bg-panel-2 px-1 py-px font-mono text-[11px] normal-case">{model.replace(/^claude-/, '')}</span>}
               {runId && (
                 <span className="inline-flex items-center gap-1 text-warn">
                   <Spinner /> running
@@ -726,7 +726,7 @@ function TemplatesDialog({ onClose, onPick }: { onClose: () => void; onPick: (na
       <div className="flex flex-col gap-1.5">
         {AGENT_TEMPLATES.map((t) => (
           <button key={t.name} onClick={() => onPick(t.name)} className="flex items-start gap-3 rounded-lg border border-border px-3 py-2 text-left hover:border-accent/60 hover:bg-panel-2">
-            <span className="mt-0.5 text-[16px]">{t.icon}</span>
+            <span className="mt-0.5 text-[15px]">{t.icon}</span>
             <span className="min-w-0 flex-1">
               <span className="flex items-center gap-2 text-[13px] font-medium">
                 {t.name}

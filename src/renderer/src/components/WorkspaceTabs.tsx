@@ -33,6 +33,11 @@ const GUIDED_GROUPS: typeof GROUPS = [
   [{ id: 'browser', label: 'Preview', icon: <Globe size={13} />, hint: 'The app, as it looks with your changes' }]
 ]
 
+/** The tabs a mode shows, in ⌘1…⌘n order (the command palette lists the same ones). */
+export function tabsFor(guided: boolean, dock: boolean): { id: Tab; label: string; hint: string }[] {
+  return (guided ? GUIDED_GROUPS : GROUPS).flat().filter((t) => !(dock && t.id === 'browser'))
+}
+
 export function WorkspaceTabs({ workspaceId }: { workspaceId: string }): React.JSX.Element {
   const tab = useApp((s) => s.tab)
   const setTab = useApp((s) => s.setTab)
@@ -95,7 +100,7 @@ export function WorkspaceTabs({ workspaceId }: { workspaceId: string }): React.J
   }
 
   return (
-    <nav className="no-drag flex h-[34px] shrink-0 items-center gap-1 border-b border-border bg-bg px-2" aria-label="Workspace tabs">
+    <nav className="no-drag flex h-[34px] shrink-0 items-center gap-1 border-b border-border bg-bg px-2" aria-label={guided ? 'Task views' : 'Workspace tabs'}>
       {groups.map((group, gi) => (
         <React.Fragment key={gi}>
           {gi > 0 && <span className="mx-1 h-4 w-px bg-border" />}
@@ -106,6 +111,8 @@ export function WorkspaceTabs({ workspaceId }: { workspaceId: string }): React.J
                 key={t.id}
                 data-tour={t.id === 'data' ? 'tab-data' : t.id === 'browser' ? 'tab-browser' : undefined}
                 onClick={() => setTab(t.id)}
+                aria-current={tab === t.id ? 'page' : undefined}
+                aria-keyshortcuts={`Meta+${idx}`}
                 title={`${t.hint} (⌘${idx})`}
                 className={clsx(
                   'flex h-[26px] items-center gap-1.5 rounded-md px-2.5 text-[12px] font-medium leading-none transition-colors',
@@ -125,7 +132,7 @@ export function WorkspaceTabs({ workspaceId }: { workspaceId: string }): React.J
 }
 
 function Count({ n }: { n: number }): React.JSX.Element {
-  return <span className="ml-0.5 rounded-full bg-panel-2 px-1.5 py-px text-[10px] font-semibold tabular-nums text-text">{n > 99 ? '99+' : n}</span>
+  return <span className="ml-0.5 rounded-full bg-panel-2 px-1.5 py-px text-[11px] font-semibold tabular-nums text-text">{n > 99 ? '99+' : n}</span>
 }
 function Dot({ pulse, tone = 'accent' }: { pulse?: boolean; tone?: 'accent' | 'ok' }): React.JSX.Element {
   return <span className={clsx('ml-0.5 h-1.5 w-1.5 rounded-full', tone === 'ok' ? 'bg-ok' : 'bg-accent', pulse && 'animate-pulse')} />

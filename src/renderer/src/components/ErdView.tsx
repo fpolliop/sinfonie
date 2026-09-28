@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { X, Key, Link2, Play } from 'lucide-react'
 import type { DbKind, DbSchema, DbTable } from '@shared/types'
+import { IconButton } from './ui'
+import { tokens } from '@/lib/theme'
 
 interface Node {
   key: string
@@ -130,16 +132,16 @@ export function ErdView({ schema, kind, onPreview, onClose }: { schema: DbSchema
           {kind === 'mongodb' || kind === 'bigquery' ? ' · this engine has no declared foreign keys' : ''}
         </span>
         <span className="ml-auto flex items-center gap-1">
-          <button className="rounded border border-border px-1.5 text-[11px] hover:bg-panel-2" onClick={() => setZoom((z) => Math.max(0.3, z - 0.1))}>
+          <IconButton label="Zoom out" className="border border-border text-[11px]" onClick={() => setZoom((z) => Math.max(0.3, z - 0.1))}>
             −
-          </button>
-          <span className="w-10 text-center text-[11px] text-muted">{Math.round(zoom * 100)}%</span>
-          <button className="rounded border border-border px-1.5 text-[11px] hover:bg-panel-2" onClick={() => setZoom((z) => Math.min(2, z + 0.1))}>
+          </IconButton>
+          <span className="w-10 text-center text-[11px] text-muted" aria-live="polite">{Math.round(zoom * 100)}%</span>
+          <IconButton label="Zoom in" className="border border-border text-[11px]" onClick={() => setZoom((z) => Math.min(2, z + 0.1))}>
             +
-          </button>
-          <button className="ml-2 rounded p-1 text-muted hover:text-text" onClick={onClose}>
+          </IconButton>
+          <IconButton label="Close diagram" className="ml-2" onClick={onClose}>
             <X size={13} />
-          </button>
+          </IconButton>
         </span>
       </div>
       <div
@@ -158,7 +160,7 @@ export function ErdView({ schema, kind, onPreview, onClose }: { schema: DbSchema
           <svg width={total.w} height={total.h} className="absolute left-0 top-0" style={{ overflow: 'visible' }}>
             <defs>
               <marker id="erd-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
-                <path d="M0,0 L8,4 L0,8 z" fill="#7c9cff" />
+                <path d="M0,0 L8,4 L0,8 z" fill={tokens.accent} />
               </marker>
             </defs>
             {edges.map((e, i) => {
@@ -174,7 +176,7 @@ export function ErdView({ schema, kind, onPreview, onClose }: { schema: DbSchema
               const dx = Math.max(40, Math.abs(x2 - x1) / 2)
               const c1 = leftToRight ? x1 + dx : x1 - dx
               const c2 = leftToRight ? x2 - dx : x2 + dx
-              return <path key={i} d={`M${x1},${y1} C${c1},${y1} ${c2},${y2} ${x2},${y2}`} fill="none" stroke="#7c9cff" strokeOpacity={0.7} strokeWidth={1.2} markerEnd="url(#erd-arrow)" />
+              return <path key={i} d={`M${x1},${y1} C${c1},${y1} ${c2},${y2} ${x2},${y2}`} fill="none" stroke={tokens.accent} strokeOpacity={0.7} strokeWidth={1.2} markerEnd="url(#erd-arrow)" />
             })}
           </svg>
           {nodes.map((n) => (
@@ -190,11 +192,11 @@ export function ErdView({ schema, kind, onPreview, onClose }: { schema: DbSchema
                 <div key={c.name} className="flex items-center gap-1 px-2 font-mono" style={{ height: ROW_H }}>
                   {c.pk ? <Key size={8} className="shrink-0 text-warn" /> : c.fk ? <Link2 size={8} className="shrink-0 text-accent" /> : <span className="w-2 shrink-0" />}
                   <span className="truncate">{c.name}</span>
-                  <span className="ml-auto truncate pl-1 text-[9px] text-muted">{c.type}</span>
+                  <span className="ml-auto truncate pl-1 text-[11px] text-muted">{c.type}</span>
                 </div>
               ))}
               {(n.table.columns ?? []).length > MAX_COLS && (
-                <div className="px-2 text-[10px] text-muted" style={{ height: ROW_H }}>
+                <div className="px-2 text-[11px] text-muted" style={{ height: ROW_H }}>
                   … {(n.table.columns ?? []).length - MAX_COLS} more
                 </div>
               )}

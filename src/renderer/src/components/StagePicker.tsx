@@ -34,9 +34,11 @@ export function StagePicker({ stage, onChange, disabled }: { stage: WorkspaceSta
       {label(stage, guided)}
       <ChevronDown size={11} className="-mr-0.5 opacity-60" />
       <select className="absolute inset-0 cursor-pointer opacity-0" value={stage} disabled={disabled} onChange={(e) => onChange(e.target.value as WorkspaceStage)}>
+        {/* Guided: "Live" is set by the app once the change is out; it cannot be picked by hand. */}
         {stages(guided).map((s) => (
-          <option key={s.id} value={s.id}>
+          <option key={s.id} value={s.id} disabled={guided && s.id === 'done' && stage !== 'done'}>
             {s.label}
+            {guided && s.id === 'done' && stage !== 'done' ? ' (set automatically)' : ''}
           </option>
         ))}
       </select>

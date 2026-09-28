@@ -17,6 +17,8 @@ export function ResumeDialog({ workspaceId, onClose }: { workspaceId: string; on
   const [list, setList] = useState<SessionSummary[]>([])
   const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
+  /** Clicking a row only selects it; Resume (or a double-click / Enter) does the switch. */
+  const [chosen, setChosen] = useState<SessionSummary | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -62,12 +64,20 @@ export function ResumeDialog({ workspaceId, onClose }: { workspaceId: string; on
           ))}
         </div>
       </div>
-      <p className="mb-2 text-[11px] text-muted">The chosen session's history replaces this chat's transcript and your next message continues it, with this workspace's worktrees in scope. The current session is kept on disk and stays listed here.</p>
+      <p className="mb-2 text-[11px] text-muted">Pick a session, then Resume. Its history replaces what this chat shows and your next message continues it, with this workspace's worktrees in scope. The current conversation is not deleted: it stays on disk and listed here, so you can switch back.</p>
       <div className="max-h-[52vh] overflow-auto rounded-lg border border-border">
         {loading && list.length === 0 && <div className="p-4 text-[12px] text-muted">Loading sessions…</div>}
         {!loading && list.length === 0 && <div className="p-4 text-[12px] text-muted">{scope === 'workspace' ? 'No sessions recorded in this workspace yet. Try "All projects".' : 'No sessions match.'}</div>}
         {list.map((s) => (
-          <button key={s.sessionId} disabled={busy !== null} onClick={() => void resume(s)} className="flex w-full flex-col gap-0.5 border-b border-border px-3 py-2 text-left last:border-b-0 hover:bg-panel-2">
+          <button
+            key={s.sessionId}
+            type="button"
+            aria-pressed={chosen?.sessionId === s.sessionId}
+            disabled={busy !== null}
+            onClick={() => setChosen(s)}
+            onDoubleClick={() => void resume(s)}
+            className={clsx('flex w-full flex-col gap-0.5 border-b border-border px-3 py-2 text-left last:border-b-0', chosen?.sessionId === s.sessionId ? 'bg-accent/10' : 'hover:bg-panel-2')}
+          >
             <div className="flex items-center gap-2">
               <History size={13} className="shrink-0 text-muted" />
               <span className="truncate text-[13px] font-medium">{s.title}</span>
@@ -82,8 +92,12 @@ export function ResumeDialog({ workspaceId, onClose }: { workspaceId: string; on
           </button>
         ))}
       </div>
-      <div className="mt-3 flex justify-end">
+      <div className="mt-3 flex items-center justify-end gap-2">
+        {chosen && <span className="mr-auto truncate text-[11px] text-muted">Resume “{chosen.title}” here</span>}
         <Button onClick={onClose}>Cancel</Button>
+        <Button variant="primary" disabled={!chosen || busy !== null} onClick={() => chosen && void resume(chosen)}>
+          {busy ? 'Resuming…' : 'Resume'}
+        </Button>
       </div>
     </Dialog>
   )

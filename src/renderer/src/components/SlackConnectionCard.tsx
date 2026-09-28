@@ -45,17 +45,17 @@ export function SlackConnectionCard({ connId = '', intro }: { connId?: string; i
               <span className="text-[11px] text-muted">{slack.vendorClient || slack.hasClient ? 'Approve in the browser; Sinfonie reopens by itself.' : 'This build has no Slack client registered yet; see Advanced.'}</span>
             </div>
             <div className="mt-2 flex items-center gap-2">
-              <input className={clsx(inputCls, 'max-w-[360px]')} placeholder="If it did not come back: paste the code shown in the browser" value={code} onChange={(e) => setCode(e.target.value)} />
+              <input className={clsx(inputCls, 'max-w-[360px]')} aria-label="Code from the browser" placeholder="If it did not come back: paste the code shown in the browser" value={code} onChange={(e) => setCode(e.target.value)} />
               <Button size="sm" disabled={!code.trim()} onClick={() => go(async () => (await api.invoke('oncall:slackFinish', code.trim(), connId), setCode('')))}>
                 Finish
               </Button>
             </div>
             <details className="mt-3 text-[11px] text-muted">
-              <summary className="cursor-pointer select-none">Advanced: use your own Slack OAuth client</summary>
+              <summary className="w-fit cursor-pointer select-none hover:text-text">Advanced: use your own Slack OAuth client</summary>
               <p className="mb-2 mt-1">Slack does not allow apps to register themselves, so by default Sinfonie signs you in with its own registered client and exchanges the code on sinfonie.dev. If you would rather keep everything inside your workspace, register a client at api.slack.com/apps (from scratch, no bot), set the redirect URL <code className="rounded bg-panel-2 px-1">https://sinfonie.dev/oauth/slack/callback</code> and the user token scopes channels:history, channels:read, groups:history, groups:read, chat:write, search:read.public, users:read, then paste its client id and secret here. Tokens are then exchanged directly with Slack from this Mac.</p>
               <div className="mb-2 grid grid-cols-2 gap-2">
-                <input className={inputCls} placeholder="Client ID" value={clientId} onChange={(e) => setClientId(e.target.value)} />
-                <input className={inputCls} placeholder={slack.hasClient ? 'Client secret (stored)' : 'Client secret'} type="password" value={secret} onChange={(e) => setSecret(e.target.value)} />
+                <input className={inputCls} aria-label="Client ID" placeholder="Client ID" value={clientId} onChange={(e) => setClientId(e.target.value)} />
+                <input className={inputCls} aria-label="Client secret" placeholder={slack.hasClient ? 'Client secret (stored)' : 'Client secret'} type="password" value={secret} onChange={(e) => setSecret(e.target.value)} />
               </div>
               <div className="flex gap-2">
                 <Button size="sm" disabled={!clientId.trim() || !secret.trim()} onClick={() => go(async () => (await api.invoke('oncall:slackSetClient', connId, clientId, secret).then(setLive), setSecret('')))}>
@@ -88,7 +88,7 @@ export function SlackConnectionCard({ connId = '', intro }: { connId?: string; i
         {mcpTest && (
           <div className={`mt-2 rounded-md border px-3 py-2 text-[11px] ${mcpTest.ok ? 'border-ok/40' : 'border-danger/40'}`}>
             <div className="font-medium">{mcpTest.ok ? 'Slack MCP server accepted this sign-in.' : `Slack MCP server refused this sign-in (HTTP ${mcpTest.status}).`}</div>
-            <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[10px] text-muted">{mcpTest.detail || '(empty answer)'}</pre>
+            <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[11px] text-muted">{mcpTest.detail || '(empty answer)'}</pre>
             <div className="mt-1 text-muted">Token scopes: {mcpTest.scopes.length ? mcpTest.scopes.join(', ') : '(none reported)'}</div>
           </div>
         )}

@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { Check, Download, FileJson, FolderOpen, Link2Off, RefreshCw, Share2, Trash2, Upload, Users2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
-import { Badge, Button, Dialog, inputCls } from './ui'
+import { Badge, Button, Dialog, SectionHeader, inputCls } from './ui'
 import { shortPath } from '@/lib/format'
 import { SPACE_FILE, type Space, type SpaceImportPreview, type SpaceImportResolution } from '@shared/types'
 
@@ -37,7 +37,7 @@ export function SharedSpaceSection({ space }: { space: Space }): React.JSX.Eleme
 
   return (
     <section className="mt-5">
-      <div className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-muted">Sharing</div>
+      <SectionHeader>Sharing</SectionHeader>
       <OrgShareCard space={space} />
       <div className="mb-2 mt-3 text-[11px] text-muted">Or as a file the team commits:</div>
       {space.shared ? (
@@ -333,7 +333,7 @@ function GuidedReadiness({ space }: { space: Space }): React.JSX.Element {
           </div>
         ))}
       </div>
-      <p className="mt-1 text-[10px] text-muted">Set each app’s start command, preview URL and check under its Guided setup, and the reviewers under the space’s General page.</p>
+      <p className="mt-1 text-[11px] text-muted">Set each app’s start command, preview URL and check under its Guided setup, and the reviewers under the space’s General page.</p>
     </div>
   )
 }

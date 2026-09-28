@@ -28,7 +28,8 @@ import { Tour } from './components/onboarding/Tour'
 import { GettingStarted } from './components/onboarding/GettingStarted'
 import { api } from '@/lib/api'
 import logo from './assets/logo.svg'
-import { Button } from './components/ui'
+import { Button, hasOpenDialog } from './components/ui'
+import { CommandPalette, ShortcutSheet } from './components/CommandPalette'
 import { Wand2 } from 'lucide-react'
 
 export default function App(): React.JSX.Element {
@@ -43,6 +44,10 @@ export default function App(): React.JSX.Element {
   }, [load, subscribeChat, subscribeScripts])
 
   const [authLink, setAuthLink] = useState<AuthLink | null>(null)
+  /** ⌘K palette and ⌘/ shortcut sheet; each toggles, and neither opens over another dialog. */
+  const [overlay, setOverlay] = useState<null | 'palette' | 'shortcuts'>(null)
+  const overlayRef = React.useRef(overlay)
+  overlayRef.current = overlay
   useEffect(() => api.on('ui:authLink', setAuthLink), [])
   useEffect(
     () =>
@@ -96,6 +101,17 @@ export default function App(): React.JSX.Element {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && (e.key.toLowerCase() === 'k' || e.key === '/')) {
+        const want = e.key === '/' ? 'shortcuts' : 'palette'
+        if (overlayRef.current === want) {
+          e.preventDefault()
+          setOverlay(null)
+        } else if (!hasOpenDialog() || overlayRef.current) {
+          e.preventDefault()
+          setOverlay(want)
+        }
+        return
+      }
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'f') {
         e.preventDefault()
         setFeedbackDialog('feedback')
@@ -174,6 +190,8 @@ export default function App(): React.JSX.Element {
         </div>
       )}
       <NoticeToast />
+      {overlay === 'palette' && <CommandPalette onClose={() => setOverlay(null)} onShortcuts={() => setOverlay('shortcuts')} />}
+      {overlay === 'shortcuts' && <ShortcutSheet onClose={() => setOverlay(null)} />}
     </div>
   )
 }
@@ -191,6 +209,11 @@ function NoticeToast(): React.JSX.Element | null {
   return (
     <div role="status" className="fixed bottom-4 left-1/2 z-[80] flex max-w-[640px] -translate-x-1/2 items-center gap-3 rounded-lg border border-border bg-panel px-4 py-2 text-[12px] shadow-xl">
       <span className={notice.kind === 'success' ? 'text-ok' : 'text-text'}>{notice.text}</span>
+      {notice.link && (
+        <Button size="sm" onClick={() => void window.sinfonie.invoke('shell:openExternal', notice.link!.url)}>
+          {notice.link.label}
+        </Button>
+      )}
       {notice.undo && (
         <Button
           size="sm"
@@ -202,7 +225,7 @@ function NoticeToast(): React.JSX.Element | null {
           Undo
         </Button>
       )}
-      <Button size="sm" variant="ghost" onClick={() => notify(null)} aria-label="Dismiss">
+      <Button size="sm" variant="ghost" onClick={() => notify(null)}>
         Dismiss
       </Button>
     </div>
@@ -210,7 +233,8 @@ function NoticeToast(): React.JSX.Element | null {
 }
 
 function EmptyState(): React.JSX.Element {
-  const { repos, setShowNewWorkspace, openSettings } = useApp()
+  const { repos, setShowNewWorkspace, openSettings, openSetupAt } = useApp()
+  const hasTeam = useApp((s) => Boolean(s.settings.cloud?.account?.orgs?.length))
   const guided = useGuided()
   if (guided) {
     return (
@@ -218,11 +242,14 @@ function EmptyState(): React.JSX.Element {
         <img src={logo} alt="" className="h-16 w-16 rounded-2xl shadow-[0_20px_60px_rgba(91,124,255,.25)]" />
         <div className="text-[18px] font-semibold">Sinfonie</div>
         <p className="max-w-md text-muted">A task is one thing you want built or changed in your app. Start one and describe it in plain words.</p>
+        <p className="text-[11px] text-muted">
+          <kbd className="rounded border border-border px-1">⌘K</kbd> finds any task or action
+        </p>
         <div className="flex gap-2">
           <Button variant="primary" onClick={() => setShowNewWorkspace(true)}>
-            Start a task <kbd className="ml-1 rounded bg-black/30 px-1 text-[10px]">⇧⌘N</kbd>
+            Start a task <kbd className="ml-1 rounded bg-black/30 px-1 text-[11px]">⇧⌘N</kbd>
           </Button>
-          <Button onClick={() => openSettings({ scope: 'app', page: 'plan' })}>Join your team</Button>
+          {repos.length === 0 ? <Button onClick={() => openSetupAt(2)}>Add your app</Button> : !hasTeam && <Button onClick={() => openSettings({ scope: 'app', page: 'plan' })}>Join your team</Button>}
         </div>
         <GettingStarted />
       </div>
@@ -235,6 +262,9 @@ function EmptyState(): React.JSX.Element {
       <p className="max-w-md text-muted">
         One workspace, many repositories. Each workspace creates a worktree on the same branch in every repo you pick, so a full-stack feature lives in one place.
       </p>
+      <p className="text-[11px] text-muted">
+        <kbd className="rounded border border-border px-1">⌘K</kbd> commands · <kbd className="rounded border border-border px-1">⌘/</kbd> shortcuts
+      </p>
       <div className="flex gap-2">
         {repos.length === 0 ? (
           <Button variant="primary" onClick={() => openSettings({ scope: 'app', page: 'repos' })}>
@@ -242,7 +272,7 @@ function EmptyState(): React.JSX.Element {
           </Button>
         ) : (
           <Button variant="primary" onClick={() => setShowNewWorkspace(true)}>
-            New workspace <kbd className="ml-1 rounded bg-black/30 px-1 text-[10px]">⇧⌘N</kbd>
+            New workspace <kbd className="ml-1 rounded bg-black/30 px-1 text-[11px]">⇧⌘N</kbd>
           </Button>
         )}
       </div>

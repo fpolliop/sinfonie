@@ -7,7 +7,8 @@ import { SearchAddon } from '@xterm/addon-search'
 import { ChevronDown, ExternalLink, Plus, Search, X } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
-import { Button } from './ui'
+import { Button, IconButton } from './ui'
+import { tokens } from '@/lib/theme'
 import { CaffeineButton } from './CaffeineButton'
 import { ACP_ENGINES, type Engine } from '@shared/types'
 
@@ -59,7 +60,7 @@ function spawnShell(workspaceId: string, repoId: string | null, label: string, a
     fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace',
     fontSize: 12,
     lineHeight: 1.2,
-    theme: { background: '#0b0d11', foreground: '#e6e8ec', cursor: '#7c9cff', selectionBackground: 'rgba(124,156,255,.3)', black: '#1b2030', brightBlack: '#5f6779' },
+    theme: { background: tokens.sunken, foreground: tokens.text, cursor: tokens.accent, selectionBackground: tokens.accentSelection, black: tokens.panel2, brightBlack: tokens.faint },
     cursorBlink: true,
     scrollback: 10000,
     macOptionIsMeta: true,
@@ -243,19 +244,19 @@ export function TerminalPane({ workspaceId, visible }: { workspaceId: string; vi
             <button onClick={() => setActiveId(s.id)} className={clsx(s.exited && 'line-through')}>
               {s.label}
             </button>
-            <button onClick={() => closeShell(s.id)} className="rounded p-0.5 text-muted opacity-0 hover:text-text group-hover:opacity-100" title="Close this shell">
+            <IconButton label={`Close ${s.label}`} onClick={() => closeShell(s.id)} className="reveal-on-focus opacity-0 group-hover:opacity-100">
               <X size={11} />
-            </button>
+            </IconButton>
           </div>
         ))}
         <div className="relative">
-          <Button size="sm" variant="ghost" onClick={() => setMenu((m) => !m)} title="New shell or agent CLI">
+          <Button size="sm" variant="ghost" onClick={() => setMenu((m) => !m)} title="New shell or agent CLI" aria-label="New shell or agent CLI" aria-haspopup="menu" aria-expanded={menu}>
             <Plus size={13} />
             <ChevronDown size={11} />
           </Button>
           {menu && (
             <div className="absolute left-0 top-full z-20 mt-1 min-w-[220px] rounded-md border border-border bg-panel p-1 shadow-xl" onMouseLeave={() => setMenu(false)}>
-              <div className="px-2 pb-0.5 pt-1 text-[10px] font-semibold uppercase tracking-wide text-muted">Shell</div>
+              <div className="px-2 pb-0.5 pt-1 text-[11px] font-semibold uppercase tracking-wide text-muted">Shell</div>
               {ws.repos.map((r) => (
                 <button key={r.repoId} onClick={() => void open(r.repoId)} className="block w-full rounded px-2 py-1 text-left text-[12px] hover:bg-panel-2">
                   {r.repoName}
@@ -265,7 +266,7 @@ export function TerminalPane({ workspaceId, visible }: { workspaceId: string; vi
                 Workspace root
               </button>
               <div className="my-1 border-t border-border" />
-              <div className="px-2 pb-0.5 pt-1 text-[10px] font-semibold uppercase tracking-wide text-muted" title="The vendor's own CLI, interactive, on this workspace's account. No harness in between.">
+              <div className="px-2 pb-0.5 pt-1 text-[11px] font-semibold uppercase tracking-wide text-muted" title="The vendor's own CLI, interactive, on this workspace's account. No harness in between.">
                 Agent CLI
               </div>
               {clis.length === 0 && <div className="px-2 py-1 text-[11px] text-muted">Sign in to a vendor under Settings → Accounts.</div>}
@@ -281,17 +282,17 @@ export function TerminalPane({ workspaceId, visible }: { workspaceId: string; vi
           )}
         </div>
         <span className="ml-auto flex items-center gap-1">
-          <Button size="sm" variant="ghost" onClick={() => setFinding((f) => !f)} title="Find in output (⌘F)">
+          <IconButton label="Find in output (⌘F)" onClick={() => setFinding((f) => !f)}>
             <Search size={13} />
-          </Button>
-          <Button size="sm" variant="ghost" onClick={() => void api.invoke('workspaces:openIn', ws.id, 'terminal')} title="Open the workspace in Terminal.app">
+          </IconButton>
+          <IconButton label="Open the workspace in Terminal.app" onClick={() => void api.invoke('workspaces:openIn', ws.id, 'terminal')}>
             <ExternalLink size={13} />
-          </Button>
+          </IconButton>
           <span className="ml-1 text-[11px] text-muted">$SINFONIE_PORT={ws.port}</span>
         </span>
       </div>
       {finding && active && <FindBar shell={active} onClose={() => setFinding(false)} />}
-      <div className="relative min-h-0 flex-1 bg-[#0b0d11]">{active && <Mount shell={active} visible={visible} onFind={() => setFinding(true)} />}</div>
+      <div className="relative min-h-0 flex-1 bg-sunken">{active && <Mount shell={active} visible={visible} onFind={() => setFinding(true)} />}</div>
     </div>
   )
 }
@@ -367,9 +368,9 @@ function FindBar({ shell, onClose }: { shell: Shell; onClose: () => void }): Rea
       <Button size="sm" variant="ghost" onClick={() => find(1)}>
         Next
       </Button>
-      <Button size="sm" variant="ghost" onClick={onClose} title="Close (Esc)">
+      <IconButton label="Close find (Esc)" onClick={onClose}>
         <X size={12} />
-      </Button>
+      </IconButton>
     </div>
   )
 }
@@ -438,7 +439,7 @@ export function CliView({ workspaceId, prompt, onPromptConsumed, onBackToChat }:
         </span>
       </div>
       {finding && shell && <FindBar shell={shell} onClose={() => setFinding(false)} />}
-      <div className="relative min-h-0 flex-1 bg-[#0b0d11]">{shell && <Mount shell={shell} visible onFind={() => setFinding(true)} />}</div>
+      <div className="relative min-h-0 flex-1 bg-sunken">{shell && <Mount shell={shell} visible onFind={() => setFinding(true)} />}</div>
     </div>
   )
 }

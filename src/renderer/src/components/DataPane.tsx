@@ -9,7 +9,8 @@ import { json } from '@codemirror/lang-json'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
-import { Button, Spinner } from './ui'
+import { Button, IconButton, Spinner } from './ui'
+import { tokens } from '@/lib/theme'
 import { ErdView } from './ErdView'
 import { ImportCsvDialog } from './ImportCsvDialog'
 import { InlineRename } from './InlineRename'
@@ -17,15 +18,15 @@ import type { DbConnection, DbHistoryEntry, DbQueryResult, DbSchema, DbTable } f
 
 const theme = EditorView.theme(
   {
-    '&': { backgroundColor: 'transparent', color: 'var(--color-text, #e5e7eb)', fontSize: '12.5px', height: '100%' },
-    '.cm-content': { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', caretColor: '#fff' },
-    '.cm-gutters': { backgroundColor: 'transparent', color: '#6b7280', border: 'none' },
-    '.cm-activeLine': { backgroundColor: 'rgba(255,255,255,0.03)' },
+    '&': { backgroundColor: 'transparent', color: tokens.text, fontSize: '12.5px', height: '100%' },
+    '.cm-content': { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', caretColor: tokens.text },
+    '.cm-gutters': { backgroundColor: 'transparent', color: tokens.faint, border: 'none' },
+    '.cm-activeLine': { backgroundColor: tokens.activeLine },
     '.cm-activeLineGutter': { backgroundColor: 'transparent' },
     '&.cm-focused': { outline: 'none' },
-    '.cm-selectionBackground, &.cm-focused .cm-selectionBackground': { backgroundColor: 'rgba(124,156,255,0.25)' },
-    '.cm-tooltip': { backgroundColor: '#1f2430', border: '1px solid #2a2f3a', color: '#e5e7eb' },
-    '.cm-tooltip-autocomplete ul li[aria-selected]': { backgroundColor: 'rgba(124,156,255,0.3)' }
+    '.cm-selectionBackground, &.cm-focused .cm-selectionBackground': { backgroundColor: tokens.accentSelection },
+    '.cm-tooltip': { backgroundColor: tokens.panel2, border: `1px solid ${tokens.border}`, color: tokens.text },
+    '.cm-tooltip-autocomplete ul li[aria-selected]': { backgroundColor: tokens.accentSelection }
   },
   { dark: true }
 )
@@ -125,7 +126,20 @@ export function DataPane({ workspaceId }: { workspaceId: string }): React.JSX.El
     setTabs((list) => [...list, t])
     setActiveId(t.id)
   }
+  const notify = useApp((s) => s.notify)
   const closeTab = (id: string): void => {
+    // A tab with SQL in it can come back: keep the list as it was and offer Undo.
+    const before = tabs
+    const closed = tabs.find((t) => t.id === id)
+    if (closed?.sql.trim())
+      notify({
+        kind: 'info',
+        text: `Closed ${closed.title}`,
+        undo: () => {
+          setTabs(before)
+          setActiveId(id)
+        }
+      })
     setTabs((list) => {
       const next = list.filter((t) => t.id !== id)
       if (!next.length) next.push({ id: Math.random().toString(36).slice(2, 8), title: 'Query 1', sql: '' })
@@ -361,7 +375,7 @@ export function DataPane({ workspaceId }: { workspaceId: string }): React.JSX.El
   if (!connections.length)
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-[13px] text-muted">
-        <Database size={28} className="text-muted/60" />
+        <Database size={28} className="text-muted" />
         <div>No database connections in {space?.name ?? 'this space'} yet.</div>
         <Button onClick={() => spaceId && openSettings({ scope: 'space', spaceId, page: 'databases' })}>
           <SettingsIcon size={13} /> Add a connection
@@ -401,7 +415,7 @@ export function DataPane({ workspaceId }: { workspaceId: string }): React.JSX.El
           {schema && !schema.tables.length && <div className="px-2 py-2 text-muted">Nothing visible to this user.</div>}
           {bySchema.map(([schemaName, tables]) => (
             <div key={schemaName}>
-              <div className="px-2 pt-2 text-[10px] font-semibold uppercase tracking-wide text-muted">
+              <div className="px-2 pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted">
                 {schemaName} <span className="font-normal">· {tables.length}</span>
               </div>
               {tables.map((t) => {
@@ -416,23 +430,23 @@ export function DataPane({ workspaceId }: { workspaceId: string }): React.JSX.El
                         <span className={clsx('truncate', t.readable === false && 'text-muted line-through decoration-muted/60')} title={t.readable === false ? 'This user has no SELECT privilege on it' : undefined}>
                           {t.name}
                         </span>
-                        {t.rows !== undefined && <span className="ml-auto shrink-0 pl-1 text-[10px] text-muted">{fmtRows(t.rows)}</span>}
+                        {t.rows !== undefined && <span className="ml-auto shrink-0 pl-1 text-[11px] text-muted">{fmtRows(t.rows)}</span>}
                       </button>
                       {conn?.allowWrites && t.kind === 'table' && (
-                        <button className="hidden rounded p-0.5 text-muted hover:text-text group-hover:block" title="Import a CSV into this table" onClick={() => setImportFor(t)}>
+                        <IconButton label="Import a CSV into this table" className="reveal-on-focus opacity-0 group-hover:opacity-100" onClick={() => setImportFor(t)}>
                           <Upload size={10} />
-                        </button>
+                        </IconButton>
                       )}
-                      <button className="hidden rounded p-0.5 text-muted hover:text-text group-hover:block" title="Preview: first 100 rows" onClick={() => preview(t)}>
+                      <IconButton label="Preview: first 100 rows" className="reveal-on-focus opacity-0 group-hover:opacity-100" onClick={() => preview(t)}>
                         <Play size={10} />
-                      </button>
+                      </IconButton>
                     </div>
                     {isOpen &&
                       (t.columns ?? []).map((c) => (
                         <div key={c.name} className="flex items-center gap-1 rounded py-0.5 pl-7 pr-2 text-[11px] hover:bg-panel-2" title={`${c.type}${c.nullable ? '' : ' NOT NULL'}${c.default ? ` default ${c.default}` : ''}${c.fk ? `\n→ ${c.fk.table}.${c.fk.column}` : ''}`} onClick={() => viewRef.current?.dispatch({ changes: { from: viewRef.current.state.selection.main.head, insert: c.name }, selection: { anchor: viewRef.current.state.selection.main.head + c.name.length } })}>
                           {c.pk ? <Key size={9} className="shrink-0 text-warn" /> : c.fk ? <Link2 size={9} className="shrink-0 text-accent" /> : <span className="w-[9px] shrink-0" />}
                           <span className="truncate">{c.name}</span>
-                          <span className="ml-auto shrink-0 pl-1 font-mono text-[10px] text-muted">{c.type}</span>
+                          <span className="ml-auto shrink-0 pl-1 font-mono text-[11px] text-muted">{c.type}</span>
                         </div>
                       ))}
                   </div>
@@ -468,14 +482,14 @@ export function DataPane({ workspaceId }: { workspaceId: string }): React.JSX.El
                       {t.title}
                     </button>
                   )}
-                  <button className="rounded p-0.5 text-muted opacity-0 hover:text-text group-hover:opacity-100" onClick={() => closeTab(t.id)}>
+                  <IconButton label={`Close ${t.title}`} className="reveal-on-focus opacity-0 group-hover:opacity-100" onClick={() => closeTab(t.id)}>
                     <X size={10} />
-                  </button>
+                  </IconButton>
                 </div>
               ))}
-              <button className="rounded p-1 text-muted hover:text-text" title="New query tab" onClick={() => newTab()}>
+              <IconButton label="New query tab" onClick={() => newTab()}>
                 <Plus size={12} />
-              </button>
+              </IconButton>
             </div>
             {/* toolbar */}
             <div className="flex items-center gap-1.5 border-b border-border px-2 py-1.5">
@@ -523,7 +537,7 @@ export function DataPane({ workspaceId }: { workspaceId: string }): React.JSX.El
                         }}
                       >
                         <div className="truncate font-mono text-[11px]">{h.sql.replace(/\s+/g, ' ')}</div>
-                        <div className="text-[10px] text-muted">
+                        <div className="text-[11px] text-muted">
                           {new Date(h.at).toLocaleString()} · {h.error ? <span className="text-danger">{h.error.slice(0, 80)}</span> : `${h.rowCount ?? 0} rows · ${h.ms} ms`}
                           {h.source === 'agent' ? ' · agent' : ''}
                         </div>
@@ -533,9 +547,9 @@ export function DataPane({ workspaceId }: { workspaceId: string }): React.JSX.El
                 )}
               </div>
               <span className="ml-auto flex items-center gap-1.5 text-[11px] text-muted">
-                {conn?.allowWrites ? <span className="rounded bg-warn/15 px-1 py-px text-[10px] uppercase tracking-wide text-warn">writes allowed</span> : <span className="rounded bg-ok/15 px-1 py-px text-[10px] uppercase tracking-wide text-ok">read-only</span>}
+                {conn?.allowWrites ? <span className="rounded bg-warn/15 px-1 py-px text-[11px] uppercase tracking-wide text-warn">writes allowed</span> : <span className="rounded bg-ok/15 px-1 py-px text-[11px] uppercase tracking-wide text-ok">read-only</span>}
                 {editable && (
-                  <span className="rounded bg-accent/15 px-1 py-px text-[10px] uppercase tracking-wide text-accent" title={`Double-click a cell to edit; rows are keyed by ${editable.pk.join(', ')}`}>
+                  <span className="rounded bg-accent/15 px-1 py-px text-[11px] uppercase tracking-wide text-accent" title={`Double-click a cell to edit; rows are keyed by ${editable.pk.join(', ')}`}>
                     editable
                   </span>
                 )}
@@ -623,9 +637,9 @@ export function DataPane({ workspaceId }: { workspaceId: string }): React.JSX.El
               <div className="max-h-[35%] shrink-0 overflow-auto border-t border-border bg-bg px-3 py-2">
                 <div className="mb-1 flex items-center text-[11px] text-muted">
                   <span className="font-mono">{panel.title}</span>
-                  <button className="ml-auto rounded p-0.5 hover:text-text" onClick={() => setPanel(null)}>
+                  <IconButton label="Close cell viewer" className="ml-auto" onClick={() => setPanel(null)}>
                     <X size={12} />
-                  </button>
+                  </IconButton>
                 </div>
                 <pre className="whitespace-pre-wrap break-words font-mono text-[11px]">{panel.text}</pre>
               </div>

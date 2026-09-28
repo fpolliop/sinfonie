@@ -2,7 +2,8 @@ import React, { useEffect, useState } from 'react'
 import { Coffee } from 'lucide-react'
 import clsx from 'clsx'
 import { api } from '@/lib/api'
-import { Button } from './ui'
+import { Button, IconButton } from './ui'
+import { useGuided } from '@/lib/guided'
 
 /**
  * Keep the Mac awake while an agent works, like the `caffeinate` command. App-wide: every button reflects
@@ -15,12 +16,13 @@ export function CaffeineButton({ compact }: { compact?: boolean }): React.JSX.El
     return api.on('power:changed', setOn)
   }, [])
   const toggle = (): void => void api.invoke('power:set').then(setOn)
-  const title = on ? 'Keeping your Mac awake. Click to let it sleep normally.' : 'Keep your Mac awake while the agent works (like caffeinate).'
+  const guided = useGuided()
+  const title = on ? 'Keeping your Mac awake. Click to let it sleep normally.' : guided ? 'Keep your Mac awake while the assistant works.' : 'Keep your Mac awake while the agent works (like caffeinate).'
   if (compact) {
     return (
-      <button onClick={toggle} title={title} aria-pressed={on} className={clsx('rounded-md p-1', on ? 'text-accent' : 'text-muted hover:bg-panel-2 hover:text-text')}>
+      <IconButton label={title} onClick={toggle} aria-pressed={on} className={clsx('p-1', on && 'text-accent hover:text-accent')}>
         <Coffee size={13} />
-      </button>
+      </IconButton>
     )
   }
   return (

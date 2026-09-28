@@ -108,16 +108,16 @@ export function AgentRuns({ agent }: { agent: AgentSpec }): React.JSX.Element {
                   {!r.endedAt ? <Loader2 size={12} className="shrink-0 animate-spin text-warn" /> : r.error ? <XCircle size={12} className="shrink-0 text-danger" /> : <CheckCircle2 size={12} className="shrink-0 text-ok" />}
                   <span className="w-20 shrink-0 text-muted">{TRIGGER_LABEL[r.trigger]}</span>
                   <span className="min-w-0 flex-1 truncate">{r.error ?? firstLine(r.report) ?? r.prompt}</span>
-                  {ws && <span className="shrink-0 text-[10px] text-muted">{ws.name}</span>}
-                  <span className="shrink-0 text-[10px] text-muted">{when(r.startedAt)}{r.endedAt ? ` · ${duration(r.startedAt, r.endedAt)}` : ''}</span>
+                  {ws && <span className="shrink-0 text-[11px] text-muted">{ws.name}</span>}
+                  <span className="shrink-0 text-[11px] text-muted">{when(r.startedAt)}{r.endedAt ? ` · ${duration(r.startedAt, r.endedAt)}` : ''}</span>
                 </button>
                 {isOpen && (
                   <div className="border-t border-border px-3 py-2 text-[12px]">
-                    <div className="mb-1 text-[10px] uppercase tracking-wide text-muted">Task</div>
+                    <div className="mb-1 text-[11px] uppercase tracking-wide text-muted">Task</div>
                     <pre className="mb-2 max-h-40 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-bg p-2 font-mono text-[11px]">{r.prompt}</pre>
                     {r.report && (
                       <>
-                        <div className="mb-1 text-[10px] uppercase tracking-wide text-muted">Report</div>
+                        <div className="mb-1 text-[11px] uppercase tracking-wide text-muted">Report</div>
                         <div className="rounded-md border border-border bg-bg p-2">
                           <Markdown text={r.report.slice(0, 40_000)} />
                         </div>

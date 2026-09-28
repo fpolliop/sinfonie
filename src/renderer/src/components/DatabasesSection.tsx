@@ -3,8 +3,13 @@ import clsx from 'clsx'
 import { Plus, Database, Pencil, Trash2, PlugZap, Cloud, KeyRound, Server } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
-import { Badge, Button, Dialog, Field, inputCls } from './ui'
+import { Badge, Button, Dialog, Field, IconButton, inputCls } from './ui'
 import type { DbConnection, DbSecrets } from '@shared/types'
+
+/** A test or validation result, kept structured so its colour never depends on parsing the text. */
+type DbStatus = { tone: 'ok' | 'error' | 'pending'; text: string }
+const toneCls = (t: DbStatus['tone']): string => (t === 'ok' ? 'text-ok' : t === 'error' ? 'text-danger' : 'text-muted')
+const testStatus = (r: { ok: boolean; message: string; ms: number }): DbStatus => ({ tone: r.ok ? 'ok' : 'error', text: `${r.ok ? 'Connected.' : 'Could not connect:'} ${r.message} (${(r.ms / 1000).toFixed(1)}s)` })
 
 const blank = (): DbConnection => ({ id: '', name: '', kind: 'postgres', database: '', user: '', createdAt: '', tunnel: { kind: 'none' } })
 
@@ -14,21 +19,20 @@ export function DatabasesSection({ spaceId }: { spaceId: string }): React.JSX.El
   const [list, setList] = useState<DbConnection[]>([])
   const [editing, setEditing] = useState<DbConnection | null>(null)
   const [removing, setRemoving] = useState<string | null>(null)
-  const [testing, setTesting] = useState<Record<string, string>>({})
+  const [testing, setTesting] = useState<Record<string, DbStatus>>({})
   const load = (): void => {
     api.invoke('db:list', spaceId).then(setList).catch((err) => setError(String(err)))
   }
   useEffect(load, [spaceId])
   const test = async (c: DbConnection): Promise<void> => {
-    setTesting((t) => ({ ...t, [c.id]: 'Testing…' }))
+    setTesting((t) => ({ ...t, [c.id]: { tone: 'pending', text: 'Testing…' } }))
     const r = await api.invoke('db:test', spaceId, c).catch((err) => ({ ok: false, message: String(err), ms: 0 }))
-    setTesting((t) => ({ ...t, [c.id]: `${r.ok ? '✓' : '✗'} ${r.message} (${(r.ms / 1000).toFixed(1)}s)` }))
+    setTesting((t) => ({ ...t, [c.id]: testStatus(r) }))
   }
   return (
     <div className="space-y-4">
       <div>
-        <div className="text-[14px] font-semibold">Databases for this space</div>
-        <p className="mt-1 text-[12px] text-muted">Postgres, MySQL, SQLite, MongoDB and BigQuery: directly, through an SSH tunnel, or through Cloud SQL with your Google account. The Data tab of every workspace in this space can browse and query them, and agents get read-only tools. Passwords are stored in the macOS keychain.</p>
+        <p className="text-[12px] text-muted">Postgres, MySQL, SQLite, MongoDB and BigQuery: directly, through an SSH tunnel, or through Cloud SQL with your Google account. The Data tab of every workspace in this space can browse and query them, and agents get read-only tools. Passwords are stored in the macOS keychain.</p>
       </div>
       {list.length === 0 && <div className="rounded-lg border border-dashed border-border px-3 py-6 text-center text-[12px] text-muted">No connections yet.</div>}
       <div className="space-y-2">
@@ -60,9 +64,9 @@ export function DatabasesSection({ spaceId }: { spaceId: string }): React.JSX.El
                 <Button size="sm" variant="ghost" onClick={() => void test(c)} title="Open a connection, run SELECT 1, close it">
                   <PlugZap size={12} /> Test
                 </Button>
-                <Button size="sm" variant="ghost" onClick={() => setEditing(c)}>
+                <IconButton label={`Edit ${c.name}`} onClick={() => setEditing(c)}>
                   <Pencil size={12} />
-                </Button>
+                </IconButton>
                 {removing === c.id ? (
                   <>
                     <Button size="sm" variant="danger" onClick={() => api.invoke('db:remove', spaceId, c.id).then(load).catch((err) => setError(String(err)))}>
@@ -73,13 +77,13 @@ export function DatabasesSection({ spaceId }: { spaceId: string }): React.JSX.El
                     </Button>
                   </>
                 ) : (
-                  <Button size="sm" variant="ghost" onClick={() => setRemoving(c.id)} title="Remove this connection">
+                  <IconButton label={`Remove ${c.name}`} className="hover:text-danger" onClick={() => setRemoving(c.id)}>
                     <Trash2 size={12} />
-                  </Button>
+                  </IconButton>
                 )}
               </span>
             </div>
-            {testing[c.id] && <div className={clsx('mt-1 text-[11px]', testing[c.id].startsWith('✓') ? 'text-ok' : testing[c.id].startsWith('✗') ? 'text-danger' : 'text-muted')}>{testing[c.id]}</div>}
+            {testing[c.id] && <div role="status" className={clsx('mt-1 break-words text-[11px]', toneCls(testing[c.id].tone))}>{testing[c.id].text}</div>}
           </div>
         ))}
       </div>
@@ -106,7 +110,7 @@ function ConnectionForm({ spaceId, initial, onClose, onSaved }: { spaceId: strin
   const [c, setC] = useState<DbConnection>({ ...initial, tunnel: initial.tunnel ?? { kind: 'none' } })
   const [secrets, setSecrets] = useState<DbSecrets>({})
   const [instances, setInstances] = useState<{ connectionName: string; name: string; engine: string; region: string }[] | null>(null)
-  const [status, setStatus] = useState<string | null>(null)
+  const [status, setStatus] = useState<DbStatus | null>(null)
   const [busy, setBusy] = useState<'test' | 'save' | null>(null)
   const tunnel = c.tunnel ?? { kind: 'none' as const }
   const set = (patch: Partial<DbConnection>): void => setC((x) => ({ ...x, ...patch }))
@@ -118,19 +122,19 @@ function ConnectionForm({ spaceId, initial, onClose, onSaved }: { spaceId: strin
       .then(setInstances)
       .catch((err) => {
         setInstances([])
-        setStatus(`Could not list Cloud SQL instances: ${err instanceof Error ? err.message : String(err)}`)
+        setStatus({ tone: 'error', text: `Could not list Cloud SQL instances: ${err instanceof Error ? err.message : String(err)}` })
       })
   }, [tunnel.kind, instances, spaceId])
   const test = async (): Promise<void> => {
     setBusy('test')
-    setStatus('Connecting…')
+    setStatus({ tone: 'pending', text: 'Connecting…' })
     const r = await api.invoke('db:test', spaceId, c, secrets).catch((err) => ({ ok: false, message: String(err), ms: 0 }))
-    setStatus(`${r.ok ? '✓' : '✗'} ${r.message} (${(r.ms / 1000).toFixed(1)}s)`)
+    setStatus(testStatus(r))
     setBusy(null)
   }
   const save = async (): Promise<void> => {
-    if (c.kind === 'sqlite' && !(c.path ?? '').trim()) return setStatus('✗ Choose the database file.')
-    if ((c.kind === 'postgres' || c.kind === 'mysql' || c.kind === 'mongodb') && !c.database.trim()) return setStatus('✗ Database name is required.')
+    if (c.kind === 'sqlite' && !(c.path ?? '').trim()) return setStatus({ tone: 'error', text: 'Choose the database file.' })
+    if ((c.kind === 'postgres' || c.kind === 'mysql' || c.kind === 'mongodb') && !c.database.trim()) return setStatus({ tone: 'error', text: 'Database name is required.' })
     setBusy('save')
     try {
       await api.invoke('db:save', spaceId, { ...c, name: c.name.trim() || c.database || c.path?.split('/').pop() || c.projectId || c.kind }, secrets)
@@ -314,7 +318,7 @@ function ConnectionForm({ spaceId, initial, onClose, onSaved }: { spaceId: strin
         <Button variant="ghost" disabled={busy !== null} onClick={() => void test()}>
           <PlugZap size={13} /> {busy === 'test' ? 'Connecting…' : 'Test connection'}
         </Button>
-        {status && <span className={clsx('text-[12px]', status.startsWith('✓') ? 'text-ok' : status.startsWith('✗') ? 'text-danger' : 'text-muted')}>{status}</span>}
+        {status && <span role="status" className={clsx('min-w-0 break-words text-[12px]', toneCls(status.tone))}>{status.text}</span>}
         <span className="ml-auto flex gap-2">
           <Button variant="ghost" onClick={onClose}>
             Cancel

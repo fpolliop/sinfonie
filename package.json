@@ -10,7 +10,7 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
-    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && node scripts/lint-ui.mjs",
     "postinstall": "electron-builder install-app-deps",
     "package": "electron-vite build && electron-builder --mac --publish never",
     "release": "electron-vite build && electron-builder --mac --publish always",
@@ -18,7 +18,8 @@
     "coupon": "node site/coupon.mjs",
     "feedback": "wrangler d1 execute sinfonie-feedback --remote --json --config site/wrangler.toml --command \"SELECT id, created_at, kind, source, count, app_version, email, substr(message,1,200) AS message FROM feedback ORDER BY id DESC LIMIT 50\"",
     "dev:fresh": "SINFONIE_USER_DATA=$HOME/.sinfonie-fresh electron-vite dev",
-    "relay:deploy": "wrangler deploy --config relay/wrangler.toml"
+    "relay:deploy": "wrangler deploy --config relay/wrangler.toml",
+    "lint:ui": "node scripts/lint-ui.mjs"
   },
   "build": {
     "appId": "dev.sinfonie.app",

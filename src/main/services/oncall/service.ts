@@ -761,6 +761,15 @@ export function remove(id: string): void {
   publish()
 }
 
+/** Puts back an incident removed a moment ago (the Undo on the removal toast). A no-op if it is still there. */
+export function restore(inc: Incident): void {
+  load()
+  if (data.incidents.some((i) => i.id === inc.id)) return
+  data.incidents.push(inc)
+  data.incidents.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+  publish()
+}
+
 /** One state write for a whole selection: status, severity, removal, or queueing triage. */
 export function bulk(ids: string[], op: OnCallBulkOp): number {
   load()

@@ -2,7 +2,8 @@ import React, { useState } from 'react'
 import { LifeBuoy, CheckCircle2, ExternalLink } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
-import { Button, Dialog, inputCls } from './ui'
+import { Button, Dialog, IconButton, inputCls } from './ui'
+import { friendlyError, rawMessage } from '@/lib/errors'
 
 /**
  * Guided mode: when the person is stuck (or the assistant hit something it may not do), send a short note to
@@ -30,7 +31,9 @@ function AskDialog({ workspaceId, prefill, onClose }: { workspaceId: string; pre
       const r = await api.invoke('guided:askTeammate', workspaceId, text)
       setSent({ url: r.url })
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      // The missing-channel message is already written for a person; anything else gets the plain version.
+      const raw = rawMessage(err)
+      setError(/^Nobody to ask yet/.test(raw) ? raw : friendlyError(err, 'Could not send this to your team. Check your connection and try again.'))
     } finally {
       setBusy(false)
     }
@@ -57,7 +60,7 @@ function AskDialog({ workspaceId, prefill, onClose }: { workspaceId: string; pre
         <div>
           <p className="mb-2 text-[12px] text-muted">This goes to your team's Slack channel, with the task name. Say what you are trying to do and where you are stuck.</p>
           <textarea autoFocus className={`${inputCls} mb-3 min-h-[100px]`} placeholder="e.g. I asked for a bigger checkout button but it looks the same. Can someone take a look?" value={text} onChange={(e) => setText(e.target.value)} />
-          {error && <div className="mb-3 rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-[12px] text-warn">{error}</div>}
+          {error && <div role="alert" className="mb-3 rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-[12px] text-warn">{error}</div>}
           <div className="flex justify-end gap-2">
             <Button onClick={onClose} disabled={busy}>
               Cancel
@@ -80,9 +83,9 @@ export function AskTeammateButton({ workspaceId }: { workspaceId: string }): Rea
     <AskTeammate
       workspaceId={workspaceId}
       trigger={(open) => (
-        <Button size="sm" variant="ghost" title="Send a question to your team" onClick={open}>
+        <IconButton label="Ask a teammate" className="px-1.5" onClick={open}>
           <LifeBuoy size={13} />
-        </Button>
+        </IconButton>
       )}
     />
   )

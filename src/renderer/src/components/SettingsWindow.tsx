@@ -1,14 +1,18 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { Plus, RefreshCw, Trash2, FolderGit2, Settings as SettingsIcon, Layers, Server, UserCircle2, Users, Plug, Ticket, GitPullRequest, MessageSquarePlus, Info, ChevronRight, Gauge, Siren, CircleDot, Hash, Activity, Cloud, Sparkles, Database, Gem, FileJson, Smartphone } from 'lucide-react'
+import { Plus, RefreshCw, Trash2, FolderGit2, Settings as SettingsIcon, Layers, Server, UserCircle2, Users, Plug, Ticket, GitPullRequest, MessageSquarePlus, Info, ChevronRight, Gauge, Siren, CircleDot, Hash, Activity, Cloud, Database, Gem, FileJson, Smartphone, X, Bot } from 'lucide-react'
 import { GcpSection } from './GcpSection'
 import { DatabasesSection } from './DatabasesSection'
 import { api } from '@/lib/api'
 import { useApp, type SettingsTarget, type AppPage, type SpacePage } from '@/stores/app'
-import { Badge, Button, Field, hasOpenDialog, inputCls } from './ui'
+import { Badge, Button, Field, IconButton, SectionHeader, Segmented, Toggle, hasOpenDialog, inputCls, useFocusTrap } from './ui'
+import { colorName } from './colorNames'
+import { CrossLink } from './CrossLink'
+import { FeedbackPanel } from './FeedbackDialog'
 import { shortPath } from '@/lib/format'
 import { PERMISSION_MODES, SPACE_COLORS, SPACE_FILE, jiraConnectionFor, linearConnectionFor, type AppMode, type Space } from '@shared/types'
 import { useGuided } from '@/lib/guided'
+import { friendlyError } from '@/lib/errors'
 import { openMaestro } from '@/stores/maestro'
 import { GuidedRepoSetup, GuidedSpaceSection } from './GuidedSetup'
 import { JiraSection } from './JiraSection'
@@ -27,6 +31,7 @@ import { ImportSpaceDialog, SharedSpaceSection } from './SharedSpace'
 import { UsagePage } from './UsagePage'
 import { OnCallSettings } from './OnCallSettings'
 import { ACP_ENGINES, VENDORS } from '@shared/types'
+import { tokens } from '@/lib/theme'
 
 /**
  * One settings window for everything. The rail on the left separates what
@@ -36,17 +41,17 @@ import { ACP_ENGINES, VENDORS } from '@shared/types'
 /** The app-level pages, grouped as the rail shows them. The single Integrations page carries its own tabs. */
 const APP_PAGES: { id: AppPage; label: string; icon: React.ReactNode; desc: string; group: string }[] = [
   { id: 'preferences', label: 'Preferences', icon: <SettingsIcon size={14} />, desc: 'How Sinfonie presents itself to you.', group: 'You' },
-  { id: 'general', label: 'General', icon: <SettingsIcon size={14} />, desc: 'Defaults every space starts from: engine, models, permission mode, folders, ports.', group: 'Spaces' },
-  { id: 'spaces', label: 'Spaces', icon: <Layers size={14} />, desc: 'Create and remove spaces. Each space has its own pages below.', group: 'Spaces' },
-  { id: 'repos', label: 'Repositories', icon: <FolderGit2 size={14} />, desc: 'Every repository the app knows, and which space each belongs to.', group: 'Spaces' },
-  { id: 'accounts', label: 'Accounts', icon: <UserCircle2 size={14} />, desc: 'Logins for the Anthropic, OpenAI and xAI agents (Gemini uses an API key from Model providers). Several per vendor; spaces and workspaces pick one.', group: 'Agents' },
+  { id: 'general', label: 'Agents & models', icon: <Bot size={14} />, desc: 'App-wide defaults every space starts from: engine, models, budget, editor suggestions, permission mode, folders, ports.', group: 'Agents' },
+  { id: 'accounts', label: 'Accounts', icon: <UserCircle2 size={14} />, desc: 'Logins for the Anthropic, OpenAI and xAI agents. Gemini uses an API key from Model providers.', group: 'Agents' },
   { id: 'providers', label: 'Model providers', icon: <Server size={14} />, desc: 'API keys and local servers for the native engine. Shared by all spaces.', group: 'Agents' },
   { id: 'crew', label: 'Crew', icon: <Users size={14} />, desc: 'Which agents orchestrators delegate to, and on which model. Agents are built under Agents in the sidebar.', group: 'Agents' },
   { id: 'resources', label: 'Resources', icon: <Gauge size={14} />, desc: 'Memory per session, subagent and session limits, and what happens under pressure.', group: 'Agents' },
   { id: 'usage', label: 'Usage', icon: <Activity size={14} />, desc: 'Subscription windows per account, spend per day, and where it went.', group: 'Agents' },
-  { id: 'integrations', label: 'Integrations', icon: <Plug size={14} />, desc: 'Jira, Linear, Slack, Google Cloud and MCP servers for every space. Spaces can connect their own on their pages.', group: 'Connect' },
-  { id: 'oncall', label: 'On call', icon: <Siren size={14} />, desc: 'Slack channels to watch, the triage agent, and how it drafts replies.', group: 'Connect' },
-  { id: 'phone', label: 'Devices', icon: <Smartphone size={14} />, desc: 'Pair your phone or tablet to continue conversations and get notified when an agent needs you.', group: 'Connect' },
+  { id: 'integrations', label: 'Integrations', icon: <Plug size={14} />, desc: 'Jira, Linear, Slack, Google Cloud and MCP servers for every space. Spaces can connect their own on their pages.', group: 'Integrations' },
+  { id: 'oncall', label: 'On call', icon: <Siren size={14} />, desc: 'Slack channels to watch, the triage agent, and how it drafts replies.', group: 'Integrations' },
+  { id: 'phone', label: 'Devices', icon: <Smartphone size={14} />, desc: 'Pair your phone or tablet to continue conversations and get notified when an agent needs you.', group: 'Integrations' },
+  { id: 'spaces', label: 'Spaces', icon: <Layers size={14} />, desc: 'Create and remove spaces. Each space has its own pages in the list on the left.', group: 'Spaces' },
+  { id: 'repos', label: 'Repositories', icon: <FolderGit2 size={14} />, desc: 'Every repository the app knows, and which space each belongs to.', group: 'Spaces' },
   { id: 'plan', label: 'Plan', icon: <Gem size={14} />, desc: 'Your Sinfonie account and plan. Agent subscriptions stay with their vendors.', group: 'Account' },
   { id: 'feedback', label: 'Feedback & diagnostics', icon: <MessageSquarePlus size={14} />, desc: 'Send feedback, review captured errors, control crash reports.', group: 'Account' },
   { id: 'about', label: 'About & updates', icon: <Info size={14} />, desc: 'Version, links, and update checks.', group: 'Account' }
@@ -93,8 +98,10 @@ const SPACE_PAGES: { id: SpacePage; label: string; icon: React.ReactNode; desc: 
 
 export function SettingsWindow({ target, onClose }: { target: SettingsTarget; onClose: () => void }): React.JSX.Element {
   const { spaces, openSettings } = useApp()
-  const setAssistantOpen = useApp((st) => st.setAssistantOpen)
   const guided = useGuided()
+  const boxRef = useRef<HTMLDivElement>(null)
+  // Focus moves into the window on open, Tab stays inside it, and focus returns to where it was on close.
+  useFocusTrap(boxRef)
   const space = target.scope === 'space' ? spaces.find((s) => s.id === target.spaceId) : undefined
   // Guided mode shows five pages; anything else the app tries to open lands on Preferences.
   useEffect(() => {
@@ -123,45 +130,45 @@ export function SettingsWindow({ target, onClose }: { target: SettingsTarget; on
   const page = (target.scope === 'app' ? pages.find((p) => p.id === railFor(target.page)) ?? APP_PAGES.find((p) => p.id === railFor(target.page)) : SPACE_PAGES.find((p) => p.id === target.page)) ?? APP_PAGES[0]
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 no-drag" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="flex h-[84vh] w-[980px] max-w-[95vw] overflow-hidden rounded-xl border border-border bg-panel shadow-2xl">
+      <div ref={boxRef} role="dialog" aria-modal="true" aria-label="Settings" tabIndex={-1} className="flex h-[84vh] w-[980px] max-w-[95vw] overflow-hidden rounded-xl border border-border bg-panel shadow-2xl outline-none">
         {/* rail */}
-        <nav className="flex w-[232px] shrink-0 flex-col overflow-auto border-r border-border bg-bg/60 p-2">
+        <nav aria-label="Settings pages" className="flex w-[232px] shrink-0 flex-col overflow-auto border-r border-border bg-bg/60 p-2">
           {pages.map((p, i) => (
             <React.Fragment key={p.id}>
               {pages[i - 1]?.group !== p.group && <div className={clsx('px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-muted', i === 0 ? 'pt-2' : 'mt-3')}>{p.group}</div>}
               <NavItem active={target.scope === 'app' && railFor(target.page) === p.id} icon={p.icon} label={p.label} onClick={() => openSettings({ scope: 'app', page: p.id })} />
+              {/* Each space's own pages sit right under the Spaces group. */}
+              {!guided && p.group === 'Spaces' && pages[i + 1]?.group !== 'Spaces' && (
+                <>
+                  <div className="mt-2 flex items-center px-2 pb-1 text-[11px] text-muted">
+                    Your spaces
+                    <IconButton label="New space" className="ml-auto" onClick={() => openSettings({ scope: 'app', page: 'spaces' })}>
+                      <Plus size={13} />
+                    </IconButton>
+                  </div>
+                  {spaces.length === 0 && <div className="px-2 py-1 text-[11px] text-muted">No spaces yet.</div>}
+                  {spaces.map((s) => {
+                    const open = target.scope === 'space' && target.spaceId === s.id
+                    return (
+                      <div key={s.id}>
+                        <NavItem active={open && target.page === 'general'} icon={<span className="h-2.5 w-2.5 rounded-full" style={{ background: s.color }} />} label={s.name} chevron={open} onClick={() => openSettings({ scope: 'space', spaceId: s.id, page: 'general' })} />
+                        {open && (
+                          <div className="mb-1 ml-3 border-l border-border pl-1">
+                            {SPACE_PAGES.map((sp, j) => (
+                              <React.Fragment key={sp.id}>
+                                {sp.group && SPACE_PAGES[j - 1]?.group !== sp.group && <div className="mt-1.5 px-2 pb-0.5 text-[11px] font-semibold uppercase tracking-wide text-muted">{sp.group}</div>}
+                                <NavItem small active={target.page === sp.id} icon={sp.icon} label={sp.label} onClick={() => openSettings({ scope: 'space', spaceId: s.id, page: sp.id })} />
+                              </React.Fragment>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </>
+              )}
             </React.Fragment>
           ))}
-          {!guided && (
-          <div className="mt-3 flex items-center px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-muted">
-            Spaces
-            <button className="ml-auto rounded p-0.5 hover:bg-panel-2 hover:text-text" title="Ask Maestro (⇧⌘A)" onClick={() => setAssistantOpen(true)}>
-            <Sparkles size={13} />
-          </button>
-          <button className="rounded p-0.5 hover:bg-panel-2 hover:text-text" title="New space" onClick={() => openSettings({ scope: 'app', page: 'spaces' })}>
-              <Plus size={12} />
-            </button>
-          </div>
-          )}
-          {!guided && spaces.length === 0 && <div className="px-2 py-1 text-[11px] text-muted">No spaces yet.</div>}
-          {!guided && spaces.map((s) => {
-            const open = target.scope === 'space' && target.spaceId === s.id
-            return (
-              <div key={s.id}>
-                <NavItem active={open && target.page === 'general'} icon={<span className="h-2.5 w-2.5 rounded-full" style={{ background: s.color }} />} label={s.name} chevron={open} onClick={() => openSettings({ scope: 'space', spaceId: s.id, page: 'general' })} />
-                {open && (
-                  <div className="mb-1 ml-3 border-l border-border pl-1">
-                    {SPACE_PAGES.map((p, i) => (
-                      <React.Fragment key={p.id}>
-                        {p.group && SPACE_PAGES[i - 1]?.group !== p.group && <div className="mt-1.5 px-2 pb-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted">{p.group}</div>}
-                        <NavItem small active={target.page === p.id} icon={p.icon} label={p.label} onClick={() => openSettings({ scope: 'space', spaceId: s.id, page: p.id })} />
-                      </React.Fragment>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )
-          })}
         </nav>
         {/* content */}
         <div className="flex min-w-0 flex-1 flex-col">
@@ -171,13 +178,13 @@ export function SettingsWindow({ target, onClose }: { target: SettingsTarget; on
                 {target.scope === 'app' ? (
                   <span className="rounded bg-accent/15 px-1.5 py-px text-accent">Application</span>
                 ) : (
-                  <span className="inline-flex items-center gap-1.5 rounded px-1.5 py-px" style={{ background: (space?.color ?? '#888') + '26', color: space?.color }}>
+                  <span className="inline-flex items-center gap-1.5 rounded px-1.5 py-px" style={{ background: (space?.color ?? tokens.muted) + '26', color: space?.color }}>
                     <span className="h-2 w-2 rounded-full" style={{ background: space?.color }} /> Space · {space?.name}
                   </span>
                 )}
                 <span className="text-muted">/ {page.label}</span>
               </div>
-              <h2 className="text-[16px] font-semibold">{page.label}</h2>
+              <h2 className="text-[15px] font-semibold">{page.label}</h2>
               <p className="text-[12px] text-muted">{page.desc}</p>
               {target.scope === 'space' && 'overrides' in page && page.overrides && (
                 <p className="mt-1 text-[11px] text-muted">
@@ -188,9 +195,9 @@ export function SettingsWindow({ target, onClose }: { target: SettingsTarget; on
                 </p>
               )}
             </div>
-            <button className="text-muted hover:text-text" onClick={onClose} aria-label="Close">
-              ✕
-            </button>
+            <IconButton label="Close" onClick={onClose}>
+              <X size={14} />
+            </IconButton>
           </header>
           <div className="flex-1 overflow-auto px-6 py-4">{target.scope === 'app' ? <AppPageView key={target.page} page={target.page} /> : space ? <SpacePageView key={space.id} space={space} page={target.page} /> : null}</div>
         </div>
@@ -199,9 +206,10 @@ export function SettingsWindow({ target, onClose }: { target: SettingsTarget; on
   )
 }
 
-/** The mode switch lives here for guided users; expert users find the same control at the top of General. */
+/** The mode switch: one place for it, on Preferences, in both modes. */
 function ModeField(): React.JSX.Element {
   const mode = useApp((s) => s.settings.mode ?? 'expert')
+  const guided = mode === 'guided'
   const go = useGo()
   const pick = (m: AppMode): void => void go(() => api.invoke('settings:update', { mode: m }))
   return (
@@ -209,7 +217,7 @@ function ModeField(): React.JSX.Element {
       <div className="flex flex-col gap-1.5">
         {(
           [
-            { id: 'expert', title: 'I write code', text: 'Repositories, branches, terminals, diffs, pull requests.' },
+            { id: 'expert', title: 'I write code', text: guided ? 'The full developer toolbox: code, terminals and reviews.' : 'Repositories, branches, terminals, diffs, pull requests.' },
             { id: 'guided', title: 'I build with AI, I don’t write code', text: 'Describe what you want, watch the preview, send it for review.' }
           ] as { id: AppMode; title: string; text: string }[]
         ).map((o) => (
@@ -249,11 +257,18 @@ function NotificationsField(): React.JSX.Element {
   }
   return (
     <Field label="Notifications" hint={state === 'denied' ? 'macOS is blocking notifications for Sinfonie. Allow them under System Settings → Notifications → Sinfonie, then switch this on.' : 'A notification when a turn finishes while Sinfonie is in the background. macOS asks for permission the first time you switch this on.'}>
-      <label className="flex items-center gap-2 text-[13px]">
-        <input type="checkbox" checked={enabled && state === 'granted'} disabled={state === 'unsupported'} onChange={(e) => void toggle(e.target.checked)} />
-        Tell me when a turn finishes in the background
-      </label>
+      <Toggle checked={enabled && state === 'granted'} disabled={state === 'unsupported'} onChange={(v) => void toggle(v)} label="Tell me when a turn finishes in the background" />
     </Field>
+  )
+}
+
+/** The long explanation behind a short hint, one click away. Sits outside any <label> so opening it never flips a switch. */
+function LearnMore({ children }: { children: React.ReactNode }): React.JSX.Element {
+  return (
+    <details className="ml-10 mt-0.5 text-[11px] text-muted">
+      <summary className="w-fit cursor-pointer select-none text-accent hover:underline">Learn more</summary>
+      <p className="mt-1">{children}</p>
+    </details>
   )
 }
 
@@ -275,7 +290,7 @@ function useGo(): (fn: () => Promise<unknown>) => Promise<void> {
     try {
       await fn()
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(friendlyError(err))
     }
   }
 }
@@ -292,7 +307,6 @@ function AppPageView({ page }: { page: AppPage }): React.JSX.Element {
     case 'general':
       return (
         <div className="max-w-[640px]">
-          <ModeField />
           <Field label="Engine" hint="Which runtime drives chats. Spaces can override it.">
             <EngineSelect value={settings.engine ?? 'claude-code'} onChange={(engine) => go(() => update({ engine: engine as typeof settings.engine }))} />
           </Field>
@@ -311,32 +325,27 @@ function AppPageView({ page }: { page: AppPage }): React.JSX.Element {
           )}
           {(settings.engine ?? 'claude-code') === 'claude-code' && (
             <>
-          <label className="mb-3 flex items-start gap-2 text-[13px]">
-            <input type="checkbox" className="mt-0.5" checked={Boolean(settings.budgetMode)} onChange={(e) => go(() => update({ budgetMode: e.target.checked }))} />
-            <span>
-              Budget mode by default
-              <span className="block text-[11px] text-muted">For limited subscriptions: Sonnet as orchestrator, low reasoning effort, at most two subagents, reviews on Sonnet, and 60 tool calls per message before the agent stops and reports. Spaces can override it.</span>
-            </span>
-          </label>
-          <label className="mb-3 flex items-start gap-2 text-[13px]">
-            <input type="checkbox" className="mt-0.5" checked={Boolean(settings.leanMode)} onChange={(e) => go(() => update({ leanMode: e.target.checked }))} />
-            <span>
-              Lean mode by default
-              <span className="block text-[11px] text-muted">The fewest tokens that still get the job done: one Sonnet agent with no crew or subagents, no browser, notes or web tools, shell output cut to the last lines, 25 tool calls per message before it stops and reports, reviews capped at 30 turns and one fix round. Overrides Budget mode. Spaces can override it.</span>
-            </span>
-          </label>
+          <div className="mb-3">
+            <Toggle checked={Boolean(settings.budgetMode)} onChange={(v) => go(() => update({ budgetMode: v }))} label="Budget mode by default" hint="Fewer, cheaper agents for limited subscriptions. Spaces can override it." />
+            <LearnMore>Sonnet as orchestrator, low reasoning effort, at most two subagents, reviews on Sonnet, and 60 tool calls per message before the agent stops and reports.</LearnMore>
+          </div>
+          <div className="mb-3">
+            <Toggle checked={Boolean(settings.leanMode)} onChange={(v) => go(() => update({ leanMode: v }))} label="Lean mode by default" hint="The fewest tokens that still get the job done. Overrides Budget mode." />
+            <LearnMore>One Sonnet agent with no crew or subagents, no browser, notes or web tools, shell output cut to the last lines, 25 tool calls per message before it stops and reports, reviews capped at 30 turns and one fix round. Spaces can override it.</LearnMore>
+          </div>
             </>
           )}
-          <Field label="Inline suggestions in the editor" hint="Ghost text while you type in the Code tab, written by a small fast model from Model providers (a local model works). Tab accepts, Esc dismisses. The sparkle button in the editor toggles it too.">
-            <div className="flex items-center gap-2">
-              <label className="flex shrink-0 items-center gap-2 text-[13px]">
-                <input type="checkbox" checked={Boolean(settings.completions?.enabled)} onChange={(e) => go(() => update({ completions: { ...(settings.completions ?? {}), enabled: e.target.checked } }))} /> On
-              </label>
+          {/* Not a Field: a <label> around the switch and the select would make any click on it flip the switch. */}
+          <div className="mb-3">
+            <div className="mb-1 text-[12px] font-medium text-muted">Inline suggestions in the editor</div>
+            <div className="flex items-center gap-3">
+              <Toggle checked={Boolean(settings.completions?.enabled)} onChange={(v) => go(() => update({ completions: { ...(settings.completions ?? {}), enabled: v } }))} label="On" />
               <div className="min-w-0 flex-1">
                 <NativeModelSelect value={settings.completions?.model ?? ''} onChange={(model) => go(() => update({ completions: { enabled: settings.completions?.enabled ?? false, model } }))} />
               </div>
             </div>
-          </Field>
+            <div className="mt-1 text-[11px] text-muted">Ghost text while you type in the Code tab, written by a small fast model from Model providers (a local model works). Tab accepts, Esc dismisses. The sparkle button in the editor toggles it too.</div>
+          </div>
           <Field label="Permission mode" hint="Each chat can still switch its own mode from the composer or with Shift+Tab.">
             <select className={inputCls} value={settings.permissionMode} onChange={(e) => go(() => update({ permissionMode: e.target.value as typeof settings.permissionMode }))}>
               {PERMISSION_MODES.map((m) => (
@@ -349,13 +358,9 @@ function AppPageView({ page }: { page: AppPage }): React.JSX.Element {
           <Field label="Workspaces folder" hint="Each workspace becomes <folder>/<name>/<repo> so all worktrees of a feature sit together.">
             <input className={inputCls} defaultValue={settings.workspacesRoot} onBlur={(e) => e.target.value !== settings.workspacesRoot && go(() => update({ workspacesRoot: e.target.value }))} />
           </Field>
-          <label className="mb-3 flex items-start gap-2 text-[13px]">
-            <input type="checkbox" className="mt-0.5" checked={Boolean(settings.browserEvaluate)} onChange={(e) => go(() => update({ browserEvaluate: e.target.checked }))} />
-            <span>
-              Let agents run JavaScript in the workspace browser (browser_evaluate)
-              <span className="block text-[11px] text-muted">Off by default: arbitrary scripts in a logged-in console are the sharpest tool in the box. Sensitive sites still ask first.</span>
-            </span>
-          </label>
+          <div className="mb-3">
+            <Toggle checked={Boolean(settings.browserEvaluate)} onChange={(v) => go(() => update({ browserEvaluate: v }))} label="Let agents run JavaScript in the workspace browser (browser_evaluate)" hint="Off by default: arbitrary scripts in a logged-in console are the sharpest tool in the box. Sensitive sites still ask first." />
+          </div>
           <Field label="Base port" hint="Each workspace gets a block of 10 ports starting here, exposed as SINFONIE_PORT.">
             <input type="number" className={clsx(inputCls, 'max-w-[200px]')} defaultValue={settings.basePort} onBlur={(e) => go(() => update({ basePort: Number(e.target.value) || 55000 }))} />
           </Field>
@@ -384,7 +389,6 @@ function AppPageView({ page }: { page: AppPage }): React.JSX.Element {
     case 'crew':
       return (
         <CrewSection
-          title="Crew"
           intro="Orchestrator = the chat model; these handle delegated subtasks on any vendor's model. Every space gets the ticked agents unless it switches some off on its own Crew page. Agents themselves are created and edited under Agents in the sidebar."
           orchestrator={{
             value: (settings.engine ?? 'claude-code') === 'native' ? settings.nativeModel ?? '' : (settings.engine ?? 'claude-code') === 'claude-code' ? settings.model : ((settings[`${settings.engine}Model` as 'codexModel'] as string | undefined) ?? ''),
@@ -402,14 +406,13 @@ function AppPageView({ page }: { page: AppPage }): React.JSX.Element {
       const tab: IntegrationTab = INTEGRATION_IDS.includes(page) ? (page as IntegrationTab) : 'jira'
       return (
         <div>
-          <div className="mb-4 flex items-center gap-1 rounded-lg bg-bg/60 p-1">
-            {INTEGRATION_TABS.map((t) => (
-              <button key={t.id} onClick={() => openSettings({ scope: 'app', page: t.id })} title={t.desc} className={clsx('flex h-[26px] items-center gap-1.5 rounded-md px-2.5 text-[12px] font-medium', tab === t.id ? 'bg-accent/15 text-accent' : 'text-muted hover:bg-panel-2 hover:text-text')}>
-                {t.icon}
-                {t.label}
-              </button>
-            ))}
-          </div>
+          <Segmented
+            className="mb-2"
+            value={tab}
+            onChange={(id) => openSettings({ scope: 'app', page: id })}
+            options={INTEGRATION_TABS.map((t) => ({ id: t.id, label: <span className="flex items-center gap-1.5">{t.icon}{t.label}</span> }))}
+          />
+          <p className="mb-4 text-[11px] text-muted">{INTEGRATION_TABS.find((t) => t.id === tab)?.desc}</p>
           <IntegrationBody tab={tab} />
         </div>
       )
@@ -421,23 +424,26 @@ function AppPageView({ page }: { page: AppPage }): React.JSX.Element {
 
 /** One integration's section, the same components the old separate pages showed. */
 function IntegrationBody({ tab }: { tab: IntegrationTab }): React.JSX.Element {
-  const { settings } = useApp()
+  const { settings, openSettings } = useApp()
   const go = useGo()
   const update = (patch: Partial<typeof settings>): Promise<unknown> => api.invoke('settings:update', patch)
   switch (tab) {
     case 'mcp':
-      return <McpSection title="MCP servers for every space" intro="Available in all workspaces. Add space-specific servers on a space’s MCP page." servers={settings.mcpServers ?? []} onChange={(mcpServers) => go(() => update({ mcpServers }))} strict={{ value: Boolean(settings.strictMcp), onToggle: (v) => go(() => update({ strictMcp: v })) }} />
+      return <McpSection intro="Available in all workspaces. Add space-specific servers on a space’s MCP page." servers={settings.mcpServers ?? []} onChange={(mcpServers) => go(() => update({ mcpServers }))} strict={{ value: Boolean(settings.strictMcp), onToggle: (v) => go(() => update({ strictMcp: v })) }} />
     case 'jira':
-      return <JiraSection connId="" title="Default Jira connection" intro="Used by spaces that have not connected their own Jira. Connect a space’s own site on its Jira page." />
+      return <JiraSection connId="" intro="Used by spaces that have not connected their own Jira. Connect a space’s own site on its Jira page." />
     case 'linear':
-      return <LinearSection connId="" title="Default Linear connection" intro="Used by spaces that have not connected their own Linear. Connect a space’s own on its Linear page." />
+      return <LinearSection connId="" intro="Used by spaces that have not connected their own Linear. Connect a space’s own on its Linear page." />
     case 'gcp':
-      return <GcpSection connId="" title="Google Cloud (application default)" />
+      return <GcpSection connId="" />
     case 'slack':
       return (
         <div className="max-w-[760px]">
           <SlackConnectionCard />
-          <p className="text-[11px] text-muted">The on-call agent uses this sign-in to watch channels and send the replies you approve. Set up channels under Settings → On call.</p>
+          <p className="text-[11px] text-muted">
+            The on-call agent uses this sign-in to watch channels and send the replies you approve. A space in another Slack workspace connects its own on its Slack page.{' '}
+            <CrossLink onClick={() => openSettings({ scope: 'app', page: 'oncall' })}>Set up channels in On call</CrossLink>
+          </p>
         </div>
       )
     default:
@@ -446,17 +452,11 @@ function IntegrationBody({ tab }: { tab: IntegrationTab }): React.JSX.Element {
 }
 
 function AppPageTail({ page }: { page: AppPage }): React.JSX.Element {
-  const { setFeedbackDialog } = useApp()
   switch (page) {
     case 'feedback':
       return (
-        <div className="max-w-[640px]">
-          <div className="flex items-center gap-3 rounded-lg border border-border px-3 py-2 text-[12px]">
-            <span className="flex-1 text-muted">Feature requests, bugs, the captured error log and the crash-report switch live in the Feedback dialog.</span>
-            <Button size="sm" onClick={() => setFeedbackDialog('feedback')}>
-              Open Feedback (⇧⌘F)
-            </Button>
-          </div>
+        <div className="max-w-[680px]">
+          <FeedbackPanel initialTab="feedback" />
         </div>
       )
     case 'about':
@@ -503,7 +503,11 @@ function SpacesPage(): React.JSX.Element {
           if (!list.length && owner.id) return null
           return (
             <React.Fragment key={owner.id || 'personal'}>
-              {(orgsOf.length > 0 || spaces.some((s) => s.orgId)) && <div className="mt-2 px-1 text-[11px] font-semibold uppercase tracking-wide text-muted">{owner.name}</div>}
+              {(orgsOf.length > 0 || spaces.some((s) => s.orgId)) && (
+                <div className="mt-2">
+                  <SectionHeader>{owner.name}</SectionHeader>
+                </div>
+              )}
               {list.map((s) => {
           const nWs = workspaces.filter((w) => w.spaceId === s.id && w.status !== 'archived').length
           const nRepos = repos.filter((r) => r.spaceId === s.id).length
@@ -518,9 +522,9 @@ function SpacesPage(): React.JSX.Element {
               <Button size="sm" onClick={() => openSettings({ scope: 'space', spaceId: s.id, page: 'general' })}>
                 Open
               </Button>
-              <button title="Delete space (workspaces and repos are kept)" className="rounded p-1 text-muted hover:text-danger" onClick={() => confirmDeleteSpace(s.name) && go(() => api.invoke('spaces:delete', s.id))}>
+              <IconButton label={`Delete space ${s.name} (workspaces and repositories are kept)`} className="hover:text-danger" onClick={() => confirmDeleteSpace(s.name) && go(() => api.invoke('spaces:delete', s.id))}>
                 <Trash2 size={13} />
-              </button>
+              </IconButton>
             </div>
           )
               })}
@@ -559,20 +563,22 @@ function ReposPage(): React.JSX.Element {
                 </div>
                 <div className="truncate text-[11px] text-muted">{shortPath(r.path)}</div>
               </div>
-              <select className="rounded-md border border-border bg-bg px-1.5 py-1 text-[11px]" value={r.spaceId ?? ''} onChange={(e) => go(() => api.invoke('repos:setSpace', r.id, e.target.value || null))} title="Space">
-                <option value="">No space</option>
-                {spaces.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
-              <button title="Reload sinfonie.json" className="rounded p-1 text-muted hover:text-text" onClick={() => go(() => api.invoke('repos:reloadConfig', r.id))}>
+              <div className="w-[150px] shrink-0">
+                <select className={inputCls} aria-label={`Space for ${r.name}`} value={r.spaceId ?? ''} onChange={(e) => go(() => api.invoke('repos:setSpace', r.id, e.target.value || null))}>
+                  <option value="">No space</option>
+                  {spaces.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <IconButton label={`Reload sinfonie.json for ${r.name}`} onClick={() => go(() => api.invoke('repos:reloadConfig', r.id))}>
                 <RefreshCw size={13} />
-              </button>
-              <button title={inUse ? `Used by ${inUse} workspace(s)` : 'Remove'} disabled={inUse > 0} className="rounded p-1 text-muted hover:text-danger disabled:opacity-30" onClick={() => window.confirm(`Remove repository "${r.name}" (${r.path}) from Sinfonie? The folder stays on disk.`) && go(() => api.invoke('repos:remove', r.id))}>
+              </IconButton>
+              <IconButton label={inUse ? `${r.name} is used by ${inUse} workspace${inUse === 1 ? '' : 's'}; archive them to remove it` : `Remove ${r.name}`} disabled={inUse > 0} className="hover:text-danger disabled:opacity-30 disabled:hover:bg-transparent" onClick={() => window.confirm(`Remove repository "${r.name}" (${r.path}) from Sinfonie? The folder stays on disk.`) && go(() => api.invoke('repos:remove', r.id))}>
                 <Trash2 size={13} />
-              </button>
+              </IconButton>
             </div>
           )
         })}
@@ -593,20 +599,23 @@ function AboutPage(): React.JSX.Element {
       const u = await api.invoke('updates:check')
       setStatus(u ? `Version ${u.version} is available.` : `You're on the latest version.`)
     } catch (err) {
-      setStatus(err instanceof Error ? err.message : String(err))
+      setStatus(friendlyError(err, 'Could not check for updates. Try again later.'))
     }
   }
   const setOnboarding = useApp((s) => s.setOnboarding)
   const closeSettings = useApp((s) => s.closeSettings)
   const settings = useApp((s) => s.settings)
   const setError = useApp((s) => s.setError)
+  const guided = useGuided()
   return (
     <div className="max-w-[640px]">
       <div className="mb-4 flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-[12px]">
         <span className="text-muted">New here?</span>
-        <Button size="sm" variant="ghost" onClick={() => { closeSettings(); void openMaestro() }}>
-          Open Maestro
-        </Button>
+        {!guided && (
+          <Button size="sm" variant="ghost" onClick={() => { closeSettings(); void openMaestro() }}>
+            Open Maestro
+          </Button>
+        )}
         <Button size="sm" variant="ghost" onClick={() => { closeSettings(); setOnboarding('setup') }}>
           Run setup wizard
         </Button>
@@ -629,14 +638,10 @@ function AboutPage(): React.JSX.Element {
           </Button>
         </span>
       </div>
-      <label className="mt-3 flex items-start gap-2 text-[13px]">
-        <input type="checkbox" className="mt-0.5" checked={settings.autoDownloadUpdates !== false} onChange={(e) => api.invoke('settings:update', { autoDownloadUpdates: e.target.checked }).catch((err) => setError(String(err)))} />
-        <span>
-          Download updates automatically
-          <span className="block text-[11px] text-muted">New releases download in the background as soon as they are found; you only choose when to restart: now, when idle, or on the next quit.</span>
-        </span>
-      </label>
-      <p className="mt-3 text-[11px] text-muted">Updates are checked at launch and every six hours. Unsigned builds update by downloading the new version.</p>
+      <div className="mt-3">
+        <Toggle checked={settings.autoDownloadUpdates !== false} onChange={(v) => void api.invoke('settings:update', { autoDownloadUpdates: v }).catch((err) => setError(friendlyError(err)))} label="Download updates automatically" hint="New releases download in the background as soon as they are found. You choose when to restart: now, when idle, or on the next quit." />
+      </div>
+      <p className="mt-3 text-[11px] text-muted">Updates are checked at launch and every six hours.{guided ? '' : ' Unsigned builds update by downloading the new version.'}</p>
     </div>
   )
 }
@@ -644,7 +649,7 @@ function AboutPage(): React.JSX.Element {
 // ---------------- space pages ----------------
 
 function SpacePageView({ space, page }: { space: Space; page: SpacePage }): React.JSX.Element {
-  const { settings } = useApp()
+  const { settings, openSettings } = useApp()
   const go = useGo()
   const upd = (patch: Parameters<typeof api.invoke<'spaces:update'>>[2]): Promise<unknown> => api.invoke('spaces:update', space.id, patch)
   const engine = space.engine ?? settings.engine ?? 'claude-code'
@@ -656,13 +661,14 @@ function SpacePageView({ space, page }: { space: Space; page: SpacePage }): Reac
             <Field label="Name">
               <input className={inputCls} defaultValue={space.name} onBlur={(e) => e.target.value.trim() && e.target.value !== space.name && go(() => upd({ name: e.target.value.trim() }))} />
             </Field>
-            <Field label="Colour">
-              <div className="flex h-[34px] items-center gap-1.5">
+            <div className="mb-3">
+              <div className="mb-1 text-[12px] font-medium text-muted">Colour</div>
+              <div role="radiogroup" aria-label="Space colour" className="flex h-[34px] items-center gap-1.5">
                 {SPACE_COLORS.map((c) => (
-                  <button key={c} className="h-5 w-5 rounded-full border-2" style={{ background: c, borderColor: c === space.color ? '#fff' : 'transparent' }} onClick={() => go(() => upd({ color: c }))} />
+                  <button key={c} type="button" role="radio" aria-checked={c === space.color} aria-label={colorName(c)} title={colorName(c)} className="h-5 w-5 rounded-full border-2" style={{ background: c, borderColor: c === space.color ? '#fff' : 'transparent' }} onClick={() => go(() => upd({ color: c }))} />
                 ))}
               </div>
-            </Field>
+            </div>
           </div>
           <Group title="Overrides for this space" hint="Leave a field on “App default” to inherit the application setting.">
             <Field label="Engine" hint="Each vendor’s agent uses its own agent account from Accounts; Sinfonie native runs any provider from Model providers.">
@@ -752,7 +758,6 @@ function SpacePageView({ space, page }: { space: Space; page: SpacePage }): Reac
     case 'crew':
       return (
         <CrewSection
-          title="Crew for this space"
           intro="Which library agents the orchestrator can delegate to here, and the model each runs on in this space. Cheaper models for exploration and tests, frontier models for planning and review. Applies to sessions started after the change."
           spaceId={space.id}
           orchestrator={{ value: space.model ?? '', label: 'app default', onChange: (model) => go(() => upd({ model })) }}
@@ -762,7 +767,6 @@ function SpacePageView({ space, page }: { space: Space; page: SpacePage }): Reac
     case 'mcp':
       return (
         <McpSection
-          title="MCP servers for this space"
           intro="Available in every workspace of this space, on top of the application-wide servers. New sessions pick up changes."
           servers={space.mcpServers ?? []}
           onChange={(mcpServers) => go(() => upd({ mcpServers }))}
@@ -772,19 +776,23 @@ function SpacePageView({ space, page }: { space: Space; page: SpacePage }): Reac
         />
       )
     case 'jira':
-      return <JiraSection connId={space.id} title="Jira for this space" intro="Connect the Jira site this space’s tickets live in. Leave it disconnected to use the application’s default connection." />
+      return <JiraSection connId={space.id} intro="Connect the Jira site this space’s tickets live in. Leave it disconnected to use the application’s default connection." />
     case 'linear':
-      return <LinearSection connId={space.id} title="Linear for this space" intro="Connect the Linear workspace this space’s issues live in. Leave it disconnected to use the application’s default connection." />
+      return <LinearSection connId={space.id} intro="Connect the Linear workspace this space’s issues live in. Leave it disconnected to use the application’s default connection." />
     case 'databases':
       return <DatabasesSection spaceId={space.id} />
     case 'gcp':
-      return <GcpSection connId={space.id} title="Google Cloud for this space" intro="The project this space’s services run in. Sessions here and the space’s on-call agent get read-only Cloud Logging, Cloud Run, Error Reporting and gcloud list / describe tools." />
+      return <GcpSection connId={space.id} intro="The project this space’s services run in. Sessions here and the space’s on-call agent get read-only Cloud Logging, Cloud Run, Error Reporting and gcloud list / describe tools." />
     case 'oncall':
       return <OnCallSettings spaceId={space.id} />
     case 'slack':
       return (
         <div className="max-w-[760px]">
           <SlackConnectionCard connId={space.id} intro="Sign in to the Slack workspace this space’s channels live in. Leave it disconnected to use the application’s Slack." />
+          <p className="flex flex-wrap gap-x-4 text-[11px] text-muted">
+            <CrossLink onClick={() => openSettings({ scope: 'space', spaceId: space.id, page: 'oncall' })}>Channels this space watches</CrossLink>
+            <CrossLink onClick={() => openSettings({ scope: 'app', page: 'slack' })}>The application’s Slack sign-in</CrossLink>
+          </p>
         </div>
       )
     case 'github':
@@ -795,8 +803,8 @@ function SpacePageView({ space, page }: { space: Space; page: SpacePage }): Reac
 function Group({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }): React.JSX.Element {
   return (
     <section className="mt-2 rounded-lg border border-border p-3">
-      <div className="mb-1 text-[12px] font-medium uppercase tracking-wide text-muted">{title}</div>
-      {hint && <p className="mb-3 text-[11px] text-muted">{hint}</p>}
+      <SectionHeader>{title}</SectionHeader>
+      {hint && <p className="-mt-1 mb-3 text-[11px] text-muted">{hint}</p>}
       {children}
     </section>
   )
@@ -832,9 +840,9 @@ function SpaceRepos({ space }: { space: Space }): React.JSX.Element {
                 <div className="truncate text-[11px] text-muted">{shortPath(r.path)}</div>
               </div>
               <span className="text-[11px] text-muted">{inUse(r.id) ? `${inUse(r.id)} workspace${inUse(r.id) === 1 ? '' : 's'}` : ''}</span>
-              <button title="Remove from this space (the repo stays in the app)" className="rounded p-1 text-muted hover:text-danger" onClick={() => go(() => api.invoke('repos:setSpace', r.id, null))}>
+              <IconButton label={`Remove ${r.name} from this space (it stays in the app)`} className="hover:text-danger" onClick={() => window.confirm(`Remove "${r.name}" from ${space.name}? It stays in Sinfonie under “No space”, and existing workspaces keep it.`) && go(() => api.invoke('repos:setSpace', r.id, null))}>
                 <Trash2 size={13} />
-              </button>
+              </IconButton>
             </div>
             <GuidedRepoSetup repo={r} />
           </div>
@@ -887,17 +895,11 @@ function GithubOwnersSection({ spaceId, configured, onChange }: { spaceId: strin
           'Detected from the space’s repositories; tick to override.'
         )}
       </p>
-      <div className="flex flex-wrap gap-1.5">
+      <div className="flex flex-col gap-2">
         {all.length === 0 && <span className="text-[12px] text-muted">Nothing detected yet. Add a repository with a GitHub remote, or sign in with gh.</span>}
-        {all.map((o) => {
-          const on = effective.includes(o)
-          return (
-            <button key={o} onClick={() => toggle(o)} className={on ? 'rounded-full border border-accent/50 bg-accent/15 px-2 py-0.5 text-[12px] text-accent' : 'rounded-full border border-border px-2 py-0.5 text-[12px] text-muted hover:text-text'}>
-              {o}
-              {detected.includes(o) && <span className="ml-1 opacity-60">·repo</span>}
-            </button>
-          )
-        })}
+        {all.map((o) => (
+          <Toggle key={o} checked={effective.includes(o)} onChange={() => toggle(o)} label={o} hint={detected.includes(o) ? 'Detected from a repository in this space' : undefined} />
+        ))}
       </div>
     </div>
   )

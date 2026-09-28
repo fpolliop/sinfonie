@@ -4,7 +4,8 @@ import { Plus, X, RefreshCw } from 'lucide-react'
 import { SlackConnectionCard } from './SlackConnectionCard'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
-import { Badge, Button, Field, inputCls } from './ui'
+import { Badge, Button, Field, IconButton, SectionHeader, Toggle, inputCls } from './ui'
+import { CrossLink } from './CrossLink'
 import { ModelSelect } from './ModelSelect'
 import { AccountPicker } from './AccountPicker'
 import type { OnCallChannel, OnCallSettings as OnCallSettingsT, Space } from '@shared/types'
@@ -16,6 +17,8 @@ export function OnCallSettings({ spaceId = '' }: { spaceId?: string }): React.JS
   const settings = useApp((s) => s.settings)
   const spaces = useApp((s) => s.spaces)
   const setError = useApp((s) => s.setError)
+  const notify = useApp((s) => s.notify)
+  const openSettings = useApp((s) => s.openSettings)
   const space = spaces.find((x) => x.id === spaceId)
   const appOc = { ...DEFAULTS, ...(settings.oncall ?? {}) }
   const oc = spaceId ? { ...DEFAULTS, pollSeconds: appOc.pollSeconds, maxTriagesPerHour: appOc.maxTriagesPerHour, ...(space?.oncall ?? {}) } : appOc
@@ -44,31 +47,51 @@ export function OnCallSettings({ spaceId = '' }: { spaceId?: string }): React.JS
     <div className="max-w-[760px]">
       <p className="mb-4 text-[12px] text-muted">{spaceId ? `This space\u2019s on-call agent watches ${space?.name ?? 'its'} Slack channels while Sinfonie is open and reads this space\u2019s repositories.` : 'The application-level on-call agent, for channels that belong to no particular space. Each space has its own On call page too.'} Every new request or alert becomes an incident, gets triaged by a read-only agent with your code at hand, and shows up in the On call view with a drafted reply you approve. Nothing is posted without you.</p>
 
-      <label className="mb-4 flex items-center gap-2 text-[13px]">
-        <input type="checkbox" checked={oc.enabled} onChange={(e) => go(() => update({ enabled: e.target.checked }))} />
-        Watch the channels below
-        {oc.enabled && !slack.connected && <span className="text-[11px] text-warn">Connect Slack first</span>}
-        {oc.enabled && slack.connected && oc.channels.length === 0 && <span className="text-[11px] text-warn">Add a channel</span>}
-      </label>
+      <div className="mb-4">
+        <Toggle
+          checked={oc.enabled}
+          onChange={(v) => go(() => update({ enabled: v }))}
+          label="Watch the channels below"
+          hint={oc.enabled && !slack.connected ? <span className="text-warn">Connect Slack first.</span> : oc.enabled && oc.channels.length === 0 ? <span className="text-warn">Add a channel.</span> : undefined}
+        />
+      </div>
 
-      <SlackConnectionCard connId={connId} intro={spaceId && !space?.slack?.connected ? 'Using the application\u2019s Slack sign-in. To watch a different Slack workspace for this space, connect one under this space\u2019s Integrations, Slack.' : undefined} />
+      <SlackConnectionCard connId={connId} intro={spaceId && !space?.slack?.connected ? 'Using the application\u2019s Slack sign-in. To watch a different Slack workspace for this space, connect one on this space\u2019s Slack page.' : undefined} />
+      <p className="-mt-2 mb-4 text-[11px] text-muted">
+        {spaceId ? (
+          <CrossLink onClick={() => openSettings({ scope: 'space', spaceId, page: 'slack' })}>This space’s Slack sign-in</CrossLink>
+        ) : (
+          <CrossLink onClick={() => openSettings({ scope: 'app', page: 'slack' })}>Slack sign-in in Integrations</CrossLink>
+        )}
+      </p>
       <section className="mb-4 rounded-lg border border-border p-3">
-        <div className="mb-2 text-[13px] font-semibold">Channels</div>
+        <SectionHeader>Channels</SectionHeader>
         {oc.channels.length === 0 && <div className="mb-2 text-[11px] text-muted">No channels yet.</div>}
         {oc.channels.map((c) => (
           <div key={c.id} className="mb-1 flex items-center gap-2 text-[13px]">
             <span>#{c.name}</span>
-            <select className="rounded-md border border-border bg-bg px-1.5 py-0.5 text-[11px]" value={c.kind} onChange={(e) => go(() => update({ channels: oc.channels.map((x) => (x.id === c.id ? { ...x, kind: e.target.value as OnCallChannel['kind'] } : x)) }))}>
+            <span className="w-[170px] shrink-0">
+            <select className={inputCls} aria-label={`What #${c.name} carries`} value={c.kind} onChange={(e) => go(() => update({ channels: oc.channels.map((x) => (x.id === c.id ? { ...x, kind: e.target.value as OnCallChannel['kind'] } : x)) }))}>
               <option value="support">support requests</option>
               <option value="alerts">alerts</option>
             </select>
-            <button className="rounded p-0.5 text-muted hover:text-danger" onClick={() => go(() => update({ channels: oc.channels.filter((x) => x.id !== c.id) }))} aria-label="Remove channel">
+            </span>
+            <IconButton
+              label={`Stop watching #${c.name}`}
+              className="hover:text-danger"
+              onClick={() => {
+                const before = oc.channels
+                update({ channels: before.filter((x) => x.id !== c.id) })
+                  .then(() => notify({ kind: 'info', text: `Stopped watching #${c.name}.`, undo: () => void go(() => update({ channels: before })) }))
+                  .catch((err) => setError(err instanceof Error ? err.message : String(err)))
+              }}
+            >
               <X size={12} />
-            </button>
+            </IconButton>
           </div>
         ))}
         <div className="mt-2 flex items-center gap-2">
-          <input className={clsx(inputCls, 'max-w-[280px]')} placeholder="Find a channel, e.g. on-call" value={q} disabled={!slack.connected} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && void go(async () => (setSearching(true), setFound(await api.invoke('oncall:slackChannels', connId, q)), setSearching(false)))} />
+          <input className={clsx(inputCls, 'max-w-[280px]')} aria-label="Find a Slack channel" placeholder="Find a channel, e.g. on-call" value={q} disabled={!slack.connected} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && void go(async () => (setSearching(true), setFound(await api.invoke('oncall:slackChannels', connId, q)), setSearching(false)))} />
           <Button size="sm" disabled={!slack.connected || searching} onClick={() => go(async () => (setSearching(true), setFound(await api.invoke('oncall:slackChannels', connId, q)), setSearching(false)))}>
             <RefreshCw size={12} className={searching ? 'animate-spin' : ''} /> Search
           </Button>

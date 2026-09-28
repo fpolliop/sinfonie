@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { Plus, Trash2, Download, Plug, Pencil } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
-import { Badge, Button, Field, inputCls } from './ui'
+import { Badge, Button, Field, IconButton, inputCls } from './ui'
 import type { McpServerSpec } from '@shared/types'
 
 function parseKv(text: string): Record<string, string> | undefined {
@@ -23,7 +23,7 @@ function kvText(o?: Record<string, string>): string {
  * Edits a list of MCP servers. Used in a space's settings (servers for that
  * space) and in app Settings (servers for every space).
  */
-export function McpSection({ servers, onChange, title, intro, jira, linear, strict }: { servers: McpServerSpec[]; onChange: (s: McpServerSpec[]) => void; title: string; intro: string; jira?: { connected: boolean; exposed: boolean; onToggle: (v: boolean) => void }; linear?: { connected: boolean; exposed: boolean; onToggle: (v: boolean) => void }; strict?: { value: boolean; inherited?: boolean; onToggle: (v: boolean) => void } }): React.JSX.Element {
+export function McpSection({ servers, onChange, intro, jira, linear, strict }: { servers: McpServerSpec[]; onChange: (s: McpServerSpec[]) => void; intro: string; jira?: { connected: boolean; exposed: boolean; onToggle: (v: boolean) => void }; linear?: { connected: boolean; exposed: boolean; onToggle: (v: boolean) => void }; strict?: { value: boolean; inherited?: boolean; onToggle: (v: boolean) => void } }): React.JSX.Element {
   const setError = useApp((s) => s.setError)
   const [adding, setAdding] = useState(false)
   const [draft, setDraft] = useState<McpServerSpec>({ id: '', name: '', transport: 'http', enabled: true })
@@ -62,10 +62,11 @@ export function McpSection({ servers, onChange, title, intro, jira, linear, stri
   }
 
   return (
-    <section className="mt-4">
-      <div className="mb-1 flex items-center">
-        <h3 className="text-[12px] font-medium uppercase tracking-wide text-muted">{title}</h3>
-        <span className="ml-auto flex gap-1.5">
+    <section>
+      {/* The page heading already names this section; the intro and actions lead it. */}
+      <div className="mb-3 flex items-start gap-3">
+        <p className="flex-1 text-[11px] text-muted">{intro}</p>
+        <span className="flex shrink-0 gap-1.5">
           <Button size="sm" variant="ghost" onClick={loadImportable} title="Import servers from ~/.claude.json">
             <Download size={12} /> Import from Claude Code
           </Button>
@@ -74,7 +75,6 @@ export function McpSection({ servers, onChange, title, intro, jira, linear, stri
           </Button>
         </span>
       </div>
-      <p className="mb-2 text-[11px] text-muted">{intro}</p>
 
       {strict && (
         <label className="mb-2 flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-[12px]">
@@ -112,16 +112,15 @@ export function McpSection({ servers, onChange, title, intro, jira, linear, stri
         {servers.length === 0 && !adding && <div className="rounded-md border border-dashed border-border p-3 text-center text-[12px] text-muted">No MCP servers yet.</div>}
         {servers.map((s) => (
           <div key={s.id} className="flex items-center gap-3 rounded-lg border border-border px-3 py-2">
-            <input type="checkbox" checked={s.enabled} onChange={(e) => onChange(servers.map((x) => (x.id === s.id ? { ...x, enabled: e.target.checked } : x)))} title="Enabled" />
+            <input type="checkbox" checked={s.enabled} onChange={(e) => onChange(servers.map((x) => (x.id === s.id ? { ...x, enabled: e.target.checked } : x)))} aria-label={`${s.name} enabled`} title="Enabled" />
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 text-[13px] font-medium">
                 {s.name} <Badge>{s.transport}</Badge>
               </div>
               <div className="truncate font-mono text-[11px] text-muted">{s.transport === 'stdio' ? [s.command, ...(s.args ?? [])].join(' ') : s.url}</div>
             </div>
-            <button
-              className="rounded p-1 text-muted hover:text-text"
-              title="Edit"
+            <IconButton
+              label={`Edit ${s.name}`}
               onClick={() => {
                 setDraft(s)
                 setHeadersText(kvText(s.headers))
@@ -131,10 +130,10 @@ export function McpSection({ servers, onChange, title, intro, jira, linear, stri
               }}
             >
               <Pencil size={13} />
-            </button>
-            <button className="rounded p-1 text-muted hover:text-danger" title="Remove" onClick={() => window.confirm(`Remove MCP server "${s.name}"? New sessions no longer get its tools.`) && onChange(servers.filter((x) => x.id !== s.id))}>
+            </IconButton>
+            <IconButton label={`Remove ${s.name}`} className="hover:text-danger" onClick={() => window.confirm(`Remove MCP server "${s.name}"? New sessions no longer get its tools.`) && onChange(servers.filter((x) => x.id !== s.id))}>
               <Trash2 size={13} />
-            </button>
+            </IconButton>
           </div>
         ))}
       </div>

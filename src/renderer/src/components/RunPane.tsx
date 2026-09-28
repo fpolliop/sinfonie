@@ -85,7 +85,7 @@ export function RunPane({ workspaceId }: { workspaceId: string }): React.JSX.Ele
             )
           })}
         </aside>
-        <pre ref={preRef} className="min-w-0 flex-1 overflow-auto bg-[#0b0d11] p-3 font-mono text-[12px] leading-[18px] whitespace-pre-wrap">
+        <pre ref={preRef} className="min-w-0 flex-1 overflow-auto bg-sunken p-3 font-mono text-[12px] leading-[18px] whitespace-pre-wrap">
           {current?.output || (script ? `$ ${script}\n(not started)` : 'No script configured. Add a sinfonie.json to the repo:\n\n{\n  "scripts": {\n    "setup": "pnpm install",\n    "run": "pnpm dev --port $SINFONIE_PORT",\n    "archive": "..."\n  }\n}')}
         </pre>
       </div>

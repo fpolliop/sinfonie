@@ -3,7 +3,7 @@ import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { Badge, Button, Field, inputCls } from './ui'
 
-export function JiraSection({ connId, title, intro }: { connId: string; title?: string; intro?: string }): React.JSX.Element {
+export function JiraSection({ connId, intro }: { connId: string; intro?: string }): React.JSX.Element {
   const { settings, spaces, setError } = useApp()
   const space = spaces.find((s) => s.id === connId)
   const [token, setToken] = useState('')
@@ -25,7 +25,7 @@ export function JiraSection({ connId, title, intro }: { connId: string; title?: 
       await api.invoke('jira:authenticate', connId)
       setTesting('Connected.')
     } catch (err) {
-      setTesting(err instanceof Error ? err.message : String(err))
+      setTesting(`Could not connect: ${err instanceof Error ? err.message : String(err)}`)
     } finally {
       setAuthing(false)
     }
@@ -53,13 +53,12 @@ export function JiraSection({ connId, title, intro }: { connId: string; title?: 
       const issues = await api.invoke('jira:search', connId, '')
       setTesting(`Connected. ${issues.length} ticket${issues.length === 1 ? '' : 's'} match the default query.`)
     } catch (err) {
-      setTesting(err instanceof Error ? err.message : String(err))
+      setTesting(`The test search failed: ${err instanceof Error ? err.message : String(err)}`)
     }
   }
   const tokenReady = Boolean(jira.siteUrl && jira.email && jira.hasToken)
   return (
-    <section className="mt-5">
-      <h3 className="mb-2 text-[12px] font-medium uppercase tracking-wide text-muted">{title ?? 'Jira'}</h3>
+    <section>
       <p className="mb-3 text-[11px] text-muted">{intro ?? 'Lets "New workspace" start from a ticket and suggest a name. Spaces without their own connection use this one.'}</p>
       <div className="mb-3 flex items-center gap-3 rounded-lg border border-border px-3 py-2.5">
         <div className="min-w-0 flex-1">
@@ -90,8 +89,8 @@ export function JiraSection({ connId, title, intro }: { connId: string; title?: 
           </Button>
         )}
       </div>
-      <Field label="Default ticket list (JQL)" hint="Shown when the search box is empty.">
-        <input className={inputCls} defaultValue={jira.defaultJql} onBlur={(e) => e.target.value !== jira.defaultJql && save({ defaultJql: e.target.value })} />
+      <Field label="Default ticket list (JQL)" hint="Shown when the ticket search box is empty. JQL is Jira’s query language, e.g. assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC">
+        <input className={inputCls} placeholder="assignee = currentUser() AND statusCategory != Done" defaultValue={jira.defaultJql} onBlur={(e) => e.target.value !== jira.defaultJql && save({ defaultJql: e.target.value })} />
       </Field>
       <div className="mb-3 flex items-center gap-3">
         <Button size="sm" onClick={test} disabled={!(jira.connected || tokenReady)}>
@@ -99,7 +98,7 @@ export function JiraSection({ connId, title, intro }: { connId: string; title?: 
         </Button>
         {testing && <span className="text-[12px] text-muted">{testing}</span>}
       </div>
-      <button className="text-[12px] text-muted hover:text-text" onClick={() => setShowToken(!showToken)}>
+      <button className="text-[12px] text-muted hover:text-text" aria-expanded={showToken} onClick={() => setShowToken(!showToken)}>
         {showToken ? '▾' : '▸'} Use an API token instead
       </button>
       {showToken && (

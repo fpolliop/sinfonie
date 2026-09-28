@@ -7,6 +7,7 @@ import { ghostText } from '@/lib/ghost'
 import { changeGutter, setChangeBase } from '@/lib/changeGutter'
 import { HighlightStyle, LanguageDescription, type LanguageSupport, type TagStyle, bracketMatching, defaultHighlightStyle, foldGutter, foldKeymap, indentOnInput, syntaxHighlighting } from '@codemirror/language'
 import { languages } from '@codemirror/language-data'
+import { syntax, tokens } from '@/lib/theme'
 
 type Tag = Exclude<TagStyle['tag'], readonly unknown[]>
 
@@ -22,19 +23,19 @@ const appHighlightStyle = ((): HighlightStyle => {
     for (const t of list) for (const p of t.set) byName.set(String(p), p)
   }
   const palette: Array<[string[], Omit<TagStyle, 'tag'>]> = [
-    [['keyword'], { color: '#a78bfa' }],
-    [['string', 'special(string)', 'inserted'], { color: '#4ade80' }],
-    [['literal', 'atom', 'bool', 'labelName'], { color: '#fbbf24' }],
-    [['regexp', 'escape', 'url'], { color: '#f472b6' }],
-    [['comment'], { color: '#8f97a8', fontStyle: 'italic' }],
-    [['meta'], { color: '#8f97a8' }],
-    [['typeName', 'namespace', 'className'], { color: '#7c9cff' }],
-    [['definition(variableName)', 'macroName'], { color: '#f472b6' }],
-    [['special(variableName)'], { color: '#7c9cff' }],
-    [['propertyName', 'definition(propertyName)'], { color: '#c7cede' }],
-    [['deleted', 'invalid'], { color: '#ff6b6b' }],
-    [['link'], { color: '#7c9cff', textDecoration: 'underline' }],
-    [['heading'], { color: '#e6e8ec', fontWeight: 'bold' }],
+    [['keyword'], { color: syntax.keyword }],
+    [['string', 'special(string)', 'inserted'], { color: syntax.string }],
+    [['literal', 'atom', 'bool', 'labelName'], { color: syntax.literal }],
+    [['regexp', 'escape', 'url'], { color: syntax.regexp }],
+    [['comment'], { color: syntax.comment, fontStyle: 'italic' }],
+    [['meta'], { color: syntax.comment }],
+    [['typeName', 'namespace', 'className'], { color: syntax.type }],
+    [['definition(variableName)', 'macroName'], { color: syntax.definition }],
+    [['special(variableName)'], { color: syntax.type }],
+    [['propertyName', 'definition(propertyName)'], { color: syntax.property }],
+    [['deleted', 'invalid'], { color: syntax.invalid }],
+    [['link'], { color: syntax.type, textDecoration: 'underline' }],
+    [['heading'], { color: syntax.heading, fontWeight: 'bold' }],
     [['emphasis'], { fontStyle: 'italic' }],
     [['strong'], { fontWeight: 'bold' }],
     [['strikethrough'], { textDecoration: 'line-through' }]
@@ -49,18 +50,18 @@ const appHighlightStyle = ((): HighlightStyle => {
 
 const theme = EditorView.theme(
   {
-    '&': { backgroundColor: 'transparent', color: '#e6e8ec', fontSize: '11.5px', height: '100%' },
+    '&': { backgroundColor: 'transparent', color: tokens.text, fontSize: '11.5px', height: '100%' },
     '.cm-scroller': { fontFamily: 'var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace)', lineHeight: '1.5', overflow: 'auto' },
     '.cm-content': { padding: '6px 0' },
     '.cm-line': { padding: '0 12px' },
-    '.cm-gutters': { backgroundColor: 'transparent', color: '#5f6776', borderRight: '1px solid var(--color-border, #262b35)', minWidth: '44px' },
+    '.cm-gutters': { backgroundColor: 'transparent', color: tokens.faint, borderRight: `1px solid ${tokens.border}`, minWidth: '44px' },
     '.cm-lineNumbers .cm-gutterElement': { padding: '0 8px 0 6px' },
-    '.cm-foldGutter .cm-gutterElement': { color: '#5f6776' },
-    '.cm-activeLine': { backgroundColor: 'rgba(255,255,255,0.03)' },
-    '.cm-activeLineGutter': { backgroundColor: 'transparent', color: '#8f97a8' },
+    '.cm-foldGutter .cm-gutterElement': { color: tokens.faint },
+    '.cm-activeLine': { backgroundColor: tokens.activeLine },
+    '.cm-activeLineGutter': { backgroundColor: 'transparent', color: tokens.muted },
     '&.cm-focused': { outline: 'none' },
-    '.cm-selectionBackground, &.cm-focused .cm-selectionBackground': { backgroundColor: 'rgba(124,156,255,0.25)' },
-    '.cm-matchingBracket, &.cm-focused .cm-matchingBracket': { backgroundColor: 'rgba(124,156,255,0.18)', outline: '1px solid rgba(124,156,255,0.4)' }
+    '.cm-selectionBackground, &.cm-focused .cm-selectionBackground': { backgroundColor: tokens.accentSelection },
+    '.cm-matchingBracket, &.cm-focused .cm-matchingBracket': { backgroundColor: tokens.accentMatch, outline: `1px solid ${tokens.accentOutline}` }
   },
   { dark: true }
 )

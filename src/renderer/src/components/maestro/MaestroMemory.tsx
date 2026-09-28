@@ -59,7 +59,7 @@ export function MaestroMemory({ onClose }: { onClose: () => void }): React.JSX.E
           if (list.length === 0) return null
           return (
             <div key={c.id} className="border-b border-border last:border-b-0">
-              <div className="bg-panel px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted">{c.label}</div>
+              <div className="bg-panel px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted">{c.label}</div>
               {list.map((e) => (
                 <Entry key={e.id} entry={e} onSave={(t) => api.invoke('maestro:memoryUpdate', e.id, t).then(setEntries).catch(fail)} onRemove={() => api.invoke('maestro:memoryRemove', e.id).then(setEntries).catch(fail)} />
               ))}
@@ -121,7 +121,7 @@ function Entry({ entry, onSave, onRemove }: { entry: MaestroMemoryEntry; onSave:
           {entry.text}
         </span>
       )}
-      <span className="shrink-0 text-[10px] text-muted">{new Date(entry.updatedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
+      <span className="shrink-0 text-[11px] text-muted">{new Date(entry.updatedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
       <button className="shrink-0 rounded p-0.5 text-muted opacity-0 hover:text-danger group-hover:opacity-100" title="Forget" onClick={onRemove}>
         <Trash2 size={12} />
       </button>

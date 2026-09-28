@@ -3,10 +3,11 @@ import clsx from 'clsx'
 import { Check, Copy, Globe, Link2, LogOut, Mail, Plus, RefreshCw, ShieldCheck, Trash2, UserMinus, UserPlus, X } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
-import { Badge, Button, inputCls } from './ui'
+import { Badge, Button, IconButton, SectionHeader, inputCls } from './ui'
 import { InlineRename } from './InlineRename'
 import type { CloudEmail, CloudOrgDetail, DiscoveredOrg } from '@shared/types'
 import { useGuided } from '@/lib/guided'
+import { friendlyError } from '@/lib/errors'
 
 /**
  * Settings → Plan → Emails and Organisations. One account, several verified emails; organisations
@@ -27,7 +28,7 @@ export function TeamSection({ signedIn }: { signedIn: boolean }): React.JSX.Elem
   const [domainDraft, setDomainDraft] = useState<Record<string, string>>({})
   const [copied, setCopied] = useState<string | null>(null)
   const [renaming, setRenaming] = useState<string | null>(null)
-  const fail = useCallback((err: unknown) => setError(err instanceof Error ? err.message : String(err)), [setError])
+  const fail = useCallback((err: unknown) => setError(friendlyError(err)), [setError])
 
   const load = useCallback(async (): Promise<void> => {
     if (!signedIn) {
@@ -80,13 +81,16 @@ export function TeamSection({ signedIn }: { signedIn: boolean }): React.JSX.Elem
     setCopied(text)
     setTimeout(() => setCopied(null), 2000)
   }
+  // Guided calls a space a "team", so the organisation is "your company" and its shared spaces are "teams".
+  const orgWord = guided ? 'company' : 'organisation'
+  const shared = (n: number): string => (guided ? `${n} team${n === 1 ? '' : 's'}` : `${n} shared space${n === 1 ? '' : 's'}`)
   const emails: CloudEmail[] = account?.emails ?? (account?.user.email ? [{ email: account.user.email, primary: true }] : [])
 
   return (
     <div className="mt-6">
       {/* ---- emails ---- */}
       <section className="mb-6">
-        <div className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-muted">Emails</div>
+        <SectionHeader>Emails</SectionHeader>
         {!signedIn && <p className="text-[12px] text-muted">Sign in to manage the emails on your account.</p>}
         {signedIn && (
           <div className="rounded-lg border border-border p-3">
@@ -98,9 +102,9 @@ export function TeamSection({ signedIn }: { signedIn: boolean }): React.JSX.Elem
                   {e.primary && <Badge tone="accent">primary</Badge>}
                   {e.provider && <span className="text-[11px] text-muted">via {e.provider}</span>}
                   {!e.primary && (
-                    <Button size="sm" variant="ghost" className="ml-auto" disabled={busy === `rm-email:${e.email}`} onClick={() => window.confirm(`Remove ${e.email} from your account? Invites sent to it no longer reach you.`) && void run(`rm-email:${e.email}`, () => api.invoke('cloud:removeEmail', e.email))} title="Remove this email">
+                    <IconButton label={`Remove ${e.email}`} className="ml-auto hover:text-danger" disabled={busy === `rm-email:${e.email}`} onClick={() => window.confirm(`Remove ${e.email} from your account? Invites sent to it no longer reach you.`) && void run(`rm-email:${e.email}`, () => api.invoke('cloud:removeEmail', e.email))}>
                       <X size={12} />
-                    </Button>
+                    </IconButton>
                   )}
                 </li>
               ))}
@@ -113,7 +117,7 @@ export function TeamSection({ signedIn }: { signedIn: boolean }): React.JSX.Elem
               <Button size="sm" disabled={busy !== null} onClick={() => void run('add-email', () => api.invoke('cloud:addEmail', 'google'))}>
                 Google
               </Button>
-              <span className="ml-1">A work email lets its organisation find you.</span>
+              <span className="ml-1">A work email lets your {orgWord} find you.</span>
             </div>
           </div>
         )}
@@ -121,18 +125,21 @@ export function TeamSection({ signedIn }: { signedIn: boolean }): React.JSX.Elem
 
       {/* ---- organisations ---- */}
       <section>
-        <div className="mb-2 flex items-center gap-2">
-          <div className="text-[12px] font-semibold uppercase tracking-wide text-muted">Organisations</div>
-          {signedIn && (
-            <Button size="sm" variant="ghost" className="ml-auto" disabled={busy === 'reload'} onClick={() => void run('reload', () => load())} title="Reload">
-              <RefreshCw size={12} />
-            </Button>
-          )}
-        </div>
-        {!signedIn && <p className="text-[12px] text-muted">Sign in to see your organisations{pendingInvite?.kind === 'join' ? ', then the invite you opened will be accepted' : ''}.</p>}
+        <SectionHeader
+          action={
+            signedIn && (
+              <IconButton label="Reload" disabled={busy === 'reload'} onClick={() => void run('reload', () => load())}>
+                <RefreshCw size={12} className={clsx(busy === 'reload' && 'animate-spin')} />
+              </IconButton>
+            )
+          }
+        >
+          {guided ? 'Your company' : 'Organisations'}
+        </SectionHeader>
+        {!signedIn && <p className="text-[12px] text-muted">Sign in to see your {guided ? 'company' : 'organisations'}{pendingInvite?.kind === 'join' ? ', then the invite you opened will be accepted' : ''}.</p>}
         {signedIn && discovered.length > 0 && (
           <div className="mb-3 rounded-lg border border-accent/40 bg-accent/5 p-3">
-            <div className="mb-1 text-[12px] font-medium">Organisations for your emails</div>
+            <div className="mb-1 text-[12px] font-medium">{guided ? 'Companies that match your emails' : 'Organisations for your emails'}</div>
             {discovered.map((d) => (
               <div key={d.id} className="flex items-center gap-2 text-[12px]">
                 <Globe size={12} className="text-muted" />
@@ -153,7 +160,7 @@ export function TeamSection({ signedIn }: { signedIn: boolean }): React.JSX.Elem
             ))}
           </div>
         )}
-        {signedIn && orgs && orgs.length === 0 && <p className="mb-3 text-[12px] text-muted">You are not in an organisation yet. Create one for your team, or paste an invite from an admin below.</p>}
+        {signedIn && orgs && orgs.length === 0 && <p className="mb-3 text-[12px] text-muted">{guided ? 'You are not in a company yet. Paste the invite your admin sent you below.' : 'You are not in an organisation yet. Create one for your team, or paste an invite from an admin below.'}</p>}
         {(orgs ?? []).map((org) => {
           const admin = org.role === 'admin'
           return (
@@ -169,7 +176,7 @@ export function TeamSection({ signedIn }: { signedIn: boolean }): React.JSX.Elem
                 <Badge tone={org.plan === 'team' ? 'accent' : 'muted'}>{org.plan === 'team' ? 'Team' : 'Free'}</Badge>
                 <span className="text-[12px] text-muted">
                   {org.members.length} member{org.members.length === 1 ? '' : 's'}
-                  {org.plan === 'team' && org.seats ? ` of ${org.seats} seats` : ''} · {org.sharedSpaces} shared space{org.sharedSpaces === 1 ? '' : 's'}
+                  {org.plan === 'team' && org.seats ? ` of ${org.seats} seats` : ''} · {shared(org.sharedSpaces)}
                   {org.sharedSpaceLimit !== null ? ` of ${org.sharedSpaceLimit}` : ''}
                   {org.subscription?.endsAt ? ` · ends ${new Date(org.subscription.endsAt).toLocaleDateString()}` : ''}
                 </span>
@@ -179,13 +186,13 @@ export function TeamSection({ signedIn }: { signedIn: boolean }): React.JSX.Elem
                       <Plus size={12} /> Invite link
                     </Button>
                   )}
-                  <Button size="sm" variant="ghost" disabled={busy === `leave:${org.id}`} onClick={() => window.confirm(`Leave ${org.name}? Its shared spaces stop syncing to this Mac; local copies stay.`) && void run(`leave:${org.id}`, () => api.invoke('cloud:leaveOrg', org.id))} title="Leave this organisation">
+                  <IconButton label={`Leave ${org.name}`} disabled={busy === `leave:${org.id}`} onClick={() => window.confirm(guided ? `Leave ${org.name}? Its teams stop updating on this Mac; what you already have stays.` : `Leave ${org.name}? Its shared spaces stop syncing to this Mac; local copies stay.`) && void run(`leave:${org.id}`, () => api.invoke('cloud:leaveOrg', org.id))}>
                     <LogOut size={12} />
-                  </Button>
+                  </IconButton>
                   {admin && org.members.length === 1 && (
-                    <Button size="sm" variant="ghost" disabled={busy === `delete:${org.id}`} onClick={() => window.confirm(`Delete ${org.name}? Its shared spaces are removed from the server; local copies stay.`) && void run(`delete:${org.id}`, () => api.invoke('cloud:deleteOrg', org.id))} title="Delete this organisation">
+                    <IconButton label={`Delete ${org.name}`} className="hover:text-danger" disabled={busy === `delete:${org.id}`} onClick={() => window.confirm(guided ? `Delete ${org.name}? Its teams are removed for everyone; what you already have on this Mac stays.` : `Delete ${org.name}? Its shared spaces are removed from the server; local copies stay.`) && void run(`delete:${org.id}`, () => api.invoke('cloud:deleteOrg', org.id))}>
                       <Trash2 size={12} />
-                    </Button>
+                    </IconButton>
                   )}
                 </span>
               </div>
@@ -196,34 +203,38 @@ export function TeamSection({ signedIn }: { signedIn: boolean }): React.JSX.Elem
                     <span>{m.name || m.login}</span>
                     <span className="text-muted">@{m.login}</span>
                     {admin ? (
-                      <select className="ml-1 rounded border border-border bg-bg px-1 py-0.5 text-[11px]" value={m.role} disabled={busy === `role:${m.id}`} onChange={(e) => void run(`role:${m.id}`, () => api.invoke('cloud:setMemberRole', org.id, m.id, e.target.value as 'admin' | 'member'))}>
+                      <span className="ml-1 w-[110px] shrink-0">
+                      <select className={inputCls} aria-label={`Role of ${m.name || m.login}`} value={m.role} disabled={busy === `role:${m.id}`} onChange={(e) => void run(`role:${m.id}`, () => api.invoke('cloud:setMemberRole', org.id, m.id, e.target.value as 'admin' | 'member'))}>
                         <option value="member">member</option>
                         <option value="admin">admin</option>
                       </select>
+                      </span>
                     ) : (
                       <Badge>{m.role}</Badge>
                     )}
                     {admin && (
-                      <Button size="sm" variant="ghost" className="ml-auto" disabled={busy === `rm:${m.id}`} onClick={() => window.confirm(`Remove ${m.name || m.login} from ${org.name}? They lose access to its shared spaces.`) && void run(`rm:${m.id}`, () => api.invoke('cloud:removeMember', org.id, m.id))} title="Remove from the organisation">
+                      <IconButton label={`Remove ${m.name || m.login} from ${org.name}`} className="ml-auto hover:text-danger" disabled={busy === `rm:${m.id}`} onClick={() => window.confirm(`Remove ${m.name || m.login} from ${org.name}? They lose access to its ${guided ? 'teams' : 'shared spaces'}.`) && void run(`rm:${m.id}`, () => api.invoke('cloud:removeMember', org.id, m.id))}>
                         <UserMinus size={12} />
-                      </Button>
+                      </IconButton>
                     )}
                   </li>
                 ))}
               </ul>
               {admin && (
                 <div className="mt-2 flex items-center gap-2 border-t border-border pt-2 text-[11px] text-muted">
-                  <span>New members start in</span>
-                  <select className="rounded border border-border bg-bg px-1 py-0.5 text-[11px]" value={org.defaultMode ?? 'expert'} disabled={busy === `mode:${org.id}`} onChange={(e) => void run(`mode:${org.id}`, () => api.invoke('cloud:setOrgDefaultMode', org.id, e.target.value as 'guided' | 'expert'))}>
+                  <span className="shrink-0">New members start in</span>
+                  <span className="w-[330px] shrink-0">
+                  <select className={inputCls} aria-label="Mode new members start in" value={org.defaultMode ?? 'expert'} disabled={busy === `mode:${org.id}`} onChange={(e) => void run(`mode:${org.id}`, () => api.invoke('cloud:setOrgDefaultMode', org.id, e.target.value as 'guided' | 'expert'))}>
                     <option value="expert">expert mode (they write code)</option>
                     <option value="guided">guided mode (they build with AI, no code shown)</option>
                   </select>
-                  <span title="Applies the first time a member signs in on a Mac that has no mode yet. Their own choice in Settings wins afterwards.">?</span>
+                  </span>
+                  <span>Applies the first time a member signs in; their own choice in Settings wins afterwards.</span>
                 </div>
               )}
               {admin && org.requests.length > 0 && (
                 <div className="mt-2 border-t border-border pt-2">
-                  <div className="mb-1 text-[11px] text-muted">Asking to join through a verified domain</div>
+                  <div className="mb-1 text-[11px] text-muted">{guided ? 'Asking to join' : 'Asking to join through a verified domain'}</div>
                   {org.requests.map((r) => (
                     <div key={r.userId} className="flex items-center gap-2 text-[12px]">
                       {r.avatarUrl ? <img src={r.avatarUrl} alt="" className="h-5 w-5 rounded-full" /> : <span className="h-5 w-5 rounded-full bg-panel-2" />}
@@ -241,16 +252,19 @@ export function TeamSection({ signedIn }: { signedIn: boolean }): React.JSX.Elem
                   ))}
                 </div>
               )}
-              {(admin || org.domains.length > 0) && (
+              {guided && <p className="mt-2 border-t border-border pt-2 text-[11px] text-muted">{org.domains.some((d) => d.verified) ? 'Colleagues with a company email can join automatically.' : 'Your admin can let colleagues join automatically from Settings on their Mac.'}</p>}
+              {!guided && (admin || org.domains.length > 0) && (
                 <div className="mt-2 border-t border-border pt-2">
                   <div className="mb-1 flex items-center gap-2 text-[11px] text-muted">
                     <span>Domains. Colleagues with a verified email on one of these can join</span>
                     {admin ? (
-                      <select className="rounded border border-border bg-bg px-1 py-0.5 text-[11px]" value={org.domainJoin} disabled={busy === `policy:${org.id}`} onChange={(e) => void run(`policy:${org.id}`, () => api.invoke('cloud:setDomainJoin', org.id, e.target.value as 'open' | 'approval' | 'off'))}>
+                      <span className="w-[210px] shrink-0">
+                      <select className={inputCls} aria-label="When colleagues with a verified email can join" value={org.domainJoin} disabled={busy === `policy:${org.id}`} onChange={(e) => void run(`policy:${org.id}`, () => api.invoke('cloud:setDomainJoin', org.id, e.target.value as 'open' | 'approval' | 'off'))}>
                         <option value="open">at once</option>
                         <option value="approval">after an admin approves</option>
                         <option value="off">never (invite links only)</option>
                       </select>
+                      </span>
                     ) : (
                       <span>{org.domainJoin === 'open' ? 'at once' : org.domainJoin === 'approval' ? 'after an admin approves' : 'never'}</span>
                     )}
@@ -264,16 +278,16 @@ export function TeamSection({ signedIn }: { signedIn: boolean }): React.JSX.Elem
                         {admin && !d.verified && (
                           <Button size="sm" disabled={busy === `verify:${d.domain}`} onClick={() => void run(`verify:${d.domain}`, async () => {
                             const r = await api.invoke('cloud:verifyDomain', org.id, d.domain)
-                            if (!r.verified) setError(`No matching TXT record at ${r.record} yet${r.found?.length ? ` (found: ${r.found.join(', ')})` : ''}. DNS changes can take a few minutes.`)
+                            if (!r.verified) setError(`${d.domain} is not verified yet: no matching TXT record at ${r.record}${r.found?.length ? ` (found: ${r.found.join(', ')})` : ''}. DNS changes can take a few minutes; try again shortly.`)
                             return r.org
                           })}>
                             Verify
                           </Button>
                         )}
                         {admin && (
-                          <Button size="sm" variant="ghost" className="ml-auto" disabled={busy === `rm-domain:${d.domain}`} onClick={() => window.confirm(`Remove the domain ${d.domain}? People with that email no longer join ${org.name} automatically.`) && void run(`rm-domain:${d.domain}`, () => api.invoke('cloud:removeDomain', org.id, d.domain))} title="Remove this domain">
+                          <IconButton label={`Remove the domain ${d.domain}`} className="ml-auto hover:text-danger" disabled={busy === `rm-domain:${d.domain}`} onClick={() => window.confirm(`Remove the domain ${d.domain}? People with that email no longer join ${org.name} automatically.`) && void run(`rm-domain:${d.domain}`, () => api.invoke('cloud:removeDomain', org.id, d.domain))}>
                             <Trash2 size={12} />
-                          </Button>
+                          </IconButton>
                         )}
                       </div>
                       {admin && !d.verified && d.token && (
@@ -288,7 +302,7 @@ export function TeamSection({ signedIn }: { signedIn: boolean }): React.JSX.Elem
                   ))}
                   {admin && (
                     <div className="mt-1 flex items-center gap-2">
-                      <input className={clsx(inputCls, 'max-w-[260px]')} placeholder="company.com" value={domainDraft[org.id] ?? ''} onChange={(e) => setDomainDraft({ ...domainDraft, [org.id]: e.target.value })} />
+                      <input className={clsx(inputCls, 'max-w-[260px]')} aria-label="Domain to add" placeholder="company.com" value={domainDraft[org.id] ?? ''} onChange={(e) => setDomainDraft({ ...domainDraft, [org.id]: e.target.value })} />
                       <Button size="sm" disabled={!(domainDraft[org.id] ?? '').trim() || busy === `add-domain:${org.id}`} onClick={() => void run(`add-domain:${org.id}`, async () => {
                         const r = await api.invoke('cloud:addDomain', org.id, domainDraft[org.id])
                         setDomainDraft({ ...domainDraft, [org.id]: '' })
@@ -308,12 +322,12 @@ export function TeamSection({ signedIn }: { signedIn: boolean }): React.JSX.Elem
                       <Link2 size={12} className="text-muted" />
                       <span className="truncate font-mono text-[11px] text-muted">{inv.url}</span>
                       <Badge>{inv.role}</Badge>
-                      <Button size="sm" variant="ghost" onClick={() => void copy(inv.url)}>
-                        {copied === inv.url ? <Check size={12} /> : <Copy size={12} />}
-                      </Button>
-                      <Button size="sm" variant="ghost" disabled={busy === `revoke:${inv.token}`} onClick={() => window.confirm('Revoke this invite link? Anyone who still has it can no longer join.') && void run(`revoke:${inv.token}`, () => api.invoke('cloud:revokeInvite', org.id, inv.token))} title="Revoke">
+                      <IconButton label={copied === inv.url ? 'Copied' : 'Copy invite link'} onClick={() => void copy(inv.url)}>
+                        {copied === inv.url ? <Check size={12} className="text-ok" /> : <Copy size={12} />}
+                      </IconButton>
+                      <IconButton label="Revoke invite link" className="hover:text-danger" disabled={busy === `revoke:${inv.token}`} onClick={() => window.confirm('Revoke this invite link? Anyone who still has it can no longer join.') && void run(`revoke:${inv.token}`, () => api.invoke('cloud:revokeInvite', org.id, inv.token))}>
                         <Trash2 size={12} />
-                      </Button>
+                      </IconButton>
                     </div>
                   ))}
                 </div>
@@ -330,12 +344,12 @@ export function TeamSection({ signedIn }: { signedIn: boolean }): React.JSX.Elem
           </div>
         )}
         <div className="flex items-center gap-2">
-          <input className={inputCls} placeholder="Paste an invite link or code to join an organisation" value={code} onChange={(e) => setCode(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && void join(code)} disabled={!signedIn} />
+          <input className={inputCls} aria-label="Invite link or code" placeholder={guided ? 'Paste the invite link or code your admin sent you' : 'Paste an invite link or code to join an organisation'} value={code} onChange={(e) => setCode(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && void join(code)} disabled={!signedIn} />
           <Button disabled={!signedIn || !code.trim() || busy === 'join'} onClick={() => void join(code)}>
             Join
           </Button>
         </div>
-        <p className="mt-2 text-[11px] text-muted">A free organisation shares one space; the Team plan, per seat, shares any number and adds central billing. Personal spaces stay yours either way.</p>
+        <p className="mt-2 text-[11px] text-muted">{guided ? 'A free company shares one team; the Team plan, per seat, shares any number and adds central billing.' : 'A free organisation shares one space; the Team plan, per seat, shares any number and adds central billing. Personal spaces stay yours either way.'}</p>
       </section>
     </div>
   )

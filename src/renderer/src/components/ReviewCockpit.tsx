@@ -6,8 +6,10 @@ import { useApp } from '@/stores/app'
 import { useReviews, keyOf, isRunBusy, STATUS_FILTERS, type StatusFilter } from '@/stores/reviews'
 import { AccountPicker } from './AccountPicker'
 import { Badge, Button, Spinner, inputCls } from './ui'
+import { ErrorNote } from './ErrorNote'
 import { timeAgo } from '@/lib/format'
 import type { ReviewFinding, ReviewPr, ReviewRun, ReviewSeverity, ReviewVerdict } from '@shared/types'
+import { tokens } from '@/lib/theme'
 
 
 export function ReviewCockpit(): React.JSX.Element {
@@ -147,9 +149,9 @@ export function ReviewCockpit(): React.JSX.Element {
   return (
     <div className="flex h-full flex-col">
       <header className="drag flex h-[52px] shrink-0 items-center gap-3 border-b border-border px-4">
-        <h1 className="text-[14px] font-semibold">Review cockpit</h1>
+        <h1 className="text-[15px] font-semibold">Review cockpit</h1>
         <button className="no-drag inline-flex items-center gap-1.5 rounded-full border border-border px-2 py-0.5 text-[11px] hover:bg-panel-2" title="Space settings: pick the GitHub orgs this space reviews" onClick={() => space && setOpenSpaceSettings(true)}>
-          <span className="h-2 w-2 rounded-full" style={{ background: space?.color ?? '#8b93a1' }} />
+          <span className="h-2 w-2 rounded-full" style={{ background: space?.color ?? tokens.muted }} />
           {space?.name ?? 'All'}
           <span className="text-muted">· {spaceRepos.length ? `${spaceRepos.length} repositor${spaceRepos.length === 1 ? 'y' : 'ies'}` : ''}{spaceRepos.length && owners.length ? ' + ' : ''}{owners.length ? `all of ${owners.join(', ')}` : ''}{!spaceRepos.length && !owners.length ? (loadingOrgs ? '…' : 'no repositories') : ''}</span>
         </button>
@@ -166,7 +168,11 @@ export function ReviewCockpit(): React.JSX.Element {
         <span className="ml-auto" />
         <AccountPicker value={accountId} onChange={setAccountId} className="no-drag" always engine="claude-code" />
       </header>
-      {error && <div className="border-b border-danger/30 bg-danger/10 px-4 py-2 text-[12px] text-danger">{error}</div>}
+      {error && (
+        <div className="border-b border-danger/30 bg-danger/10 px-4 py-2">
+          <ErrorNote summary="Pull requests could not be loaded. Refresh to try again." detail={error} />
+        </div>
+      )}
       <div className="flex items-center gap-2 border-b border-border px-3 py-1.5">
         <Filter size={13} className="text-muted" />
         <select className="max-w-[240px] rounded-md border border-border bg-bg px-1.5 py-1 text-[12px]" value={repoFilter} onChange={(e) => setRepoFilter(e.target.value)} title="Repository">
@@ -258,10 +264,10 @@ export function ReviewCockpit(): React.JSX.Element {
             {grouped.map(([repo, list]) => (
               <div key={repo}>
                 <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-panel px-3 py-1.5 text-[11px] font-medium uppercase tracking-wide text-muted" title={repo}>
-                  {repo.split('/')[1]} <span className="normal-case text-muted/70">{list.length}</span>
+                  {repo.split('/')[1]} <span className="normal-case text-muted">{list.length}</span>
                   {spaceRepos.includes(repo) && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-accent/60" title="Registered in this space" />}
                 </div>
-                {list.length === 0 && <div className="px-3 py-1.5 text-[11px] text-muted/70">{mode === 'requested' ? 'nothing waiting on you' : 'no open pull requests'}</div>}
+                {list.length === 0 && <div className="px-3 py-1.5 text-[11px] text-muted">{mode === 'requested' ? 'nothing waiting on you' : 'no open pull requests'}</div>}
                 {list.map((pr) => {
                   const k = keyOf(pr)
                   const run = runs[k]
@@ -489,7 +495,7 @@ function PrDetail({ pr, run, onStart }: { pr: ReviewPr; run?: ReviewRun; onStart
                   )}
                   <span className="ml-auto text-[11px] text-muted">${r.costUsd.toFixed(2)}</span>
                 </div>
-                {(r.summary || r.error) && <div className={clsx('mt-1 whitespace-pre-wrap', r.error ? 'text-danger' : 'text-muted')}>{r.error ?? r.summary}</div>}
+                {r.error ? <ErrorNote className="mt-1" summary={`Fix round ${r.n} failed.`} detail={r.error} /> : r.summary ? <div className="mt-1 whitespace-pre-wrap text-muted">{r.summary}</div> : null}
               </div>
             ))}
           </div>
@@ -498,7 +504,7 @@ function PrDetail({ pr, run, onStart }: { pr: ReviewPr; run?: ReviewRun; onStart
       {run?.status === 'error' && (
         <div className="rounded-xl border border-danger/40 bg-danger/10 p-4 text-[12px]">
           <div className="mb-1 font-medium text-danger">The review failed</div>
-          <div className="text-muted">{run.error}</div>
+          {run.error && <ErrorNote summary="It stopped with this message:" detail={run.error} />}
           <div className="mt-2">
             <Button size="sm" variant="primary" onClick={onStart}>
               <Sparkles size={12} /> Try again
@@ -521,7 +527,7 @@ function PrDetail({ pr, run, onStart }: { pr: ReviewPr; run?: ReviewRun; onStart
                   key={sev}
                   disabled={n === 0}
                   onClick={() => setHidden((h) => (h.has(sev) ? new Set([...h].filter((x) => x !== sev)) : new Set([...h, sev])))}
-                  className={clsx('inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px]', n === 0 ? 'border-border text-muted/50' : hidden.has(sev) ? 'border-border text-muted line-through' : 'border-border')}
+                  className={clsx('inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px]', n === 0 ? 'border-border text-muted' : hidden.has(sev) ? 'border-border text-muted line-through' : 'border-border')}
                   title={n === 0 ? `No ${sev} findings` : hidden.has(sev) ? `Show ${sev}` : `Hide ${sev}`}
                 >
                   <span className={clsx('h-1.5 w-1.5 rounded-full', SEV_DOT[sev])} /> {n} {sev}
@@ -551,7 +557,7 @@ function PrDetail({ pr, run, onStart }: { pr: ReviewPr; run?: ReviewRun; onStart
               {byFile.map(([path, list]) => (
                 <div key={path} className="overflow-hidden rounded-xl border border-border">
                   <div className="flex items-center gap-2 border-b border-border bg-panel px-3 py-1.5">
-                    <span className="truncate font-mono text-[11.5px]">{path}</span>
+                    <span className="truncate font-mono text-[12px]">{path}</span>
                     <span className="ml-auto shrink-0 text-[11px] text-muted">{list.length} finding{list.length === 1 ? '' : 's'}</span>
                   </div>
                   {list.map((f) => (
@@ -636,31 +642,31 @@ function FindingCard({ runKey, finding: f, readOnly, onFix }: { runKey: string; 
           <span className={clsx('h-2 w-2 shrink-0 rounded-full', SEV_DOT[f.severity])} title={f.severity} />
           <span className={clsx('truncate text-[13px]', f.approved ? 'font-medium' : '', f.addressedRound && 'text-muted line-through')}>{f.title}</span>
           {f.addressedRound && <Badge tone="ok">fixed in round {f.addressedRound}</Badge>}
-          {f.suggestion && <span className="shrink-0 rounded bg-panel-2 px-1 text-[10px] uppercase tracking-wide text-muted">suggestion</span>}
+          {f.suggestion && <span className="shrink-0 rounded bg-panel-2 px-1 text-[11px] uppercase tracking-wide text-muted">suggestion</span>}
           <span className="ml-auto shrink-0 font-mono text-[11px] text-muted">{f.line != null ? `L${f.line}` : 'file'}</span>
         </button>
       </div>
       {open && (
         <div className="border-t border-border/60 px-3 py-2 pl-9">
           {f.snippet && (
-            <div className="mb-2 overflow-auto rounded-md border border-border bg-bg font-mono text-[11.5px] leading-[1.5]">
+            <div className="mb-2 overflow-auto rounded-md border border-border bg-bg font-mono text-[12px] leading-[1.5]">
               {f.snippet.lines.map((line, i) => {
                 const no = f.snippet!.start + i
                 const hit = no === f.line
                 return (
                   <div key={no} className={clsx('flex', hit && 'bg-warn/15')}>
-                    <span className={clsx('w-11 shrink-0 select-none border-r border-border px-2 text-right text-muted/70', hit && 'text-warn')}>{no}</span>
+                    <span className={clsx('w-11 shrink-0 select-none border-r border-border px-2 text-right text-muted', hit && 'text-warn')}>{no}</span>
                     <pre className="m-0 whitespace-pre px-2">{line || ' '}</pre>
                   </div>
                 )
               })}
             </div>
           )}
-          {readOnly ? <div className="whitespace-pre-wrap text-[12.5px]">{f.body}</div> : <textarea rows={Math.min(10, Math.max(2, body.split('\n').length + 1))} className={clsx(inputCls, 'font-sans')} value={body} onChange={(e) => setBody(e.target.value)} onBlur={() => body !== f.body && patch({ body })} />}
+          {readOnly ? <div className="whitespace-pre-wrap text-[13px]">{f.body}</div> : <textarea rows={Math.min(10, Math.max(2, body.split('\n').length + 1))} className={clsx(inputCls, 'font-sans')} value={body} onChange={(e) => setBody(e.target.value)} onBlur={() => body !== f.body && patch({ body })} />}
           {f.suggestion && (
             <div className="mt-2">
               <div className="mb-1 text-[11px] text-muted">Suggested change, posted as a GitHub suggestion the author can apply in one click</div>
-              <pre className="overflow-auto rounded-md border border-ok/30 bg-ok/5 p-2 font-mono text-[11.5px]">{f.suggestion}</pre>
+              <pre className="overflow-auto rounded-md border border-ok/30 bg-ok/5 p-2 font-mono text-[12px]">{f.suggestion}</pre>
             </div>
           )}
           {!readOnly && (

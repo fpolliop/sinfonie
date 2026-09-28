@@ -2,7 +2,8 @@ import React, { useEffect, useState } from 'react'
 import { Plus, Trash2, AlertTriangle } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
-import { Badge, Button, Dialog, inputCls } from './ui'
+import { Badge, Button, Dialog, IconButton, inputCls } from './ui'
+import { friendlyError } from '@/lib/errors'
 import { shortPath } from '@/lib/format'
 import type { RepoSafety } from '@shared/types'
 
@@ -16,6 +17,8 @@ export function ManageReposDialog({ workspaceId, onClose }: { workspaceId: strin
   const [branches, setBranches] = useState<string[]>([])
   const [busy, setBusy] = useState<string | null>(null)
   const [showAll, setShowAll] = useState(false)
+  /** The repository whose removal is waiting for a second click. */
+  const [confirming, setConfirming] = useState<string | null>(null)
 
   useEffect(() => {
     api.invoke('workspaces:safety', workspaceId).then(setSafety).catch(() => setSafety([]))
@@ -37,7 +40,7 @@ export function ManageReposDialog({ workspaceId, onClose }: { workspaceId: strin
     try {
       await fn()
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(friendlyError(err))
     } finally {
       setBusy(null)
     }
@@ -67,17 +70,35 @@ export function ManageReposDialog({ workspaceId, onClose }: { workspaceId: strin
                 </div>
                 <div className="truncate text-[11px] text-muted">{shortPath(wr.worktreePath)}</div>
               </div>
-              <button
-                title={ws.repos.length === 1 ? 'A workspace needs at least one repository' : risky ? 'Remove worktree (uncommitted or unpushed work will be lost)' : 'Remove worktree'}
-                disabled={ws.repos.length === 1 || busy !== null}
-                className="rounded p-1 text-muted hover:text-danger disabled:opacity-30"
-                onClick={() => {
-                  if (risky && !window.confirm(`${wr.repoName} has uncommitted or unpushed changes that will be lost. Remove it anyway?`)) return
-                  void go(wr.repoId, () => api.invoke('workspaces:removeRepo', ws.id, wr.repoId, { deleteBranch: false }))
-                }}
-              >
-                <Trash2 size={13} />
-              </button>
+              {confirming === wr.repoId ? (
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <span className={risky ? 'text-[11px] text-warn' : 'text-[11px] text-muted'}>{risky ? 'Unsaved work will be lost.' : 'Remove its worktree?'}</span>
+                  <Button size="sm" variant="ghost" onClick={() => setConfirming(null)}>
+                    Keep
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="danger"
+                    autoFocus
+                    disabled={busy !== null}
+                    onClick={() => {
+                      setConfirming(null)
+                      void go(wr.repoId, () => api.invoke('workspaces:removeRepo', ws.id, wr.repoId, { deleteBranch: false }))
+                    }}
+                  >
+                    Remove
+                  </Button>
+                </div>
+              ) : (
+                <IconButton
+                  label={ws.repos.length === 1 ? 'A workspace needs at least one repository' : risky ? `Remove ${wr.repoName} (uncommitted or unpushed work will be lost)` : `Remove ${wr.repoName} from this workspace`}
+                  disabled={ws.repos.length === 1 || busy !== null}
+                  className="p-1 hover:text-danger disabled:opacity-30"
+                  onClick={() => setConfirming(wr.repoId)}
+                >
+                  <Trash2 size={13} />
+                </IconButton>
+              )}
             </div>
           )
         })}

@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { Search, X, ExternalLink } from 'lucide-react'
+import { Search, X, ExternalLink, ChevronRight } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { useChat } from '@/stores/chat'
-import { Badge, Button, Dialog, Field, inputCls } from './ui'
+import { Badge, Button, Dialog, Field, IconButton, inputCls } from './ui'
+import { rawMessage } from '@/lib/errors'
 import { AccountPicker } from './AccountPicker'
 import { SpacePicker } from './SpacePicker'
 import { shortPath } from '@/lib/format'
@@ -30,6 +31,8 @@ interface Pick {
   repoId: string
   baseBranch: string
   branches: string[]
+  /** Why the branch list could not load; the pick falls back to the default branch. */
+  branchError?: string
 }
 
 export function NewWorkspaceDialog({ onClose }: { onClose: () => void }): React.JSX.Element {
@@ -73,16 +76,23 @@ export function NewWorkspaceDialog({ onClose }: { onClose: () => void }): React.
     }
     const repo = repos.find((r) => r.id === repoId)!
     let branches: string[] = []
+    let branchError: string | undefined
     try {
       branches = await api.invoke('repos:branches', repoId)
-    } catch {
-      /* ignore */
+    } catch (err) {
+      branchError = rawMessage(err)
     }
-    setPicks((p) => ({ ...p, [repoId]: { repoId, baseBranch: repo.defaultBranch, branches } }))
+    setPicks((p) => ({ ...p, [repoId]: { repoId, baseBranch: repo.defaultBranch, branches, ...(branchError ? { branchError } : {}) } }))
     setPrimary((cur) => cur || repoId)
   }
 
   const selected = Object.values(picks)
+  // Everything past name and repositories lives under "More options"; it opens by itself when any of it is not
+  // at its default, so a ticket or a changed space is never hidden.
+  const [more, setMore] = useState(false)
+  const defaultAccount = space?.claudeAccountId ?? settings.defaultClaudeAccountId
+  const nonDefault = Boolean(jira || linear || showAllRepos || spaceId !== newWorkspaceSpaceId || accountId !== defaultAccount || agentMode !== (space?.agentMode ?? 'chat'))
+  const showMore = more || nonDefault
   const submit = async (): Promise<void> => {
     if (!name.trim()) return
     setBusy(true)
@@ -130,60 +140,9 @@ export function NewWorkspaceDialog({ onClose }: { onClose: () => void }): React.
 
   return (
     <Dialog title="New workspace" onClose={onClose} width={560}>
-      {(jiraReady || !linearReady) && (
-        <IssuePicker<JiraIssue>
-          key={`jira-${jiraConn}`}
-          label="Jira ticket"
-          enabled={jiraReady}
-          selected={jira ? { key: jira.key, title: jira.summary, url: jira.url } : null}
-          search={(q) => api.invoke('jira:search', jiraConn, q)}
-          view={(i) => ({ key: i.key, title: i.summary, meta: `${i.type} · ${i.status}`, url: i.url })}
-          onSelect={(issue) => {
-            if (!issue) return setJira(null)
-            setLinear(null)
-            setJira({ key: issue.key, summary: issue.summary, url: issue.url })
-            setName(suggestName({ key: issue.key, summary: issue.summary }))
-          }}
-          onConfigure={() => (onClose(), openSettings(spaceId ? { scope: 'space', spaceId, page: 'jira' } : { scope: 'app', page: 'jira' }))}
-        />
-      )}
-      {linearReady && (
-        <IssuePicker<LinearIssue>
-          key={`linear-${linearConn}`}
-          label="Linear issue"
-          enabled={linearReady}
-          selected={linear ? { key: linear.identifier, title: linear.title, url: linear.url } : null}
-          search={(q) => api.invoke('linear:search', linearConn, q)}
-          view={(i) => ({ key: i.identifier, title: i.title, meta: [i.state, i.priority].filter(Boolean).join(' · '), url: i.url })}
-          onSelect={(issue) => {
-            if (!issue) return setLinear(null)
-            setJira(null)
-            setLinear({ id: issue.id, identifier: issue.identifier, title: issue.title, url: issue.url })
-            setName(suggestName({ key: issue.identifier, summary: issue.title }))
-          }}
-          onConfigure={() => (onClose(), openSettings(spaceId ? { scope: 'space', spaceId, page: 'linear' } : { scope: 'app', page: 'linear' }))}
-        />
-      )}
       <Field label="Name" hint="Becomes the branch name in every selected repo and the folder name on disk.">
         <input autoFocus className={inputCls} placeholder="e.g. checkout-redesign" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && submit()} />
       </Field>
-      {spaces.length > 0 && (
-        <div className="mb-3 flex items-center gap-3">
-          <SpacePicker
-            value={spaceId}
-            onChange={(id) => {
-              setSpaceId(id)
-              const sp = spaces.find((s) => s.id === id)
-              if (sp?.claudeAccountId) setAccountId(sp.claudeAccountId)
-            }}
-          />
-          {spaceId && spaceRepos.length > 0 && spaceRepos.length < allRepos.length && (
-            <label className="flex items-center gap-1 text-[11px] text-muted">
-              <input type="checkbox" checked={showAllRepos} onChange={(e) => setShowAllRepos(e.target.checked)} /> show repos from other spaces
-            </label>
-          )}
-        </div>
-      )}
       <div className="mb-1 text-[12px] font-medium text-muted">Repositories{space && !showAllRepos && spaceRepos.length > 0 ? ` in ${space.name}` : ''}</div>
       {repos.length === 0 && (
         <div className="mb-3 rounded-md border border-border p-3 text-muted">
@@ -220,28 +179,89 @@ export function NewWorkspaceDialog({ onClose }: { onClose: () => void }): React.
                   </div>
                 )}
               </div>
+              {p?.branchError && <div className="mt-1 truncate text-[11px] text-warn" title={p.branchError}>Could not list branches ({p.branchError}); starting from {p.baseBranch}.</div>}
             </div>
           )
         })}
       </div>
       <p className="mb-3 text-[11px] text-muted">{selected.length ? "The primary repo is the agent's working directory; the others are added as extra directories. Setup scripts run in every repo after all worktrees exist." : 'No repositories selected: the workspace starts empty, and the agent asks you to attach a repository when the task needs one.'}</p>
-      <AccountPicker value={accountId} onChange={setAccountId} className="mb-4" engine={space?.engine ?? settings.engine ?? 'claude-code'} />
-      {(space?.engine ?? settings.engine ?? 'claude-code') === 'claude-code' && (
-        <div className="mb-4 flex items-center gap-2 text-[12px]">
-          <span className="text-muted">Open in</span>
-          <div className="flex rounded-md border border-border p-0.5">
-            {(['chat', 'cli'] as const).map((m) => (
-              <button key={m} type="button" className={clsx('rounded px-2 py-0.5', agentMode === m ? 'bg-panel-2 text-text' : 'text-muted hover:text-text')} onClick={() => setAgentMode(m)} title={m === 'chat' ? 'The Sinfonie chat through the Agent SDK' : "Claude Code's own terminal UI; switch to the chat any time"}>
-                {m === 'chat' ? 'Chat' : 'Claude Code CLI'}
-              </button>
-            ))}
-          </div>
+      <button type="button" aria-expanded={showMore} className="mb-2 flex items-center gap-1 text-[12px] font-medium text-muted hover:text-text disabled:cursor-default" disabled={nonDefault} onClick={() => setMore((v) => !v)}>
+        <ChevronRight size={12} className={clsx('transition-transform', showMore && 'rotate-90')} /> More options
+        {!showMore && <span className="font-normal">(ticket, space, account, chat or CLI)</span>}
+      </button>
+      {showMore && (
+        <div className="mb-3 rounded-lg border border-border/70 p-3 pb-0">
+          {(jiraReady || !linearReady) && (
+            <IssuePicker<JiraIssue>
+              key={`jira-${jiraConn}`}
+              label="Jira ticket"
+              enabled={jiraReady}
+              selected={jira ? { key: jira.key, title: jira.summary, url: jira.url } : null}
+              search={(q) => api.invoke('jira:search', jiraConn, q)}
+              view={(i) => ({ key: i.key, title: i.summary, meta: `${i.type} · ${i.status}`, url: i.url })}
+              onSelect={(issue) => {
+                if (!issue) return setJira(null)
+                setLinear(null)
+                setJira({ key: issue.key, summary: issue.summary, url: issue.url })
+                setName(suggestName({ key: issue.key, summary: issue.summary }))
+              }}
+              onConfigure={() => (onClose(), openSettings(spaceId ? { scope: 'space', spaceId, page: 'jira' } : { scope: 'app', page: 'jira' }))}
+            />
+          )}
+          {linearReady && (
+            <IssuePicker<LinearIssue>
+              key={`linear-${linearConn}`}
+              label="Linear issue"
+              enabled={linearReady}
+              selected={linear ? { key: linear.identifier, title: linear.title, url: linear.url } : null}
+              search={(q) => api.invoke('linear:search', linearConn, q)}
+              view={(i) => ({ key: i.identifier, title: i.title, meta: [i.state, i.priority].filter(Boolean).join(' · '), url: i.url })}
+              onSelect={(issue) => {
+                if (!issue) return setLinear(null)
+                setJira(null)
+                setLinear({ id: issue.id, identifier: issue.identifier, title: issue.title, url: issue.url })
+                setName(suggestName({ key: issue.identifier, summary: issue.title }))
+              }}
+              onConfigure={() => (onClose(), openSettings(spaceId ? { scope: 'space', spaceId, page: 'linear' } : { scope: 'app', page: 'linear' }))}
+            />
+          )}
+          {spaces.length > 0 && (
+            <div className="mb-3 flex items-center gap-3">
+              <SpacePicker
+                value={spaceId}
+                onChange={(id) => {
+                  setSpaceId(id)
+                  const sp = spaces.find((s) => s.id === id)
+                  if (sp?.claudeAccountId) setAccountId(sp.claudeAccountId)
+                }}
+              />
+              {spaceId && spaceRepos.length > 0 && spaceRepos.length < allRepos.length && (
+                <label className="flex items-center gap-1 text-[11px] text-muted">
+                  <input type="checkbox" checked={showAllRepos} onChange={(e) => setShowAllRepos(e.target.checked)} /> show repos from other spaces
+                </label>
+              )}
+            </div>
+          )}
+          <AccountPicker value={accountId} onChange={setAccountId} className="mb-4" engine={space?.engine ?? settings.engine ?? 'claude-code'} />
+          {(space?.engine ?? settings.engine ?? 'claude-code') === 'claude-code' && (
+            <div className="mb-4 flex items-center gap-2 text-[12px]">
+              <span className="text-muted">Open in</span>
+              <div className="flex rounded-md border border-border p-0.5">
+                {(['chat', 'cli'] as const).map((m) => (
+                  <button key={m} type="button" className={clsx('rounded px-2 py-0.5', agentMode === m ? 'bg-panel-2 text-text' : 'text-muted hover:text-text')} onClick={() => setAgentMode(m)} title={m === 'chat' ? 'The Sinfonie chat through the Agent SDK' : "Claude Code's own terminal UI; switch to the chat any time"}>
+                    {m === 'chat' ? 'Chat' : 'Claude Code CLI'}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
-      <div className="flex justify-end gap-2">
+      <div className="flex items-center justify-end gap-2">
+        <span className="mr-auto text-[11px] text-muted">{selected.length ? `${selected.length} worktree${selected.length === 1 ? '' : 's'}` : 'Empty workspace'}</span>
         <Button onClick={onClose}>Cancel</Button>
         <Button variant="primary" onClick={submit} disabled={busy || !name.trim()}>
-          {busy ? 'Creating…' : selected.length ? `Create ${selected.length} worktree${selected.length === 1 ? '' : 's'}` : 'Create empty workspace'}
+          {busy ? 'Creating…' : 'Create workspace'}
         </Button>
       </div>
     </Dialog>
@@ -282,12 +302,12 @@ export function IssuePicker<T>({ label, enabled, selected, search, view, onSelec
       <div className="mb-3 flex items-center gap-2 rounded-lg border border-accent/40 bg-accent/5 px-3 py-2">
         <Badge tone="accent">{selected.key}</Badge>
         <span className="min-w-0 flex-1 truncate text-[13px]">{selected.title}</span>
-        <button className="text-muted hover:text-text" title="Open" onClick={() => void api.invoke('shell:openExternal', selected.url)}>
+        <IconButton label="Open in browser" onClick={() => void api.invoke('shell:openExternal', selected.url)}>
           <ExternalLink size={13} />
-        </button>
-        <button className="text-muted hover:text-text" title="Clear" onClick={() => onSelect(null)}>
+        </IconButton>
+        <IconButton label={`Clear ${label}`} onClick={() => onSelect(null)}>
           <X size={13} />
-        </button>
+        </IconButton>
       </div>
     )
   }
@@ -314,9 +334,9 @@ export function IssuePicker<T>({ label, enabled, selected, search, view, onSelec
       <div className="flex items-center gap-2 border-b border-border px-2 py-1.5">
         <Search size={13} className="text-muted" />
         <input autoFocus className="flex-1 bg-transparent text-[13px] outline-none placeholder:text-muted" placeholder={`${label} key or words in the title… (empty = your open ones)`} value={query} onChange={(e) => setQuery(e.target.value)} />
-        <button className="text-muted hover:text-text" onClick={() => setOpen(false)}>
+        <IconButton label="Close search" onClick={() => setOpen(false)}>
           <X size={13} />
-        </button>
+        </IconButton>
       </div>
       <div className="max-h-56 overflow-auto">
         {error && <div className="px-3 py-2 text-[12px] text-danger">{error}</div>}

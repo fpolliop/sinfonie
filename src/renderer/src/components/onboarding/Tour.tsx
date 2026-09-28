@@ -3,7 +3,7 @@ import { X } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { isGuided } from '@/lib/guided'
-import { Button } from '../ui'
+import { Button, IconButton } from '../ui'
 
 interface Stop {
   anchor: string
@@ -43,7 +43,7 @@ const STOPS: Stop[] = [
   { anchor: 'oncall', title: 'On call', text: 'Watches your Slack alert and support channels, triages each incident against your code and your Google Cloud logs, proposes replies you approve, and opens a draft PR with the fix when it is sure of the cause.', prepare: prepareView },
   { anchor: 'agents', title: 'Agents', text: 'Your agent library. Each agent is a role with its own instructions, model and tools. The four built-ins, explorer, implementer, tester and reviewer, are the default crew (under the Crew tab). Describe one in a sentence and it is drafted for you, try it on a workspace right there, and call one directly in any chat with @name. Agents you create are standalone unless you put them in the crew.' },
   { anchor: 'maestro', title: 'Maestro', text: 'Your companion. It knows everything in Sinfonie: your spaces, workspaces and what happened in them, your agents, your notes and todos, your integrations. Ask it anything, have it set things up, send tasks to workspaces, run agents, or sweep Slack for you. It confirms before every change. Dock it beside your work or open it full screen, with as many conversations as you like. ⇧⌘A.' },
-  { anchor: 'settings', title: 'Settings', text: 'Accounts for every vendor, model providers, the crew, usage, resources, and the integrations: Jira, Linear, Slack, Google Cloud, databases, MCP servers. Application-wide on the left, per space on the right. ⌘, opens it.' }
+  { anchor: 'settings', title: 'Settings', text: 'Accounts for every vendor, model providers, the crew, usage, resources, and the integrations: Jira, Linear, Slack, Google Cloud, databases, MCP servers. Application-wide on the left, per space on the right. ⌘, opens it; ⌘K runs any command and ⌘/ lists the shortcuts.' }
 ]
 
 /** The guided tour: only what guided mode shows, in its own words. */
@@ -51,7 +51,7 @@ export const GUIDED_STOPS: Stop[] = [
   { anchor: 'new-workspace', title: 'Tasks', text: 'A task is one thing you want built or changed in your app. Start one here and describe it in plain words; the assistant takes it from there. ⇧⌘N opens this.' },
   { anchor: 'repos', title: 'Your apps in this task', text: 'The apps this task touches. Each task works on its own copy of them, so nothing changes for anyone else until it is reviewed.', prepare: prepareWorkspace },
   { anchor: 'tab-browser', title: 'Preview', text: 'See the app while the assistant works on it, on your Mac, before anyone else does.' },
-  { anchor: 'settings', title: 'Settings', text: 'Your agent sign-in and your team. ⌘, opens it.' }
+  { anchor: 'settings', title: 'Settings', text: 'Your sign-in and your team. ⌘, opens it; ⌘K finds any task or action.' }
 ]
 
 const PAD = 6
@@ -167,11 +167,11 @@ export function Tour({ onClose }: { onClose: () => void }): React.JSX.Element | 
           <span className="text-[11px] text-muted">
             {shown} of {total}
           </span>
-          <button className="ml-auto text-muted hover:text-text" onClick={finish} aria-label="End tour">
+          <IconButton label="End tour" className="ml-auto" onClick={finish}>
             <X size={14} />
-          </button>
+          </IconButton>
         </div>
-        <div className="mt-1 text-[14px] font-semibold">{stop.title}</div>
+        <div className="mt-1 text-[15px] font-semibold">{stop.title}</div>
         <p className="mt-1 text-[12px] leading-relaxed text-muted">{stop.text}</p>
         <div className="mt-3 flex items-center gap-2">
           <Button size="sm" variant="ghost" onClick={finish}>

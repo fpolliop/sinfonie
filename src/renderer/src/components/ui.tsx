@@ -55,31 +55,7 @@ export function Dialog({ title, onClose, children, width = 520 }: { title: strin
   }, [onClose])
   const titleId = useId()
   const boxRef = useRef<HTMLDivElement>(null)
-  // Focus moves into the dialog on open, stays inside while it is up (Tab wraps), and returns on close.
-  useEffect(() => {
-    const before = document.activeElement as HTMLElement | null
-    const box = boxRef.current
-    const first = box?.querySelector<HTMLElement>('[autofocus], input:not([type=hidden]), textarea, select, button:not([aria-label="Close"])')
-    ;(first ?? box)?.focus()
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key !== 'Tab' || !box) return
-      const items = Array.from(box.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((el) => !el.hasAttribute('disabled') && el.offsetParent !== null)
-      if (items.length === 0) return
-      const [head, tail] = [items[0], items[items.length - 1]]
-      if (e.shiftKey && document.activeElement === head) {
-        tail.focus()
-        e.preventDefault()
-      } else if (!e.shiftKey && document.activeElement === tail) {
-        head.focus()
-        e.preventDefault()
-      }
-    }
-    box?.addEventListener('keydown', onKey)
-    return () => {
-      box?.removeEventListener('keydown', onKey)
-      before?.focus?.()
-    }
-  }, [])
+  useFocusTrap(boxRef)
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 no-drag" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div
@@ -92,7 +68,7 @@ export function Dialog({ title, onClose, children, width = 520 }: { title: strin
         style={{ width, maxWidth: '92vw', maxHeight: '88vh', display: 'flex', flexDirection: 'column' }}
       >
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
-          <h2 id={titleId} className="text-[14px] font-semibold">
+          <h2 id={titleId} className="text-[15px] font-semibold">
             {title}
           </h2>
           <IconButton label="Close" onClick={onClose}>
@@ -103,6 +79,37 @@ export function Dialog({ title, onClose, children, width = 520 }: { title: strin
       </div>
     </div>
   )
+}
+
+/**
+ * Focus moves into `ref` on mount (first field, else the box itself), Tab and Shift+Tab wrap inside it, and focus
+ * returns to where it was on unmount. Every modal surface uses this.
+ */
+export function useFocusTrap(ref: React.RefObject<HTMLElement | null>): void {
+  useEffect(() => {
+    const before = document.activeElement as HTMLElement | null
+    const box = ref.current
+    const first = box?.querySelector<HTMLElement>('[autofocus], input:not([type=hidden]), textarea, select, button:not([aria-label="Close"])')
+    ;(first ?? box)?.focus()
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Tab' || !box) return
+      const items = Array.from(box.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((el) => !el.hasAttribute('disabled') && el.offsetParent !== null)
+      if (items.length === 0) return
+      const [head, tail] = [items[0], items[items.length - 1]]
+      if (e.shiftKey && (document.activeElement === head || document.activeElement === box)) {
+        tail.focus()
+        e.preventDefault()
+      } else if (!e.shiftKey && document.activeElement === tail) {
+        head.focus()
+        e.preventDefault()
+      }
+    }
+    box?.addEventListener('keydown', onKey)
+    return () => {
+      box?.removeEventListener('keydown', onKey)
+      before?.focus?.()
+    }
+  }, [ref])
 }
 
 const FOCUSABLE = 'a[href], button, input, textarea, select, [tabindex]:not([tabindex="-1"])'

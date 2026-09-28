@@ -5,22 +5,28 @@ import { CheckCircle2, ChevronDown, ChevronRight, ExternalLink, Loader2, XCircle
 import { api } from '@/lib/api'
 import { Button, Dialog } from './ui'
 import type { LoginProgress } from '@shared/types'
+import { useGuided } from '@/lib/guided'
+import { tokens } from '@/lib/theme'
 
 /**
  * Guided sign-in for one account. The vendor's CLI runs in the background and opens the browser;
  * the dialog shows where the flow is and finishes with "Signed in". The raw terminal stays under
- * Details in case the CLI asks a question.
+ * Details in case the CLI asks a question (collapsed as "Show details" in guided mode). A failed run offers
+ * Try again, which starts a fresh sign-in in the same dialog.
  */
 export function LoginDialog({ accountId, vendorLabel, accountName, onClose }: { accountId: string; vendorLabel: string; accountName: string; onClose: () => void }): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null)
   const [progress, setProgress] = useState<LoginProgress | null>(null)
   const [details, setDetails] = useState(false)
   const fitRef = useRef<FitAddon | null>(null)
+  /** Bumped by Try again: tears the previous run down and starts a new one. */
+  const [attempt, setAttempt] = useState(0)
+  const guided = useGuided()
 
   useEffect(() => {
     const el = ref.current
     if (!el) return
-    const term = new Terminal({ fontFamily: 'ui-monospace, SF Mono, Menlo, monospace', fontSize: 12, theme: { background: '#0b0d11', foreground: '#e6e8ec', cursor: '#7c9cff' }, cursorBlink: true })
+    const term = new Terminal({ fontFamily: 'ui-monospace, SF Mono, Menlo, monospace', fontSize: 12, theme: { background: tokens.sunken, foreground: tokens.text, cursor: tokens.accent }, cursorBlink: true })
     const fit = new FitAddon()
     fitRef.current = fit
     term.loadAddon(fit)
@@ -46,7 +52,7 @@ export function LoginDialog({ accountId, vendorLabel, accountName, onClose }: { 
       if (tid) void api.invoke('terminal:dispose', tid)
       term.dispose()
     }
-  }, [accountId])
+  }, [accountId, attempt])
 
   useEffect(() => {
     if (details) requestAnimationFrame(() => fitRef.current?.fit())
@@ -67,9 +73,9 @@ export function LoginDialog({ accountId, vendorLabel, accountName, onClose }: { 
           </div>
           <div className="mt-0.5 text-[12px] text-muted">
             {phase === 'starting' && `Your browser will open with the ${vendorLabel} sign-in page.`}
-            {phase === 'browser' && `Come back here when the browser says you are done. The account “${accountName}” will be updated automatically.`}
-            {phase === 'success' && `“${accountName}” is ready to use.`}
-            {phase === 'failed' && (progress?.message ?? 'See Details for what the tool reported.')}
+            {phase === 'browser' && (guided ? 'Come back here when the browser says you are done. This window updates by itself.' : `Come back here when the browser says you are done. The account “${accountName}” will be updated automatically.`)}
+            {phase === 'success' && (guided ? `Your ${vendorLabel} account is ready to use.` : `“${accountName}” is ready to use.`)}
+            {phase === 'failed' && (guided ? 'The sign-in was not finished. Try again; if it keeps failing, ask a teammate.' : (progress?.message ?? 'See Details for what the tool reported.'))}
           </div>
           {phase === 'browser' && progress?.url && (
             <button className="mt-1.5 inline-flex items-center gap-1 text-[12px] text-accent hover:underline" onClick={() => void api.invoke('shell:openExternal', progress.url!)}>
@@ -78,14 +84,26 @@ export function LoginDialog({ accountId, vendorLabel, accountName, onClose }: { 
           )}
         </div>
       </div>
-      <button className="mt-3 inline-flex items-center gap-1 text-[12px] text-muted hover:text-text" onClick={() => setDetails((d) => !d)}>
-        {details ? <ChevronDown size={12} /> : <ChevronRight size={12} />} Details {phase !== 'success' && phase !== 'failed' && <span className="text-muted/70">· if the tool asks a question, answer it here</span>}
+      <button type="button" aria-expanded={details} className="mt-3 inline-flex items-center gap-1 text-[12px] text-muted hover:text-text" onClick={() => setDetails((d) => !d)}>
+        {details ? <ChevronDown size={12} /> : <ChevronRight size={12} />} {guided ? (details ? 'Hide details' : 'Show details') : 'Details'}{' '}
+        {!guided && phase !== 'success' && phase !== 'failed' && <span className="text-muted">· if the tool asks a question, answer it here</span>}
       </button>
-      <div ref={ref} className="mt-2 w-full rounded-md bg-[#0b0d11] p-1" style={{ height: details ? 300 : 0, overflow: 'hidden', opacity: details ? 1 : 0 }} />
-      <div className="mt-4 flex justify-end">
+      <div ref={ref} data-expert-ok className="mt-2 w-full rounded-md bg-sunken p-1" style={{ height: details ? 300 : 0, overflow: 'hidden', opacity: details ? 1 : 0 }} />
+      <div className="mt-4 flex justify-end gap-2">
         <Button variant={phase === 'success' ? 'primary' : 'ghost'} onClick={onClose}>
           {phase === 'success' ? 'Done' : 'Cancel'}
         </Button>
+        {phase === 'failed' && (
+          <Button
+            variant="primary"
+            onClick={() => {
+              setProgress(null)
+              setAttempt((n) => n + 1)
+            }}
+          >
+            Try again
+          </Button>
+        )}
       </div>
     </Dialog>
   )

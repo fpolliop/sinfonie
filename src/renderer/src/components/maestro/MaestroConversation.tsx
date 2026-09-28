@@ -100,7 +100,7 @@ export function MaestroConversation({ id, compact }: { id: string; compact?: boo
             }}
           />
           <div className="flex items-center gap-2 px-2 pb-2">
-            <span className="text-[10px] text-muted">Confirms before changing anything. Links in answers open the thing they name.</span>
+            <span className="text-[11px] text-muted">Confirms before changing anything. Links in answers open the thing they name.</span>
             <span className="ml-auto" />
             {busy ? (
               <Button size="sm" variant="danger" onClick={() => void stop(id)} title="Stop the current answer">
@@ -174,7 +174,7 @@ function Activity({ items }: { items: AssistantItem[] }): React.JSX.Element {
                   {t.ok ? <Check size={11} className="shrink-0 text-ok" /> : <XIcon size={11} className="shrink-0 text-danger" />}
                   <span className="font-mono">{t.name}</span>
                   <span className="truncate text-muted">{summarize(t.input)}</span>
-                  <span className="ml-auto shrink-0 text-[10px] text-muted">{t.ms ? `${(t.ms / 1000).toFixed(1)}s` : ''}</span>
+                  <span className="ml-auto shrink-0 text-[11px] text-muted">{t.ms ? `${(t.ms / 1000).toFixed(1)}s` : ''}</span>
                 </button>
                 {isOpen && <pre className="max-h-64 overflow-auto whitespace-pre-wrap bg-bg px-2.5 py-2 font-mono text-[11px]">{it.text}</pre>}
               </div>

@@ -24,7 +24,8 @@ function GithubMark({ size = 13 }: { size?: number }): React.JSX.Element {
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { useGuided, words } from '@/lib/guided'
-import { Badge, Button, inputCls } from './ui'
+import { Badge, Button, IconButton, SectionHeader, Segmented, inputCls } from './ui'
+import { friendlyError } from '@/lib/errors'
 import { TeamSection } from './TeamSection'
 import { PLAN_LABELS, PLAN_LIMITS, type BillingPeriod, type Plan, type PlanLimits } from '@shared/types'
 
@@ -66,7 +67,7 @@ function CouponBox({ signedIn }: { signedIn: boolean }): React.JSX.Element {
       setCode('')
       setDone(st.account?.grant && st.account.grant.kind !== 'trial' ? `You are on ${PLAN_LABELS[st.account.plan]}${st.account.grant.until ? ` until ${new Date(st.account.grant.until).toLocaleDateString()}` : ''}. Enjoy.` : 'Code accepted.')
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(friendlyError(err, 'That code did not work. Check it and try again.'))
     } finally {
       setBusy(false)
     }
@@ -85,7 +86,7 @@ function CouponBox({ signedIn }: { signedIn: boolean }): React.JSX.Element {
   return (
     <div className="mt-3 flex items-center gap-2">
       <span className="shrink-0 text-[12px] text-muted">Have a code?</span>
-      <input className={clsx(inputCls, 'max-w-[280px] font-mono uppercase')} placeholder="BETA-XXXX-XXXX" value={code} onChange={(e) => setCode(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && void redeem(code)} disabled={!signedIn} title={signedIn ? undefined : 'Sign in first'} />
+      <input className={clsx(inputCls, 'max-w-[280px] font-mono uppercase')} aria-label="Code to redeem" placeholder="BETA-XXXX-XXXX" value={code} onChange={(e) => setCode(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && void redeem(code)} disabled={!signedIn} title={signedIn ? undefined : 'Sign in first'} />
       <Button size="sm" disabled={!signedIn || !code.trim() || busy} onClick={() => void redeem(code)}>
         Redeem
       </Button>
@@ -111,7 +112,7 @@ export function PlanPage(): React.JSX.Element {
     try {
       await fn()
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(friendlyError(err))
     } finally {
       setBusy(null)
     }
@@ -156,13 +157,17 @@ export function PlanPage(): React.JSX.Element {
                 {account.user.email ? ` · ${account.user.email}` : ''}
                 {account.subscription?.endsAt ? ` · ends ${new Date(account.subscription.endsAt).toLocaleDateString()}` : account.subscription?.renewsAt ? ` · renews ${new Date(account.subscription.renewsAt).toLocaleDateString()}` : ''}
               </div>
-              {account.orgs.length > 0 && <div className="text-[12px] text-muted">Teams: {account.orgs.map((o) => `${o.name} (${o.role}, ${o.seats} seats)`).join(', ')}</div>}
+              {account.orgs.length > 0 && (
+                <div className="text-[12px] text-muted">
+                  {guided ? `Company: ${account.orgs.map((o) => o.name).join(', ')}` : `Organisations: ${account.orgs.map((o) => `${o.name} (${o.role}, ${o.seats} seats)`).join(', ')}`}
+                </div>
+              )}
               {stale && <div className="text-[12px] text-warn">Plan not confirmed for two weeks; the app behaves as Free until it can reach sinfonie.dev.</div>}
-              {cloud?.error && <div className="text-[12px] text-warn">Last check failed: {cloud.error}</div>}
+              {cloud?.error && <div className="text-[12px] text-warn">{guided ? friendlyError(cloud.error, 'Sinfonie could not confirm your plan just now. It will try again.', true) : `Last check failed: ${cloud.error}`}</div>}
             </div>
-            <Button size="sm" disabled={busy === 'refresh'} onClick={() => void run('refresh', () => api.invoke('cloud:refresh'))} title="Ask sinfonie.dev again">
+            <IconButton label="Check the plan again" disabled={busy === 'refresh'} onClick={() => void run('refresh', () => api.invoke('cloud:refresh'))}>
               <RefreshCw size={12} className={clsx(busy === 'refresh' && 'animate-spin')} />
-            </Button>
+            </IconButton>
             {account.subscription && (
               <Button size="sm" disabled={busy === 'portal'} onClick={() => void run('portal', () => api.invoke('cloud:portal'))}>
                 <ExternalLink size={12} /> Manage billing
@@ -175,16 +180,21 @@ export function PlanPage(): React.JSX.Element {
         )}
       </section>
 
-      <div className="mb-2 flex items-center gap-3">
-        <div className="text-[12px] font-semibold uppercase tracking-wide text-muted">Plans</div>
-        <div className="ml-auto flex rounded-md border border-border p-0.5 text-[12px]">
-          {(['month', 'year'] as BillingPeriod[]).map((p) => (
-            <button key={p} className={clsx('rounded px-2 py-0.5', period === p ? 'bg-panel-2 text-text' : 'text-muted hover:text-text')} onClick={() => setPeriod(p)}>
-              {p === 'month' ? 'Monthly' : 'Yearly'}
-            </button>
-          ))}
-        </div>
-      </div>
+      <SectionHeader
+        action={
+          <Segmented<BillingPeriod>
+            size="sm"
+            value={period}
+            onChange={setPeriod}
+            options={[
+              { id: 'month', label: 'Monthly' },
+              { id: 'year', label: 'Yearly' }
+            ]}
+          />
+        }
+      >
+        Plans
+      </SectionHeader>
       <div className="grid grid-cols-3 gap-3">
         {planRows(guided).map(({ plan: p, blurb, points }) => {
           const current = p === plan
@@ -210,7 +220,9 @@ export function PlanPage(): React.JSX.Element {
               {p !== 'free' && !current && (
                 <div className="flex items-center gap-2">
                   {p === 'team' && account && (
-                    <input type="number" min={1} max={500} value={seats} onChange={(e) => setSeats(Math.max(1, Math.min(500, Number(e.target.value) || 1)))} className="w-16 rounded-md border border-border bg-bg px-2 py-1 text-[12px] outline-none focus:border-accent" title="Seats" />
+                    <span className="w-[72px] shrink-0">
+                      <input type="number" min={1} max={500} value={seats} onChange={(e) => setSeats(Math.max(1, Math.min(500, Number(e.target.value) || 1)))} className={inputCls} aria-label="Seats" title="Seats" />
+                    </span>
                   )}
                   <Button
                     variant="primary"
@@ -230,7 +242,7 @@ export function PlanPage(): React.JSX.Element {
       <CouponBox signedIn={Boolean(account)} />
       <p className="mt-3 text-[11px] text-muted">
         Your plan: {limitText(PLAN_LIMITS[plan], guided)}. You have {spaces.length} {words(guided).space}{spaces.length === 1 ? '' : 's'}.
-        {account && !account.enforce ? ' Limits are not enforced yet; nothing you have today will be locked.' : ''} Agent subscriptions and API keys are yours and are billed by their vendors, never through Sinfonie.
+        {account && !account.enforce ? ' Limits are not enforced yet; nothing you have today will be locked.' : ''} {guided ? 'Your AI subscriptions are yours and are billed by their vendors, never through Sinfonie.' : 'Agent subscriptions and API keys are yours and are billed by their vendors, never through Sinfonie.'}
       </p>
       <TeamSection signedIn={Boolean(account)} />
     </div>

@@ -56,6 +56,8 @@ export interface SinfonieInvoke {
   /** Git repositories directly under a folder (and one level below), for the setup assistant. */
   'repos:scan': (root: string) => ScannedRepo[]
   'repos:addPaths': (paths: string[], spaceId?: string) => Repo[]
+  /** Clone a GitHub repository into ~/Sinfonie/<name> (reusing an existing checkout there) and return its local path. */
+  'repos:clone': (url: string) => string
   'dialog:pickFolder': (title: string, defaultPath?: string) => string | null
   'repos:remove': (repoId: string) => void
   'repos:branches': (repoId: string) => string[]
@@ -377,6 +379,7 @@ export interface SinfonieInvoke {
   'oncall:addProposal': (incidentId: string, text: string) => Incident
   'oncall:ask': (incidentId: string, question: string) => Incident
   'oncall:remove': (incidentId: string) => void
+  'oncall:restore': (incident: Incident) => void
   /** Applies one change to many incidents; returns how many were touched. */
   'oncall:bulk': (incidentIds: string[], op: OnCallBulkOp) => number
   /** Draft a PR with the triage's proposed fix: branch from the default branch, agent edits, push, `gh pr create --draft`. */
