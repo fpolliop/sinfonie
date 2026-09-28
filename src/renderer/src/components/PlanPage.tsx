@@ -34,7 +34,7 @@ const PRICES: Record<Exclude<Plan, 'free'>, Record<BillingPeriod, number>> = { p
 function planRows(guided: boolean): { plan: Plan; blurb: string; points: string[] }[] {
   if (guided)
     return [
-      { plan: 'free', blurb: 'Build with AI on your Mac, forever.', points: ['Unlimited tasks in a single app', 'One team with up to two apps', 'One account per AI vendor'] },
+      { plan: 'free', blurb: 'Build with AI on your Mac, forever.', points: ['Unlimited tasks', 'One team with up to two apps', 'One account per AI vendor'] },
       { plan: 'pro', blurb: 'For people who work across several apps.', points: ['Unlimited teams and apps', 'Several accounts per AI vendor', 'Reviews, Jira, Linear and on-call', 'Databases and devices'] },
       { plan: 'team', blurb: 'Per seat. One setup shared with your whole team.', points: ['Everything in Pro', 'Your team’s setup shared with everyone', 'Admin, invites and central billing'] }
     ]
@@ -225,7 +225,8 @@ export function PlanPage(): React.JSX.Element {
                     </span>
                   )}
                   <Button
-                    variant="primary"
+                    // Signed out, signing in (above) is the next step: upgrade buttons stay secondary until then.
+                    variant={account ? 'primary' : 'subtle'}
                     size="sm"
                     disabled={busy === `buy:${p}` || (account ? !account.billing : false)}
                     title={account && !account.billing ? 'Checkout is not open yet' : undefined}

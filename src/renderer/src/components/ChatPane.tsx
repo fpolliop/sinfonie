@@ -723,6 +723,26 @@ function useOpenTodos(workspaceId: string): number {
   return notes.filter((n) => n.kind === 'todo' && !n.done).length
 }
 
+/** A system notice: the first paragraph always shows; anything after a blank line folds behind "Details". */
+function NoticeText({ text }: { text: string }): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  const cut = text.indexOf('\n\n')
+  if (cut < 0) return <span className="whitespace-pre-wrap">{text}</span>
+  return (
+    <span className="min-w-0 flex-1">
+      <span className="whitespace-pre-wrap">{text.slice(0, cut)}</span>{' '}
+      <button type="button" className="text-accent hover:underline" aria-expanded={open} onClick={() => setOpen(!open)}>
+        {open ? 'Hide details' : 'Details'}
+      </button>
+      {open && (
+        <span data-expert-ok className="mt-1.5 block whitespace-pre-wrap font-mono text-[11px]">
+          {text.slice(cut + 2)}
+        </span>
+      )}
+    </span>
+  )
+}
+
 export function Message({ item }: { item: ChatItem }): React.JSX.Element | null {
   const guided = useGuided()
   if (item.role === 'system') {
@@ -734,7 +754,7 @@ export function Message({ item }: { item: ChatItem }): React.JSX.Element | null 
     return (
       <div role={level === 'error' ? 'alert' : undefined} className={clsx('flex items-start gap-2 rounded-md border px-3 py-2 text-[12px]', level === 'error' ? 'border-danger/40 bg-danger/10 text-danger' : level === 'warn' ? 'border-warn/40 bg-warn/10 text-warn' : 'border-border bg-panel text-muted')}>
         {level === 'error' ? <XCircle size={14} className="mt-0.5 shrink-0" aria-hidden /> : level === 'warn' ? <AlertTriangle size={14} className="mt-0.5 shrink-0" aria-hidden /> : <Info size={14} className="mt-0.5 shrink-0" aria-hidden />}
-        <span className="whitespace-pre-wrap">{text}</span>
+        <NoticeText text={text} />
       </div>
     )
   }
@@ -916,7 +936,7 @@ function SessionPill({ workspaceId, spaceId, engineLabel, costMode, costModeSour
       setError(friendlyError(err))
     })
   }
-  const statusParts = [contextTokens ? `${Math.round(pct)}% context` : 'New session', result ? `$${result.costUsd.toFixed(2)}` : null, costMode !== 'standard' ? costMode : null].filter(Boolean)
+  const statusParts = [contextTokens ? `${Math.round(pct)}% context` : '0% context', result ? `$${result.costUsd.toFixed(2)}` : null, costMode !== 'standard' ? costMode : null].filter(Boolean)
   const usedCats = (usage?.categories ?? []).filter((c) => c.kind === 'used' && c.tokens > 0).sort((a, b) => b.tokens - a.tokens)
   const buffer = (usage?.categories ?? []).find((c) => c.kind === 'buffer')
   const byServer = Object.entries((usage?.mcpTools ?? []).reduce<Record<string, number>>((m, t) => ((m[t.serverName] = (m[t.serverName] ?? 0) + t.tokens), m), {})).sort((a, b) => b[1] - a[1])
@@ -1454,8 +1474,11 @@ function ToolCall({ block }: { block: ChatToolBlock }): React.JSX.Element {
   const openPanel = (id: string): void => setPanel({ kind: 'delegation', id })
   const input = (block.input ?? {}) as Record<string, unknown>
   const isAgent = block.name === 'Agent' || block.name === 'Task'
-  const headline =
+  // Paths read relative to the open workspace: "shop-website/index.html", not the full folder on disk.
+  const root = useApp((s) => s.workspaces.find((w) => w.id === s.selectedId)?.rootPath)
+  const rawHeadline =
     typeof input.command === 'string' ? input.command : typeof input.file_path === 'string' ? input.file_path : typeof input.pattern === 'string' ? input.pattern : typeof input.description === 'string' ? input.description : ''
+  const headline = root ? rawHeadline.split(`${root}/`).join('').split(root).join('.') : rawHeadline
   const agentType = typeof input.subagent_type === 'string' ? input.subagent_type : 'agent'
   return (
     <div className={clsx('rounded-md border text-[12px]', block.isError ? 'border-danger/40' : isAgent ? 'border-accent/40' : 'border-border')}>

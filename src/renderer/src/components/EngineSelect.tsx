@@ -37,7 +37,7 @@ export function NativeModelSelect({ value, onChange, allowDefault, defaultLabel 
     <select className={inputCls} value={value} onChange={(e) => onChange(e.target.value)}>
       {allowDefault && <option value="">{defaultLabel ?? 'App default'}</option>}
       {value && !known.has(value) && <option value={value}>{value} (custom)</option>}
-      {providers.length === 0 && <option value="" disabled>Add a provider in Settings first</option>}
+      {providers.length === 0 && <option value="" disabled>No model providers yet: add one under Model providers</option>}
       {providers.map((p) => (
         <optgroup key={p.id} label={p.name}>
           {(p.models ?? []).length === 0 && <option value="" disabled>no models fetched yet</option>}

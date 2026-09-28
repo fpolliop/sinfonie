@@ -34,7 +34,11 @@ export const popModal = (): void => {
 }
 export const hasOpenDialog = (): boolean => dialogDepth > 0
 
-export function Dialog({ title, onClose, children, width = 520 }: { title: string; onClose: () => void; children: React.ReactNode; width?: number }): React.JSX.Element {
+/**
+ * A modal. `bare` drops the title bar and anchors the box near the top of the window (a command palette); the
+ * title then only names the dialog for screen readers.
+ */
+export function Dialog({ title, onClose, children, width = 520, bare = false }: { title: string; onClose: () => void; children: React.ReactNode; width?: number; bare?: boolean }): React.JSX.Element {
   // Native browser pages draw above the DOM; hide them while a modal is open.
   useEffect(() => {
     pushModal()
@@ -57,25 +61,28 @@ export function Dialog({ title, onClose, children, width = 520 }: { title: strin
   const boxRef = useRef<HTMLDivElement>(null)
   useFocusTrap(boxRef)
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 no-drag" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div className={clsx('fixed inset-0 z-50 flex justify-center bg-black/50 no-drag', bare ? 'items-start pt-[14vh]' : 'items-center')} onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div
         ref={boxRef}
         role="dialog"
         aria-modal="true"
-        aria-labelledby={titleId}
+        aria-labelledby={bare ? undefined : titleId}
+        aria-label={bare ? title : undefined}
         tabIndex={-1}
         className="rounded-xl border border-border bg-panel shadow-2xl outline-none"
         style={{ width, maxWidth: '92vw', maxHeight: '88vh', display: 'flex', flexDirection: 'column' }}
       >
-        <div className="flex items-center justify-between border-b border-border px-4 py-3">
-          <h2 id={titleId} className="text-[15px] font-semibold">
-            {title}
-          </h2>
-          <IconButton label="Close" onClick={onClose}>
-            <X size={14} />
-          </IconButton>
-        </div>
-        <div className="overflow-auto p-4">{children}</div>
+        {!bare && (
+          <div className="flex items-center justify-between border-b border-border px-4 py-3">
+            <h2 id={titleId} className="text-[15px] font-semibold">
+              {title}
+            </h2>
+            <IconButton label="Close" onClick={onClose}>
+              <X size={14} />
+            </IconButton>
+          </div>
+        )}
+        <div className={clsx('overflow-auto', bare ? 'p-3' : 'p-4')}>{children}</div>
       </div>
     </div>
   )

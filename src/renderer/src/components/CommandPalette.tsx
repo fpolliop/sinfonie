@@ -84,7 +84,7 @@ export function CommandPalette({ onClose, onShortcuts }: { onClose: () => void; 
         { id: 'notes', label: 'Todos & notes', group: 'Go to', run: () => view('notes') },
         { id: 'reviews', label: 'Review cockpit', group: 'Go to', run: () => view('reviews') },
         { id: 'agents', label: 'Agents', group: 'Go to', run: () => view('agents') },
-        { id: 'errors', label: 'Feedback & diagnostics…', group: 'Actions', run: () => st().setFeedbackDialog('errors') }
+        { id: 'errors', label: 'Feedback & diagnostics…', group: 'Help', run: () => st().setFeedbackDialog('errors') }
       )
     }
     if (selectedId) {
@@ -113,7 +113,13 @@ export function CommandPalette({ onClose, onShortcuts }: { onClose: () => void; 
     return out
   }, [guided, t, workspaces, spaces, selectedId, dock, onShortcuts])
 
-  const shown = useMemo(() => (query.trim() ? commands.filter((c) => matches(c, query)) : commands), [commands, query])
+  // Each group shows once, in the order groups first appear; the sort is stable, so items keep their order inside a group.
+  const shown = useMemo(() => {
+    const list = query.trim() ? commands.filter((c) => matches(c, query)) : commands
+    const rank = new Map<string, number>()
+    list.forEach((c) => rank.has(c.group) || rank.set(c.group, rank.size))
+    return [...list].sort((a, b) => rank.get(a.group)! - rank.get(b.group)!)
+  }, [commands, query])
   useEffect(() => setActive(0), [query])
   useEffect(() => {
     listRef.current?.querySelector<HTMLElement>(`[data-index="${active}"]`)?.scrollIntoView({ block: 'nearest' })
@@ -139,8 +145,8 @@ export function CommandPalette({ onClose, onShortcuts }: { onClose: () => void; 
   const listId = 'command-palette-list'
   let lastGroup = ''
   return (
-    <Dialog title="Commands" onClose={onClose} width={560}>
-      <div className="-mt-1 mb-2 flex items-center gap-2 rounded-md border border-border bg-bg px-2.5 py-1.5 focus-within:border-accent">
+    <Dialog title="Commands" bare onClose={onClose} width={560}>
+      <div className="mb-2 flex items-center gap-2 rounded-md border border-border bg-bg px-2.5 py-1.5 focus-within:border-accent">
         <Search size={14} className="shrink-0 text-muted" />
         <input
           autoFocus

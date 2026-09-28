@@ -174,7 +174,8 @@ export function SettingsWindow({ target, onClose }: { target: SettingsTarget; on
         <div className="flex min-w-0 flex-1 flex-col">
           <header className="flex items-start gap-3 border-b border-border px-6 py-4">
             <div className="min-w-0 flex-1">
-              <div className="mb-1 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide">
+              {/* Guided has one level of settings, and "application" would read as the person's own app: no scope line. */}
+              <div className={clsx('mb-1 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide', guided && 'hidden')}>
                 {target.scope === 'app' ? (
                   <span className="rounded bg-accent/15 px-1.5 py-px text-accent">Application</span>
                 ) : (
@@ -339,12 +340,23 @@ function AppPageView({ page }: { page: AppPage }): React.JSX.Element {
           <div className="mb-3">
             <div className="mb-1 text-[12px] font-medium text-muted">Inline suggestions in the editor</div>
             <div className="flex items-center gap-3">
-              <Toggle checked={Boolean(settings.completions?.enabled)} onChange={(v) => go(() => update({ completions: { ...(settings.completions ?? {}), enabled: v } }))} label="On" />
+              <Toggle checked={Boolean(settings.completions?.enabled)} onChange={(v) => go(() => update({ completions: { ...(settings.completions ?? {}), enabled: v } }))} label={settings.completions?.enabled ? 'On' : 'Off'} disabled={!settings.providers?.length && !settings.completions?.enabled} />
               <div className="min-w-0 flex-1">
                 <NativeModelSelect value={settings.completions?.model ?? ''} onChange={(model) => go(() => update({ completions: { enabled: settings.completions?.enabled ?? false, model } }))} />
               </div>
             </div>
-            <div className="mt-1 text-[11px] text-muted">Ghost text while you type in the Code tab, written by a small fast model from Model providers (a local model works). Tab accepts, Esc dismisses. The sparkle button in the editor toggles it too.</div>
+            <div className="mt-1 text-[11px] text-muted">
+              Ghost text while you type in the Code tab, written by a small fast model (a local model works). Tab accepts, Esc dismisses.
+              {!settings.providers?.length && (
+                <>
+                  {' '}
+                  <button type="button" className="text-accent hover:underline" onClick={() => openSettings({ scope: 'app', page: 'providers' })}>
+                    Add a model provider
+                  </button>{' '}
+                  to turn it on.
+                </>
+              )}
+            </div>
           </div>
           <Field label="Permission mode" hint="Each chat can still switch its own mode from the composer or with Shift+Tab.">
             <select className={inputCls} value={settings.permissionMode} onChange={(e) => go(() => update({ permissionMode: e.target.value as typeof settings.permissionMode }))}>

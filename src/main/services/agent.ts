@@ -580,8 +580,9 @@ async function pump(session: Session, emit: EmitEvent): Promise<void> {
             const inherited = bad.filter((m) => !ours.has(m.name))
             if (inherited.length && !mcpNoticeShown.has(workspaceId)) {
               mcpNoticeShown.add(workspaceId)
-              const names = inherited.map((m) => `${m.name} (${m.status})`).join(', ')
-              notice('info', `${inherited.length} MCP server${inherited.length === 1 ? '' : 's'} from your Claude Code config ${inherited.length === 1 ? 'is' : 'are'} not available: ${names}. Turn on "Only Sinfonie's MCP servers" in the space settings to stop loading them.`)
+              // First paragraph is the summary; the list after the blank line folds behind "Details" in the chat.
+              const names = inherited.map((m) => `${m.name} (${m.status})`).join('\n')
+              notice('info', `${inherited.length} MCP server${inherited.length === 1 ? '' : 's'} from your Claude Code config ${inherited.length === 1 ? 'is' : 'are'} not available and ${inherited.length === 1 ? 'was' : 'were'} skipped. Turn on "Only Sinfonie's MCP servers" in the space settings to stop loading them.\n\n${names}`)
             }
           } else if (msg.subtype === 'api_retry') {
             notice('warn', `${describeError(msg.error)} Retrying (${msg.attempt}/${msg.max_retries}) in ${Math.round(msg.retry_delay_ms / 1000)}s…`)
