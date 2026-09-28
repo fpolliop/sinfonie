@@ -14,20 +14,34 @@ function fileName(input: Record<string, unknown>): string | null {
   return /^[\w.@+-]{1,60}\.[\w]{1,8}$/.test(name) ? name : null
 }
 
+/**
+ * What kind of thing a file is, in a non-developer's words, from its extension: "the page", "the styling".
+ * Unknown kinds fall back to "the code"; the file name itself is never shown in guided mode.
+ */
+function fileKind(file: string | null): string {
+  const ext = file?.split('.').pop()?.toLowerCase() ?? ''
+  if (['html', 'htm', 'tsx', 'jsx', 'vue', 'svelte', 'astro', 'erb', 'hbs', 'liquid'].includes(ext)) return 'the page'
+  if (['css', 'scss', 'sass', 'less'].includes(ext)) return 'the styling'
+  if (['md', 'mdx', 'txt'].includes(ext)) return 'the text'
+  if (['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'ico'].includes(ext)) return 'an image'
+  if (['json', 'yaml', 'yml', 'toml', 'env'].includes(ext)) return 'the settings'
+  if (['sql', 'prisma'].includes(ext)) return 'the data'
+  if (/^test|spec/.test(file ?? '') || /\.(test|spec)\./.test(file ?? '')) return 'the checks'
+  return 'the code'
+}
+
 const isBrowser = (name: string): boolean => /browser|playwright|puppeteer|chrome/i.test(name)
 
-/** One tool call as a guided step: "Looked at Button.tsx", "Changed checkout.ts", "Ran a check". */
+/** One tool call as a guided step: "Looked at the page", "Changed the styling", "Ran a check". */
 export function guidedStep(block: Pick<ChatToolBlock, 'name' | 'input'>): string {
   const name = block.name
   const input = (block.input ?? {}) as Record<string, unknown>
   if (name === 'Read') {
-    const f = fileName(input)
-    return f ? `Looked at ${f}` : 'Looked at the code'
+    return `Looked at ${fileKind(fileName(input))}`
   }
   if (name === 'Grep' || name === 'Glob' || name === 'LS' || name === 'List') return 'Looked at the code'
   if (name === 'Edit' || name === 'Write' || name === 'MultiEdit' || name === 'NotebookEdit') {
-    const f = fileName(input)
-    return f ? `Changed ${f}` : 'Made changes'
+    return `Changed ${fileKind(fileName(input))}`
   }
   if (name === 'Bash' || name === 'BashOutput') return 'Ran a check'
   if (isBrowser(name)) return 'Checked the preview'

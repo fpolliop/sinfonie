@@ -17,10 +17,29 @@ class PlainError extends Error {}
  */
 export function SendForReviewButton({ ws }: { ws: Workspace }): React.JSX.Element | null {
   const [open, setOpen] = useState(false)
+  // The button only takes the primary colour once there is something to send, so a fresh task doesn't invite
+  // sending nothing. Checked every 15 seconds; cheap (a status per app).
+  const [hasChanges, setHasChanges] = useState(false)
+  useEffect(() => {
+    if (ws.status !== 'ready') return
+    let alive = true
+    const poll = (): void => {
+      void api
+        .invoke('workspaces:safety', ws.id)
+        .then((rows) => alive && setHasChanges(rows.some((r) => !r.error && (r.uncommitted > 0 || r.unpushed > 0))))
+        .catch(() => undefined)
+    }
+    poll()
+    const t = setInterval(poll, 15_000)
+    return () => {
+      alive = false
+      clearInterval(t)
+    }
+  }, [ws.id, ws.status])
   if (ws.status !== 'ready' || ws.repos.length === 0) return null
   return (
     <>
-      <Button size="sm" variant="primary" className="no-drag" onClick={() => setOpen(true)} title="Save your changes and ask a colleague to review them">
+      <Button size="sm" variant={hasChanges ? 'primary' : 'subtle'} className="no-drag" onClick={() => setOpen(true)} title={hasChanges ? 'Save your changes and ask a colleague to review them' : 'Nothing has changed yet. Describe what you want in the chat first.'}>
         <Send size={12} /> Send for review
       </Button>
       {open && <SendDialog ws={ws} onClose={() => setOpen(false)} />}

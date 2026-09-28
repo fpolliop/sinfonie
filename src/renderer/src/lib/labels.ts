@@ -5,10 +5,16 @@
 import type { Repo, Vendor, Workspace } from '@shared/types'
 import { VENDORS } from '@shared/types'
 
-/** A repository as a person calls it: the friendly name set in Guided setup, else the folder name. */
+/** A repository as a person calls it: the friendly name set in Guided setup, else the folder name read as words. */
 export function repoLabel(repo: Pick<Repo, 'name' | 'displayName'> | undefined | null): string {
   if (!repo) return ''
-  return repo.displayName?.trim() || repo.name
+  return repo.displayName?.trim() || humanName(repo.name)
+}
+
+/** A folder name read as words: "shop-website" → "Shop website", "api_v2" → "Api v2". */
+export function humanName(name: string): string {
+  const words = name.replace(/[-_.]+/g, ' ').replace(/\s+/g, ' ').trim()
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : name
 }
 
 /**

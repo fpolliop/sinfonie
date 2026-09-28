@@ -345,7 +345,7 @@ function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Elem
       </div>
       <div className="relative border-t border-border px-4 py-3">
         {!atBottom && (
-          <button onClick={jumpToLatest} className={clsx('absolute -top-9 left-1/2 z-10 -translate-x-1/2 rounded-full border px-3 py-1 text-[12px] shadow-lg', unseen ? 'border-accent/50 bg-accent-2 text-white' : 'border-border bg-panel text-muted hover:text-text')}>
+          <button onClick={jumpToLatest} className={clsx('absolute -top-9 left-1/2 z-10 -translate-x-1/2 rounded-full border px-3 py-1 text-[12px] shadow-lg', unseen ? 'border-accent/50 bg-primary text-white' : 'border-border bg-panel text-muted hover:text-text')}>
             ↓ {unseen ? 'New output below' : 'Jump to latest'}
           </button>
         )}
@@ -764,7 +764,7 @@ export function Message({ item }: { item: ChatItem }): React.JSX.Element | null 
     )
   }
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-2 empty:hidden">
       {item.blocks.map((b, i) => (
         <Block key={i} block={b} />
       ))}
@@ -1097,7 +1097,7 @@ function LimitCard({ workspaceId, ev }: { workspaceId: string; ev: Extract<Agent
             disabled={busyChoice !== null}
             title={a.hint}
             onClick={() => pick(a)}
-            className={clsx('rounded-md px-2 py-1 text-[11px]', a.kind === 'proceed' || (ev.mode === 'hit' && a.kind === 'account') ? 'bg-accent-2 text-white hover:bg-accent' : a.kind === 'cancel' ? 'text-muted hover:text-text' : 'border border-border hover:bg-panel-2', busyChoice === a.kind + (a.id ?? '') && 'opacity-60')}
+            className={clsx('rounded-md px-2 py-1 text-[11px]', a.kind === 'proceed' || (ev.mode === 'hit' && a.kind === 'account') ? 'bg-primary text-white hover:bg-primary-hover' : a.kind === 'cancel' ? 'text-muted hover:text-text' : 'border border-border hover:bg-panel-2', busyChoice === a.kind + (a.id ?? '') && 'opacity-60')}
           >
             {a.label}
           </button>
@@ -1205,7 +1205,7 @@ function SubagentSteps({ block, compact }: { block: ChatToolBlock; compact?: boo
     if (!compact) endRef.current?.scrollIntoView({ block: 'end' })
   }, [steps.length, compact])
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-2 empty:hidden">
       {typeof input.prompt === 'string' && (
         <div>
           <div className="mb-1 text-[11px] uppercase tracking-wide text-muted">Brief from the orchestrator</div>

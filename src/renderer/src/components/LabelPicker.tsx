@@ -97,7 +97,7 @@ export function LabelPicker({ ws }: { ws: Workspace }): React.JSX.Element {
           <div className="mt-2 border-t border-border pt-2">
             <div className="flex items-center gap-1.5">
               <input className="min-w-0 flex-1 rounded-md border border-border bg-bg px-2 py-1 text-[12px] outline-none focus:border-accent" aria-label="New label name" placeholder="New label" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && create()} />
-              <button className="rounded-md bg-accent-2 p-1.5 text-white hover:bg-accent disabled:opacity-50" disabled={!name.trim()} onClick={create} aria-label="Create and attach" title="Create and attach">
+              <button className="rounded-md bg-primary p-1.5 text-white hover:bg-primary-hover disabled:opacity-50" disabled={!name.trim()} onClick={create} aria-label="Create and attach" title="Create and attach">
                 <Plus size={12} />
               </button>
             </div>

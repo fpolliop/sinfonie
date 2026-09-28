@@ -390,7 +390,7 @@ function UpdateBanner(): React.JSX.Element | null {
           <div className="mb-1 font-medium">Sinfonie {info.version} is available</div>
           <div className="mb-2 text-[11px] text-muted">You have {info.current}. The update downloads in the background; you restart when it is ready.</div>
           <div className="flex gap-2">
-            <button className="rounded-md bg-accent-2 px-2 py-1 text-[11px] text-white hover:bg-accent" onClick={download}>
+            <button className="rounded-md bg-primary px-2 py-1 text-[11px] text-white hover:bg-primary-hover" onClick={download}>
               Download and install
             </button>
             <button className="text-[11px] text-muted hover:text-text" onClick={() => void api.invoke('shell:openExternal', info.releaseUrl)}>
@@ -418,7 +418,7 @@ function UpdateBanner(): React.JSX.Element | null {
             {info.installWhenIdle ? 'It restarts by itself once no agent is running and you have stepped away for a minute. Sessions resume from their saved transcripts.' : 'Restart to start using it. Running sessions resume from their saved transcripts.'}
           </div>
           <div className="flex flex-wrap gap-2">
-            <button className="rounded-md bg-accent-2 px-2 py-1 text-[11px] text-white hover:bg-accent" onClick={() => void api.invoke('updates:install')}>
+            <button className="rounded-md bg-primary px-2 py-1 text-[11px] text-white hover:bg-primary-hover" onClick={() => void api.invoke('updates:install')}>
               Restart now
             </button>
             {info.installWhenIdle ? (
@@ -441,7 +441,7 @@ function UpdateBanner(): React.JSX.Element | null {
           <div className="mb-1 font-medium">Could not download {info.version}</div>
           <div className="mb-2 break-words text-[11px] text-muted">{info.error}</div>
           <div className="flex gap-2">
-            <button className="rounded-md bg-accent-2 px-2 py-1 text-[11px] text-white hover:bg-accent" onClick={download}>
+            <button className="rounded-md bg-primary px-2 py-1 text-[11px] text-white hover:bg-primary-hover" onClick={download}>
               Try again
             </button>
             <button className="text-[11px] text-muted hover:text-text" onClick={() => void api.invoke('shell:openExternal', info.releaseUrl)}>

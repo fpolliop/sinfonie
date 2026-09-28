@@ -3,7 +3,7 @@
  * UI guardrails for the renderer, run with `pnpm lint:ui`:
  *  - font sizes stay on the scale (11 · 12 · 13 · 15 · 18 · 24 px); mark a deliberate miniature with data-scale-exempt
  *  - colours come from index.css tokens or lib/theme.ts, never a hex literal in a component (brand logos excepted)
- *  - no low-contrast `text-muted/NN`
+ *  - no low-contrast `text-muted/NN`, and no white text on `bg-accent-2`
  *  - no raw `err.message` rendered straight into JSX; use friendlyError / rawMessage from lib/errors
  */
 import { readFileSync, readdirSync, statSync } from 'node:fs'
@@ -36,6 +36,7 @@ for (const file of files) {
       if (!HEX_OK.includes(rel) && !/<path fill=/.test(line)) {
         for (const m of line.matchAll(/['"`(]#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})\b/g)) if (!/^(fff|ffffff|000|000000)$/i.test(m[1])) problems.push(`${at}  hex colour #${m[1]}; use a token (index.css) or lib/theme.ts`)
       }
+      if (/\bbg-accent-2\b(?!\/)/.test(line) && /text-white/.test(line)) problems.push(`${at}  white text on bg-accent-2 is 3.6:1; use bg-primary`)
       if (/text-muted\/\d+/.test(line)) problems.push(`${at}  text-muted/NN fails contrast; use text-muted`)
       if (/\{\s*(err|error)\.message\s*\}/.test(line)) problems.push(`${at}  raw error message in JSX; use friendlyError()`)
     })

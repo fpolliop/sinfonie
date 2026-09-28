@@ -58,7 +58,7 @@ export function snapshot(workspaceId: string): BrowserState {
   const s = get(workspaceId)
   return {
     workspaceId,
-    tabs: s.tabs.map((t) => ({ id: t.id, url: t.url(), title: t.title() || t.url() || 'New tab', loading: !t.wc.isDestroyed() && t.wc.isLoading() })),
+    tabs: s.tabs.map((t) => ({ id: t.id, url: t.url(), title: t.title() || t.url() || 'New tab', loading: !t.wc.isDestroyed() && t.wc.isLoading(), failed: t.loadFailed })),
     activeId: s.activeId,
     agentBusy: s.agentOps > 0 || Date.now() - s.lastAgentAt < 1500,
     paused: s.paused,

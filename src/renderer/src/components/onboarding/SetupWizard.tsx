@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { AlertCircle, ArrowLeft, ArrowRight, Check, CheckCircle2, FolderOpen, GitBranch, Globe, Loader2, LogIn, RefreshCw, Sparkles, Users, Palette, X } from 'lucide-react'
+import { AlertCircle, ArrowLeft, Database, GitPullRequest, ArrowRight, Check, CheckCircle2, FolderOpen, GitBranch, Globe, Loader2, LogIn, RefreshCw, Sparkles, Users, Palette, X } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { Button, Badge, IconButton, inputCls } from '../ui'
@@ -66,13 +66,16 @@ export function SetupWizard({ onClose }: { onClose: () => void }): React.JSX.Ele
     return () => window.removeEventListener('keydown', onKey)
   }, [])
   const anySignedIn = settings.claudeAccounts.some((a) => a.loggedIn)
+  const hasApps = useApp((s) => s.repos.length > 0)
+  // A step passed without doing it shows amber in the stepper, not green: Sign in with nobody signed in, the app/space step with no app.
+  const skipped = (i: number): boolean => (i === 1 && !anySignedIn) || (i === 2 && !hasApps)
   return (
     <div className="fixed inset-0 z-[60] flex flex-col bg-bg text-text">
       <div className="drag flex h-[52px] shrink-0 items-center justify-between pl-[88px] pr-4">
         <div className="flex items-center gap-2">
           {STEPS.map((s, i) => (
             <button key={s} className={clsx('no-drag flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px]', i === step ? 'bg-panel-2 text-text' : 'text-muted')} onClick={() => i < step && setStep(i)}>
-              <span className={clsx('h-1.5 w-1.5 rounded-full', i < step ? 'bg-ok' : i === step ? 'bg-accent' : 'bg-border')} />
+              <span className={clsx('h-1.5 w-1.5 rounded-full', i < step ? (skipped(i) ? 'bg-warn' : 'bg-ok') : i === step ? 'bg-accent' : 'bg-border')} />
               {s}
             </button>
           ))}
@@ -102,9 +105,13 @@ export function SetupWizard({ onClose }: { onClose: () => void }): React.JSX.Ele
       )}
       {step < 3 && (
         <div className="flex h-[64px] shrink-0 items-center justify-between border-t border-border px-8">
-          <Button variant="ghost" disabled={step === 0} onClick={() => setStep(step - 1)}>
-            <ArrowLeft size={14} /> Back
-          </Button>
+          {step > 0 ? (
+            <Button variant="ghost" onClick={() => setStep(step - 1)}>
+              <ArrowLeft size={14} /> Back
+            </Button>
+          ) : (
+            <span />
+          )}
           <ContinueButton key={step} autoFocus={step === 0} step={guided && step === 2 ? -1 : step} label={step === 1 && !anySignedIn ? 'Sign in later' : undefined} spaceId={spaceId} onSpace={setSpaceId} onNext={() => setStep(step + 1)} />
         </div>
       )}
@@ -167,7 +174,7 @@ const FEATURES = [
     art: <ArtCrew />
   },
   {
-    icon: <Sparkles size={16} />,
+    icon: <GitPullRequest size={16} />,
     title: 'Review cockpit',
     text: 'Open pull requests across your repos in one list. AI review reads the diff, you approve the findings that matter, and it fixes what you approve.',
     art: <ArtReview />
@@ -179,7 +186,7 @@ const FEATURES = [
     art: <ArtAssistant />
   },
   {
-    icon: <GitBranch size={16} />,
+    icon: <Database size={16} />,
     title: 'Databases and on-call',
     text: 'A Data tab for Postgres, MySQL, SQLite, MongoDB and BigQuery, read-only by default. An on-call agent that triages Slack alerts against your code and cloud logs and drafts the fix as a PR.',
     art: <ArtData />
@@ -212,14 +219,15 @@ function Welcome(): React.JSX.Element {
       <img src={logo} alt="" className="mx-auto h-16 w-16 rounded-2xl shadow-[0_20px_60px_rgba(91,124,255,.25)]" />
       <h1 className="mt-4 text-[24px] font-semibold tracking-tight">Welcome to Sinfonie</h1>
       <p className="mx-auto mt-2 max-w-[520px] text-[15px] text-muted">First, how do you work? This sets up the app for you; you can change it any time in Settings.</p>
-      <div className="mx-auto mt-5 grid max-w-[560px] grid-cols-2 gap-3 text-left">
+      {/* data-expert-ok: the expert card names the expert toolbox on purpose; guided users choose between the two here. */}
+      <div role="radiogroup" aria-label="How you work" data-expert-ok className="mx-auto mt-5 grid max-w-[560px] grid-cols-2 gap-3 text-left">
         {(
           [
             { id: 'expert', title: 'I write code', text: 'Repositories, branches, terminals, diffs, pull requests: the whole toolbox.' },
             { id: 'guided', title: 'I build with AI, I don’t write code', text: 'Describe what you want, watch the preview, send it for review. No code, no commands.' }
           ] as { id: AppMode; title: string; text: string }[]
         ).map((o) => (
-          <button key={o.id} aria-pressed={mode === o.id} onClick={() => choose(o.id)} className={clsx('rounded-xl border p-4 text-left transition-colors', mode === o.id ? 'border-accent bg-panel shadow-[0_10px_40px_rgba(91,124,255,.12)]' : 'border-border bg-panel/40 hover:border-accent/50')}>
+          <button key={o.id} role="radio" aria-checked={mode === o.id} onClick={() => choose(o.id)} className={clsx('flex flex-col justify-start rounded-xl border p-4 text-left transition-colors', mode === o.id ? 'border-accent bg-panel shadow-[0_10px_40px_rgba(91,124,255,.12)]' : 'border-border bg-panel/40 hover:border-accent/50')}>
             <div className="flex items-center gap-2 text-[13px] font-semibold">
               <span className={clsx('h-3 w-3 rounded-full border', mode === o.id ? 'border-accent bg-accent' : 'border-border')} /> {o.title}
             </div>
@@ -411,6 +419,16 @@ function SignIn({ onModal }: { onModal?: (open: boolean) => void }): React.JSX.E
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+  // No account for this vendor yet: create one, then start its browser sign-in.
+  const signInNew = async (vendor: Vendor, name: string): Promise<void> => {
+    try {
+      const next = await api.invoke('accounts:add', name, vendor)
+      const created = next.claudeAccounts.filter((a) => a.vendor === vendor).at(-1)
+      if (created) setLogin({ id: created.id, name: created.name, vendor: name })
+    } catch (err) {
+      setError(friendlyError(err))
+    }
+  }
   const saveKey = async (): Promise<void> => {
     setSavingKey(true)
     try {
@@ -437,7 +455,8 @@ function SignIn({ onModal }: { onModal?: (open: boolean) => void }): React.JSX.E
       </p>
       <div className="mt-5 flex flex-col gap-2">
         {vendors.map((v) => {
-          const acc = settings.claudeAccounts.find((a) => a.id === idFor(v.id))
+          // The vendor's default account, else any account of that vendor.
+          const acc = settings.claudeAccounts.find((a) => a.id === idFor(v.id)) ?? settings.claudeAccounts.find((a) => (a.vendor ?? 'anthropic') === v.id)
           const ok = acc?.loggedIn === true
           const name = guided ? vendorLabel(v.id, true) : v.label
           return (
@@ -460,6 +479,11 @@ function SignIn({ onModal }: { onModal?: (open: boolean) => void }): React.JSX.E
                   <IconButton label={guided ? 'Check again' : 'Ask the CLI whether this account is signed in'} className="h-7 w-7" onClick={() => void check(acc.id)} disabled={checking === acc.id}>
                     <RefreshCw size={12} className={checking === acc.id ? 'animate-spin' : ''} />
                   </IconButton>
+                )}
+                {!acc && v.id !== 'google' && (
+                  <Button size="sm" variant="primary" onClick={() => void signInNew(v.id, name)}>
+                    <LogIn size={12} /> Sign in
+                  </Button>
                 )}
                 {acc && v.id !== 'google' && (
                   <Button size="sm" variant={ok ? 'subtle' : 'primary'} onClick={() => setLogin({ id: acc.id, name: acc.name, vendor: name })}>
@@ -720,7 +744,7 @@ function GuidedAppStep({ onSpace }: { onSpace: (id: string) => void }): React.JS
             role="radio"
             aria-checked={source === o.id}
             onClick={() => setSource(o.id)}
-            className={clsx('rounded-xl border p-4 text-left transition-colors', source === o.id ? 'border-accent bg-panel shadow-[0_10px_40px_rgba(91,124,255,.12)]' : 'border-border bg-panel/40 hover:border-accent/50')}
+            className={clsx('flex flex-col justify-start rounded-xl border p-4 text-left transition-colors', source === o.id ? 'border-accent bg-panel shadow-[0_10px_40px_rgba(91,124,255,.12)]' : 'border-border bg-panel/40 hover:border-accent/50')}
           >
             <div className="flex items-center gap-2 text-[13px] font-semibold">
               <span className="text-accent">{o.icon}</span> {o.title}
@@ -946,6 +970,8 @@ function GuidedReady({ spaceId, onWorkspace, onTour, onGoto, onDone }: { spaceId
   const allOk = rows.every((r) => r.ok)
   const canStart = Boolean(startSpace) && signedIn.length > 0
   const missing = !startSpace ? 'Add your app first, then start a task.' : signedIn.length === 0 ? 'Sign in first, so the assistant can work on your task.' : ''
+  // The next thing to do carries the primary button: the first unfinished row, else Start.
+  const nextFix = rows.find((r) => !r.ok && r.fix)
   return (
     <div className="text-center">
       <div className={clsx('mx-auto flex h-14 w-14 items-center justify-center rounded-2xl', allOk ? 'bg-ok/15 text-ok' : 'bg-warn/15 text-warn')}>{allOk ? <Check size={28} /> : <AlertCircle size={28} />}</div>
@@ -956,7 +982,7 @@ function GuidedReady({ spaceId, onWorkspace, onTour, onGoto, onDone }: { spaceId
             {r.ok ? <CheckCircle2 size={15} className="shrink-0 text-ok" /> : <span className="h-[15px] w-[15px] shrink-0 rounded-full border border-warn" />}
             <span className={clsx('min-w-0 flex-1', !r.ok && 'text-muted')}>{r.text}</span>
             {!r.ok && r.fix && (
-              <Button size="sm" onClick={() => onGoto(r.fix!.step)}>
+              <Button size="sm" variant={r === nextFix ? 'primary' : 'subtle'} onClick={() => onGoto(r.fix!.step)}>
                 {r.fix.label}
               </Button>
             )}
@@ -965,7 +991,7 @@ function GuidedReady({ spaceId, onWorkspace, onTour, onGoto, onDone }: { spaceId
       </div>
       <p className="mx-auto mt-4 max-w-[460px] text-[13px] text-muted">A task is one thing you want built or changed. Describe it, watch the preview, send it for review.</p>
       <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
-        <Button variant="primary" onClick={() => onWorkspace(startSpace)} disabled={!canStart} aria-describedby={missing ? 'guided-ready-missing' : undefined}>
+        <Button variant={canStart ? 'primary' : 'subtle'} onClick={() => onWorkspace(startSpace)} disabled={!canStart} aria-describedby={missing ? 'guided-ready-missing' : undefined}>
           Start your first task
         </Button>
         <Button onClick={onTour}>Take the tour</Button>

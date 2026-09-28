@@ -85,8 +85,19 @@ export class BrowserTab {
     for (const ev of ['did-navigate', 'did-navigate-in-page', 'page-title-updated', 'did-start-loading', 'did-stop-loading', 'did-fail-load'] as const) {
       this.wc.on(ev as 'did-navigate', () => this.onChange?.())
     }
+    // Whether the last main-frame load failed (connection refused, DNS…): the preview can tell "not running" from "loaded".
+    this.wc.on('did-fail-load', (_e, code, _desc, _url, isMainFrame) => {
+      if (isMainFrame && code !== -3) this.loadFailed = true
+    })
+    this.wc.on('did-finish-load', () => {
+      this.loadFailed = false
+      this.onChange?.()
+    })
     this.wc.on('destroyed', () => (this.attached = false))
   }
+
+  /** The last main-frame load failed; cleared by the next load that finishes. (-3 is an aborted load, not a failure.) */
+  loadFailed = false
 
   // ---------- CDP plumbing ----------
 
