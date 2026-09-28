@@ -2,7 +2,7 @@ import { tokens } from '@/lib/theme'
 import { create } from 'zustand'
 import type { AgentSpec, Engine, Label, Repo, Settings, Space, StoreData, Workspace } from '@shared/types'
 
-export type View = 'workspace' | 'reviews' | 'oncall' | 'agents' | 'notes' | 'maestro'
+export type View = 'workspace' | 'reviews' | 'oncall' | 'agents' | 'notes' | 'maestro' | 'home'
 import { api } from '@/lib/api'
 
 export interface Notice {
@@ -15,7 +15,8 @@ export interface Notice {
   /** A button that opens a web page (e.g. the pull request just opened). */
   link?: { label: string; url: string }
 }
-export type Tab = 'chat' | 'code' | 'prs' | 'terminal' | 'run' | 'browser' | 'data'
+/** A generated view tab is `view:<id>`. */
+export type Tab = 'chat' | 'code' | 'prs' | 'terminal' | 'run' | 'browser' | 'data' | `view:${string}`
 export type AppPage = 'preferences' | 'general' | 'spaces' | 'repos' | 'providers' | 'accounts' | 'logins' | 'crew' | 'resources' | 'usage' | 'oncall' | 'mcp' | 'jira' | 'linear' | 'slack' | 'gcp' | 'integrations' | 'feedback' | 'phone' | 'plan' | 'about'
 export type SpacePage = 'general' | 'repos' | 'crew' | 'oncall' | 'mcp' | 'jira' | 'linear' | 'slack' | 'gcp' | 'databases' | 'github'
 export type SettingsTarget = { scope: 'app'; page: AppPage } | { scope: 'space'; spaceId: string; page: SpacePage }
@@ -50,6 +51,9 @@ interface AppState {
   selectedId: string | null
   view: View
   tab: Tab
+  /** The Home page view on screen (a generated view id). */
+  homeViewId: string | null
+  setHomeViewId: (id: string | null) => void
   /** Show the browser docked beside the chat in the same view, instead of only as its own tab. */
   browserDock: boolean
   setBrowserDock: (v: boolean) => void
@@ -201,6 +205,12 @@ export const useApp = create<AppState>((set, get) => ({
   setOpenAgentId: (openAgentId) => set({ openAgentId }),
   selectedId: localStorage.getItem('orchestra.selected'),
   tab: 'chat',
+  homeViewId: localStorage.getItem('sinfonie.homeView'),
+  setHomeViewId: (homeViewId) => {
+    if (homeViewId) localStorage.setItem('sinfonie.homeView', homeViewId)
+    else localStorage.removeItem('sinfonie.homeView')
+    set({ homeViewId })
+  },
   showNewWorkspace: false,
   settingsTarget: null,
   openSettings: (settingsTarget) => set({ settingsTarget }),

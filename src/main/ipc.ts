@@ -50,6 +50,7 @@ import * as scheduler from './services/crew/scheduler'
 import * as resources from './services/resources'
 import * as browser from './services/browser/service'
 import * as browserHttp from './services/browser/http'
+import * as logins from './services/logins'
 import * as workspaceTools from './services/workspace-tools'
 import { saveImages } from './services/images'
 import * as files from './services/files'
@@ -60,6 +61,10 @@ import * as oncall from './services/oncall/service'
 import * as gcp from './services/gcp'
 import * as assistant from './services/assistant'
 import * as db from './services/db/service'
+import * as viewStore from './services/views/store'
+import * as viewData from './services/views/data'
+import * as viewActions from './services/views/actions'
+import { TEMPLATES as VIEW_TEMPLATES } from '@shared/views/templates'
 import type { CostMode, CostModeScope } from '@shared/types'
 import * as usage from './services/usage'
 import * as power from './services/power'
@@ -458,31 +463,8 @@ export function registerIpc(): void {
     if (!wr) throw new Error('Repo not in workspace')
     return git.push(wr.worktreePath)
   })
-  handle('git:createPr', async (id, repoId, title, body, reviewers) => {
-    const ws = workspaces.getWorkspace(id)
-    const wr = ws.repos.find((r) => r.repoId === repoId)
-    if (!wr) throw new Error('Repo not in workspace')
-    const siblings = ws.repos.filter((r) => r.repoId !== repoId).map((r) => `- ${r.repoName} on branch \`${r.branch}\``)
-    const footer: string[] = []
-    if (ws.jira) footer.push(`Jira: [${ws.jira.key}](${ws.jira.url}) ${ws.jira.summary}`)
-    if (ws.linear) footer.push(`Linear: [${ws.linear.identifier}](${ws.linear.url}) ${ws.linear.title}`)
-    if (siblings.length) footer.push(`Part of workspace **${ws.name}**. Related branches:\n${siblings.join('\n')}`)
-    const fullBody = footer.length ? `${body}\n\n---\n${footer.join('\n\n')}` : body
-    const reviewerArgs = (reviewers ?? []).flatMap((r) => ['--reviewer', r])
-    return new Promise<string>((resolve, reject) => {
-      const child = spawn('gh', ['pr', 'create', '--title', title, '--body', fullBody, '--head', wr.branch, ...reviewerArgs], { cwd: wr.worktreePath, env: process.env })
-      let out = ''
-      child.stdout.on('data', (d) => (out += d))
-      child.stderr.on('data', (d) => (out += d))
-      child.on('close', (code) => {
-        if (code === 0) {
-          workspaces.advanceStage(id, 'in-review')
-          resolve(out.trim())
-        } else reject(new Error(out.trim() || `gh exited ${code}`))
-      })
-      child.on('error', reject)
-    })
-  })
+  handle('git:createPr', (id, repoId, title, body, reviewers) => createPr(id, repoId, title, body, reviewers))
+  viewActions.setActionHost({ createPr: (id, repoId, title, body, draft) => createPr(id, repoId, title, body, undefined, draft) })
 
   // ---- github / jira / shell ----
   handle('github:status', async (id) => {
@@ -860,7 +842,19 @@ export function registerIpc(): void {
       }
     },
     startReview: async (pr, accountId) => ({ key: (await reviews.startReview(pr, accountId, emitReview)).key }),
-    addRepoAt, setCostMode: (scope, mode) => applyCostMode(scope, mode), openSettings: (t) => send('ui:openSettings', t), sendToWorkspace: (id, text) => sendMessage(id, text), openWorkspace: (id) => send('ui:openWorkspace', { workspaceId: id }) })
+    addRepoAt, setCostMode: (scope, mode) => applyCostMode(scope, mode), openSettings: (t) => send('ui:openSettings', t), sendToWorkspace: (id, text) => sendMessage(id, text), openView: (viewId, workspaceId) => send('ui:openView', { viewId, workspaceId }), openWorkspace: (id) => send('ui:openWorkspace', { workspaceId: id }) })
+  // ---- generated views ----
+  handle('views:save', (input, scope) => viewStore.save(input, scope, 'user'))
+  handle('views:undo', (id) => viewStore.undo(id))
+  handle('views:delete', (id) => viewStore.remove(id))
+  handle('views:fork', (id) => viewStore.fork(id))
+  handle('views:resetToTeam', (id) => viewStore.resetToTeam(id))
+  handle('views:setHidden', (id, hidden) => viewStore.setHidden(id, hidden))
+  handle('views:move', (id, dir) => viewStore.move(id, dir))
+  handle('views:installTemplate', (templateId, scope) => viewStore.installTemplate(templateId, scope))
+  handle('views:templates', () => VIEW_TEMPLATES.map(({ view: _v, ...t }) => ({ ...t, slot: _v.slot, icon: _v.icon })))
+  handle('views:data', (binding, ctx, force) => viewData.data(binding, ctx, force))
+  handle('views:action', (name, params, confirmed) => viewActions.run(name, params, confirmed))
   handle('maestro:conversations', () => assistant.conversations())
   handle('maestro:get', (id) => assistant.get(id))
   handle('maestro:new', (ctx) => assistant.create(ctx))
@@ -899,6 +893,8 @@ export function registerIpc(): void {
     (workspaceId) => send('browser:agentActive', { workspaceId })
   )
   handle('browser:state', (id) => browser.snapshot(id))
+  handle('logins:detect', () => logins.detect())
+  handle('logins:import', (spaceId, browserId) => logins.importLogins(spaceId ?? undefined, browserId))
   handle('browser:setBounds', (id, bounds) => browser.setBounds(id, bounds))
   handle('browser:open', (id, url) => {
     browser.newTab(id, url)
@@ -1091,4 +1087,31 @@ export function registerIpc(): void {
   })
   // keep runScript referenced for the archive path's typing
   void runScript
+}
+
+/** gh pr create for one repo of a workspace, with a footer linking the ticket and the sibling branches. */
+async function createPr(id: string, repoId: string, title: string, body: string, reviewers?: string[], draft?: boolean): Promise<string> {
+  const ws = workspaces.getWorkspace(id)
+  const wr = ws.repos.find((r) => r.repoId === repoId)
+  if (!wr) throw new Error('Repo not in workspace')
+  const siblings = ws.repos.filter((r) => r.repoId !== repoId).map((r) => `- ${r.repoName} on branch \`${r.branch}\``)
+  const footer: string[] = []
+  if (ws.jira) footer.push(`Jira: [${ws.jira.key}](${ws.jira.url}) ${ws.jira.summary}`)
+  if (ws.linear) footer.push(`Linear: [${ws.linear.identifier}](${ws.linear.url}) ${ws.linear.title}`)
+  if (siblings.length) footer.push(`Part of workspace **${ws.name}**. Related branches:\n${siblings.join('\n')}`)
+  const fullBody = footer.length ? `${body}\n\n---\n${footer.join('\n\n')}` : body
+  const reviewerArgs = (reviewers ?? []).flatMap((r) => ['--reviewer', r])
+  return new Promise<string>((resolve, reject) => {
+    const child = spawn('gh', ['pr', 'create', '--title', title, '--body', fullBody, '--head', wr.branch, ...reviewerArgs, ...(draft ? ['--draft'] : [])], { cwd: wr.worktreePath, env: process.env })
+    let out = ''
+    child.stdout.on('data', (d) => (out += d))
+    child.stderr.on('data', (d) => (out += d))
+    child.on('close', (code) => {
+      if (code === 0) {
+        workspaces.advanceStage(id, 'in-review')
+        resolve(out.trim())
+      } else reject(new Error(out.trim() || `gh exited ${code}`))
+    })
+    child.on('error', reject)
+  })
 }

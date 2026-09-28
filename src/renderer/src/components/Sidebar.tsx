@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { yieldsToEditor } from '@/lib/keys'
 import clsx from 'clsx'
-import { Plus, Settings, Archive, Pencil, Folder, Code2, TerminalSquare, Trash2, GitPullRequest, Layers, ArrowDownWideNarrow, ArrowUpNarrowWide, Filter, ChevronRight, MessageSquarePlus, Siren, Activity, Users2, Bot, StickyNote, Wand2 } from 'lucide-react'
+import { Plus, Settings, Archive, Pencil, Folder, Code2, TerminalSquare, Trash2, GitPullRequest, Layers, ArrowDownWideNarrow, ArrowUpNarrowWide, Filter, ChevronRight, MessageSquarePlus, Siren, Activity, Users2, Bot, StickyNote, Wand2, LayoutDashboard } from 'lucide-react'
 import { ERRORS_SEEN_KEY } from './FeedbackDialog'
 import { useResources, subscribeResources, gb } from '@/stores/resources'
 import { useOnCall, subscribeOnCall } from '@/stores/oncall'
@@ -170,6 +170,11 @@ export function Sidebar(): React.JSX.Element {
         <IconButton data-tour="settings" className="p-1.5" label="Settings (⌘,)" onClick={() => setShowSettings(true)}>
           <Settings size={16} />
         </IconButton>
+      </div>
+      <div className="px-2">
+        <button data-tour="home" onClick={() => setView('home')} className={clsx('mb-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] font-medium', view === 'home' ? 'bg-panel-2' : 'hover:bg-panel-2/60')} title={guided ? 'Your Home page' : 'Your Home pages: views you pick or have Maestro build'}>
+          <LayoutDashboard size={14} className="text-accent" /> Home
+        </button>
       </div>
       {!guided && (
         <div className="px-2">

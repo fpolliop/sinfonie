@@ -15,7 +15,7 @@ import * as cloud from './cloud'
 import { SPACE_FILE, SPACE_COLORS } from '@shared/types'
 import type { Repo, SharedRepo, SharedSpaceSettings, Space, SpaceDefinition, SpaceImportPreview, SpaceImportResolution } from '@shared/types'
 
-const SHARED_KEYS = ['engine', 'model', 'permissionMode', 'useCrew', 'agents', 'budgetMode', 'leanMode', 'strictMcp', 'githubOwners', 'browserSensitiveOrigins', 'exposeGcpMcp', 'exposeJiraMcp', 'exposeLinearMcp', 'guided'] as const
+const SHARED_KEYS = ['engine', 'model', 'permissionMode', 'useCrew', 'agents', 'budgetMode', 'leanMode', 'strictMcp', 'githubOwners', 'browserSensitiveOrigins', 'exposeGcpMcp', 'exposeJiraMcp', 'exposeLinearMcp', 'guided', 'views'] as const
 
 /** github.com/org/repo, however the remote was written (https, ssh, with or without .git). */
 export function normalizeRemote(remote: string): string {
@@ -52,6 +52,8 @@ export async function definitionFor(spaceId: string): Promise<SpaceDefinition> {
   }
   const settings: SharedSpaceSettings = {}
   for (const k of SHARED_KEYS) if (s[k] !== undefined) (settings as Record<string, unknown>)[k] = s[k]
+  // Views travel without their undo history.
+  if (settings.views) settings.views = settings.views.map(({ history: _h, ...rest }) => rest)
   // MCP servers travel without their headers and env: those are where API keys live.
   if (s.mcpServers?.length) settings.mcpServers = s.mcpServers.map(({ headers: _h, env: _e, ...rest }) => rest)
   if (s.jira?.siteUrl || s.jira?.defaultJql) settings.jira = { siteUrl: s.jira.siteUrl, defaultJql: s.jira.defaultJql }

@@ -1,4 +1,4 @@
-import type { MaestroMemoryCategory, MaestroMemoryEntry, MaestroConversation, MaestroConversationMeta, MaestroContext, MaestroEvent, MaestroSuggestion, NotePatch, NotesFilter, AgentRun, AgentDraft, AgentRunEvent, AgentSpec, AgentMode, AppMode, AuthLink, CompletionRequest, DiscoveredOrg, SharedRepo, TeammateWorkspace, BillingPeriod, CliStatus, CloudOrgDetail, CloudState, Plan, RemoteSettings, RemoteStatus, SpaceDefinition, SpaceImportPreview, SpaceImportResolution, BrowserState, ContextUsage, CrewPriority, FsEntry, LimitAlternative, UsageSnapshot, ChatImageInput, Incident, IncidentStatus, LinearIssue, LinearSettings, OnCallState, ResourceSnapshot, Severity, SlackConnection, LoginProgress, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion, OnCallBulkOp,
+import type { MaestroMemoryCategory, MaestroMemoryEntry, MaestroConversation, MaestroConversationMeta, MaestroContext, MaestroEvent, MaestroSuggestion, NotePatch, NotesFilter, AgentRun, AgentDraft, AgentRunEvent, AgentSpec, AgentMode, AppMode, AuthLink, CompletionRequest, DiscoveredOrg, SharedRepo, TeammateWorkspace, BillingPeriod, CliStatus, CloudOrgDetail, CloudState, Plan, RemoteSettings, RemoteStatus, SpaceDefinition, SpaceImportPreview, SpaceImportResolution, BrowserState, ContextUsage, CrewPriority, FsEntry, LimitAlternative, UsageSnapshot, ChatImageInput, Incident, IncidentStatus, LinearIssue, LinearSettings, OnCallState, ResourceSnapshot, Severity, SlackConnection, LoginProgress, LoginBrowser, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion, OnCallBulkOp,
   AgentEvent,
   ChatItem,
   JiraIssue,
@@ -33,7 +33,7 @@ import type { MaestroMemoryCategory, MaestroMemoryEntry, MaestroConversation, Ma
   Space,
   StoreData,
   TerminalDataEvent,
-  Workspace, CostMode, CostModeScope, GcpStatus, AssistantItem, DbConnection, DbSecrets, DbSchema, DbQueryResult, DbHistoryEntry } from './types'
+  Workspace, CostMode, CostModeScope, GcpStatus, AssistantItem, DbConnection, DbSecrets, DbSchema, DbQueryResult, DbHistoryEntry, ScopedView, ViewInput, ViewScope, ViewSourceBinding, ViewDataResult, ViewSlot } from './types'
 
 /** Request/response channels (ipcRenderer.invoke). */
 export interface SinfonieInvoke {
@@ -392,6 +392,10 @@ export interface SinfonieInvoke {
   'gcp:test': (spaceId: string) => string
   // ---- workspace browser ----
   'browser:state': (workspaceId: string) => BrowserState
+  /** Chromium browsers whose logins can be imported into a space's in-app browser (macOS). */
+  'logins:detect': () => LoginBrowser[]
+  /** Import cookies from a browser into a space's in-app browser session. */
+  'logins:import': (spaceId: string | undefined, browserId: string) => { imported: number; skipped: number; browser: string }
   /** Where the Browser pane sits in the window (CSS px), or null while hidden. */
   'browser:setBounds': (workspaceId: string, bounds: { x: number; y: number; width: number; height: number } | null) => void
   'browser:open': (workspaceId: string, url: string) => BrowserState
@@ -400,6 +404,23 @@ export interface SinfonieInvoke {
   'browser:setPaused': (workspaceId: string, paused: boolean) => void
   /** A modal is open (true) or closed (false): pages are hidden while any modal is up. */
   'browser:suspend': (on: boolean) => void
+  // ---- generated views (Home pages, workspace tabs) ----
+  /** Create or replace a view (validated; throws with the issues). */
+  'views:save': (input: ViewInput, scope: ViewScope) => ScopedView
+  'views:undo': (id: string) => ScopedView
+  'views:delete': (id: string) => void
+  /** A personal copy of a space view that replaces it for this user. */
+  'views:fork': (id: string) => ScopedView
+  /** Drop a personal copy and go back to the team's view. */
+  'views:resetToTeam': (id: string) => void
+  'views:setHidden': (spaceViewId: string, hidden: boolean) => void
+  'views:move': (id: string, dir: -1 | 1) => void
+  'views:installTemplate': (templateId: string, scope?: ViewScope) => ScopedView
+  'views:templates': () => { id: string; title: string; description: string; scope: 'user' | 'space'; guided: boolean; slot: ViewSlot; icon?: string }[]
+  /** Rows for a main-side source (GitHub, git, Jira/Linear), cached briefly unless forced. */
+  'views:data': (binding: ViewSourceBinding, ctx: { spaceId?: string; workspaceId?: string }, force?: boolean) => ViewDataResult
+  /** A git/GitHub action from a view; confirm/outward tiers need confirmed = true. Returns a summary. */
+  'views:action': (name: string, params: Record<string, unknown>, confirmed: boolean) => string
   // ---- resources ----
   'resources:get': () => ResourceSnapshot
   'resources:stopTask': (workspaceId: string, taskId: string) => void
@@ -459,6 +480,8 @@ export interface SinfonieEvents {
   'maestro:event': MaestroEvent
   /** Open the On call view on this incident (notification click, deep link). */
   'ui:openOnCall': { incidentId?: string }
+  /** Show a generated view (Maestro saved or opened one): Home on it, or the workspace on its tab. */
+  'ui:openView': { viewId: string; workspaceId?: string }
   /** An agent started using the browser of this workspace; the renderer brings the pane forward. */
   'browser:agentActive': { workspaceId: string }
 }

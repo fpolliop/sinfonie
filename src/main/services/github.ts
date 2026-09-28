@@ -128,3 +128,103 @@ function shortErr(err: unknown): string {
   }
   return err instanceof Error ? err.message.split('\n')[0] : String(err)
 }
+
+// ---------- search (views) ----------
+
+export interface SearchedPr {
+  repo: string
+  repoName: string
+  number: number
+  title: string
+  url: string
+  branch: string
+  draft: boolean
+  author: string
+  updatedAt: string
+  additions: number
+  deletions: number
+  reviewDecision: string
+  mergeable: string
+  ci: 'success' | 'failure' | 'pending' | 'none'
+}
+
+const SEARCH_QUERY = `query($q:String!,$n:Int!){ search(query:$q, type:ISSUE, first:$n){ nodes{ ... on PullRequest {
+  number title url isDraft headRefName updatedAt additions deletions reviewDecision mergeable author{login}
+  repository{ nameWithOwner name }
+  commits(last:1){ nodes{ commit{ statusCheckRollup{ state } } } } } } } }`
+
+interface RawSearchPr {
+  number: number
+  title: string
+  url: string
+  isDraft: boolean
+  headRefName: string
+  updatedAt: string
+  additions: number
+  deletions: number
+  reviewDecision: string | null
+  mergeable: string
+  author: { login: string } | null
+  repository: { nameWithOwner: string; name: string }
+  commits: { nodes: { commit: { statusCheckRollup: { state: string } | null } }[] }
+}
+
+function rollup(state: string | undefined): SearchedPr['ci'] {
+  const s = (state ?? '').toUpperCase()
+  if (s === 'SUCCESS') return 'success'
+  if (s === 'FAILURE' || s === 'ERROR') return 'failure'
+  if (s === 'PENDING' || s === 'EXPECTED') return 'pending'
+  return 'none'
+}
+
+/** Open PRs matching a GitHub search (e.g. "author:@me"), with CI rollup and review state. Uses the gh login. */
+export async function searchPrs(filter: string, owners: string[] = [], limit = 30): Promise<SearchedPr[]> {
+  const q = ['is:pr', 'is:open', 'archived:false', filter, ...owners.map((o) => `user:${o}`)].join(' ')
+  let out: string
+  try {
+    out = await gh(['api', 'graphql', '-f', `query=${SEARCH_QUERY}`, '-f', `q=${q}`, '-F', `n=${Math.min(Math.max(limit, 1), 50)}`], process.cwd())
+  } catch (err) {
+    throw new Error(`GitHub search failed: ${shortErr(err)}`)
+  }
+  const nodes = (JSON.parse(out) as { data?: { search?: { nodes?: RawSearchPr[] } } }).data?.search?.nodes ?? []
+  return nodes
+    .filter((n) => n && typeof n.number === 'number')
+    .map((n) => ({
+      repo: n.repository.nameWithOwner,
+      repoName: n.repository.name,
+      number: n.number,
+      title: n.title,
+      url: n.url,
+      branch: n.headRefName,
+      draft: n.isDraft,
+      author: n.author?.login ?? '',
+      updatedAt: n.updatedAt,
+      additions: n.additions,
+      deletions: n.deletions,
+      reviewDecision: n.reviewDecision ?? '',
+      mergeable: n.mergeable,
+      ci: rollup(n.commits.nodes[0]?.commit.statusCheckRollup?.state)
+    }))
+}
+
+/** The PR for one branch, light: number, url, state, CI rollup. Null when there is none. */
+export async function prSummary(worktreePath: string, branch: string): Promise<{ number: number; url: string; state: string; ci: SearchedPr['ci'] } | null> {
+  try {
+    const raw = JSON.parse(await gh(['pr', 'view', branch, '--json', 'number,url,state,statusCheckRollup'], worktreePath)) as { number: number; url: string; state: string; statusCheckRollup?: RawRollup[] }
+    const checks = (raw.statusCheckRollup ?? []).map(mapCheck)
+    const ci: SearchedPr['ci'] = !checks.length ? 'none' : checks.some((c) => c.status === 'failure') ? 'failure' : checks.some((c) => c.status === 'pending') ? 'pending' : 'success'
+    return { number: raw.number, url: raw.url, state: raw.state, ci }
+  } catch {
+    return null
+  }
+}
+
+/** Merge a PR with gh. */
+export async function mergePr(repo: string, number: number, method: 'squash' | 'merge' | 'rebase' = 'squash'): Promise<string> {
+  try {
+    const out = await gh(['pr', 'merge', String(number), '--repo', repo, `--${method}`], process.cwd())
+    return out.trim() || `Merged ${repo}#${number}`
+  } catch (err) {
+    throw new Error(`Merge failed: ${shortErr(err)}`)
+  }
+}

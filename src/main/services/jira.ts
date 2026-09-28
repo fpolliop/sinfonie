@@ -117,6 +117,10 @@ class StoreOAuthProvider implements OAuthClientProvider {
   }
   saveTokens(tokens: OAuthTokens): void {
     writeSecret(this.k('tokens'), tokens)
+    writeSecret(this.k('tokensAt'), Date.now()) // to know when the access token expires (expires_in is relative)
+  }
+  tokensObtainedAt(): number | undefined {
+    return readSecret<number>(this.k('tokensAt'))
   }
   redirectToAuthorization(url: URL): void {
     if (!this.interactive) throw new JiraReauthRequired(this.connId)
@@ -300,6 +304,40 @@ export async function accessToken(connId: string): Promise<string | null> {
   return new StoreOAuthProvider(connId).tokens()?.access_token ?? null
 }
 
+/**
+ * When this connection's Atlassian access token expires (ms epoch), or 0 if unknown. The agent's Jira
+ * MCP is handed a static bearer it cannot refresh, so the caller rebuilds the session past this point.
+ */
+export function tokenExpiresAt(connId: string): number {
+  const p = new StoreOAuthProvider(connId)
+  const at = p.tokensObtainedAt()
+  const tok = p.tokens()
+  if (!at || !tok) return 0
+  const ttl = (typeof tok.expires_in === 'number' && tok.expires_in > 0 ? tok.expires_in : 3300) * 1000
+  return at + ttl
+}
+
+/**
+ * A definitely-fresh access token to hand the agent's Jira MCP: a real MCP call refreshes the stored
+ * token when it has expired (the SDK transport refreshes on a 401), which a static bearer cannot do.
+ */
+export async function warmToken(connId: string): Promise<string | null> {
+  if (!jiraSettings(connId).connected) return null
+  try {
+    const conn = await withTimeout(connect(connId), 10_000, 'Jira token refresh')
+    await withTimeout(conn.client.listTools(), 10_000, 'Jira token refresh')
+  } catch (err) {
+    dropClient(connId)
+    if (err instanceof JiraReauthRequired || err instanceof UnauthorizedError) {
+      updateJiraSettings(connId, { connected: false, connectedAt: undefined })
+      throw new JiraReauthRequired(connId)
+    }
+    console.warn('Jira token warm failed', err)
+    // Fall back to whatever token is stored, rather than dropping Jira tools entirely.
+  }
+  return new StoreOAuthProvider(connId).tokens()?.access_token ?? null
+}
+
 export { MCP_URL as JIRA_MCP_URL }
 
 export function disconnect(connId: string): void {
@@ -334,7 +372,11 @@ function useOAuth(connId: string): boolean {
 
 /** Empty query lists the configured default JQL; an issue key looks it up; anything else is a text search. */
 export async function search(connId: string, query: string): Promise<JiraIssue[]> {
-  const jql = buildJql(connId, query)
+  return searchJql(connId, buildJql(connId, query))
+}
+
+/** Issues matching a JQL query as written (views pass their own). */
+export async function searchJql(connId: string, jql: string): Promise<JiraIssue[]> {
   if (useOAuth(connId)) {
     const id = await ensureCloudId(connId)
     const conn = await connect(connId)

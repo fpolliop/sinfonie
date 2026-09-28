@@ -8,6 +8,8 @@ import { useGithub } from '@/stores/github'
 import { useScripts } from '@/stores/scripts'
 import { useBrowser } from '@/stores/browser'
 import { useGuided } from '@/lib/guided'
+import { visibleViews } from '@/lib/views'
+import { ViewIcon } from './views/registry'
 
 /**
  * The workspace's tab strip. Tabs read as tools rather than a text list: an icon with the label,
@@ -52,11 +54,21 @@ export function WorkspaceTabs({ workspaceId }: { workspaceId: string }): React.J
   const guided = useGuided()
   const dock = useApp((s) => s.browserDock)
   // Docked, the browser rides along with the chat, so drop its standalone tab from the strip.
-  const groups = useMemo(() => (guided ? GUIDED_GROUPS : GROUPS).map((g) => g.filter((t) => !(dock && t.id === 'browser'))).filter((g) => g.length), [guided, dock])
+  const settings = useApp((s) => s.settings)
+  const spaces = useApp((s) => s.spaces)
+  // Generated workspace-tab views (personal and the space's), after the built-in tabs.
+  const viewTabs = useMemo(
+    () => (guided ? [] : visibleViews('workspace-tab', ws?.spaceId, settings, spaces).map((v) => ({ id: `view:${v.id}` as Tab, label: v.title, icon: <ViewIcon name={v.icon ?? 'layout-dashboard'} size={13} />, hint: v.scope.kind === 'space' ? 'A view shared with your team' : 'Your view' }))),
+    [guided, ws?.spaceId, settings, spaces]
+  )
+  const groups = useMemo(
+    () => [...(guided ? GUIDED_GROUPS : GROUPS), ...(viewTabs.length ? [viewTabs] : [])].map((g) => g.filter((t) => !(dock && t.id === 'browser'))).filter((g) => g.length),
+    [guided, dock, viewTabs]
+  )
   const order = useMemo(() => groups.flat().map((t) => t.id), [groups])
   // A tab that guided mode does not show falls back to the chat.
   useEffect(() => {
-    if (guided && !order.includes(tab)) setTab('chat')
+    if ((guided || tab.startsWith('view:')) && !order.includes(tab)) setTab('chat')
   }, [guided, order, tab, setTab])
 
   // Changed-file count: cheap to ask, and it turns "did the agent touch anything?" into a glance.
