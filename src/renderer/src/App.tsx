@@ -14,6 +14,7 @@ import { useReviews } from './stores/reviews'
 import { NewWorkspaceDialog } from './components/NewWorkspaceDialog'
 import { NewTaskDialog } from './components/NewTaskDialog'
 import { useGuided, isGuided } from '@/lib/guided'
+import { friendlyError } from '@/lib/errors'
 import { SettingsWindow } from './components/SettingsWindow'
 import { PermissionPrompt } from './components/PermissionPrompt'
 import { BranchRenamePrompt } from './components/BranchRenamePrompt'
@@ -165,13 +166,45 @@ export default function App(): React.JSX.Element {
       {authLink && <AuthLinkDialog link={authLink} onClose={() => setAuthLink(null)} />}
       {onboarding === 'tour' && <Tour onClose={() => setOnboarding(null)} />}
       {error && (
-        <div className="fixed bottom-4 left-1/2 z-[80] -translate-x-1/2 rounded-lg border border-danger/40 bg-panel px-4 py-2 text-[12px] shadow-xl">
-          <span className="text-danger">{error}</span>
-          <Button size="sm" variant="ghost" className="ml-3" onClick={() => setError(null)}>
+        <div role="alert" className="fixed bottom-4 left-1/2 z-[80] flex max-w-[640px] -translate-x-1/2 items-center gap-3 rounded-lg border border-danger/40 bg-panel px-4 py-2 text-[12px] shadow-xl">
+          <span className="text-danger">{guided ? friendlyError(error) : error}</span>
+          <Button size="sm" variant="ghost" onClick={() => setError(null)}>
             Dismiss
           </Button>
         </div>
       )}
+      <NoticeToast />
+    </div>
+  )
+}
+
+/** Success and undo toasts. Undo runs the callback; every notice closes itself after six seconds. */
+function NoticeToast(): React.JSX.Element | null {
+  const notice = useApp((s) => s.notice)
+  const notify = useApp((s) => s.notify)
+  useEffect(() => {
+    if (!notice) return
+    const t = setTimeout(() => notify(null), 6000)
+    return () => clearTimeout(t)
+  }, [notice, notify])
+  if (!notice) return null
+  return (
+    <div role="status" className="fixed bottom-4 left-1/2 z-[80] flex max-w-[640px] -translate-x-1/2 items-center gap-3 rounded-lg border border-border bg-panel px-4 py-2 text-[12px] shadow-xl">
+      <span className={notice.kind === 'success' ? 'text-ok' : 'text-text'}>{notice.text}</span>
+      {notice.undo && (
+        <Button
+          size="sm"
+          onClick={() => {
+            notice.undo?.()
+            notify(null)
+          }}
+        >
+          Undo
+        </Button>
+      )}
+      <Button size="sm" variant="ghost" onClick={() => notify(null)} aria-label="Dismiss">
+        Dismiss
+      </Button>
     </div>
   )
 }

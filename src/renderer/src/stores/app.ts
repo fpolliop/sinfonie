@@ -4,6 +4,12 @@ import type { AgentSpec, Engine, Label, Repo, Settings, Space, StoreData, Worksp
 export type View = 'workspace' | 'reviews' | 'oncall' | 'agents' | 'notes' | 'maestro'
 import { api } from '@/lib/api'
 
+export interface Notice {
+  kind: 'success' | 'info'
+  text: string
+  /** Shown as an Undo button; the notice closes after it runs. */
+  undo?: () => void
+}
 export type Tab = 'chat' | 'code' | 'prs' | 'terminal' | 'run' | 'browser' | 'data'
 export type AppPage = 'preferences' | 'general' | 'spaces' | 'repos' | 'providers' | 'accounts' | 'logins' | 'crew' | 'resources' | 'usage' | 'oncall' | 'mcp' | 'jira' | 'linear' | 'slack' | 'gcp' | 'integrations' | 'feedback' | 'phone' | 'plan' | 'about'
 export type SpacePage = 'general' | 'repos' | 'crew' | 'oncall' | 'mcp' | 'jira' | 'linear' | 'slack' | 'gcp' | 'databases' | 'github'
@@ -61,6 +67,9 @@ interface AppState {
   closeSettings: () => void
   showArchived: boolean
   error: string | null
+  /** A non-error toast: success or info, optionally with an Undo that runs before the notice times out. */
+  notice: Notice | null
+  notify: (n: Notice | null) => void
   branchPrompt: { workspaceId: string; name: string; newSlug: string; currentBranch: string } | null
   feedbackDialog: 'feedback' | 'errors' | null
   setFeedbackDialog: (v: 'feedback' | 'errors' | null) => void
@@ -188,6 +197,8 @@ export const useApp = create<AppState>((set, get) => ({
   closeSettings: () => set({ settingsTarget: null }),
   showArchived: false,
   error: null,
+  notice: null,
+  notify: (notice) => set({ notice }),
   branchPrompt: null,
   feedbackDialog: null,
   setFeedbackDialog: (feedbackDialog) => set({ feedbackDialog }),
