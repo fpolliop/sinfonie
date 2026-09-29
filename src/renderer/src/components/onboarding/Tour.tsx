@@ -17,6 +17,8 @@ interface Stop {
 const prepareWorkspace = (): void => {
   const app = useApp.getState()
   if (app.view !== 'workspace') app.setView('workspace')
+  // The tour points at the side panel's tabs, so it needs the panel open.
+  if (!app.inspectorOpen) app.setInspectorOpen(true)
   if (app.selectedId && app.workspaces.some((w) => w.id === app.selectedId)) return
   const next = app.workspaces
     .filter((w) => w.status !== 'archived')
@@ -43,7 +45,7 @@ const STOPS: Stop[] = [
   { anchor: 'notes', title: 'Notes', text: 'Notes, reminders and todos for this workspace. The orchestrator reads them, adds follow-ups it finds, and ticks todos it completes. Ask it to “remember” something and it lands here.', prepare: prepareWorkspace },
   { anchor: 'notes-all', title: 'Notes', text: 'Every todo and note across workspaces, spaces and the app, as a board or a list; agents file into it.' },
   { anchor: 'tab-data', title: 'Data', text: 'Your databases: Postgres, MySQL, SQLite, MongoDB and BigQuery, directly, through SSH, or through Cloud SQL with your Google login. Schema tree, SQL editor, ERD, inline editing, CSV import and export. Read-only by default, for you and for the agents.', prepare: prepareWorkspace },
-  { anchor: 'tab-browser', title: 'Browser', text: 'A browser the agent can drive: check the app on localhost, read documentation, operate consoles you are signed into. Sensitive sites always ask you first.', prepare: prepareWorkspace },
+  { anchor: 'tab-browser', title: 'Preview', text: 'A browser the agent can drive: check the app on localhost, read documentation, operate consoles you are signed into. Sensitive sites always ask you first.', prepare: prepareWorkspace },
   { anchor: 'activity', title: 'Crew activity', text: 'Who did what in this session: the orchestrator and every crew member it delegated to, on whatever vendor each runs. Click a running member to watch it.', prepare: prepareWorkspace },
   { anchor: 'reviews', title: 'Review', text: 'Your open pull requests across all repos in one list. AI review reads the diff, you approve the findings that matter, and it drafts the reply.', prepare: prepareReview },
   { anchor: 'oncall', title: 'On call', text: 'Watches your Slack alert and support channels, triages each incident against your code and your Google Cloud logs, proposes replies you approve, and opens a draft PR with the fix when it is sure of the cause.', prepare: prepareReview },

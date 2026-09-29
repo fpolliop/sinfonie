@@ -62,7 +62,6 @@ export function CommandPalette({ onClose, onShortcuts }: { onClose: () => void; 
   const workspaces = useApp((s) => s.workspaces)
   const spaces = useApp((s) => s.spaces)
   const selectedId = useApp((s) => s.selectedId)
-  const dock = useApp((s) => s.browserDock)
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
   const listRef = useRef<HTMLDivElement>(null)
@@ -94,7 +93,7 @@ export function CommandPalette({ onClose, onShortcuts }: { onClose: () => void; 
       )
     }
     if (selectedId) {
-      tabsFor(guided, dock).forEach((tab, i) =>
+      tabsFor(guided).forEach((tab, i) =>
         out.push({
           id: `tab:${tab.id}`,
           label: `Show ${tab.label}`,
@@ -106,6 +105,10 @@ export function CommandPalette({ onClose, onShortcuts }: { onClose: () => void; 
           }
         })
       )
+      // The panel's second views: every file behind Changes, the scripts behind Terminal.
+      if (!guided)
+        for (const [id, label] of [['code', 'Show all files'], ['run', 'Show setup and run scripts']] as const)
+          out.push({ id: `tab:${id}`, label, group: `This ${t.workspace}`, run: () => (st().setView('workspace'), st().setTab(id)) })
     }
     const spaceName = (id?: string): string => spaces.find((s) => s.id === id)?.name ?? ''
     workspaces
@@ -117,7 +120,7 @@ export function CommandPalette({ onClose, onShortcuts }: { onClose: () => void; 
     }
     if (!guided) for (const sp of spaces) out.push({ id: `space:${sp.id}`, label: `Space settings: ${sp.name}`, group: 'Settings', run: () => st().openSettings({ scope: 'space', spaceId: sp.id, page: 'general' }) })
     return out
-  }, [guided, t, workspaces, spaces, selectedId, dock, onShortcuts])
+  }, [guided, t, workspaces, spaces, selectedId, onShortcuts])
 
   // Each group shows once, in the order groups first appear; the sort is stable, so items keep their order inside a group.
   const shown = useMemo(() => {
@@ -216,7 +219,9 @@ export function ShortcutSheet({ onClose }: { onClose: () => void }): React.JSX.E
     ['⌘↵', guided ? 'Start the task (in New task)' : 'Send or start (in dialogs that say so)'],
     ['⌘,', 'Settings'],
     ['⇧⌘F', 'Send feedback'],
-    ['⌘1…⌘9', guided ? 'Switch between Chat and Preview' : 'Switch workspace tabs'],
+    ['⌘1…⌘9', guided ? 'Show the preview beside the chat' : 'Switch the side panel: Changes, Preview, Checks, Terminal, Data'],
+    ['⌘.', guided ? 'Stop Maestro while it works' : 'Stop the running turn'],
+    ...(guided ? [] : ([['⌃`', 'Open or close the terminal under the side panel']] as [string, string][])),
     ['⌥⌘↑ / ⌥⌘↓', `Previous / next ${t.workspace} (on ${guided ? 'Tasks' : 'Build'})`],
     ['⌥⌘← / ⌥⌘→', `Previous / next ${t.space}`],
     ['⌃1…⌃9', `Jump to a ${t.space}`],

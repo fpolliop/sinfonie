@@ -109,7 +109,7 @@ export function NotesPanel({ workspaceId, onClose }: { workspaceId: string; onCl
     setText('')
   }
   return (
-    <aside className="flex w-[380px] shrink-0 flex-col border-l border-border bg-panel">
+    <aside className="flex w-[380px] max-w-[55%] shrink-0 flex-col border-l border-border bg-panel">
       <div className="flex items-center gap-2 border-b border-border px-3 py-2">
         <StickyNote size={14} className="text-accent" />
         <span className="text-[13px] font-semibold">Notes</span>

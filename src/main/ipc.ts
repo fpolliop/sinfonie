@@ -453,6 +453,21 @@ export function registerIpc(): void {
     if (!wr) throw new Error('Repo not in workspace')
     return git.diff(wr.worktreePath, path)
   })
+  const worktreeOf = (id: string, repoId: string): { worktreePath: string; baseBranch: string } => {
+    const wr = workspaces.getWorkspace(id).repos.find((r) => r.repoId === repoId)
+    if (!wr) throw new Error('Repo not in workspace')
+    return wr
+  }
+  handle('git:changes', (id, repoId, scope) => {
+    const wr = worktreeOf(id, repoId)
+    return git.changes(wr.worktreePath, scope, wr.baseBranch)
+  })
+  handle('git:fileDiff', (id, repoId, path, scope) => {
+    const wr = worktreeOf(id, repoId)
+    return git.fileDiff(wr.worktreePath, scope, wr.baseBranch, path)
+  })
+  handle('git:restoreFile', (id, repoId, path) => git.restoreFile(worktreeOf(id, repoId).worktreePath, path))
+  handle('git:undoRestore', (id, repoId, path, saved, hash) => git.undoRestore(worktreeOf(id, repoId).worktreePath, path, saved, hash))
   handle('git:commit', (id, repoId, message) => {
     const wr = workspaces.getWorkspace(id).repos.find((r) => r.repoId === repoId)
     if (!wr) throw new Error('Repo not in workspace')

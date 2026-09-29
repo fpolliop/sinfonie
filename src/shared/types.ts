@@ -1403,6 +1403,19 @@ export interface GitFileStatus {
   staged: boolean
 }
 
+/** Which changes the Changes tab lists: uncommitted work (against HEAD) or the whole branch (against its merge-base). */
+export type ChangeScope = 'uncommitted' | 'branch'
+
+/** One changed file with its +/− line counts; null counts for binary files and untracked files not counted. */
+export interface ChangedFileStat {
+  path: string
+  adds: number | null
+  dels: number | null
+  /** M, A, D, T, ? (untracked). */
+  status: string
+  binary?: boolean
+}
+
 export interface RepoGitStatus {
   repoId: string
   branch: string

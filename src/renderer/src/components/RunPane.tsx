@@ -71,7 +71,7 @@ export function RunPane({ workspaceId }: { workspaceId: string }): React.JSX.Ele
         </Button>
       </div>
       <div className="flex min-h-0 flex-1">
-        <aside className="w-[220px] shrink-0 border-r border-border">
+        <aside className="w-[220px] max-w-[40%] shrink-0 border-r border-border">
           {ws.repos.map((r) => {
             const run = runs[key(workspaceId, r.repoId, kind)]
             const hasScript = Boolean(repos.find((x) => x.id === r.repoId)?.config?.scripts?.[kind])

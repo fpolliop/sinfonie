@@ -96,7 +96,7 @@ export type ActionTier = 'navigate' | 'confirm' | 'outward'
 
 export const ACTIONS = {
   openWorkspace: { tier: 'navigate', params: z.object({ workspaceId: z.string() }), description: 'Open a workspace (its chat).' },
-  openWorkspaceTab: { tier: 'navigate', params: z.object({ workspaceId: z.string(), tab: z.enum(['chat', 'code', 'prs', 'terminal', 'run', 'browser', 'data']) }), description: 'Open a workspace on a given tab.' },
+  openWorkspaceTab: { tier: 'navigate', params: z.object({ workspaceId: z.string(), tab: z.enum(['chat', 'changes', 'code', 'prs', 'terminal', 'run', 'browser', 'data']) }), description: 'Open a workspace on a given tab.' },
   openUrl: { tier: 'navigate', params: z.object({ url: z.string() }), description: 'Open a link in the default browser (PR, ticket, CI run).' },
   refresh: { tier: 'navigate', params: z.object({ source: z.string().optional() }), description: 'Refetch one data source (by its name in the view) or all of them.' },
   askMaestro: { tier: 'navigate', params: z.object({ prompt: z.string() }), description: 'Open Maestro with this message ready to send.' },

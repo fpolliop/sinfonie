@@ -28,6 +28,8 @@ import type { MaestroMemoryCategory, MaestroMemoryEntry, MaestroConversation, Ma
   QuestionResponse,
   Repo,
   RepoGitStatus,
+  ChangeScope,
+  ChangedFileStat,
   ScriptOutputEvent,
   Settings,
   Space,
@@ -94,6 +96,14 @@ export interface SinfonieInvoke {
   'fs:reveal': (workspaceId: string, path: string) => void
   'fs:open': (workspaceId: string, path: string) => void
   'git:diff': (workspaceId: string, repoId: string, path?: string) => string
+  /** Changed files with +/− counts: uncommitted work, or the whole branch against its merge-base with the base branch. */
+  'git:changes': (workspaceId: string, repoId: string, scope: ChangeScope) => { base: string | null; files: ChangedFileStat[] }
+  /** One file's diff in a scope. */
+  'git:fileDiff': (workspaceId: string, repoId: string, path: string, scope: ChangeScope) => string
+  /** Revert one modified tracked file to HEAD (index and working tree); returns the replaced bytes for Undo. */
+  'git:restoreFile': (workspaceId: string, repoId: string, path: string) => { saved: string; hash: string }
+  /** Undo git:restoreFile, only while the file is still what the restore left (its hash). */
+  'git:undoRestore': (workspaceId: string, repoId: string, path: string, saved: string, hash: string) => void
   'git:commit': (workspaceId: string, repoId: string, message: string) => string
   'git:push': (workspaceId: string, repoId: string) => string
   'git:createPr': (workspaceId: string, repoId: string, title: string, body: string, reviewers?: string[]) => string
@@ -337,7 +347,7 @@ export interface SinfonieInvoke {
   'terminal:create': (workspaceId: string, repoId: string | null, cols?: number, rows?: number, agent?: Engine) => string
   /** Engines whose interactive CLI can be opened in a workspace terminal (a signed-in account exists). */
   'terminal:clis': () => Engine[]
-  // ---- CLI mode: the real claude in the Chat tab, session shared with the chat ----
+  // ---- CLI mode: the real claude in the conversation, session shared with the chat ----
   'cli:status': (workspaceId: string) => CliStatus
   'cli:start': (workspaceId: string, opts?: { prompt?: string; fresh?: boolean; cols?: number; rows?: number }) => CliStatus
   'cli:stop': (workspaceId: string) => CliStatus

@@ -346,7 +346,7 @@ function AppPageView({ page }: { page: AppPage }): React.JSX.Element {
               </div>
             </div>
             <div className="mt-1 text-[11px] text-muted">
-              Ghost text while you type in the Code tab, written by a small fast model (a local model works). Tab accepts, Esc dismisses.
+              Ghost text while you type in a file (Changes › All files), written by a small fast model (a local model works). Tab accepts, Esc dismisses.
               {!settings.providers?.length && (
                 <>
                   {' '}

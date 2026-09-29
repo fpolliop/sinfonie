@@ -19,6 +19,7 @@ import { Markdown } from '@/lib/markdown'
 import { Button, Spinner } from './ui'
 import { useGuided, words } from '@/lib/guided'
 import { friendlyError, rawMessage } from '@/lib/errors'
+import { yieldsToEditor } from '@/lib/keys'
 import { expertToolName, formatDuration, formatElapsed, guidedNotice, recentGuidedSteps, turnActivity } from '@/lib/activity'
 import { AskTeammate, AskTeammateButton } from './AskTeammate'
 import { CaffeineButton } from './CaffeineButton'
@@ -47,7 +48,7 @@ const usePanel = (() => {
 })()
 
 /**
- * The Chat tab: the conversation through the SDK, or the vendor's CLI in a terminal on the same
+ * The conversation (left of the workspace split): the chat through the SDK, or the vendor's CLI in a terminal on the same
  * session. The switch at the top moves between the two without losing the conversation.
  */
 export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.Element {
@@ -283,6 +284,26 @@ function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Elem
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items, questions.length])
 
+  // ⌘. stops the running turn, from anywhere in the workspace except an editor or terminal that wants the key.
+  useEffect(() => {
+    if (!busy) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (!e.metaKey || e.shiftKey || e.altKey || e.ctrlKey || e.key !== '.' || hasOpenDialog() || yieldsToEditor(e)) return
+      e.preventDefault()
+      void interrupt(workspaceId)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [busy, interrupt, workspaceId])
+  // The plan card shows the latest plan in full; earlier versions fold into one line.
+  const latestPlan = useMemo(() => {
+    for (let i = items.length - 1; i >= 0; i--) {
+      const b = [...items[i].blocks].reverse().find((x): x is ChatToolBlock => x.type === 'tool' && x.name === 'TodoWrite')
+      if (b) return b.toolUseId
+    }
+    return null
+  }, [items])
+
   // While a turn runs, Enter queues the message; main delivers it when the turn ends.
   const onSubmit = (): void => {
     if (!canSend) return
@@ -325,9 +346,11 @@ function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Elem
           </div>
         )}
         <div className="mx-auto flex max-w-4xl flex-col gap-4">
-          {items.map((it) => (
-            <Message key={it.id} item={it} />
-          ))}
+          <LatestPlan.Provider value={{ id: latestPlan, busy }}>
+            {items.map((it) => (
+              <Message key={it.id} item={it} />
+            ))}
+          </LatestPlan.Provider>
           {questions.map((q) => (
             <QuestionCard key={q.requestId} req={q} />
           ))}
@@ -571,6 +594,7 @@ function WorkingLine({ items, busy, result, waiting, onStop }: { items: ChatItem
     return () => window.clearInterval(t)
   }, [busy])
   const steps = useMemo(() => (guided ? recentGuidedSteps(tools, 3) : []), [guided, tools])
+  const rel = useRelative()
 
   if (!busy) {
     // A finished guided turn: one quiet line, until the next message.
@@ -599,14 +623,15 @@ function WorkingLine({ items, busy, result, waiting, onStop }: { items: ChatItem
 
   if (!guided) {
     const current = [...tools].reverse().find((t) => !t.done)
+    const detail = current ? rel(toolHeadline(current)) : ''
     return (
-      <div className="mb-2 flex h-6 items-center gap-2 px-1 text-[11px] text-muted">
+      <div className="mb-2 flex h-9 items-center gap-2 rounded-lg border border-border bg-panel px-3 text-[12px]">
         {dot}
-        <span className="text-text">{label}</span>
-        <span className="tabular-nums">· {elapsed}</span>
-        {current && !waiting && <span className="min-w-0 truncate font-mono">· {expertToolName(current)}</span>}
-        <Button size="sm" variant="ghost" className="ml-auto h-6 py-0 text-danger hover:text-danger" onClick={onStop} title="Stop this turn">
-          <Square size={10} /> Stop
+        <span className="min-w-0 max-w-[45%] shrink truncate text-text">{current && !waiting ? expertToolName(current) : label}</span>
+        {current && !waiting && detail && <span className="min-w-0 truncate font-mono text-[11px] text-muted">{detail}</span>}
+        <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted">{elapsed}</span>
+        <Button size="sm" className="ml-auto shrink-0" onClick={onStop} title="Stop this turn (⌘.)" aria-keyshortcuts="Meta+.">
+          <Square size={10} /> Stop <kbd className="ml-0.5 font-sans text-[11px] opacity-60">⌘.</kbd>
         </Button>
       </div>
     )
@@ -618,7 +643,7 @@ function WorkingLine({ items, busy, result, waiting, onStop }: { items: ChatItem
         {dot}
         <span className="text-text">{label}</span>
         <span className="tabular-nums text-muted">· {elapsed}</span>
-        <Button size="sm" variant="ghost" className="ml-auto" onClick={onStop} title="Stop Maestro. What it already changed stays.">
+        <Button size="sm" variant="ghost" className="ml-auto" onClick={onStop} title="Stop Maestro. What it already changed stays. (⌘.)">
           <Square size={10} /> Stop
         </Button>
       </div>
@@ -785,9 +810,176 @@ export function Message({ item }: { item: ChatItem }): React.JSX.Element | null 
   }
   return (
     <div className="flex flex-col gap-2 empty:hidden">
-      {item.blocks.map((b, i) => (
-        <Block key={i} block={b} />
-      ))}
+      {groupBlocks(item.blocks).map((g, i) => (g.kind === 'tools' ? <ToolChips key={i} blocks={g.blocks} /> : g.kind === 'plan' ? <PlanBlock key={i} block={g.block} /> : <Block key={i} block={g.block} />))}
+    </div>
+  )
+}
+
+type BlockGroup = { kind: 'one'; block: ChatBlock } | { kind: 'tools'; blocks: ChatToolBlock[] } | { kind: 'plan'; block: ChatToolBlock }
+const isDelegation = (b: ChatToolBlock): boolean => b.name === 'Agent' || b.name === 'Task'
+
+/** Consecutive plain tool calls become one row of chips; delegations keep their full row, a plan its card. */
+function groupBlocks(blocks: ChatBlock[]): BlockGroup[] {
+  const out: BlockGroup[] = []
+  for (const b of blocks) {
+    if (b.type !== 'tool' || isDelegation(b)) out.push({ kind: 'one', block: b })
+    else if (b.name === 'TodoWrite') out.push({ kind: 'plan', block: b })
+    else {
+      const last = out[out.length - 1]
+      if (last?.kind === 'tools') last.blocks.push(b)
+      else out.push({ kind: 'tools', blocks: [b] })
+    }
+  }
+  return out
+}
+
+/** The newest plan in the conversation and whether a turn is running; outside a workspace chat every plan shows in full. */
+const LatestPlan = React.createContext<{ id: string | null; busy: boolean }>({ id: null, busy: false })
+
+interface PlanItem {
+  content: string
+  status: 'pending' | 'in_progress' | 'completed'
+  activeForm?: string
+}
+function planItems(block: ChatToolBlock): PlanItem[] {
+  const todos = ((block.input ?? {}) as { todos?: unknown }).todos
+  return Array.isArray(todos) ? todos.filter((t): t is PlanItem => Boolean(t) && typeof (t as PlanItem).content === 'string') : []
+}
+
+/** The orchestrator's plan (its todo list) as a checklist. Older versions of the plan fold into one line. */
+function PlanBlock({ block }: { block: ChatToolBlock }): React.JSX.Element | null {
+  const guided = useGuided()
+  const { id: latest, busy } = React.useContext(LatestPlan)
+  const [open, setOpen] = useState(false)
+  const list = planItems(block)
+  if (guided || list.length === 0) return null
+  const done = list.filter((t) => t.status === 'completed').length
+  const summary = `${done} of ${list.length} done`
+  if (latest && latest !== block.toolUseId && !open) {
+    return (
+      <button className="inline-flex items-center gap-1 self-start text-[11px] text-muted hover:text-text" aria-expanded={false} onClick={() => setOpen(true)}>
+        <ChevronRight size={11} aria-hidden /> Plan updated · {summary}
+      </button>
+    )
+  }
+  return (
+    <section aria-label="Plan" className="max-w-[72ch] rounded-lg border border-border bg-panel px-3.5 py-2.5 text-[13px]">
+      <div className="mb-1.5 flex items-center gap-2">
+        <span className="font-semibold">Plan</span>
+        <span className="ml-auto text-[11px] text-muted">{summary}</span>
+        {open && (
+          <IconButton label="Fold this earlier plan" onClick={() => setOpen(false)}>
+            <X size={12} />
+          </IconButton>
+        )}
+      </div>
+      <ul className="flex flex-col gap-1">
+        {list.map((t, i) => (
+          <li key={i} className={clsx('flex items-start gap-2.5', t.status === 'pending' && 'text-muted')}>
+            <span className="mt-[3px] flex h-3.5 w-3.5 shrink-0 items-center justify-center" aria-hidden>
+              {t.status === 'completed' ? (
+                <Check size={13} className="text-ok" />
+              ) : t.status === 'in_progress' ? (
+                <span className={clsx('h-2 w-2 rounded-full bg-accent', busy && latest === block.toolUseId && 'animate-pulse')} />
+              ) : (
+                <span className="h-2.5 w-2.5 rounded-full border border-muted" />
+              )}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="sr-only">{t.status === 'completed' ? 'Done: ' : t.status === 'in_progress' ? 'In progress: ' : 'To do: '}</span>
+              {t.status === 'in_progress' && t.activeForm ? t.activeForm : t.content}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+/** Lines a text spans, for the +/− of an edit as the tool call describes it. */
+const lineCount = (v: unknown): number => (typeof v === 'string' && v.length ? v.split('\n').length : 0)
+
+/** An edit's +/− from the tool call itself: lines written against lines replaced. Null for anything that is not an edit. */
+function editCounts(block: ChatToolBlock): { adds: number; dels: number } | null {
+  const i = (block.input ?? {}) as Record<string, unknown>
+  if (block.name === 'Write') return { adds: lineCount(i.content), dels: 0 }
+  if (block.name === 'Edit') return { adds: lineCount(i.new_string), dels: lineCount(i.old_string) }
+  if (block.name === 'MultiEdit' && Array.isArray(i.edits)) {
+    return (i.edits as Record<string, unknown>[]).reduce<{ adds: number; dels: number }>((n, e) => ({ adds: n.adds + lineCount(e.new_string), dels: n.dels + lineCount(e.old_string) }), { adds: 0, dels: 0 })
+  }
+  return null
+}
+
+/** Paths read relative to the open workspace: "api/src/discounts.ts", not the full folder on disk. */
+function useRelative(): (p: string) => string {
+  const root = useApp((s) => s.workspaces.find((w) => w.id === s.selectedId)?.rootPath)
+  return (p) => (root ? p.split(`${root}/`).join('').split(root).join('.') : p)
+}
+
+function toolHeadline(block: ChatToolBlock): string {
+  const input = (block.input ?? {}) as Record<string, unknown>
+  return typeof input.command === 'string' ? input.command : typeof input.file_path === 'string' ? input.file_path : typeof input.notebook_path === 'string' ? input.notebook_path : typeof input.pattern === 'string' ? input.pattern : typeof input.url === 'string' ? input.url : typeof input.description === 'string' ? input.description : ''
+}
+
+const CHIPS_SHOWN = 3
+
+/**
+ * A turn's tool calls as compact chips ("Edit api/src/discounts.ts +42 −9"), the first few shown and the rest
+ * behind "+ N more". A chip opens its call's input and result underneath.
+ */
+function ToolChips({ blocks }: { blocks: ChatToolBlock[] }): React.JSX.Element | null {
+  const guided = useGuided()
+  const rel = useRelative()
+  const [all, setAll] = useState(false)
+  const [openId, setOpenId] = useState<string | null>(null)
+  if (guided) return null
+  const shown = all || blocks.length <= CHIPS_SHOWN + 1 ? blocks : blocks.slice(0, CHIPS_SHOWN)
+  const hidden = blocks.length - shown.length
+  const hiddenFailed = blocks.slice(shown.length).filter((b) => b.isError).length
+  const opened = blocks.find((b) => b.toolUseId === openId)
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex flex-wrap items-center gap-1.5">
+        {shown.map((b) => {
+          const counts = editCounts(b)
+          const verb = b.name === 'MultiEdit' ? 'Edit' : expertToolName(b)
+          const head = rel(toolHeadline(b))
+          return (
+            <button
+              key={b.toolUseId}
+              aria-expanded={openId === b.toolUseId}
+              onClick={() => setOpenId(openId === b.toolUseId ? null : b.toolUseId)}
+              title={`${verb} ${head}`.trim()}
+              className={clsx(
+                'inline-flex h-6 min-w-0 max-w-full items-center gap-1.5 rounded-md border px-2 text-[12px] transition-colors @min-[520px]:max-w-[380px]',
+                b.isError ? 'border-danger/40 text-danger' : openId === b.toolUseId ? 'border-accent/50 bg-panel-2 text-text' : 'border-border bg-panel text-text hover:bg-panel-2'
+              )}
+            >
+              {!b.done && <Spinner />}
+              <span className="shrink-0 font-medium">{verb}</span>
+              {head && <span className="min-w-0 truncate font-mono text-[11px] text-muted">{head}</span>}
+              {counts && (counts.adds > 0 || counts.dels > 0) && (
+                <span className="shrink-0 font-mono text-[11px] tabular-nums">
+                  {counts.adds > 0 && <span className="text-ok">+{counts.adds}</span>}
+                  {counts.dels > 0 && <span className="ml-1 text-danger">−{counts.dels}</span>}
+                </span>
+              )}
+              {b.isError && <span className="sr-only">(failed)</span>}
+            </button>
+          )
+        })}
+        {hidden > 0 && (
+          <button onClick={() => setAll(true)} className={clsx('inline-flex h-6 items-center rounded-md border border-dashed px-2 text-[12px] hover:bg-panel-2', hiddenFailed ? 'border-danger/40 text-danger' : 'border-border text-muted hover:text-text')}>
+            + {hidden} more{hiddenFailed ? ` · ${hiddenFailed} failed` : ''}
+          </button>
+        )}
+        {all && blocks.length > CHIPS_SHOWN + 1 && (
+          <button onClick={() => setAll(false)} className="inline-flex h-6 items-center rounded-md px-2 text-[12px] text-muted hover:text-text">
+            Show fewer
+          </button>
+        )}
+      </div>
+      {opened && <ToolCall key={opened.toolUseId} block={opened} defaultOpen />}
     </div>
   )
 }
@@ -1277,7 +1469,7 @@ function SubagentPanel({ items, model, workspaceId }: { items: ChatItem[]; model
     const block = delegations.find((b) => b.toolUseId === view.id)
     if (!block) return null
     return (
-      <aside className="flex w-[440px] shrink-0 flex-col border-l border-border bg-panel">
+      <aside className="flex w-[440px] max-w-[55%] shrink-0 flex-col border-l border-border bg-panel">
         <div className="flex items-center gap-2 border-b border-border px-3 py-2">
           <IconButton label="Back to activity" onClick={() => setView({ kind: 'activity' })}>
             <ArrowLeft size={14} />
@@ -1300,7 +1492,7 @@ function SubagentPanel({ items, model, workspaceId }: { items: ChatItem[]; model
 
   // ---- activity tree ----
   return (
-    <aside className="flex w-[440px] shrink-0 flex-col border-l border-border bg-panel">
+    <aside className="flex w-[440px] max-w-[55%] shrink-0 flex-col border-l border-border bg-panel">
       <div className="flex items-center gap-2 border-b border-border px-3 py-2">
         <ListTree size={14} className="text-accent" />
         <span className="text-[13px] font-semibold">Activity</span>
@@ -1468,8 +1660,8 @@ function ActivityTree({ items, model, onOpen }: { items: ChatItem[]; model: stri
   )
 }
 
-function ToolCall({ block }: { block: ChatToolBlock }): React.JSX.Element {
-  const [open, setOpen] = useState(false)
+function ToolCall({ block, defaultOpen = false }: { block: ChatToolBlock; defaultOpen?: boolean }): React.JSX.Element {
+  const [open, setOpen] = useState(defaultOpen)
   const [, setPanel] = usePanel()
   const openPanel = (id: string): void => setPanel({ kind: 'delegation', id })
   const input = (block.input ?? {}) as Record<string, unknown>

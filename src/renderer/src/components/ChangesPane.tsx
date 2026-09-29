@@ -1,5 +1,5 @@
 /**
- * Diff rendering and the commit / pull request dialogs, shared by the Code tab (FilesPane). The old standalone
+ * Diff rendering and the commit / pull request dialogs, shared by Changes and All files (FilesPane). The old standalone
  * Changes pane lived here too; it was mounted nowhere and was removed.
  */
 import React, { useEffect, useMemo, useState } from 'react'
@@ -11,7 +11,8 @@ import { friendlyError } from '@/lib/errors'
 
 export type ViewMode = 'unified' | 'split' | 'file'
 
-export function DiffView({ file, view, workspaceId, worktreePath }: { file: DiffFile; view: ViewMode; workspaceId: string; worktreePath: string }): React.JSX.Element {
+/** `annotate` places extra rows (reviewer findings) under a line of the new side, in the unified view. */
+export function DiffView({ file, view, workspaceId, worktreePath, annotate }: { file: DiffFile; view: ViewMode; workspaceId: string; worktreePath: string; annotate?: (newNo: number) => React.ReactNode }): React.JSX.Element {
   return (
     <div className="border-b border-border">
       <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-panel px-3 py-1.5 font-mono text-[12px]">
@@ -19,23 +20,35 @@ export function DiffView({ file, view, workspaceId, worktreePath }: { file: Diff
         <span className="ml-auto text-ok">+{file.adds}</span>
         <span className="text-danger">−{file.dels}</span>
       </div>
-      {view === 'split' ? <SplitView file={file} /> : view === 'file' ? <FileView file={file} workspaceId={workspaceId} worktreePath={worktreePath} /> : <UnifiedView file={file} />}
+      {view === 'split' ? <SplitView file={file} /> : view === 'file' ? <FileView file={file} workspaceId={workspaceId} worktreePath={worktreePath} /> : <UnifiedView file={file} annotate={annotate} />}
     </div>
   )
 }
 
-function UnifiedView({ file }: { file: DiffFile }): React.JSX.Element {
+function UnifiedView({ file, annotate }: { file: DiffFile; annotate?: (newNo: number) => React.ReactNode }): React.JSX.Element {
   return (
     <table className="w-full border-collapse font-mono text-[12px] leading-[18px]">
       <tbody>
-        {file.lines.map((l, i) => (
-          <tr key={i} className={clsx(l.kind === 'add' && 'bg-ok/10', l.kind === 'del' && 'bg-danger/10', l.kind === 'hunk' && 'bg-accent/10 text-accent', l.kind === 'meta' && 'text-muted')}>
-            <td className="w-10 select-none pr-1 text-right text-muted">{l.oldNo ?? ''}</td>
-            <td className="w-10 select-none pr-2 text-right text-muted">{l.newNo ?? ''}</td>
-            <td className={clsx('w-3 select-none', l.kind === 'add' && 'text-ok', l.kind === 'del' && 'text-danger')}>{l.kind === 'add' ? '+' : l.kind === 'del' ? '−' : ''}</td>
-            <td className="whitespace-pre-wrap break-all pr-3">{l.text}</td>
-          </tr>
-        ))}
+        {file.lines.map((l, i) => {
+          const extra = annotate && l.newNo !== undefined && l.kind !== 'del' ? annotate(l.newNo) : null
+          return (
+            <React.Fragment key={i}>
+              <tr className={clsx(l.kind === 'add' && 'bg-ok/10', l.kind === 'del' && 'bg-danger/10', l.kind === 'hunk' && 'bg-accent/10 text-accent', l.kind === 'meta' && 'text-muted')}>
+                <td className="w-10 select-none pr-1 text-right text-muted">{l.oldNo ?? ''}</td>
+                <td className="w-10 select-none pr-2 text-right text-muted">{l.newNo ?? ''}</td>
+                <td className={clsx('w-3 select-none', l.kind === 'add' && 'text-ok', l.kind === 'del' && 'text-danger')}>{l.kind === 'add' ? '+' : l.kind === 'del' ? '−' : ''}</td>
+                <td className="whitespace-pre-wrap break-words pr-3">{l.text}</td>
+              </tr>
+              {extra && (
+                <tr>
+                  <td colSpan={4} className="px-3 py-1.5">
+                    <div className="flex flex-col gap-2">{extra}</div>
+                  </td>
+                </tr>
+              )}
+            </React.Fragment>
+          )
+        })}
       </tbody>
     </table>
   )
@@ -48,7 +61,7 @@ function SplitCell({ line, side }: { line?: DiffLine; side: 'old' | 'new' }): Re
     <>
       <td className={clsx('w-10 select-none pr-2 text-right align-top text-muted', tint)}>{line ? (side === 'old' ? line.oldNo : line.newNo) ?? '' : ''}</td>
       <td className={clsx('w-3 select-none align-top', tint, changed && (side === 'old' ? 'text-danger' : 'text-ok'))}>{changed ? (side === 'old' ? '−' : '+') : ''}</td>
-      <td className={clsx('whitespace-pre-wrap break-all pr-3 align-top', tint)}>{line?.text ?? ''}</td>
+      <td className={clsx('whitespace-pre-wrap break-words pr-3 align-top', tint)}>{line?.text ?? ''}</td>
     </>
   )
 }
@@ -74,7 +87,7 @@ function SplitView({ file }: { file: DiffFile }): React.JSX.Element {
             </tr>
           ) : (
             <tr key={i} className={clsx(r.kind === 'hunk' ? 'bg-accent/10 text-accent' : 'text-muted')}>
-              <td colSpan={6} className="whitespace-pre-wrap break-all px-3">
+              <td colSpan={6} className="whitespace-pre-wrap break-words px-3">
                 {r.text}
               </td>
             </tr>
@@ -98,7 +111,8 @@ function FileView({ file, workspaceId, worktreePath }: { file: DiffFile; workspa
       setContent({ state: 'deleted' })
       return
     }
-    setContent({ state: 'loading' })
+    // A refresh of the same file keeps what is on screen until the new content arrives.
+    setContent((c) => (c.state === 'ok' ? c : { state: 'loading' }))
     api
       .invoke('fs:read', workspaceId, `${worktreePath}/${file.path}`)
       .then((r) => {
@@ -116,7 +130,8 @@ function FileView({ file, workspaceId, worktreePath }: { file: DiffFile; workspa
     return () => {
       cancelled = true
     }
-  }, [workspaceId, worktreePath, file.path, deleted])
+    // `file` changes identity whenever the diff is re-read, so the file view follows edits as they land.
+  }, [workspaceId, worktreePath, file, deleted])
 
   if (content.state !== 'ok') {
     const msg =
