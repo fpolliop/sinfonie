@@ -28,29 +28,35 @@ const prepareView = (): void => {
   if (useApp.getState().view !== 'workspace') useApp.getState().setView('workspace')
 }
 
+/** Review lives on its own screen now (the rail's Review). */
+const prepareReview = (): void => {
+  if (useApp.getState().view !== 'reviews') useApp.getState().setView('reviews')
+}
+
 const STOPS: Stop[] = [
-  { anchor: 'spaces', title: 'Spaces', text: 'Each dot is a space: its own repositories, workspaces, crew and settings. Personal, work, a client. ⌃1…9 jumps to one, ⌘⌥← and ⌘⌥→ step through them, and a two-finger swipe on the sidebar does too.' },
-  { anchor: 'new-workspace', title: 'Workspaces', text: 'A workspace is one branch across every repo you pick. Sinfonie creates a git worktree per repo in its own folder, so a full-stack change lives in one place. ⇧⌘N opens this.' },
+  { anchor: 'maestro', title: 'Maestro', text: 'Your companion. It knows everything in Sinfonie: your spaces, workspaces and what happened in them, your agents, your notes and todos, your integrations. Ask it anything, have it set things up, send tasks to workspaces, run agents, or sweep Slack for you. It confirms before every change. It is your home screen, and ⌘J opens it beside whatever you are looking at, knowing what that screen shows.' },
+  { anchor: 'spaces', title: 'Spaces', text: 'Each dot is a space: its own repositories, workspaces, crew and settings. Personal, work, a client. ⌃1…9 jumps to one, ⌘⌥← and ⌘⌥→ step through them, and a two-finger swipe on the sidebar does too.', prepare: prepareView },
+  { anchor: 'new-workspace', title: 'Workspaces', text: 'A workspace is one branch across every repo you pick. Sinfonie creates a git worktree per repo in its own folder, so a full-stack change lives in one place. ⇧⌘N opens this.', prepare: prepareView },
   { anchor: 'repos', title: 'The repos in a workspace', text: 'Every repo here is on the same branch. The dot shows its pull request state; click one to see the PR and review comments.', prepare: prepareWorkspace },
-  { anchor: 'session', title: 'Session, context and cost mode', text: 'Engine and model, how full the context window is, the cost of this session, and the cost mode: Standard, Budget or Lean. Lean runs one Sonnet agent with no crew and capped turns, for tight subscriptions. Compact or start a new session from here.' },
-  { anchor: 'mode', title: 'Permission mode', text: 'How much the agent may do without asking. Plan only reads. Default asks before edits and commands. Auto-edit accepts edits. Auto also runs safe commands. Shift+Tab cycles.' },
-  { anchor: 'notes', title: 'Notes', text: 'Notes, reminders and todos for this workspace. The orchestrator reads them, adds follow-ups it finds, and ticks todos it completes. Ask it to “remember” something and it lands here.' },
-  { anchor: 'notes-all', title: 'Todos & notes', text: 'Every todo and note across workspaces, spaces and the app, as a board or a list; agents file into it.' },
-  { anchor: 'tab-data', title: 'Data', text: 'Your databases: Postgres, MySQL, SQLite, MongoDB and BigQuery, directly, through SSH, or through Cloud SQL with your Google login. Schema tree, SQL editor, ERD, inline editing, CSV import and export. Read-only by default, for you and for the agents.' },
-  { anchor: 'tab-browser', title: 'Browser', text: 'A browser the agent can drive: check the app on localhost, read documentation, operate consoles you are signed into. Sensitive sites always ask you first.' },
-  { anchor: 'activity', title: 'Crew activity', text: 'Who did what in this session: the orchestrator and every crew member it delegated to, on whatever vendor each runs. Click a running member to watch it.' },
-  { anchor: 'reviews', title: 'Review cockpit', text: 'Your open pull requests across all repos in one list. AI review reads the diff, you approve the findings that matter, and it drafts the reply.', prepare: prepareView },
-  { anchor: 'oncall', title: 'On call', text: 'Watches your Slack alert and support channels, triages each incident against your code and your Google Cloud logs, proposes replies you approve, and opens a draft PR with the fix when it is sure of the cause.', prepare: prepareView },
-  { anchor: 'agents', title: 'Agents', text: 'Your agent library. Each agent is a role with its own instructions, model and tools. The four built-ins, explorer, implementer, tester and reviewer, are the default crew (under the Crew tab). Describe one in a sentence and it is drafted for you, try it on a workspace right there, and call one directly in any chat with @name. Agents you create are standalone unless you put them in the crew.' },
-  { anchor: 'maestro', title: 'Maestro', text: 'Your companion. It knows everything in Sinfonie: your spaces, workspaces and what happened in them, your agents, your notes and todos, your integrations. Ask it anything, have it set things up, send tasks to workspaces, run agents, or sweep Slack for you. It confirms before every change. Dock it beside your work or open it full screen, with as many conversations as you like. ⇧⌘A.' },
+  { anchor: 'session', title: 'Session, context and cost mode', text: 'Engine and model, how full the context window is, the cost of this session, and the cost mode: Standard, Budget or Lean. Lean runs one Sonnet agent with no crew and capped turns, for tight subscriptions. Compact or start a new session from here.', prepare: prepareWorkspace },
+  { anchor: 'mode', title: 'Permission mode', text: 'How much the agent may do without asking. Plan only reads. Default asks before edits and commands. Auto-edit accepts edits. Auto also runs safe commands. Shift+Tab cycles.', prepare: prepareWorkspace },
+  { anchor: 'notes', title: 'Notes', text: 'Notes, reminders and todos for this workspace. The orchestrator reads them, adds follow-ups it finds, and ticks todos it completes. Ask it to “remember” something and it lands here.', prepare: prepareWorkspace },
+  { anchor: 'notes-all', title: 'Notes', text: 'Every todo and note across workspaces, spaces and the app, as a board or a list; agents file into it.' },
+  { anchor: 'tab-data', title: 'Data', text: 'Your databases: Postgres, MySQL, SQLite, MongoDB and BigQuery, directly, through SSH, or through Cloud SQL with your Google login. Schema tree, SQL editor, ERD, inline editing, CSV import and export. Read-only by default, for you and for the agents.', prepare: prepareWorkspace },
+  { anchor: 'tab-browser', title: 'Browser', text: 'A browser the agent can drive: check the app on localhost, read documentation, operate consoles you are signed into. Sensitive sites always ask you first.', prepare: prepareWorkspace },
+  { anchor: 'activity', title: 'Crew activity', text: 'Who did what in this session: the orchestrator and every crew member it delegated to, on whatever vendor each runs. Click a running member to watch it.', prepare: prepareWorkspace },
+  { anchor: 'reviews', title: 'Review', text: 'Your open pull requests across all repos in one list. AI review reads the diff, you approve the findings that matter, and it drafts the reply.', prepare: prepareReview },
+  { anchor: 'oncall', title: 'On call', text: 'Watches your Slack alert and support channels, triages each incident against your code and your Google Cloud logs, proposes replies you approve, and opens a draft PR with the fix when it is sure of the cause.', prepare: prepareReview },
+  { anchor: 'agents', title: 'Agents', text: 'Your agent library. Each agent is a role with its own instructions, model and tools. The four built-ins, explorer, implementer, tester and reviewer, are the default crew (under the Crew tab). Describe one in a sentence and it is drafted for you, try it on a workspace right there, and call one directly in any chat with @name. Agents you create are standalone unless you put them in the crew.', prepare: prepareView },
   { anchor: 'settings', title: 'Settings', text: 'Accounts for every vendor, model providers, the crew, usage, resources, and the integrations: Jira, Linear, Slack, Google Cloud, databases, MCP servers. Application-wide on the left, per space on the right. ⌘, opens it; ⌘K runs any command and ⌘/ lists the shortcuts.' }
 ]
 
 /** The guided tour: only what guided mode shows, in its own words. */
 export const GUIDED_STOPS: Stop[] = [
-  { anchor: 'new-workspace', title: 'Tasks', text: 'A task is one thing you want built or changed in your app. Start one here and describe it in plain words; the assistant takes it from there. ⇧⌘N opens this.' },
+  { anchor: 'maestro', title: 'Maestro', text: 'Your home. Tell Maestro what you want in plain words; it knows your apps and tasks, and it always shows you a change before making it. ⌘J opens it on any screen.' },
+  { anchor: 'new-workspace', title: 'Tasks', text: 'A task is one thing you want built or changed in your app. Start one here and describe it in plain words; Maestro takes it from there. ⇧⌘N opens this.', prepare: prepareView },
   { anchor: 'repos', title: 'Your apps in this task', text: 'The apps this task touches. Each task works on its own copy of them, so nothing changes for anyone else until it is reviewed.', prepare: prepareWorkspace },
-  { anchor: 'tab-browser', title: 'Preview', text: 'See the app while the assistant works on it, on your Mac, before anyone else does.' },
+  { anchor: 'tab-browser', title: 'Preview', text: 'See the app while Maestro works on it, on your Mac, before anyone else does.', prepare: prepareWorkspace },
   { anchor: 'settings', title: 'Settings', text: 'Your sign-in and your team. ⌘, opens it; ⌘K finds any task or action.' }
 ]
 
@@ -77,7 +83,9 @@ export function Tour({ onClose }: { onClose: () => void }): React.JSX.Element | 
    */
   const reachable = useCallback((): number[] => {
     const hasWorkspace = useApp.getState().workspaces.some((w) => w.status !== 'archived')
-    return stops.flatMap((s, k) => (document.querySelector(`[data-tour="${s.anchor}"]`) || (s.prepare && hasWorkspace) ? [k] : []))
+    // A stop can be shown when its anchor is on screen, or its prepare can bring it there: switching screens always
+    // can; opening a workspace only when there is one.
+    return stops.flatMap((s, k) => (document.querySelector(`[data-tour="${s.anchor}"]`) || (s.prepare && (s.prepare !== prepareWorkspace || hasWorkspace)) ? [k] : []))
   }, [stops])
   const [reach, setReach] = useState<number[]>(reachable)
 
@@ -91,8 +99,8 @@ export function Tour({ onClose }: { onClose: () => void }): React.JSX.Element | 
   const step = (dir: 1 | -1): void => {
     let n = i + dir
     while (n >= 0 && n < stops.length) {
-      stops[n].prepare?.()
-      if (find(n)) break
+      // A stop that switches screens is measured after the switch renders (the layout effect below).
+      if (stops[n].prepare || find(n)) break
       n += dir
     }
     if (n < 0) return
@@ -105,8 +113,15 @@ export function Tour({ onClose }: { onClose: () => void }): React.JSX.Element | 
       const next = reachable()
       return prev.length === next.length && prev.every((v, k) => v === next[k]) ? prev : next
     })
+    let retried = false
     const measure = (): void => {
       const el = find(i)
+      if (!el && !retried && stops[i].prepare) {
+        // The prepare just switched screens; give React a moment to render it before giving up on this stop.
+        retried = true
+        window.setTimeout(measure, 120)
+        return
+      }
       if (!el) {
         // Anchor vanished (e.g. no workspace selected): move on.
         const next = stops.findIndex((_, k) => k > i && find(k))

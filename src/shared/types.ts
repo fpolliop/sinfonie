@@ -1913,7 +1913,10 @@ export interface DbHistoryEntry {
 export interface MaestroContext {
   workspaceId?: string
   spaceId?: string
+  /** The screen the dock was opened from, so Maestro knows what the person is looking at. */
+  screen?: MaestroScreen
 }
+export type MaestroScreen = 'build' | 'review' | 'notes' | 'team' | 'home'
 export interface MaestroConversationMeta {
   id: string
   title: string

@@ -54,7 +54,7 @@ export function BrowserPane({ workspaceId, visible }: { workspaceId: string; vis
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [guided, visible, ws?.status, workspaceId])
-  /** The end of the failed run's output, for the assistant to read when asked to fix it. */
+  /** The end of the failed run's output, for Maestro to read when asked to fix it. */
   const failedOutput = (): string =>
     Object.entries(runs)
       .filter(([k, r]) => k.startsWith(`${workspaceId}:`) && k.endsWith(':run') && (r.exitCode ?? 0) !== 0)
@@ -72,7 +72,7 @@ export function BrowserPane({ workspaceId, visible }: { workspaceId: string; vis
     if (!guided || !ws) return null
     const mine = Object.entries(runs).filter(([k]) => k.startsWith(`${workspaceId}:`) && k.endsWith(':run'))
     if (mine.some(([, r]) => r.running)) return active?.url ? 'running' : 'starting'
-    // The run script failing only matters when the preview can't load: the assistant may have started the app another way.
+    // The run script failing only matters when the preview can't load: Maestro may have started the app another way.
     const pageUp = Boolean(active?.url && !active.loading && !active.failed)
     if (mine.length && mine.every(([, r]) => (r.exitCode ?? 0) !== 0)) return pageUp ? null : 'failed'
     return null
@@ -129,7 +129,7 @@ export function BrowserPane({ workspaceId, visible }: { workspaceId: string; vis
     void api.invoke(state?.tabs.length ? 'browser:navigate' : 'browser:open', workspaceId, url.trim())
   }
   const localUrl = ws ? `http://localhost:${ws.port}` : ''
-  const engineLabel = guided ? 'The assistant' : (space?.engine ?? engine) === 'claude-code' ? 'Claude' : 'The agent'
+  const engineLabel = guided ? 'Maestro' : (space?.engine ?? engine) === 'claude-code' ? 'Claude' : 'The agent'
   const pendingHost = ((): string => {
     try {
       return new URL(String(pending?.input.url)).hostname
@@ -167,7 +167,7 @@ export function BrowserPane({ workspaceId, visible }: { workspaceId: string; vis
         </div>
         {state?.agentBusy && !state.paused && (
           <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-accent/50 bg-accent/10 px-2 py-0.5 text-[11px] text-accent">
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" /> {guided ? 'The assistant is using the preview' : `${engineLabel} is browsing`}
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" /> {guided ? 'Maestro is using the preview' : `${engineLabel} is browsing`}
           </span>
         )}
         {guided && (
@@ -191,7 +191,7 @@ export function BrowserPane({ workspaceId, visible }: { workspaceId: string; vis
             <Play size={11} /> {guided ? 'You have the preview · give it back' : 'You have control · resume agent'}
           </button>
         ) : (
-          <IconButton className="shrink-0" label={guided ? 'Take over the preview, for example to sign in yourself; the assistant waits until you give it back' : 'Pause agent control: its next browser action waits until you resume (e.g. to sign in yourself)'} onClick={() => void api.invoke('browser:setPaused', workspaceId, true)}>
+          <IconButton className="shrink-0" label={guided ? 'Take over the preview, for example to sign in yourself; Maestro waits until you give it back' : 'Pause agent control: its next browser action waits until you resume (e.g. to sign in yourself)'} onClick={() => void api.invoke('browser:setPaused', workspaceId, true)}>
             <Pause size={13} />
           </IconButton>
         )}
@@ -257,13 +257,13 @@ export function BrowserPane({ workspaceId, visible }: { workspaceId: string; vis
             <>
               <span role="alert" className="min-w-0 flex-1">
                 <span className="font-medium text-danger">The app did not start.</span>{' '}
-                <span className="text-muted">{guided ? 'Often the latest change broke something; the assistant can usually fix it.' : 'The run script exited with an error; see the Run tab for its output.'}</span>
+                <span className="text-muted">{guided ? 'Often the latest change broke something; Maestro can usually fix it.' : 'The run script exited with an error; see the Run tab for its output.'}</span>
               </span>
               <Button size="sm" variant="ghost" onClick={() => { started.delete(workspaceId); void api.invoke('workspaces:runScript', workspaceId, 'run') }}>
                 Try again
               </Button>
               <Button size="sm" variant="primary" onClick={askToFix}>
-                Ask the assistant to fix it
+                Ask Maestro to fix it
               </Button>
             </>
           ) : runState === 'starting' ? (
@@ -272,7 +272,7 @@ export function BrowserPane({ workspaceId, visible }: { workspaceId: string; vis
             </>
           ) : (
             <>
-              <span className="h-1.5 w-1.5 rounded-full bg-ok" /> Preview is live. It updates as the assistant works.
+              <span className="h-1.5 w-1.5 rounded-full bg-ok" /> Preview is live. It updates as Maestro works.
             </>
           )}
         </div>
@@ -283,7 +283,7 @@ export function BrowserPane({ workspaceId, visible }: { workspaceId: string; vis
           <span className="min-w-0 flex-1 truncate" role="alert">
             {guided ? (
               <>
-                The assistant wants to open <span className="font-medium">{pendingHost}</span>.
+                Maestro wants to open <span className="font-medium">{pendingHost}</span>.
               </>
             ) : (
               <>

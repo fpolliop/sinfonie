@@ -13,7 +13,7 @@ import { useOnCall } from './stores/oncall'
 import { useReviews } from './stores/reviews'
 import { NewWorkspaceDialog } from './components/NewWorkspaceDialog'
 import { NewTaskDialog } from './components/NewTaskDialog'
-import { useGuided, isGuided } from '@/lib/guided'
+import { useGuided } from '@/lib/guided'
 import { yieldsToEditor } from '@/lib/keys'
 import { SettingsWindow } from './components/SettingsWindow'
 import { PermissionPrompt } from './components/PermissionPrompt'
@@ -21,10 +21,11 @@ import { BranchRenamePrompt } from './components/BranchRenamePrompt'
 import { ReviewCockpit } from './components/ReviewCockpit'
 import { FeedbackDialog } from './components/FeedbackDialog'
 import { MaestroSide } from './components/maestro/MaestroSide'
-import { MaestroView } from './components/maestro/MaestroView'
-import { HomeView } from './components/views/HomeView'
+import { Rail } from './components/Rail'
+import { ReviewSwitch } from './components/ReviewSwitch'
+import { MaestroHome } from './components/maestro/MaestroHome'
 import { findView } from '@/lib/views'
-import { useMaestro, openMaestro } from './stores/maestro'
+import { useMaestro, openMaestro, toggleMaestroDock } from './stores/maestro'
 import { SetupWizard } from './components/onboarding/SetupWizard'
 import { Tour } from './components/onboarding/Tour'
 import { GettingStarted } from './components/onboarding/GettingStarted'
@@ -32,7 +33,6 @@ import { api } from '@/lib/api'
 import logo from './assets/logo.svg'
 import { Button, hasOpenDialog } from './components/ui'
 import { CommandPalette, ShortcutSheet } from './components/CommandPalette'
-import { Wand2 } from 'lucide-react'
 
 export default function App(): React.JSX.Element {
   const { loaded, load, selectedId, view, showNewWorkspace, settingsTarget, closeSettings, setShowNewWorkspace, setShowSettings, error, setError, stepSpace, setActiveSpace, feedbackDialog, setFeedbackDialog, onboarding, setOnboarding, assistantOpen, setAssistantOpen, openSettings } = useApp()
@@ -66,13 +66,7 @@ export default function App(): React.JSX.Element {
   useEffect(() => api.on('ui:openWorkspace', ({ workspaceId }) => useApp.getState().select(workspaceId)), [])
   useEffect(
     () =>
-      api.on('ui:openMaestro', () => {
-        if (isGuided()) return
-        const m = useMaestro.getState()
-        if (m.open) m.setOpen(false)
-        else if (m.shape === 'full' && useApp.getState().view === 'maestro') useApp.getState().setView('workspace')
-        else void openMaestro()
-      }),
+      api.on('ui:openMaestro', () => void toggleMaestroDock()),
     []
   )
   useEffect(
@@ -139,13 +133,11 @@ export default function App(): React.JSX.Element {
         e.preventDefault()
         setFeedbackDialog('feedback')
       }
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'a' && !isGuided()) {
-        // Guided mode has no Maestro; the shortcut does nothing there.
+      // ⌘J (and the older ⇧⌘A): the Maestro dock on this screen, in both modes. Editors keep their own ⌘J.
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && ((!e.shiftKey && e.key.toLowerCase() === 'j') || (e.shiftKey && e.key.toLowerCase() === 'a'))) {
+        if (yieldsToEditor(e)) return
         e.preventDefault()
-        const m = useMaestro.getState()
-        if (m.open) m.setOpen(false)
-        else if (m.shape === 'full' && useApp.getState().view === 'maestro') useApp.getState().setView('workspace')
-        else void openMaestro()
+        void toggleMaestroDock()
       }
       if ((e.metaKey || e.ctrlKey) && ((e.shiftKey && e.key.toLowerCase() === 'n') || (!e.shiftKey && !e.altKey && e.key.toLowerCase() === 't'))) {
         e.preventDefault()
@@ -175,6 +167,8 @@ export default function App(): React.JSX.Element {
   }, [setShowNewWorkspace, setShowSettings, stepSpace, setActiveSpace, setFeedbackDialog, setAssistantOpen])
 
   const guided = useGuided()
+  const dockOpen = useMaestro((s) => s.open)
+  const dockWidth = useMaestro((s) => s.width)
   useEffect(() => {
     if (!assistantOpen) return
     setAssistantOpen(false)
@@ -189,16 +183,18 @@ export default function App(): React.JSX.Element {
   if (!loaded) return <div className="flex h-full items-center justify-center text-muted">Loading…</div>
 
   return (
-    <div className="flex h-full">
-      <Sidebar />
+    // The Maestro dock is a column, not an overlay: the screen makes room for it instead of hiding under it.
+    <div className="flex h-full" style={{ paddingRight: dockOpen && view !== 'maestro' ? dockWidth : 0 }}>
+      <Rail />
+      {(view === 'workspace' || view === 'agents') && <Sidebar />}
       <main className="flex min-w-0 flex-1 flex-col">
-        {view === 'reviews' ? <ReviewCockpit /> : view === 'oncall' ? <OnCallView /> : view === 'agents' ? <AgentsView /> : view === 'notes' ? <NotesView /> : view === 'maestro' ? <MaestroView /> : view === 'home' ? <HomeView /> : selectedId ? <WorkspaceView key={selectedId} workspaceId={selectedId} /> : <EmptyState />}
+        {view === 'reviews' || view === 'oncall' ? <ReviewSwitch /> : null}
+        {view === 'reviews' ? <ReviewCockpit /> : view === 'oncall' ? <OnCallView /> : view === 'agents' ? <AgentsView /> : view === 'notes' ? <NotesView /> : view === 'maestro' ? <MaestroHome tab="maestro" /> : view === 'home' ? <MaestroHome tab="pages" /> : selectedId ? <WorkspaceView key={selectedId} workspaceId={selectedId} /> : <EmptyState />}
       </main>
       {showNewWorkspace && (guided ? <NewTaskDialog onClose={() => setShowNewWorkspace(false)} /> : <NewWorkspaceDialog onClose={() => setShowNewWorkspace(false)} />)}
       {settingsTarget && <SettingsWindow target={settingsTarget} onClose={closeSettings} />}
       {feedbackDialog && <FeedbackDialog tab={feedbackDialog} onClose={() => setFeedbackDialog(null)} />}
       <MaestroSide />
-      <MaestroChip />
       <PermissionPrompt />
       <BranchRenamePrompt />
       {onboarding === 'setup' && <SetupWizard onClose={() => setOnboarding(null)} />}
@@ -305,24 +301,3 @@ function EmptyState(): React.JSX.Element {
 }
 
 
-/** A floating Maestro chip at the bottom right, on every screen, unless Maestro is already showing. Guided mode has no Maestro. */
-function MaestroChip(): React.JSX.Element | null {
-  const open = useMaestro((s) => s.open)
-  const view = useApp((s) => s.view)
-  const busy = useMaestro((s) => Object.values(s.byId).some((c) => c.busy))
-  const guided = useGuided()
-  if (guided || open || view === 'maestro') return null
-  return (
-    <button
-      onClick={() => void openMaestro()}
-      title="Maestro (⇧⌘A)"
-      className="no-drag fixed bottom-4 right-4 z-30 flex items-center gap-2 rounded-full border border-border bg-panel py-1.5 pl-1.5 pr-3 text-[12px] font-medium shadow-lg hover:border-accent/60 hover:bg-panel-2"
-    >
-      <span className="relative flex h-6 w-6 items-center justify-center rounded-full bg-accent/15 text-accent">
-        <Wand2 size={12} />
-        {busy && <span className="absolute -right-0.5 -top-0.5 h-2 w-2 animate-pulse rounded-full bg-accent" />}
-      </span>
-      Maestro
-    </button>
-  )
-}

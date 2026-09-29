@@ -1,5 +1,5 @@
 /**
- * What the assistant is doing, in words. The chat's working line reads the current turn's tool calls through
+ * What Maestro is doing, in words. The chat's working line reads the current turn's tool calls through
  * here: expert mode gets the tool name, guided mode gets a plain verb that never shows a path or a command.
  */
 import type { ChatItem, ChatToolBlock } from '@shared/types'
@@ -118,9 +118,9 @@ export function formatDuration(ms: number): string {
  */
 export function guidedNotice(text: string, level: 'info' | 'warn' | 'error'): string | null {
   if (level === 'error') return null
-  if (/^You stopped the response/.test(text)) return 'You stopped the assistant.'
-  if (/tool calls this turn/.test(text)) return 'The assistant paused here to keep things quick. Say “continue” to go on.'
-  if (/declined this request/.test(text)) return 'The assistant declined this request.'
-  if (/still starting/.test(text)) return 'The assistant is still starting. Send your message again in a moment.'
+  if (/^You stopped the response/.test(text)) return 'You stopped Maestro.'
+  if (/tool calls this turn/.test(text)) return 'Maestro paused here to keep things quick. Say “continue” to go on.'
+  if (/declined this request/.test(text)) return 'Maestro declined this request.'
+  if (/still starting/.test(text)) return 'Maestro is still starting. Send your message again in a moment.'
   return null
 }

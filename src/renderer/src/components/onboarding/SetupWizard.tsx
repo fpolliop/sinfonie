@@ -195,7 +195,7 @@ const FEATURES = [
 ]
 
 const GUIDED_FEATURES = [
-  { title: 'Describe', text: 'Say what you want to build or change, in your own words. The assistant finds the right apps and gets to work.' },
+  { title: 'Describe', text: 'Say what you want to build or change, in your own words. Maestro finds the right apps and gets to work.' },
   { title: 'Preview', text: 'Watch the result in the Preview tab while it is being built, on your Mac, before anyone else sees it.' },
   { title: 'Send for review', text: 'When it looks right, send it. It is checked and reviewed first, then a colleague approves and it goes live.' }
 ]
@@ -448,10 +448,10 @@ function SignIn({ onModal }: { onModal?: (open: boolean) => void }): React.JSX.E
   const vendors = guided ? GUIDED_VENDORS : VENDORS
   return (
     <div>
-      <h2 className="text-[24px] font-semibold tracking-tight">{guided ? 'Sign in so the assistant can work' : 'Sign in to the agents you use'}</h2>
+      <h2 className="text-[24px] font-semibold tracking-tight">{guided ? 'Sign in so Maestro can work' : 'Sign in to the agents you use'}</h2>
       <p className="mt-1 text-[13px] text-muted">
         {guided
-          ? 'The assistant works through an AI account you already have. One is enough: sign in with your Claude account, or ChatGPT or Grok if that is what your team uses. A browser window opens and brings you back here.'
+          ? 'Maestro works through an AI account you already have. One is enough: sign in with your Claude account, or ChatGPT or Grok if that is what your team uses. A browser window opens and brings you back here.'
           : 'Claude Code, Codex, Gemini CLI or Grok Build: one is enough to start, and the first one you sign in to becomes the default engine for chats. Each uses the vendor’s own login, so your subscription applies. You can add more accounts per vendor later under Settings → Accounts, and change the engine under Settings → General.'}
       </p>
       <div className="mt-5 flex flex-col gap-2">
@@ -504,7 +504,7 @@ function SignIn({ onModal }: { onModal?: (open: boolean) => void }): React.JSX.E
           )
         })}
       </div>
-      <p className="mt-3 text-[12px] text-muted">{signedIn === 0 ? (guided ? 'Not signed in yet. You can do it later from Settings → Accounts, but the assistant cannot work until you do.' : 'Nothing signed in yet. You can continue and sign in later, but chats will not run until you do.') : guided ? 'Signed in. Continue to add your app.' : `${signedIn} account${signedIn === 1 ? '' : 's'} ready.`}</p>
+      <p className="mt-3 text-[12px] text-muted">{signedIn === 0 ? (guided ? 'Not signed in yet. You can do it later from Settings → Accounts, but Maestro cannot work until you do.' : 'Nothing signed in yet. You can continue and sign in later, but chats will not run until you do.') : guided ? 'Signed in. Continue to add your app.' : `${signedIn} account${signedIn === 1 ? '' : 's'} ready.`}</p>
       {login && (
         <LoginDialog
           accountId={login.id}
@@ -963,7 +963,7 @@ function GuidedReady({ spaceId, onWorkspace, onTour, onGoto, onDone }: { spaceId
   const rows: { ok: boolean; text: string; fix?: { label: string; step: number } }[] = [
     {
       ok: signedIn.length > 0,
-      text: signedIn.length ? `Signed in with ${[...new Set(signedIn.map((a) => vendorLabel(a.vendor, true)))].join(', ')}` : 'Not signed in yet, so the assistant cannot work',
+      text: signedIn.length ? `Signed in with ${[...new Set(signedIn.map((a) => vendorLabel(a.vendor, true)))].join(', ')}` : 'Not signed in yet, so Maestro cannot work',
       fix: { label: 'Sign in', step: 1 }
     },
     ...(orgs.length ? [{ ok: true, text: `In the team: ${orgs.map((o) => o.name).join(', ')}` }] : []),
@@ -975,7 +975,7 @@ function GuidedReady({ spaceId, onWorkspace, onTour, onGoto, onDone }: { spaceId
   ]
   const allOk = rows.every((r) => r.ok)
   const canStart = Boolean(startSpace) && signedIn.length > 0
-  const missing = !startSpace ? 'Add your app first, then start a task.' : signedIn.length === 0 ? 'Sign in first, so the assistant can work on your task.' : ''
+  const missing = !startSpace ? 'Add your app first, then start a task.' : signedIn.length === 0 ? 'Sign in first, so Maestro can work on your task.' : ''
   // The next thing to do carries the primary button: the first unfinished row, else Start.
   const nextFix = rows.find((r) => !r.ok && r.fix)
   return (

@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { Search } from 'lucide-react'
 import { useApp, type AppPage, type View } from '@/stores/app'
-import { openMaestro } from '@/stores/maestro'
+import { askMaestro, toggleMaestroDock } from '@/stores/maestro'
 import { useGuided, words, cap } from '@/lib/guided'
 import { workspaceLabel } from '@/lib/labels'
 import { tabsFor } from './WorkspaceTabs'
@@ -78,11 +78,17 @@ export function CommandPalette({ onClose, onShortcuts }: { onClose: () => void; 
       { id: 'setup', label: 'Run setup again', group: 'Help', run: () => st().setOnboarding('setup') },
       { id: 'shortcuts', label: 'Keyboard shortcuts', group: 'Help', hint: '⌘/', run: onShortcuts }
     ]
+    // The rail's places, in both modes (Review and Agents are expert places for now).
+    out.push(
+      { id: 'maestro', label: 'Maestro home', group: 'Go to', run: () => view('maestro') },
+      { id: 'dock', label: 'Ask Maestro about this screen', group: 'Go to', hint: '⌘J', run: () => void toggleMaestroDock() },
+      { id: 'pages', label: 'Your pages', group: 'Go to', run: () => view('home') },
+      { id: 'notes', label: 'Notes', group: 'Go to', run: () => view('notes') }
+    )
     if (!guided) {
       out.push(
-        { id: 'maestro', label: 'Maestro', group: 'Go to', hint: '⇧⌘A', run: () => void openMaestro() },
-        { id: 'notes', label: 'Todos & notes', group: 'Go to', run: () => view('notes') },
-        { id: 'reviews', label: 'Review cockpit', group: 'Go to', run: () => view('reviews') },
+        { id: 'reviews', label: 'Review', group: 'Go to', run: () => view('reviews') },
+        { id: 'oncall', label: 'On call', group: 'Go to', run: () => view('oncall') },
         { id: 'agents', label: 'Agents', group: 'Go to', run: () => view('agents') },
         { id: 'errors', label: 'Feedback & diagnostics…', group: 'Help', run: () => st().setFeedbackDialog('errors') }
       )
@@ -115,7 +121,10 @@ export function CommandPalette({ onClose, onShortcuts }: { onClose: () => void; 
 
   // Each group shows once, in the order groups first appear; the sort is stable, so items keep their order inside a group.
   const shown = useMemo(() => {
-    const list = query.trim() ? commands.filter((c) => matches(c, query)) : commands
+    const q = query.trim()
+    const list = q ? commands.filter((c) => matches(c, query)) : commands
+    // One box for commands and questions: whatever was typed can always go to Maestro, last when commands match.
+    if (q) list.push({ id: 'ask', label: `Ask Maestro: “${q.length > 80 ? `${q.slice(0, 80)}…` : q}”`, group: 'Maestro', hint: '↵', run: () => void askMaestro(q) })
     const rank = new Map<string, number>()
     list.forEach((c) => rank.has(c.group) || rank.set(c.group, rank.size))
     return [...list].sort((a, b) => rank.get(a.group)! - rank.get(b.group)!)
@@ -200,17 +209,18 @@ export function ShortcutSheet({ onClose }: { onClose: () => void }): React.JSX.E
   const guided = useGuided()
   const t = words(guided)
   const rows: [string, string][] = [
-    ['⌘K', 'Command palette'],
+    ['⌘J', 'Maestro, beside this screen'],
+    ['⌘K', 'Search, run a command, or ask Maestro'],
     ['⌘/', 'Keyboard shortcuts'],
     ['⇧⌘N or ⌘T', `${t.newWorkspace}`],
     ['⌘↵', guided ? 'Start the task (in New task)' : 'Send or start (in dialogs that say so)'],
     ['⌘,', 'Settings'],
     ['⇧⌘F', 'Send feedback'],
     ['⌘1…⌘9', guided ? 'Switch between Chat and Preview' : 'Switch workspace tabs'],
-    ['⌥⌘↑ / ⌥⌘↓', `Previous / next ${t.workspace}`],
+    ['⌥⌘↑ / ⌥⌘↓', `Previous / next ${t.workspace} (on ${guided ? 'Tasks' : 'Build'})`],
     ['⌥⌘← / ⌥⌘→', `Previous / next ${t.space}`],
     ['⌃1…⌃9', `Jump to a ${t.space}`],
-    ...(guided ? [] : ([['⇧⌘A', 'Maestro'], ['F2', 'Rename the focused workspace in the sidebar']] as [string, string][])),
+    ...(guided ? [] : ([['F2', 'Rename the focused workspace in the sidebar']] as [string, string][])),
     ['Esc', 'Close a dialog or menu']
   ]
   return (

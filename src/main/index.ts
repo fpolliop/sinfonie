@@ -37,8 +37,7 @@ async function checkForUpdateFromMenu(): Promise<void> {
 let menuMode: 'guided' | 'expert' = 'expert'
 
 /**
- * Guided mode's menu speaks its words (New Task…) and has no Maestro, matching the renderer, which also ignores
- * the Maestro command in guided mode.
+ * Guided mode's menu speaks its words (New Task…); Maestro is in the menu in both modes.
  */
 function buildMenu(): void {
   const guided = menuMode === 'guided'
@@ -72,7 +71,8 @@ function buildMenu(): void {
       role: 'fileMenu',
       submenu: [
         { label: guided ? 'New Task…' : 'New Workspace…', accelerator: 'CmdOrCtrl+Shift+N', click: () => sendToWindows('ui:newWorkspace', {}) },
-        ...(guided ? [] : [{ label: 'Maestro', accelerator: 'CmdOrCtrl+Shift+A', click: () => sendToWindows('ui:openMaestro', {}) } as Electron.MenuItemConstructorOptions]),
+        // Maestro is for everyone, under the same name, in both modes (docs/design/README.md, decision 1).
+        { label: 'Maestro', accelerator: 'CmdOrCtrl+Shift+A', click: () => sendToWindows('ui:openMaestro', {}) },
         ...(process.platform === 'darwin' ? [{ type: 'separator' } as Electron.MenuItemConstructorOptions, { role: 'close' } as Electron.MenuItemConstructorOptions] : [{ type: 'separator' } as Electron.MenuItemConstructorOptions, settingsItem, { type: 'separator' } as Electron.MenuItemConstructorOptions, { role: 'quit' } as Electron.MenuItemConstructorOptions])
       ]
     },

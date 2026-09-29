@@ -198,7 +198,8 @@ export const useApp = create<AppState>((set, get) => ({
   },
   workspaces: [],
   settings: { workspacesRoot: '', basePort: 55000, model: 'claude-opus-5', permissionMode: 'default', jira: { connected: false, siteUrl: '', email: '', hasToken: false, defaultJql: '' }, claudeAccounts: [{ id: 'default', name: 'Default', configDir: null }], defaultClaudeAccountId: 'default', agents: [] },
-  view: (localStorage.getItem('orchestra.view') as View) ?? 'workspace',
+  // Everyone lands on Maestro home (docs/design/README.md, decision 3); the last view is not restored.
+  view: 'maestro',
   agents: [],
   setAgents: (agents) => set({ agents }),
   openAgentId: null,
@@ -240,7 +241,7 @@ export const useApp = create<AppState>((set, get) => ({
   load: async () => {
     const d = await api.invoke('store:get')
     get().applyStore(d)
-    // First run: nothing signed in, nothing created. Existing installs never see the assistant unasked.
+    // First run: nothing signed in, nothing created. Existing installs never see Maestro unasked.
     const fresh = !d.settings.onboarding?.setupDoneAt && d.workspaces.length === 0 && d.repos.length === 0 && !d.settings.claudeAccounts.some((a) => a.loggedIn)
     set({ loaded: true, ...(fresh ? { onboarding: 'setup' as const } : {}) })
     api.on('store:changed', (data) => get().applyStore(data))
@@ -267,7 +268,6 @@ export const useApp = create<AppState>((set, get) => ({
     set({ selectedId: id, tab: 'chat', view: 'workspace' })
   },
   setView: (view) => {
-    localStorage.setItem('orchestra.view', view)
     set({ view })
   },
   setTab: (tab) => set({ tab }),

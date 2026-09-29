@@ -12,7 +12,7 @@ import { IssuePicker } from './NewWorkspaceDialog'
 import { jiraConnectionFor, linearConnectionFor, type JiraIssue, type LinearIssue, type WorkspaceJira, type WorkspaceLinear } from '@shared/types'
 
 /**
- * Guided mode's New task: one question, "what do you want to build or change?". The assistant picks the apps
+ * Guided mode's New task: one question, "what do you want to build or change?". Maestro picks the apps
  * (or the person does), the task gets a readable name (the planner's, else the request in sentence case; the
  * branch is derived from it behind the scenes), and the description becomes the first message, sent as soon
  * as the task is ready. With no app yet, the dialog offers to add one right here instead of a dead end.
@@ -32,7 +32,7 @@ export function NewTaskDialog({ onClose }: { onClose: () => void }): React.JSX.E
   const [jira, setJira] = useState<WorkspaceJira | null>(null)
   const [linear, setLinear] = useState<WorkspaceLinear | null>(null)
   const [busy, setBusy] = useState(false)
-  // Let the assistant pick the apps from the description by default when there is more than one; the person
+  // Let Maestro pick the apps from the description by default when there is more than one; the person
   // can switch to choosing them by hand.
   const [autoApps, setAutoApps] = useState(true)
   const jiraConn = jiraConnectionFor(space)
@@ -47,7 +47,7 @@ export function NewTaskDialog({ onClose }: { onClose: () => void }): React.JSX.E
     if (!canStart) return
     setBusy(true)
     try {
-      // The assistant chooses the apps and a friendly name from the description, unless a ticket or a manual
+      // Maestro chooses the apps and a friendly name from the description, unless a ticket or a manual
       // pick already settled it.
       let picked = chosen
       let planned = ''
@@ -143,7 +143,7 @@ export function NewTaskDialog({ onClose }: { onClose: () => void }): React.JSX.E
         Apps this touches
         {repos.length > 1 && (
           <button className="ml-auto text-[11px] font-normal text-accent hover:underline" onClick={() => setAutoApps((v) => !v)}>
-            {auto ? 'Choose them myself' : 'Let the assistant choose'}
+            {auto ? 'Choose them myself' : 'Let Maestro choose'}
           </button>
         )}
       </div>
@@ -170,7 +170,7 @@ export function NewTaskDialog({ onClose }: { onClose: () => void }): React.JSX.E
           <SoloApp key={addFrom} source={addFrom} onSpace={(id) => (setSpaceId(id), setOff(new Set()))} />
         </div>
       ) : auto ? (
-        <div className="mb-4 rounded-md border border-dashed border-border p-3 text-[12px] text-muted">The assistant picks the right apps from what you describe, out of {repos.map((r) => repoLabel(r)).join(', ')}. It only changes what the task needs.</div>
+        <div className="mb-4 rounded-md border border-dashed border-border p-3 text-[12px] text-muted">Maestro picks the right apps from what you describe, out of {repos.map((r) => repoLabel(r)).join(', ')}. It only changes what the task needs.</div>
       ) : (
         <>
           <div className="mb-1 flex flex-wrap gap-1.5">
@@ -195,7 +195,7 @@ export function NewTaskDialog({ onClose }: { onClose: () => void }): React.JSX.E
               )
             })}
           </div>
-          <p className="mb-4 text-[11px] text-muted">The assistant only changes what the task needs.</p>
+          <p className="mb-4 text-[11px] text-muted">Maestro only changes what the task needs.</p>
         </>
       )}
       <div className="flex justify-end gap-2">

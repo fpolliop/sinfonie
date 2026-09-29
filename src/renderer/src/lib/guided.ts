@@ -77,7 +77,7 @@ const GUIDED: Words = {
   archive: 'Finish',
   browser: 'Preview',
   chat: 'Chat',
-  agent: 'the assistant',
+  agent: 'Maestro',
   sendForReview: 'Send for review',
   composerPlaceholder: 'What should change? (Enter to send, Shift+Enter for a new line, paste or drop images)'
 }

@@ -147,7 +147,7 @@ export function get(id: string): MaestroConversation {
 export function create(context?: MaestroContext): MaestroConversation {
   load()
   const now = new Date().toISOString()
-  const c: Conversation = { id: nanoid(8), title: 'New conversation', createdAt: now, updatedAt: now, items: [], ...(context && (context.workspaceId || context.spaceId) ? { context } : {}) }
+  const c: Conversation = { id: nanoid(8), title: 'New conversation', createdAt: now, updatedAt: now, items: [], ...(context && (context.workspaceId || context.spaceId || context.screen) ? { context } : {}) }
   convos.set(c.id, c)
   save(c)
   emit({ conversationId: c.id, type: 'meta', meta: meta(c) })
@@ -267,7 +267,9 @@ function digestSince(since: string): string {
 /** What matters right now, for an empty conversation: computed from real state, each one a prompt. */
 export function suggestions(): MaestroSuggestion[] {
   load()
-  const { workspaces, spaces } = getStore().get()
+  const { workspaces, spaces, settings } = getStore().get()
+  // Guided mode gets the same Maestro in the builder's words: tasks, not workspaces; no agents, crews or on-call.
+  const guided = settings.mode === 'guided'
   const out: MaestroSuggestion[] = []
   const today = new Date().toISOString().slice(0, 10)
   const all = notes.listAll().flatMap((g) => g.notes.map((n) => ({ ...n, owner: g.owner })))
@@ -277,7 +279,13 @@ export function suggestions(): MaestroSuggestion[] {
   if (dueToday.length) out.push({ kind: 'todos', label: `${dueToday.length} due today`, text: 'What is due today, and what would you tackle first?' })
   const last = [...convos.values()].map((c) => c.updatedAt).sort().pop() ?? ''
   const finished = workspaces.filter((w) => w.status !== 'archived' && w.lastMessageAt && w.lastMessageAt > last).slice(0, 3)
-  for (const w of finished) out.push({ kind: 'workspace', label: `${w.name} was active`, text: `What happened in the "${w.name}" workspace since we last talked? Summarise it.`, id: w.id })
+  for (const w of finished) out.push({ kind: 'workspace', label: `${w.name} was active`, text: guided ? `What changed in my task "${w.name.includes(' ') ? w.name : w.name.replace(/-/g, ' ')}" since we last talked?` : `What happened in the "${w.name}" workspace since we last talked? Summarise it.`, id: w.id })
+  if (guided) {
+    const open = all.filter((n) => n.kind === 'todo' && !n.done).length
+    if (open && out.length < 4) out.push({ kind: 'todos', label: `${open} open to-dos`, text: 'What is left on my to-do list, and what should I do first?' })
+    if (out.length === 0) out.push({ kind: 'setup', label: 'Show me around', text: 'Show me what I can do here, in plain words.' }, { kind: 'workspace', label: 'Start my first task', text: 'Help me describe my first task: ask me what I want to change in my app.' })
+    return out.slice(0, 6)
+  }
   const agentsRan = library
     .list()
     .map((a) => ({ a, r: runs.lastRun(a.id, 'schedule') }))
@@ -1067,7 +1075,13 @@ function systemFor(): string {
         ? '3. Make ordinary changes (settings, notes, agents, crews, sending a message to a workspace) without asking and report what you changed. Ask first, naming the thing, before anything destructive: deleting or archiving a space, workspace, agent or note, or a change that is hard to undo.'
         : '3. Before any write (settings, spaces, crews, agents, notes, sending a message to a workspace), say what you are about to change in one or two lines and get a clear yes, or use AskUserQuestion with the options. After a write, confirm what changed. Never delete anything without the user naming it.'
   const mem = memoryText()
+  // Guided mode: same Maestro, same name, in the builder's words (docs/design/README.md, "Voice and copy").
+  const guided = getStore().get().settings.mode === 'guided'
+    ? `\n\nTHE PERSON BUILDS WITH AI AND DOES NOT WRITE CODE (guided mode). Speak in plain sentences. Never use developer words: no branch, worktree, repository or repo (say app), commit, push, pull request or PR (say "sent for review"), CLI, MCP, API key, terminal, localhost, file paths, tool names, error codes or stack traces. A workspace is a "task". Describe changes by what the person will see ("the button is bigger on phones"), never by files. When something fails, say what happened and what they can do, and offer to ask a teammate.`
+    : ''
   return `${SYSTEM.replace('3. Before any write (settings, spaces, crews, agents, notes, sending a message to a workspace), say what you are about to change in one or two lines and get a clear yes, or use AskUserQuestion with the options. After a write, confirm what changed. Never delete anything without the user naming it.', rule)}
+
+${guided}
 
 MEMORY. You keep durable facts about the user with remember(category, text): who they are (user), how they work (work), preferences (preference), facts about their spaces and apps (space), and open threads to follow up (thread). Save a fact as soon as you learn it, in one sentence, without asking; correct or drop it with forget when it changes. Never store secrets. ${mem ? `What you know so far:\n${mem}` : 'You know nothing about the user yet: early in this first conversation, ask three or four short questions with AskUserQuestion (their role, what they build and for whom, how their team ships, what they want you to be best at) and remember the answers.'}`
 }
@@ -1113,12 +1127,23 @@ async function assistantServers(c: Conversation): Promise<NonNullable<Options['m
   return out
 }
 
+/** What each screen shows, in the words Maestro uses for context. */
+const SCREEN_TEXT: Record<NonNullable<MaestroContext['screen']>, string> = {
+  build: 'the Build screen (their workspaces, what is running and what waits on them)',
+  review: 'the Review screen (pull requests and changes waiting for review, and on-call incidents)',
+  notes: 'the Notes screen (to-dos, findings, decisions and rules)',
+  team: 'team settings (apps, people, connections, plan)',
+  home: 'their Home pages'
+}
+
 function contextLine(c: Conversation): string {
   const { workspaces, spaces } = getStore().get()
   const ws = c.context?.workspaceId ? workspaces.find((w) => w.id === c.context!.workspaceId) : undefined
   const sp = spaces.find((s) => s.id === (ws?.spaceId ?? c.context?.spaceId))
-  if (!ws && !sp) return ''
-  return `Context: the user opened this conversation from ${ws ? `the workspace "${ws.name}" (id ${ws.id}${sp ? `, space ${sp.name}` : ''})` : `the space "${sp!.name}" (id ${sp!.id})`}. Assume questions are about it unless they say otherwise.\n\n`
+  const screen = c.context?.screen ? SCREEN_TEXT[c.context.screen] : ''
+  if (!ws && !sp && !screen) return ''
+  const where = ws ? `the workspace "${ws.name}" (id ${ws.id}${sp ? `, space ${sp.name}` : ''})` : sp ? `the space "${sp.name}" (id ${sp.id})` : ''
+  return `Context: the user opened this conversation${screen ? ` from ${screen}` : ''}${where ? `${screen ? ', in ' : ' from '}${where}` : ''}. Assume questions are about what they were looking at unless they say otherwise.\n\n`
 }
 
 /** A short title from the first exchange, best effort, with a cheap model. */

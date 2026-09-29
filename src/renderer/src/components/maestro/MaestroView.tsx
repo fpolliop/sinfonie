@@ -11,7 +11,7 @@ import { inputCls } from '../ui'
 import type { MaestroConversationMeta } from '@shared/types'
 
 /** Maestro full screen: the conversation list on the left, the conversation on the right. */
-export function MaestroView(): React.JSX.Element {
+export function MaestroView({ top }: { top?: React.ReactNode } = {}): React.JSX.Element {
   const { activeId, conversations, listLoaded, select, newConversation, loadList, subscribe, setShape, setOpen, rename, pin, archive, remove } = useMaestro()
   const setView = useApp((s) => s.setView)
   const setError = useApp((s) => s.setError)
@@ -72,7 +72,7 @@ export function MaestroView(): React.JSX.Element {
     <div className="flex h-full min-h-0">
       <div className="flex w-[300px] shrink-0 flex-col border-r border-border">
         <div className="drag flex h-[52px] shrink-0 items-center gap-2 border-b border-border px-4">
-          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-accent/15 text-accent">
+          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-maestro/15 text-maestro">
             <Wand2 size={14} />
           </span>
           <span className="text-[13px] font-semibold">Maestro</span>
@@ -115,7 +115,10 @@ export function MaestroView(): React.JSX.Element {
           </button>
         </div>
       </div>
-      <div className="min-w-0 flex-1">{activeId ? <MaestroConversation id={activeId} /> : null}</div>
+      <div className="flex min-w-0 flex-1 flex-col">
+        {top}
+        <div className="min-h-0 flex-1">{activeId ? <MaestroConversation id={activeId} /> : null}</div>
+      </div>
       {menu && <ContextMenu x={menu.x} y={menu.y} entries={entriesFor(conversations.find((c) => c.id === menu.id)!)} onClose={() => setMenu(null)} />}
       {memory && <MaestroMemory onClose={() => setMemory(false)} />}
     </div>

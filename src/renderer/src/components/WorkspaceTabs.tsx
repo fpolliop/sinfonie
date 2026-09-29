@@ -31,7 +31,7 @@ const GROUPS: { id: Tab; label: string; icon: React.ReactNode; hint: string }[][
 ]
 /** Guided mode: talk, and look at the result. Everything else still runs underneath. */
 const GUIDED_GROUPS: typeof GROUPS = [
-  [{ id: 'chat', label: 'Chat', icon: <MessageSquare size={13} />, hint: 'Talk to the assistant' }],
+  [{ id: 'chat', label: 'Chat', icon: <MessageSquare size={13} />, hint: 'Talk to Maestro' }],
   [{ id: 'browser', label: 'Preview', icon: <Globe size={13} />, hint: 'The app, as it looks with your changes' }]
 ]
 

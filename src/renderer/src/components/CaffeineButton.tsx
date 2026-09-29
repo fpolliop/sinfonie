@@ -17,7 +17,7 @@ export function CaffeineButton({ compact }: { compact?: boolean }): React.JSX.El
   }, [])
   const toggle = (): void => void api.invoke('power:set').then(setOn)
   const guided = useGuided()
-  const title = on ? 'Keeping your Mac awake. Click to let it sleep normally.' : guided ? 'Keep your Mac awake while the assistant works.' : 'Keep your Mac awake while the agent works (like caffeinate).'
+  const title = on ? 'Keeping your Mac awake. Click to let it sleep normally.' : guided ? 'Keep your Mac awake while Maestro works.' : 'Keep your Mac awake while the agent works (like caffeinate).'
   if (compact) {
     return (
       <IconButton label={title} onClick={toggle} aria-pressed={on} className={clsx('p-1', on && 'text-accent hover:text-accent')}>
