@@ -100,6 +100,8 @@ export const ACTIONS = {
   openUrl: { tier: 'navigate', params: z.object({ url: z.string() }), description: 'Open a link in the default browser (PR, ticket, CI run).' },
   refresh: { tier: 'navigate', params: z.object({ source: z.string().optional() }), description: 'Refetch one data source (by its name in the view) or all of them.' },
   askMaestro: { tier: 'navigate', params: z.object({ prompt: z.string() }), description: 'Open Maestro with this message ready to send.' },
+  openIncident: { tier: 'navigate', params: z.object({ incidentId: z.string() }), description: 'Open an incident in the On call view.' },
+  triageIncident: { tier: 'confirm', params: z.object({ incidentId: z.string() }), description: 'Run the on-call agent\'s read-only triage on an incident (costs a few cents).' },
   newWorkspace: { tier: 'navigate', params: z.object({ spaceId: z.string().optional() }), description: 'Open the New workspace dialog.' },
   createWorkspaceFromTicket: {
     tier: 'confirm',

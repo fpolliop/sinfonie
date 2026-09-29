@@ -66,6 +66,27 @@ export const SOURCES = {
     },
     refreshSeconds: 0
   },
+  incidents: {
+    description: 'On-call incidents from the watched Slack channels, newest first, with the triage summary and severity.',
+    where: 'renderer',
+    params: z.object({ spaceId: z.string().optional(), open: z.boolean().optional().describe('Only open ones (default true)'), limit: z.number().optional() }),
+    fields: {
+      id: 'incident id',
+      title: 'what came in, one line',
+      channel: 'Slack channel name',
+      status: 'new | triaging | open | waiting | resolved | dismissed',
+      dot: 'error | pending | running | waiting | success (status as a Status dot value)',
+      severity: 'low | medium | high | critical or ""',
+      summary: 'triage summary, or "" when not triaged yet',
+      cause: 'likely cause from the triage, or ""',
+      needsHuman: 'boolean: the triage says a person is needed',
+      proposals: 'number of proposals waiting for approval',
+      triaged: 'boolean',
+      age: 'relative time since it arrived',
+      url: 'Slack permalink or ""'
+    },
+    refreshSeconds: 0
+  },
   myPrs: {
     description: 'Open pull requests authored by the user on GitHub (via the gh login), with CI and review state, linked to the Sinfonie workspace on the same branch.',
     where: 'main',

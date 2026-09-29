@@ -48,7 +48,7 @@ A view is { title, slot, icon?, sources, spec }.
 
 ## State you can read
 - /data/<source>, /meta/<source>/count|loading|error
-- /context: spaceId, spaceName, workspaceId, workspaceName, branch (workspace-tab only), userName, today
+- /context: spaceId, spaceName, workspaceId, workspaceName, branch (workspace-tab only), userName, firstName, greeting ("Good morning, Fran"), today
 - /ui/...: local state, written with the setState action
 
 ## Expressions (in any prop or action param)

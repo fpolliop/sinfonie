@@ -2,7 +2,7 @@
  * Renderer-side sources (attention, workspaces, usage) computed from the live stores, and the
  * enrichment of main-side rows with live agent state (running / waiting) by workspace id.
  */
-import type { PermissionRequest, QuestionRequest, Space, UsageSnapshot, Workspace } from '@shared/types'
+import type { Incident, PermissionRequest, QuestionRequest, Space, UsageSnapshot, Workspace } from '@shared/types'
 import { windowLabel } from '@/stores/usage'
 
 export interface LiveState {
@@ -13,6 +13,7 @@ export interface LiveState {
   unseenDone: Record<string, true>
   busy: Record<string, boolean>
   usage: UsageSnapshot | null
+  incidents: Incident[]
 }
 
 export function ago(iso: string | undefined): string {
@@ -90,6 +91,28 @@ export function liveRows(source: string, params: Record<string, unknown>, live: 
         }
       }
       return rows
+    }
+    case 'incidents': {
+      const open = params.open !== false
+      const list = live.incidents
+        .filter((i) => (!params.spaceId || i.spaceId === params.spaceId) && (!open || !['resolved', 'dismissed'].includes(i.status)))
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+        .slice(0, typeof params.limit === 'number' ? params.limit : 50)
+      return list.map((i) => ({
+        id: i.id,
+        title: i.title,
+        channel: i.channelName,
+        status: i.status,
+        dot: i.status === 'triaging' ? 'running' : i.status === 'new' ? 'pending' : i.report?.needsHuman || i.proposals.some((p) => p.status === 'proposed') ? 'waiting' : i.status === 'resolved' ? 'success' : i.severity === 'critical' || i.severity === 'high' ? 'error' : 'pending',
+        severity: i.severity ?? '',
+        summary: i.report?.summary ?? '',
+        cause: i.report?.likelyCause ?? '',
+        needsHuman: Boolean(i.report?.needsHuman),
+        proposals: i.proposals.filter((p) => p.status === 'proposed').length,
+        triaged: Boolean(i.report),
+        age: ago(i.createdAt),
+        url: i.permalink ?? ''
+      }))
     }
     default:
       return []
