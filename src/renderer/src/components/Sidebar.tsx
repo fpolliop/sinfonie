@@ -1,25 +1,21 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { yieldsToEditor } from '@/lib/keys'
 import clsx from 'clsx'
-import { Plus, Settings, Archive, Pencil, Folder, Code2, TerminalSquare, Trash2, GitPullRequest, Layers, ArrowDownWideNarrow, ArrowUpNarrowWide, Filter, ChevronRight, MessageSquarePlus, Siren, Activity, Users2, Bot, StickyNote, Wand2, LayoutDashboard } from 'lucide-react'
+import { Plus, Settings, Archive, Pencil, Folder, Code2, TerminalSquare, Trash2, Layers, ArrowDownWideNarrow, ArrowUpNarrowWide, Filter, ChevronRight, MessageSquarePlus, Activity, Users2 } from 'lucide-react'
 import { ERRORS_SEEN_KEY } from './FeedbackDialog'
 import { useResources, subscribeResources, gb } from '@/stores/resources'
-import { useOnCall, subscribeOnCall } from '@/stores/oncall'
 import { useUsage, subscribeUsage, windowLabel, clock } from '@/stores/usage'
-import { useReviews, isRunBusy } from '@/stores/reviews'
 import { WORKSPACE_STAGES, type TeammateWorkspace } from '@shared/types'
 import { LabelChip, labelsFor } from './LabelPicker'
 import { useApp, spaceOrder } from '@/stores/app'
 import { useChat } from '@/stores/chat'
-import { useNotes } from '@/stores/notes'
-import { openMaestro } from '@/stores/maestro'
 import { timeAgo } from '@/lib/format'
 import { api } from '@/lib/api'
 import { renameWorkspace } from '@/lib/rename'
 import { friendlyError } from '@/lib/errors'
 import { removeWithUndo } from '@/lib/undo'
 import { repoLabel, workspaceLabel } from '@/lib/labels'
-import { IconButton, Spinner } from './ui'
+import { IconButton, Segmented, Spinner } from './ui'
 import { ContextMenu, type MenuEntry } from './ContextMenu'
 import { useGuided, stageLabel as guidedStageLabel, words, cap } from '@/lib/guided'
 import { InlineRename } from './InlineRename'
@@ -162,7 +158,7 @@ export function Sidebar(): React.JSX.Element {
   return (
     <aside className="relative flex shrink-0 flex-col border-r border-border bg-panel" style={{ width: sidebarWidth }} onWheel={onWheel}>
       <div onMouseDown={startResize} onDoubleClick={() => setSidebarWidth(DEFAULT_SIDEBAR_WIDTH)} className="absolute right-0 top-0 z-10 h-full w-1 cursor-col-resize hover:bg-accent/40 active:bg-accent/60" title="Drag to resize · double-click to reset" />
-      <div className="drag flex h-[52px] items-center justify-end gap-1 pl-[80px] pr-2">
+      <div className="drag flex h-[52px] items-center justify-end gap-1 px-2">
         <IconButton data-tour="new-workspace" className="p-1.5" label={`${t.newWorkspace} (⌘T)`} onClick={() => setShowNewWorkspace(true, currentId)}>
           <Plus size={16} />
         </IconButton>
@@ -171,29 +167,19 @@ export function Sidebar(): React.JSX.Element {
           <Settings size={16} />
         </IconButton>
       </div>
-      <div className="px-2">
-        <button data-tour="home" onClick={() => setView('home')} className={clsx('mb-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] font-medium', view === 'home' ? 'bg-panel-2' : 'hover:bg-panel-2/60')} title={guided ? 'Your Home page' : 'Your Home pages: views you pick or have Maestro build'}>
-          <LayoutDashboard size={14} className="text-accent" /> Home
-        </button>
-      </div>
       {!guided && (
-        <div className="px-2">
-          <button data-tour="maestro" onClick={() => void openMaestro()} className={clsx('mb-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] font-medium', view === 'maestro' ? 'bg-panel-2' : 'hover:bg-panel-2/60')} title="Maestro, your companion for everything in Sinfonie (⇧⌘A)">
-          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-accent/15 text-accent">
-            <Wand2 size={12} />
-          </span>
-          Maestro
-        </button>
-        <NotesButton active={view === 'notes'} onClick={() => setView('notes')} />
-        <div className="mx-2 my-2 border-t border-border" />
-        <button data-tour="reviews" onClick={() => setView('reviews')} className={clsx('mb-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] font-medium', view === 'reviews' ? 'bg-panel-2' : 'hover:bg-panel-2/60')}>
-          <GitPullRequest size={14} className="text-accent" /> Review cockpit
-          <ReviewBadges />
-        </button>
-        <OnCallButton active={view === 'oncall'} onClick={() => setView('oncall')} />
-        <button data-tour="agents" onClick={() => setView('agents')} className={clsx('mb-2 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] font-medium', view === 'agents' ? 'bg-panel-2' : 'hover:bg-panel-2/60')}>
-          <Bot size={14} className="text-accent" /> Agents
-        </button>
+        <div className="no-drag px-3 pb-2">
+          {/* Build holds the work: workspaces and the agents that run in them (the rest of the app is on the rail). */}
+          <Segmented
+            size="sm"
+            value={view === 'agents' ? 'agents' : 'workspaces'}
+            onChange={(v) => setView(v === 'agents' ? 'agents' : 'workspace')}
+            options={[
+              { id: 'workspaces', label: 'Workspaces' },
+              { id: 'agents', label: <span data-tour="agents">Agents</span> }
+            ]}
+            className="w-full [&>button]:flex-1"
+          />
         </div>
       )}
       <div key={currentId} className="space-enter flex-1 overflow-auto px-2 pb-2">
@@ -480,61 +466,6 @@ function UsageBadge({ onOpen }: { onOpen: () => void }): React.JSX.Element | nul
         {worst.account} · {windowLabel(worst.type)} {pct}%
       </span>
       {worst.resetsAt && <span className="ml-auto shrink-0 opacity-80">resets {clock(worst.resetsAt)}</span>}
-    </button>
-  )
-}
-
-/** Every note across workspaces, spaces and the app; the badge counts open todos. */
-function NotesButton({ active, onClick }: { active: boolean; onClick: () => void }): React.JSX.Element {
-  const byOwner = useNotes((s) => s.byWorkspace)
-  const { loadAll, subscribe } = useNotes()
-  useEffect(() => {
-    subscribe()
-    void loadAll().catch(() => undefined)
-  }, [loadAll, subscribe])
-  const open = Object.values(byOwner).reduce((n, list) => n + list.filter((x) => x.kind === 'todo' && !x.done).length, 0)
-  return (
-    <button data-tour="notes-all" onClick={onClick} className={clsx('mb-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] font-medium', active ? 'bg-panel-2' : 'hover:bg-panel-2/60')}>
-      <StickyNote size={14} className="text-accent" /> Todos &amp; notes
-      {open > 0 && <span className="ml-auto rounded-full bg-panel-2 px-1.5 text-[11px] text-muted">{open}</span>}
-    </button>
-  )
-}
-
-/** Next to Review cockpit: how many reviews are running, and how many finished unseen. */
-function ReviewBadges(): React.JSX.Element | null {
-  const runs = useReviews((s) => s.runs)
-  const unseen = useReviews((s) => s.unseen)
-  const running = Object.values(runs).filter((r) => isRunBusy(r)).length
-  const fresh = Object.keys(unseen).length
-  if (!running && !fresh) return null
-  return (
-    <span className="ml-auto inline-flex items-center gap-1.5">
-      {running > 0 && (
-        <span className="inline-flex items-center gap-1 text-[11px] text-muted" title={`${running} review${running === 1 ? '' : 's'} running`}>
-          <Spinner /> {running}
-        </span>
-      )}
-      {fresh > 0 && <span className="rounded-full bg-accent/20 px-1.5 text-[11px] font-semibold text-accent" title={`${fresh} finished since you last looked`}>{fresh}</span>}
-    </span>
-  )
-}
-
-/** On call entry for the active space: only when that space watches Slack (or has incidents), with its open count. */
-function OnCallButton({ active, onClick }: { active: boolean; onClick: () => void }): React.JSX.Element | null {
-  const state = useOnCall((s) => s.state)
-  const activeSpaceId = useApp((s) => s.activeSpaceId)
-  const space = useApp((s) => s.spaces.find((x) => x.id === activeSpaceId))
-  const appConfigured = useApp((s) => Boolean(s.settings.oncall?.channels?.length))
-  useEffect(() => subscribeOnCall(), [])
-  const mine = state?.incidents.filter((i) => i.spaceId === activeSpaceId) ?? []
-  const configured = activeSpaceId ? Boolean(space?.oncall?.channels?.length) || state?.activeSpaces.includes(activeSpaceId) === true : appConfigured || state?.activeSpaces.includes('') === true
-  if (!configured && mine.length === 0) return null
-  const open = mine.filter((i) => i.status === 'new' || i.status === 'open').length
-  return (
-    <button data-tour="oncall" onClick={onClick} className={clsx('mb-2 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] font-medium', active ? 'bg-panel-2' : 'hover:bg-panel-2/60')}>
-      <Siren size={14} className={state?.running ? 'text-accent' : 'text-muted'} /> On call
-      {open > 0 && <span className="ml-auto rounded-full bg-warn/20 px-1.5 text-[11px] font-semibold text-warn">{open}</span>}
     </button>
   )
 }

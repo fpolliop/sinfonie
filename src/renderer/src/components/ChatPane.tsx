@@ -58,7 +58,7 @@ export function ChatPane({ workspaceId }: { workspaceId: string }): React.JSX.El
   const setDraft = useChat((s) => s.setDraft)
   const load = useChat((s) => s.load)
   const guided = useGuided()
-  // Guided mode has no terminal UI: the chat is the only face of the assistant.
+  // Guided mode has no terminal UI: the chat is the only face of Maestro.
   const mode: AgentMode = guided ? 'chat' : ws?.agentMode ?? spaceMode ?? 'chat'
   const claude = (ws?.engine ?? useApp.getState().spaces.find((sp) => sp.id === ws?.spaceId)?.engine ?? useApp.getState().settings.engine ?? 'claude-code') === 'claude-code'
   const switchTo = (next: AgentMode): void => {
@@ -298,7 +298,7 @@ function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Elem
       {confirmFresh && (
         <Dialog title={guided ? 'Start over?' : 'Start a new session?'} onClose={() => setConfirmFresh(false)} width={420}>
           <p className="mb-4 text-[13px] text-muted">
-            {guided ? 'The assistant forgets this conversation and it cannot be brought back. Your changes to the app stay.' : 'This engine keeps no session to resume, so the current conversation cannot be restored afterwards. Changes in the worktrees stay.'}
+            {guided ? 'Maestro forgets this conversation and it cannot be brought back. Your changes to the app stay.' : 'This engine keeps no session to resume, so the current conversation cannot be restored afterwards. Changes in the worktrees stay.'}
           </p>
           <div className="flex justify-end gap-2">
             <Button onClick={() => setConfirmFresh(false)}>Cancel</Button>
@@ -447,7 +447,7 @@ function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Elem
             <textarea
               value={draft}
               disabled={disabled}
-              aria-label={guided ? 'Message to the assistant' : 'Message'}
+              aria-label={guided ? 'Message to Maestro' : 'Message'}
               onChange={(e) => setDraft(workspaceId, e.target.value)}
               onPaste={(e) => {
                 const files = imageFiles(e.clipboardData)
@@ -485,7 +485,7 @@ function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Elem
               rows={3}
               ref={taRef}
               style={taHeight ? { height: taHeight } : undefined}
-              placeholder={disabled ? notReady ?? '' : busy ? (guided ? 'Type the next thing; it goes when the assistant is done (Enter)' : 'Type to queue a message for when this turn ends… (Enter to queue)') : words(guided).composerPlaceholder}
+              placeholder={disabled ? notReady ?? '' : busy ? (guided ? 'Type the next thing; it goes when Maestro is done (Enter)' : 'Type to queue a message for when this turn ends… (Enter to queue)') : words(guided).composerPlaceholder}
               className="block min-h-[64px] max-h-[60vh] w-full resize-none bg-transparent pt-3 pl-3 pr-8 text-[13px] outline-none placeholder:text-muted"
             />
             </div>
@@ -618,7 +618,7 @@ function WorkingLine({ items, busy, result, waiting, onStop }: { items: ChatItem
         {dot}
         <span className="text-text">{label}</span>
         <span className="tabular-nums text-muted">· {elapsed}</span>
-        <Button size="sm" variant="ghost" className="ml-auto" onClick={onStop} title="Stop the assistant. What it already changed stays.">
+        <Button size="sm" variant="ghost" className="ml-auto" onClick={onStop} title="Stop Maestro. What it already changed stays.">
           <Square size={10} /> Stop
         </Button>
       </div>
@@ -645,7 +645,7 @@ function StartOver({ busy, disabled, long, onNew }: { busy: boolean; disabled: b
         variant={long ? 'subtle' : 'ghost'}
         disabled={busy || disabled}
         onClick={onNew}
-        title={long ? 'This conversation has grown long, which makes the assistant slower. Starting over keeps your changes; you can undo it right after.' : 'Start a fresh conversation. Your changes stay; you can undo it right after.'}
+        title={long ? 'This conversation has grown long, which makes Maestro slower. Starting over keeps your changes; you can undo it right after.' : 'Start a fresh conversation. Your changes stay; you can undo it right after.'}
       >
         <RotateCcw size={12} /> Start over
       </Button>
@@ -760,7 +760,7 @@ export function Message({ item }: { item: ChatItem }): React.JSX.Element | null 
   }
   if (item.role === 'user') {
     const full = item.blocks.map((b) => (b.type === 'text' ? b.text : '')).join('')
-    // Guided: technical output attached to a message (for example "Ask the assistant to fix it") folds away.
+    // Guided: technical output attached to a message (for example "Ask Maestro to fix it") folds away.
     const fence = guided ? full.indexOf('\n\n```') : -1
     const text = fence > 0 ? full.slice(0, fence) : full
     const attached = fence > 0 ? full.slice(fence).trim().replace(/^```\w*\n?|```$/g, '').trim() : ''
@@ -813,7 +813,7 @@ function Block({ block }: { block: ChatBlock }): React.JSX.Element | null {
   const guided = useGuided()
   if (block.type === 'text') return block.text.trim() ? <Markdown text={block.text} /> : null
   if (block.type === 'image') return <ChatImage image={block.image} />
-  // A guided user reads what the assistant says, not how it thinks or which commands it ran.
+  // A guided user reads what Maestro says, not how it thinks or which commands it ran.
   if (guided) return null
   if (block.type === 'thinking') return block.text.trim() ? <Collapsible label="Thinking" muted body={block.text} /> : null
   return <ToolCall block={block} />

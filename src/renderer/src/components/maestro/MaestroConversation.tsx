@@ -5,6 +5,8 @@ import { useApp } from '@/stores/app'
 import { useChat } from '@/stores/chat'
 import { useMaestro } from '@/stores/maestro'
 import { Markdown } from '@/lib/markdown'
+import { isGuided, useGuided } from '@/lib/guided'
+import { friendlyError } from '@/lib/errors'
 import { QuestionCard } from '../QuestionCard'
 import { Button, Spinner } from '../ui'
 import type { AssistantItem, MaestroSuggestion } from '@shared/types'
@@ -19,6 +21,7 @@ const KIND_ICON: Record<MaestroSuggestion['kind'], React.ReactNode> = {
 
 /** The transcript and composer of one Maestro conversation; the same in the side panel and full screen. */
 export function MaestroConversation({ id, compact }: { id: string; compact?: boolean }): React.JSX.Element {
+  const guided = useGuided()
   const loaded = useMaestro((s) => s.byId[id])
   const suggestions = useMaestro((s) => s.suggestions)
   const { send, stop, setDraft, loadSuggestions } = useMaestro()
@@ -58,9 +61,9 @@ export function MaestroConversation({ id, compact }: { id: string; compact?: boo
           {items.length === 0 && !busy && (
             <div className="mt-6">
               <div className="mb-1 flex items-center gap-2 text-[15px] font-semibold">
-                <Wand2 size={16} className="text-accent" /> Maestro
+                <Wand2 size={16} className="text-maestro" /> Maestro
               </div>
-              <p className="mb-4 text-[12px] text-muted">I know your spaces, workspaces, agents, notes and integrations, and I can act on all of them. Ask anything, or pick up where things are:</p>
+              <p className="mb-4 text-[12px] text-muted">{guided ? 'I know your apps, tasks and notes, and I can help with any of them. Ask anything, or pick one:' : 'I know your spaces, workspaces, agents, notes and integrations, and I can act on all of them. Ask anything, or pick up where things are:'}</p>
               <div className="flex flex-col gap-1.5">
                 {suggestions.map((s) => (
                   <button key={s.label + s.text} onClick={() => submit(s.text)} className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-left hover:border-accent/60 hover:bg-panel-2">
@@ -72,7 +75,20 @@ export function MaestroConversation({ id, compact }: { id: string; compact?: boo
               </div>
             </div>
           )}
-          {grouped.map((g) => (g.kind === 'activity' ? <Activity key={g.key} items={g.items} /> : <Item key={g.item.id} item={g.item} streaming={deltas[g.item.id]} />))}
+          {grouped.map((g) =>
+            g.kind === 'activity' ? (
+              guided ? (
+                // Guided: what Maestro did, in one plain line; the tool calls themselves stay out of sight.
+                <div key={g.key} className="pl-9 text-[12px] text-muted">
+                  Maestro checked {g.items.length === 1 ? 'one thing' : `${g.items.length} things`}
+                </div>
+              ) : (
+                <Activity key={g.key} items={g.items} />
+              )
+            ) : (
+              <Item key={g.item.id} item={g.item} streaming={deltas[g.item.id]} />
+            )
+          )}
           {questions.map((q) => (
             <QuestionCard key={q.requestId} req={q} />
           ))}
@@ -134,12 +150,12 @@ function groupActivity(items: AssistantItem[]): Group[] {
 
 function Item({ item, streaming }: { item: AssistantItem; streaming?: string }): React.JSX.Element | null {
   if (item.role === 'user') return <div className="ml-auto max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-accent/15 px-3.5 py-2">{item.text}</div>
-  if (item.role === 'system') return <div className="rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-[12px]">{item.text}</div>
+  if (item.role === 'system') return <div className="rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-[12px]">{isGuided() ? friendlyError(item.text) : item.text}</div>
   const text = streaming ?? item.text
   if (!text) return null
   return (
     <div className="flex items-start gap-2.5">
-      <span className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent/15 text-accent">
+      <span className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-maestro/15 text-maestro">
         <Wand2 size={12} />
       </span>
       <div className="min-w-0 max-w-[92%] rounded-2xl rounded-tl-md bg-panel px-3.5 py-2">

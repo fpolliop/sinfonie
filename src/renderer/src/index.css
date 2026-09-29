@@ -16,6 +16,8 @@
   /* The darkest surface: code blocks, terminals, editors. */
   --color-sunken: #0b0d11;
   --color-scrollbar: #2e3440;
+  /* Maestro's own colour: only Maestro uses it, so its suggestions never look like the app's buttons (9.9:1 on panel). */
+  --color-maestro: #c9b6ff;
   --color-danger: #ff6b6b;
   --color-ok: #4ade80;
   --color-warn: #fbbf24;

@@ -133,7 +133,7 @@ function SendDialog({ ws, onClose }: { ws: Workspace; onClose: () => void }): Re
           {checkFail && (
             <div className="mb-3 rounded-md border border-warn/40 bg-warn/10 p-2 text-[12px]">
               <div className="font-medium text-warn">Not ready yet: a check did not pass.</div>
-              <div className="mt-0.5 text-muted">{checkFail.map((c) => c.name).join(', ')}. Tell the assistant “the checks are failing, please fix them”, then send again.</div>
+              <div className="mt-0.5 text-muted">{checkFail.map((c) => c.name).join(', ')}. Tell Maestro “the checks are failing, please fix them”, then send again.</div>
             </div>
           )}
           <Field label="Title">
@@ -182,7 +182,7 @@ export function ReviewStatusLine({ workspaceId }: { workspaceId: string }): Reac
     if (withPr.length === 0) return null
     if (withPr.every((p) => p.pr!.state === 'MERGED')) return { tone: 'ok', text: 'Approved and live.' }
     const open = withPr.filter((p) => p.pr!.state === 'OPEN')
-    if (open.some((p) => p.pr!.reviewDecision === 'CHANGES_REQUESTED' || p.threads.some((t) => !t.isResolved))) return { tone: 'warn', text: 'A reviewer asked for changes. Tell the assistant to address them, then send again.' }
+    if (open.some((p) => p.pr!.reviewDecision === 'CHANGES_REQUESTED' || p.threads.some((t) => !t.isResolved))) return { tone: 'warn', text: 'A reviewer asked for changes. Tell Maestro to address them, then send again.' }
     if (open.some((p) => p.pr!.reviewDecision === 'APPROVED')) return { tone: 'ok', text: 'Approved. It goes live when the team merges it.' }
     if (open.length) return { tone: 'muted', text: 'Waiting for a reviewer.' }
     return { tone: 'muted', text: 'The review was closed without going live.' }

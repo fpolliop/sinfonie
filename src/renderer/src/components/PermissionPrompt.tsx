@@ -47,8 +47,8 @@ export function PermissionPrompt(): React.JSX.Element | null {
     const detailText = req.blockedPath ? `${req.blockedPath}\n\n${summary}` : summary
     return (
       <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30 pb-8 no-drag">
-        <div role="alertdialog" aria-modal="true" aria-label="The assistant needs your OK" className="w-[520px] max-w-[92vw] rounded-xl border border-warn/40 bg-panel p-4 shadow-2xl">
-          <div className="mb-1 text-[11px] uppercase tracking-wide text-warn">The assistant needs your OK · {wsName}</div>
+        <div role="alertdialog" aria-modal="true" aria-label="Maestro needs your OK" className="w-[520px] max-w-[92vw] rounded-xl border border-warn/40 bg-panel p-4 shadow-2xl">
+          <div className="mb-1 text-[11px] uppercase tracking-wide text-warn">Maestro needs your OK · {wsName}</div>
           <div className="mb-1 text-[15px] font-semibold">{what}</div>
           <p className="mb-3 text-[12px] text-muted">If you are not sure, say no and ask a colleague. Nothing happens until you answer.</p>
           {details && (

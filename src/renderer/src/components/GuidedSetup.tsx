@@ -9,7 +9,7 @@ import { Button, Field, inputCls } from './ui'
 /**
  * The tech lead's setup that makes a space usable by guided-mode teammates: a friendly name and a description
  * per app, its run/setup/check scripts and preview URL (written to the repo's sinfonie.json), and, on the
- * space, who reviews and how the assistant should behave. Everything here travels with the shared definition.
+ * space, who reviews and how Maestro should behave. Everything here travels with the shared definition.
  */
 export function GuidedRepoSetup({ repo }: { repo: Repo }): React.JSX.Element {
   const [open, setOpen] = useState(false)
@@ -53,7 +53,7 @@ export function GuidedRepoSetup({ repo }: { repo: Repo }): React.JSX.Element {
               <input className={inputCls} placeholder="http://localhost:${PORT}/" value={preview} onChange={(e) => setPreview(e.target.value)} />
             </Field>
           </div>
-          <Field label="What this app is" hint="One line. The assistant uses it to pick the right apps for a task.">
+          <Field label="What this app is" hint="One line. Maestro uses it to pick the right apps for a task.">
             <input className={inputCls} placeholder="e.g. The customer-facing shop, Astro + Node" value={desc} onChange={(e) => setDesc(e.target.value)} onBlur={() => (name !== (repo.displayName ?? '') || desc !== (repo.description ?? '')) && void saveMeta()} />
           </Field>
           <div className="mt-1 grid grid-cols-1 gap-3">
@@ -81,7 +81,7 @@ export function GuidedRepoSetup({ repo }: { repo: Repo }): React.JSX.Element {
   )
 }
 
-/** Space-level guided settings: reviewers and the assistant's instructions. */
+/** Space-level guided settings: reviewers and Maestro's instructions. */
 export function GuidedSpaceSection({ space }: { space: Space }): React.JSX.Element {
   const setError = useApp((s) => s.setError)
   const [reviewers, setReviewers] = useState((space.guided?.reviewers ?? []).join(', '))
@@ -100,7 +100,7 @@ export function GuidedSpaceSection({ space }: { space: Space }): React.JSX.Eleme
       <Field label="Reviewers" hint="GitHub usernames, comma-separated. Requested on every pull request a guided task opens.">
         <input className={inputCls} placeholder="ana, diego" value={reviewers} onChange={(e) => setReviewers(e.target.value)} onBlur={() => save({ reviewers: reviewers.split(',').map((x) => x.trim().replace(/^@/, '')).filter(Boolean) })} />
       </Field>
-      <Field label="Instructions for the assistant" hint="Added to its prompt for guided tasks: product words to use, what not to touch, where things live.">
+      <Field label="Instructions for Maestro" hint="Added to its prompt for guided tasks: product words to use, what not to touch, where things live.">
         <textarea className={`${inputCls} min-h-[90px]`} placeholder="Call the checkout the 'basket'. Never change anything under infra/. Copy lives in src/content." value={instructions} onChange={(e) => setInstructions(e.target.value)} onBlur={() => save({ instructions: instructions.trim() || undefined })} />
       </Field>
       <Field label="Questions channel" hint="Slack channel where a guided user's 'Ask a teammate' goes. Needs this space's Slack connected (Integrations).">

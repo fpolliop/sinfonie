@@ -69,7 +69,7 @@ const INTEGRATION_IDS: string[] = INTEGRATION_TABS.map((t) => t.id)
 /** Guided mode's rail: the person's own things. Everything about the team's apps is set up by the tech lead in expert mode. */
 const GUIDED_PAGES: { id: AppPage; label: string; icon: React.ReactNode; desc: string; group: string }[] = [
   { id: 'preferences', label: 'Preferences', icon: <SettingsIcon size={14} />, desc: 'How Sinfonie presents itself to you.', group: 'You' },
-  { id: 'accounts', label: 'Sign-in', icon: <UserCircle2 size={14} />, desc: 'The AI account the assistant runs on.', group: 'You' },
+  { id: 'accounts', label: 'Sign-in', icon: <UserCircle2 size={14} />, desc: 'The AI account Maestro runs on.', group: 'You' },
   { id: 'plan', label: 'Account & team', icon: <Gem size={14} />, desc: 'Your Sinfonie account, your emails and the teams you are in.', group: 'You' },
   { id: 'feedback', label: 'Feedback', icon: <MessageSquarePlus size={14} />, desc: 'Tell us what works and what does not.', group: 'You' },
   { id: 'about', label: 'About & updates', icon: <Info size={14} />, desc: 'Version, links, and update checks.', group: 'You' }

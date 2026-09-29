@@ -48,9 +48,9 @@ const STOPS: Stop[] = [
 
 /** The guided tour: only what guided mode shows, in its own words. */
 export const GUIDED_STOPS: Stop[] = [
-  { anchor: 'new-workspace', title: 'Tasks', text: 'A task is one thing you want built or changed in your app. Start one here and describe it in plain words; the assistant takes it from there. ⇧⌘N opens this.' },
+  { anchor: 'new-workspace', title: 'Tasks', text: 'A task is one thing you want built or changed in your app. Start one here and describe it in plain words; Maestro takes it from there. ⇧⌘N opens this.' },
   { anchor: 'repos', title: 'Your apps in this task', text: 'The apps this task touches. Each task works on its own copy of them, so nothing changes for anyone else until it is reviewed.', prepare: prepareWorkspace },
-  { anchor: 'tab-browser', title: 'Preview', text: 'See the app while the assistant works on it, on your Mac, before anyone else does.' },
+  { anchor: 'tab-browser', title: 'Preview', text: 'See the app while Maestro works on it, on your Mac, before anyone else does.' },
   { anchor: 'settings', title: 'Settings', text: 'Your sign-in and your team. ⌘, opens it; ⌘K finds any task or action.' }
 ]
 

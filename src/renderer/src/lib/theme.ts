@@ -13,6 +13,7 @@ export const tokens = {
   /** Dimmer than muted: gutters and line numbers. */
   faint: '#5f6776',
   accent: '#7c9cff',
+  maestro: '#c9b6ff',
   danger: '#ff6b6b',
   ok: '#4ade80',
   warn: '#fbbf24',

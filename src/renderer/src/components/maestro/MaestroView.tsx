@@ -72,7 +72,7 @@ export function MaestroView(): React.JSX.Element {
     <div className="flex h-full min-h-0">
       <div className="flex w-[300px] shrink-0 flex-col border-r border-border">
         <div className="drag flex h-[52px] shrink-0 items-center gap-2 border-b border-border px-4">
-          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-accent/15 text-accent">
+          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-maestro/15 text-maestro">
             <Wand2 size={14} />
           </span>
           <span className="text-[13px] font-semibold">Maestro</span>

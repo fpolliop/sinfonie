@@ -18,7 +18,7 @@ const GUIDED_RULES: [RegExp, string][] = [
   [/auth|permission denied|403|401|credential|not logged in|sign in/i, 'Sinfonie could not sign in to finish this. Check Settings → Sign-in, or ask a teammate.'],
   [/network|ENOTFOUND|ECONNREFUSED|ETIMEDOUT|timed out|offline/i, 'Sinfonie could not reach the internet. Check your connection and try again.'],
   [/nothing to commit|no changes/i, 'There are no changes to send yet.'],
-  [/rate limit|quota|usage limit|429/i, 'The assistant has hit its usage limit for now. Try again later.'],
+  [/rate limit|quota|usage limit|429/i, 'Maestro has hit its usage limit for now. Try again later.'],
   [/ENOSPC|no space left/i, 'Your Mac is out of disk space. Free some up and try again.']
 ]
 

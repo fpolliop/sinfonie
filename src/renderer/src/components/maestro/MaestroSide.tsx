@@ -9,6 +9,7 @@ import { MaestroConversation } from './MaestroConversation'
 export function MaestroSide(): React.JSX.Element | null {
   const { open, width, activeId, conversations, listLoaded, setOpen, setWidth, setShape, select, newConversation, loadList, subscribe } = useMaestro()
   const setView = useApp((s) => s.setView)
+  const view = useApp((s) => s.view)
   const dragging = useRef(false)
   const [memory, setMemory] = useState(false)
   useEffect(() => {
@@ -22,7 +23,8 @@ export function MaestroSide(): React.JSX.Element | null {
     else void newConversation()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, listLoaded])
-  if (!open) return null
+  // On Maestro home Maestro is already the whole screen: the dock steps aside.
+  if (!open || view === 'maestro') return null
   const active = conversations.find((c) => c.id === activeId)
   const recent = conversations.filter((c) => !c.archivedAt).slice(0, 12)
   const startResize = (e: React.MouseEvent): void => {
@@ -42,10 +44,10 @@ export function MaestroSide(): React.JSX.Element | null {
     window.addEventListener('mouseup', up)
   }
   return (
-    <aside className="no-drag fixed right-0 top-0 z-40 flex h-full flex-col border-l border-border bg-panel shadow-2xl" style={{ width }}>
+    <aside aria-label="Maestro" className="no-drag fixed right-0 top-0 z-40 flex h-full flex-col border-l border-border bg-panel" style={{ width }}>
       <div className="absolute left-0 top-0 h-full w-1 cursor-col-resize hover:bg-accent/40" onMouseDown={startResize} title="Drag to resize" />
       <div className="drag flex h-[52px] shrink-0 items-center gap-2 border-b border-border px-3">
-        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-accent/15 text-accent">
+        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-maestro/15 text-maestro">
           <Wand2 size={14} />
         </span>
         <div className="no-drag relative min-w-0 flex-1">

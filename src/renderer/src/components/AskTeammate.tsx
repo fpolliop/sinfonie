@@ -6,7 +6,7 @@ import { Button, Dialog, IconButton, inputCls } from './ui'
 import { friendlyError, rawMessage } from '@/lib/errors'
 
 /**
- * Guided mode: when the person is stuck (or the assistant hit something it may not do), send a short note to
+ * Guided mode: when the person is stuck (or Maestro hit something it may not do), send a short note to
  * the team's Slack channel. The channel is set by the tech lead on the space; without it, this explains that.
  */
 export function AskTeammate({ workspaceId, prefill, trigger }: { workspaceId: string; prefill?: string; trigger: (open: () => void) => React.ReactNode }): React.JSX.Element {

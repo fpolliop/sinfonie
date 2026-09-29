@@ -25,7 +25,7 @@ export function GettingStarted(): React.JSX.Element | null {
   if (settings.onboarding?.checklistDismissedAt) return null
   const orgs = settings.cloud?.account?.orgs ?? []
   const items = guided ? [
-    { done: settings.claudeAccounts.some((a) => a.loggedIn), text: 'Sign in so the assistant can work', go: () => openSettings({ scope: 'app', page: 'accounts' }) },
+    { done: settings.claudeAccounts.some((a) => a.loggedIn), text: 'Sign in so Maestro can work', go: () => openSettings({ scope: 'app', page: 'accounts' }) },
     { done: orgs.length > 0 || repos.length > 0, text: 'Join your team or add your app', go: () => useApp.getState().openSetupAt(2) },
     { done: workspaces.length > 0, text: 'Start a task', go: () => setShowNewWorkspace(true) },
     { done: workspaces.some((w) => w.stage === 'in-review' || w.stage === 'done'), text: 'Send one for review', go: () => workspaces[0] && useApp.getState().select(workspaces[0].id) }
