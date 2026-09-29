@@ -1,6 +1,6 @@
 {
   "name": "sinfonie",
-  "version": "0.1.68",
+  "version": "0.1.69",
   "description": "Multi-repo agent workspaces: one workspace spans many repositories, with a crew of models.",
   "main": "./out/main/index.js",
   "author": "Francisco Pollio",
@@ -12,8 +12,8 @@
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && node scripts/lint-ui.mjs",
     "postinstall": "electron-builder install-app-deps",
-    "package": "electron-vite build && electron-builder --mac --publish never",
-    "release": "electron-vite build && electron-builder --mac --publish always",
+    "package": "electron-vite build && electron-builder --mac --x64 --arm64 --publish never",
+    "release": "electron-vite build && electron-builder --mac --x64 --arm64 --publish always",
     "site:deploy": "wrangler pages deploy . --cwd site --project-name sinfonie --branch main",
     "coupon": "node site/coupon.mjs",
     "feedback": "wrangler d1 execute sinfonie-feedback --remote --json --config site/wrangler.toml --command \"SELECT id, created_at, kind, source, count, app_version, email, substr(message,1,200) AS message FROM feedback ORDER BY id DESC LIMIT 50\"",
@@ -142,6 +142,15 @@
     ],
     "overrides": {
       "cpu-features": "file:stubs/cpu-features"
+    },
+    "supportedArchitectures": {
+      "os": [
+        "darwin"
+      ],
+      "cpu": [
+        "x64",
+        "arm64"
+      ]
     }
   },
   "homepage": "https://sinfonie.dev",
