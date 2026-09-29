@@ -103,7 +103,7 @@ function SpaceSwitcher(): React.JSX.Element | null {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const ref = useRef<HTMLButtonElement>(null)
   if (guided && ids.length < 2) return null
-  const nameOf = (id: string): string => spaces.find((s) => s.id === id)?.name ?? (spaces.length ? `No ${t.space}` : cap(t.workspaces))
+  const nameOf = (id: string): string => spaces.find((s) => s.id === id)?.name ?? (spaces.length ? `No ${t.space}` : cap(t.spaces))
   const colorOf = (id: string): string => spaces.find((s) => s.id === id)?.color ?? tokens.muted
   const name = nameOf(currentId)
   const entries: MenuEntry[] = ids.map((id, i) => ({
@@ -132,10 +132,10 @@ function SpaceSwitcher(): React.JSX.Element | null {
         // Pressing while the menu is open would close it on mousedown and reopen it on click; swallow that press.
         onMouseDown={(e) => menu && e.stopPropagation()}
         onClick={toggle}
-        className={clsx('no-drag flex w-[60px] flex-col items-center gap-1 rounded-lg py-2 text-[11px] font-medium transition-colors', menu ? 'bg-panel-2 text-text' : 'text-muted hover:bg-panel-2/60 hover:text-text')}
+        className={clsx('no-drag mx-1.5 flex flex-col items-center gap-1 self-stretch rounded-lg px-1 py-2 text-[11px] font-medium transition-colors', menu ? 'bg-panel-2 text-text' : 'text-muted hover:bg-panel-2/60 hover:text-text')}
       >
         <span aria-hidden className="h-3 w-3 rounded-full ring-2 ring-panel-2" style={{ background: colorOf(currentId) }} />
-        <span className="max-w-[56px] truncate">{name}</span>
+        <span className="max-w-full truncate">{name}</span>
       </button>
       {menu && <ContextMenu x={menu.x} y={menu.y} label={cap(t.spaces)} entries={entries} onClose={() => setMenu(null)} />}
     </>

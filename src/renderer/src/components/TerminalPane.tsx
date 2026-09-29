@@ -30,7 +30,7 @@ interface Shell {
   agent?: Engine
   /** How the pty is started; the default is terminal:create. CLI mode uses cli:start, which resumes the chat's session. */
   starter?: (cols: number, rows: number) => Promise<string>
-  /** CLI-mode shells live in the Chat tab, not in the Terminal tab's list. */
+  /** CLI-mode shells live in the conversation, not in the Terminal tab's list. */
   chatMode?: boolean
   label: string
   container: HTMLDivElement
@@ -182,6 +182,36 @@ function closeShell(id: string): void {
   notify()
 }
 
+/** The shell each workspace's Terminal pane last showed, so the panel's terminal strip can speak for it. */
+const activeShell = new Map<string, string>()
+
+/** The last line a shell printed that is not blank, from xterm's buffer (the prompt and command, or a progress line). */
+function lastLine(shell: Shell): string {
+  const buf = shell.term.buffer.active
+  for (let y = buf.baseY + buf.cursorY; y >= Math.max(0, buf.baseY + buf.cursorY - 50); y--) {
+    const text = buf.getLine(y)?.translateToString(true).trim()
+    if (text) return text
+  }
+  return ''
+}
+
+/**
+ * What the collapsed terminal strip shows: how many shells the workspace has, and the one on screen in the
+ * Terminal pane with its latest line. Re-read every second while something is watching.
+ */
+export function useTerminalSummary(workspaceId: string): { count: number; label: string; line: string; exited: boolean } | null {
+  const list = useShells(workspaceId)
+  const [, tick] = useState(0)
+  useEffect(() => {
+    if (list.length === 0) return
+    const t = window.setInterval(() => tick((n) => n + 1), 1000)
+    return () => window.clearInterval(t)
+  }, [list.length])
+  const active = list.find((s) => s.id === activeShell.get(workspaceId)) ?? list[list.length - 1]
+  if (!active) return null
+  return { count: list.length, label: active.label, line: active.opened ? lastLine(active) : '', exited: active.exited }
+}
+
 function useShells(workspaceId: string): Shell[] {
   const [, tick] = useState(0)
   useEffect(() => {
@@ -195,7 +225,14 @@ function useShells(workspaceId: string): Shell[] {
 export function TerminalPane({ workspaceId, visible }: { workspaceId: string; visible: boolean }): React.JSX.Element {
   const ws = useApp((s) => s.workspaces.find((w) => w.id === workspaceId))
   const list = useShells(workspaceId)
-  const [activeId, setActiveId] = useState<string | null>(null)
+  const [activeId, setActiveIdState] = useState<string | null>(() => activeShell.get(workspaceId) ?? null)
+  const setActiveId = useCallback(
+    (id: string) => {
+      activeShell.set(workspaceId, id)
+      setActiveIdState(id)
+    },
+    [workspaceId]
+  )
   const [menu, setMenu] = useState(false)
   const [finding, setFinding] = useState(false)
   const ready = ws?.status === 'ready'
@@ -215,7 +252,7 @@ export function TerminalPane({ workspaceId, visible }: { workspaceId: string; vi
       setActiveId(s.id)
       setMenu(false)
     },
-    [ws, workspaceId]
+    [ws, workspaceId, setActiveId]
   )
   // Another part of the app asked for a CLI here (the workspace menu): open it once the pane is up.
   const pendingShell = useApp((s) => s.pendingShell)
@@ -304,6 +341,9 @@ function Mount({ shell, visible, onFind }: { shell: Shell; visible: boolean; onF
     const host = ref.current
     if (!host) return
     host.appendChild(shell.container)
+    // Focus once when the shell comes on screen, not on every resize: dragging the panel divider must not pull
+    // the keyboard away from the message box.
+    let focused = false
     const settle = (): void => {
       if (!visible || host.clientWidth === 0) return
       if (!shell.opened) {
@@ -312,7 +352,10 @@ function Mount({ shell, visible, onFind }: { shell: Shell; visible: boolean; onF
       }
       shell.fit.fit()
       void ensurePty(shell)
-      shell.term.focus()
+      if (!focused) {
+        focused = true
+        shell.term.focus()
+      }
     }
     // Layout exists once the effect runs, so settle now; rAF and ResizeObserver are paused while the
     // window is occluded, so they alone would leave the pane blank until the window is uncovered.
@@ -375,7 +418,7 @@ function FindBar({ shell, onClose }: { shell: Shell; onClose: () => void }): Rea
   )
 }
 
-/** The Chat tab in CLI mode: the real claude in this workspace's primary worktree, on the chat's session. */
+/** The conversation in CLI mode: the real claude in this workspace's primary worktree, on the chat's session. */
 export function CliView({ workspaceId, prompt, onPromptConsumed, onBackToChat }: { workspaceId: string; prompt?: string; onPromptConsumed?: () => void; onBackToChat: () => void }): React.JSX.Element {
   const ws = useApp((s) => s.workspaces.find((w) => w.id === workspaceId))
   const [, tick] = useState(0)

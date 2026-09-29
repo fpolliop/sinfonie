@@ -194,7 +194,7 @@ export function setPaused(workspaceId: string, paused: boolean): void {
 
 /**
  * Run one agent action: waits while the user has paused agent control, marks the pane busy, and
- * tells the renderer when a burst of activity starts so it can bring the Browser tab forward.
+ * tells the renderer when a burst of activity starts so it can bring the Preview tab forward.
  */
 export async function agentOp<T>(workspaceId: string, fn: (tab: BrowserTab) => Promise<T>, tabId?: string): Promise<T> {
   const s = get(workspaceId)

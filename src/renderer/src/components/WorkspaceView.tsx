@@ -11,51 +11,45 @@ import { InlineRename } from './InlineRename'
 import { StagePicker } from './StagePicker'
 import { SpacePicker } from './SpacePicker'
 import { LabelPicker } from './LabelPicker'
-import type { RepoSafety } from '@shared/types'
+import type { RepoSafety, Workspace } from '@shared/types'
 import { ManageReposDialog } from './ManageReposDialog'
 import clsx from 'clsx'
-import { Folder, Code2, TerminalSquare, Archive, Trash2, MoreHorizontal, Pencil, GitBranch, ExternalLink, RefreshCw, AlertTriangle, SearchX } from 'lucide-react'
+import { Folder, Code2, TerminalSquare, Archive, Trash2, MoreHorizontal, Pencil, GitBranch, ExternalLink, RefreshCw, AlertTriangle, SearchX, Play, Square, GitPullRequest, Layers, Sparkles, Globe } from 'lucide-react'
 import { useGithub } from '@/stores/github'
-import { useApp, type Tab } from '@/stores/app'
+import { useApp } from '@/stores/app'
+import { useChat } from '@/stores/chat'
+import { useScripts } from '@/stores/scripts'
+import { toggleMaestroDock } from '@/stores/maestro'
 import { api } from '@/lib/api'
 import { ChatPane } from './ChatPane'
-import { TerminalPane } from './TerminalPane'
-import { RunPane } from './RunPane'
-import { PrsPane } from './PrsPane'
-import { Badge, Button, Dialog, Field, IconButton, chipCls, inputCls } from './ui'
+import { PrDialog } from './ChangesPane'
+import { Button, Dialog, Field, IconButton, chipCls, inputCls } from './ui'
 import { shortPath } from '@/lib/format'
-import { BrowserPane } from './BrowserPane'
-import { FilesPane } from './FilesPane'
-import { DataPane } from './DataPane'
-import { WorkspaceTabs } from './WorkspaceTabs'
-import { useBrowser } from '@/stores/browser'
-import { useGuided } from '@/lib/guided'
+import { WorkspaceInspector } from './WorkspaceInspector'
+import { useGuided, previewUrlFor } from '@/lib/guided'
 import { SendForReviewButton, ReviewStatusLine } from './SendForReview'
 
-
+/**
+ * The workspace split view: one header (name, live status, branch, repositories, ticket; Ask Maestro, Run, pull
+ * requests and the overflow menu), the conversation on the left and the inspector (Changes, Preview, Checks,
+ * Terminal, Data) on the right.
+ */
 export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.JSX.Element {
   const ws = useApp((s) => s.workspaces.find((w) => w.id === workspaceId))
-  const { tab, setTab, setError, browserDock, browserDockRatio, setBrowserDockRatio } = useApp()
+  const { setTab, setError } = useApp()
   const allRepos = useApp((s) => s.repos)
+  const space = useApp((s) => s.spaces.find((sp) => sp.id === ws?.spaceId))
   const guided = useGuided()
-  const browserBusy = useBrowser((s) => s.states[workspaceId]?.agentBusy ?? false)
-  // An agent started a burst of browsing: bring the browser forward so the user sees it happen.
-  // Docked, it already sits beside the chat, so reveal that view instead of switching to the tab.
+  // An agent started a burst of browsing: bring the preview forward so the user sees it happen.
   useEffect(
     () =>
       api.on('browser:agentActive', ({ workspaceId: id }) => {
         if (id !== workspaceId) return
         const st = useApp.getState()
-        if (st.browserDock) {
-          if (st.tab !== 'chat') setTab('chat')
-        } else if (st.tab !== 'browser') setTab('browser')
+        if (st.tab !== 'browser' || !st.inspectorOpen) setTab('browser')
       }),
     [workspaceId, setTab]
   )
-  // Docking merges the browser into the chat view; never leave the now-hidden Browser tab selected.
-  useEffect(() => {
-    if (browserDock && tab === 'browser') setTab('chat')
-  }, [browserDock, tab, setTab])
   // Opening (or refocusing on) a workspace here means you've seen it — clear its phone notifications.
   useEffect(() => {
     const seen = (): void => void api.invoke('remote:seen', workspaceId).catch(() => undefined)
@@ -67,12 +61,12 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
   // Clicking ⋯ while the menu is open: the menu's outside-click closes it first; don't reopen it on the same click.
   const menuClosedAt = useRef(0)
   const [archiveDlg, setArchiveDlg] = useState<null | 'archive' | 'delete'>(null)
-  const [jiraRefreshing, setJiraRefreshing] = useState(false)
   const [moveDlg, setMoveDlg] = useState(false)
   const [reposDlg, setReposDlg] = useState(false)
   const [renameDlg, setRenameDlg] = useState<null | 'branch'>(null)
   const [editingTitle, setEditingTitle] = useState(false)
   const prs = useGithub((s) => s.byWorkspace[workspaceId]?.repos)
+  const prsFetchedAt = useGithub((s) => s.byWorkspace[workspaceId]?.fetchedAt)
   useEffect(() => {
     // The sidebar's context menu asks the open workspace view to show its archive dialog.
     const onArchive = (e: Event): void => {
@@ -104,17 +98,16 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
     if (jiraStatusAt && Date.now() - new Date(jiraStatusAt).getTime() < 5 * 60 * 1000) return
     api.invoke('workspaces:refreshJira', workspaceId).catch(() => undefined)
   }, [workspaceId, jiraKey, jiraStatusAt])
+  // The header's pull request button and repository dots read GitHub; refresh it when older than five minutes.
+  const hasRepos = Boolean(ws?.repos.length)
+  const isReady = ws?.status === 'ready'
+  useEffect(() => {
+    if (guided || !isReady || !hasRepos) return
+    if (prsFetchedAt && Date.now() - new Date(prsFetchedAt).getTime() < 5 * 60 * 1000) return
+    void useGithub.getState().refresh(workspaceId)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaceId, guided, isReady, hasRepos])
   if (!ws) return <MissingWorkspace guided={guided} />
-  const refreshJira = async (): Promise<void> => {
-    setJiraRefreshing(true)
-    try {
-      await api.invoke('workspaces:refreshJira', ws.id)
-    } catch (err) {
-      setError(friendlyError(err))
-    } finally {
-      setJiraRefreshing(false)
-    }
-  }
 
   const run = async (fn: () => Promise<unknown>): Promise<void> => {
     try {
@@ -136,8 +129,12 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
           { label: guided ? 'Delete task…' : 'Delete workspace…', icon: <Trash2 size={14} />, danger: true, onClick: () => setArchiveDlg('delete') }
         ]
       : [{ label: 'Remove from list', icon: <Trash2 size={14} />, danger: true, onClick: removeFromList }]
+  const tickets: MenuEntry[] = [
+    ...(ws.jira ? [{ label: `Refresh ${ws.jira.key} status`, icon: <RefreshCw size={14} />, onClick: () => void run(() => api.invoke('workspaces:refreshJira', ws.id)) }] : []),
+    ...(ws.linear ? [{ label: `Refresh ${ws.linear.identifier} state`, icon: <RefreshCw size={14} />, onClick: () => void run(() => api.invoke('workspaces:refreshLinear', ws.id)) }] : [])
+  ]
   const menuEntries: MenuEntry[] = guided
-    ? [{ label: 'Rename task…', icon: <Pencil size={14} />, onClick: () => setEditingTitle(true) }, { separator: true }, ...finishing]
+    ? [{ label: 'Rename task…', icon: <Pencil size={14} />, onClick: () => setEditingTitle(true) }, ...(tickets.length ? [{ separator: true }, ...tickets] : []), { separator: true }, ...finishing]
     : [
         { label: 'Reveal in Finder', icon: <Folder size={14} />, onClick: () => void run(() => api.invoke('workspaces:openIn', ws.id, 'finder')) },
         { label: 'Open in VS Code', icon: <Code2 size={14} />, onClick: () => void run(() => api.invoke('workspaces:openIn', ws.id, 'vscode')) },
@@ -156,134 +153,129 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
         { label: 'Manage repositories…', icon: <Folder size={14} />, disabled: ws.status !== 'ready', onClick: () => setReposDlg(true) },
         { label: 'Rename workspace…', icon: <Pencil size={14} />, onClick: () => setEditingTitle(true) },
         { label: 'Rename branch only (all repos)…', icon: <GitBranch size={14} />, disabled: ws.status !== 'ready', onClick: () => setRenameDlg('branch') },
+        { label: 'Move to space…', icon: <Layers size={14} />, onClick: () => setMoveDlg(true) },
+        ...(tickets.length ? [{ separator: true }, ...tickets] : []),
         { separator: true },
         ...finishing
       ]
+  const branch = ws.repos[0]?.branch
 
   return (
     <div className="flex h-full flex-col">
-      <header className="drag flex h-[52px] shrink-0 items-center gap-4 border-b border-border px-4">
-        <div className="flex min-w-0 flex-1 flex-col justify-center gap-1">
-          <div className="flex min-w-0 items-center gap-2">
-            {editingTitle ? (
-              <div className="no-drag w-72">
-                <InlineRename
-                  value={ws.name}
-                  className="text-[15px] font-semibold"
-                  onSave={(v) => {
-                    setEditingTitle(false)
-                    void renameWorkspace(ws, v)
-                  }}
-                  onCancel={() => setEditingTitle(false)}
-                />
-              </div>
-            ) : (
-              <h1 className="no-drag min-w-0 max-w-[280px] shrink-0 cursor-text truncate text-[15px] font-semibold leading-none" title={`${title} · double-click to rename`} onDoubleClick={() => setEditingTitle(true)}>
-                {title}
-              </h1>
-            )}
-            {ws.status === 'creating' && <Badge tone="warn">{guided ? 'getting ready' : 'creating'}</Badge>}
-            {ws.status === 'error' && <Badge tone="danger">{guided ? 'something went wrong' : 'error'}</Badge>}
-            {ws.status === 'archived' && <Badge>{guided ? 'finished' : 'archived'}</Badge>}
-            <div className="ml-1 flex shrink-0 items-center gap-1.5">
-              <StagePicker stage={ws.stage} disabled={ws.status === 'archived'} onChange={(stage) => run(() => api.invoke('workspaces:setStage', ws.id, stage))} />
-              {!guided && <SpacePicker pill value={ws.spaceId ?? ''} onChange={(id) => run(() => api.invoke('workspaces:setSpace', ws.id, id || null))} />}
-              {!guided && <LabelPicker ws={ws} />}
+      {/*
+        One row that never overlaps: the header is a size container, and as it narrows the chips drop in order
+        (ticket, label, repositories, branch, space) and the actions on the right fold to icons with their labels
+        kept as accessible names and tooltips. Everything left of the actions can shrink and truncate.
+      */}
+      <header className="drag @container flex h-[48px] shrink-0 items-center gap-3 border-b border-border px-4">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          {!guided && space && (
+            <span className="flex min-w-0 max-w-[140px] shrink items-center gap-2 text-[13px] text-muted @max-[700px]:hidden" title={`Space: ${space.name}`}>
+              <span className="truncate">{space.name}</span>
+              <span aria-hidden>/</span>
+            </span>
+          )}
+          {editingTitle ? (
+            <div className="no-drag w-72 min-w-[120px] shrink">
+              <InlineRename
+                value={ws.name}
+                className="text-[15px] font-semibold"
+                onSave={(v) => {
+                  setEditingTitle(false)
+                  void renameWorkspace(ws, v)
+                }}
+                onCancel={() => setEditingTitle(false)}
+              />
             </div>
-            {ws.repos.length > 0 && (
-              <>
-                <span className="mx-1 h-4 w-px shrink-0 bg-border" />
-                <div data-tour="repos" className="flex min-w-0 items-center gap-1.5 overflow-hidden">
-                  {ws.repos.map((r) => {
-                    const pr = prs?.find((p) => p.repoId === r.repoId)?.pr
-                    const open = prs?.find((p) => p.repoId === r.repoId)?.threads.filter((t) => !t.isResolved).length ?? 0
-                    if (guided) {
-                      const appName = repoLabel(allRepos.find((x) => x.id === r.repoId) ?? { name: r.repoName })
-                      return (
-                        <span key={r.repoId} className={clsx(chipCls, 'min-w-0 shrink border border-border bg-panel text-muted')} title={pr ? pr.title : appName}>
-                          <span className="truncate">{appName}</span>
-                          {pr && <span className={clsx('h-1.5 w-1.5 shrink-0 rounded-full', pr.state === 'MERGED' ? 'bg-accent' : pr.state === 'CLOSED' ? 'bg-danger' : pr.reviewDecision === 'CHANGES_REQUESTED' || open > 0 ? 'bg-warn' : 'bg-ok')} />}
-                        </span>
-                      )
-                    }
-                    return (
-                      <button
-                        key={r.repoId}
-                        title={pr ? `${pr.title} (#${pr.number})` : shortPath(r.worktreePath)}
-                        onClick={() => setTab('prs')}
-                        className={clsx(chipCls, 'no-drag min-w-0 shrink border bg-panel', r.repoId === ws.primaryRepoId ? 'border-accent/40 text-accent' : 'border-border text-muted hover:text-text')}
-                      >
-                        <span className="truncate">{r.repoName}</span>
-                        {pr && <span className={clsx('h-1.5 w-1.5 shrink-0 rounded-full', pr.state === 'MERGED' ? 'bg-accent' : pr.state === 'CLOSED' ? 'bg-danger' : pr.reviewDecision === 'CHANGES_REQUESTED' || open > 0 ? 'bg-warn' : 'bg-ok')} />}
-                        {open > 0 && <span className="text-warn">{open}</span>}
-                      </button>
-                    )
-                  })}
-                </div>
-              </>
+          ) : (
+            <h1 className="no-drag min-w-[64px] max-w-[280px] shrink cursor-text truncate text-[15px] font-semibold leading-none" title={`${title} · double-click to rename`} onDoubleClick={() => setEditingTitle(true)}>
+              {title}
+            </h1>
+          )}
+          <LiveStatus ws={ws} guided={guided} />
+          <StagePicker stage={ws.stage} disabled={ws.status === 'archived'} onChange={(stage) => run(() => api.invoke('workspaces:setStage', ws.id, stage))} />
+          {!guided && (
+            <span className="contents @max-[1040px]:hidden">
+              <LabelPicker ws={ws} />
+            </span>
+          )}
+          <div data-tour="repos" className="flex min-w-0 shrink items-center gap-1.5 overflow-hidden @max-[780px]:hidden">
+            {!guided && (
+              <span className={clsx(chipCls, 'min-w-[48px] shrink border border-border bg-panel font-mono text-muted')} title={branch ? `Branch in every repository: ${branch}` : 'No repositories yet'}>
+                <GitBranch size={11} className="shrink-0" aria-hidden />
+                <span className="truncate">{branch ?? `${ws.slug} · no repositories yet`}</span>
+              </span>
             )}
+            {ws.repos.map((r) => {
+              const repoPr = prs?.find((p) => p.repoId === r.repoId)
+              const pr = repoPr?.pr
+              const open = repoPr?.threads.filter((t) => !t.isResolved).length ?? 0
+              const dot = pr && <span aria-hidden className={clsx('h-1.5 w-1.5 shrink-0 rounded-full', pr.state === 'MERGED' ? 'bg-accent' : pr.state === 'CLOSED' ? 'bg-danger' : pr.reviewDecision === 'CHANGES_REQUESTED' || open > 0 ? 'bg-warn' : 'bg-ok')} />
+              if (guided) {
+                const appName = repoLabel(allRepos.find((x) => x.id === r.repoId) ?? { name: r.repoName })
+                return (
+                  <span key={r.repoId} className={clsx(chipCls, 'min-w-0 shrink border border-border bg-panel text-muted @max-[900px]:hidden')} title={pr ? pr.title : appName}>
+                    <span className="truncate">{appName}</span>
+                    {dot}
+                  </span>
+                )
+              }
+              return (
+                <button
+                  key={r.repoId}
+                  title={pr ? `${pr.title} (#${pr.number}): open Checks` : `${shortPath(r.worktreePath)}: open Checks`}
+                  onClick={() => setTab('prs')}
+                  className={clsx(chipCls, 'no-drag min-w-0 shrink border bg-panel @max-[900px]:hidden', r.repoId === ws.primaryRepoId ? 'border-accent/40 text-accent' : 'border-border text-muted hover:text-text')}
+                >
+                  <span className="truncate">{r.repoName}</span>
+                  {dot}
+                  {open > 0 && <span className="text-warn">{open}</span>}
+                </button>
+              )
+            })}
+            {ws.jira && <TicketChip id={ws.jira.key} title={ws.jira.summary} url={ws.jira.url} status={ws.jiraStatus} checkedAt={ws.jiraStatusAt} kind="Jira status" />}
+            {ws.linear && <TicketChip id={ws.linear.identifier} title={ws.linear.title} url={ws.linear.url} status={ws.linearStatus} checkedAt={ws.linearStatusAt} kind="Linear state" />}
           </div>
-          <div className="flex min-w-0 items-center gap-1.5 text-[11px] leading-none text-muted">
-            {guided ? (
+          {guided && (
+            <span className="min-w-0 shrink @max-[900px]:hidden">
               <ReviewStatusLine workspaceId={ws.id} />
-            ) : (
-              <>
-                <GitBranch size={11} className="shrink-0" />
-                <span className="truncate">{ws.repos[0]?.branch ?? `${ws.slug} · no repositories yet`}</span>
-                <span className="opacity-50">·</span>
-                <span className="shrink-0">port {ws.port}</span>
-              </>
-            )}
-            {ws.jira && (
-              <span className="no-drag inline-flex items-center gap-1.5">
-                <span className="opacity-50">·</span>
-                <button className="inline-flex items-center gap-1 text-accent hover:underline" title={ws.jira.summary} onClick={() => void api.invoke('shell:openExternal', ws.jira!.url)}>
-                  {ws.jira.key} <ExternalLink size={10} />
-                </button>
-                <span className="rounded bg-panel-2 px-1.5 py-px text-[11px] text-text" title={ws.jiraStatusAt ? `Jira status, checked ${new Date(ws.jiraStatusAt).toLocaleTimeString()}` : 'Jira status'}>
-                  {ws.jiraStatus ?? '…'}
-                </span>
-                <IconButton label="Refresh Jira status" onClick={() => void refreshJira()}>
-                  <RefreshCw size={10} className={clsx(jiraRefreshing && 'animate-spin')} />
-                </IconButton>
-              </span>
-            )}
-            {ws.linear && (
-              <span className="no-drag inline-flex items-center gap-1.5">
-                <span className="opacity-50">·</span>
-                <button className="inline-flex items-center gap-1 text-accent hover:underline" title={ws.linear.title} onClick={() => void api.invoke('shell:openExternal', ws.linear!.url)}>
-                  {ws.linear.identifier} <ExternalLink size={10} />
-                </button>
-                <span className="rounded bg-panel-2 px-1.5 py-px text-[11px] text-text" title={ws.linearStatusAt ? `Linear state, checked ${new Date(ws.linearStatusAt).toLocaleTimeString()}` : 'Linear state'}>
-                  {ws.linearStatus ?? '…'}
-                </span>
-                <IconButton label="Refresh Linear state" onClick={() => void api.invoke('workspaces:refreshLinear', ws.id).catch((e) => setError(friendlyError(e)))}>
-                  <RefreshCw size={10} />
-                </IconButton>
-              </span>
-            )}
-          </div>
+            </span>
+          )}
         </div>
-        {guided && <SendForReviewButton ws={ws} />}
-        <div className="no-drag relative">
-          <IconButton
-            label="More actions"
-            aria-haspopup="menu"
-            aria-expanded={menu !== null}
-            className="p-1.5"
-            onClick={(e) => {
-              if (menu || Date.now() - menuClosedAt.current < 250) return setMenu(null)
-              const r = e.currentTarget.getBoundingClientRect()
-              setMenu({ x: r.right - 224, y: r.bottom + 4 })
-            }}
+        <div className="flex shrink-0 items-center gap-1.5">
+          <button
+            type="button"
+            className="no-drag inline-flex min-h-6 min-w-6 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-2 py-1 text-[12px] font-medium text-maestro transition-colors hover:bg-maestro/10"
+            onClick={() => void toggleMaestroDock()}
+            aria-label="Ask Maestro"
+            title={guided ? 'Ask Maestro about this task (⌘J)' : 'Ask Maestro about this workspace (⌘J)'}
+            aria-keyshortcuts="Meta+J"
           >
-            <MoreHorizontal size={16} />
-          </IconButton>
-          {menu && <ContextMenu x={menu.x} y={menu.y} label={guided ? 'Task actions' : 'Workspace actions'} entries={menuEntries} onClose={() => ((menuClosedAt.current = Date.now()), setMenu(null))} />}
+            <Sparkles size={13} aria-hidden className="hidden @max-[860px]:block" />
+            <span className="@max-[860px]:hidden">Ask Maestro</span> <kbd className="font-sans text-[11px] opacity-70 @max-[860px]:hidden">⌘J</kbd>
+          </button>
+          {!guided && <RunButton ws={ws} />}
+          {!guided && <PrButton ws={ws} />}
+          {guided && <SendForReviewButton ws={ws} />}
+          <div className="no-drag relative">
+            <IconButton
+              label="More actions"
+              aria-haspopup="menu"
+              aria-expanded={menu !== null}
+              className="p-1.5"
+              onClick={(e) => {
+                if (menu || Date.now() - menuClosedAt.current < 250) return setMenu(null)
+                const r = e.currentTarget.getBoundingClientRect()
+                setMenu({ x: r.right - 224, y: r.bottom + 4 })
+              }}
+            >
+              <MoreHorizontal size={16} />
+            </IconButton>
+            {menu && <ContextMenu x={menu.x} y={menu.y} label={guided ? 'Task actions' : 'Workspace actions'} entries={menuEntries} onClose={() => ((menuClosedAt.current = Date.now()), setMenu(null))} />}
+          </div>
         </div>
       </header>
 
-      <WorkspaceTabs workspaceId={ws.id} />
       {ws.status === 'error' && (
         <div role="alert" className="border-b border-danger/30 bg-danger/10 px-4 py-2 text-[12px] text-danger">
           {guided ? friendlyError(ws.error ?? '', 'This task could not be set up. Try starting it again, or ask a teammate.', true) : ws.error}
@@ -291,27 +283,11 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
       )}
       <HealthBanner workspaceId={ws.id} />
 
-      <div className="min-h-0 flex-1">
-        <div className={clsx('h-full', tab !== 'chat' && 'hidden')}>
-          {browserDock ? (
-            <ChatBrowserSplit workspaceId={ws.id} visible={tab === 'chat'} ratio={browserDockRatio} onRatio={setBrowserDockRatio} />
-          ) : (
-            <ChatPane workspaceId={ws.id} />
-          )}
-        </div>
-        <div className={clsx('h-full', tab !== 'code' && 'hidden')}>{tab === 'code' && <FilesPane workspaceId={ws.id} />}</div>
-        <div className={clsx('h-full', tab !== 'data' && 'hidden')}>{tab === 'data' && <DataPane workspaceId={ws.id} />}</div>
-        <div className={clsx('h-full', tab !== 'prs' && 'hidden')}>{tab === 'prs' && <PrsPane workspaceId={ws.id} />}</div>
-        <div className={clsx('h-full', tab !== 'terminal' && 'hidden')}>
-          {tab === 'terminal' && <TerminalPane workspaceId={ws.id} visible />}
-        </div>
-        <div className={clsx('h-full', tab !== 'run' && 'hidden')}>
-          <RunPane workspaceId={ws.id} />
-        </div>
-        <div className={clsx('h-full', (tab !== 'browser' || browserDock) && 'hidden')}>
-          {!browserDock && <BrowserPane workspaceId={ws.id} visible={tab === 'browser'} />}
-        </div>
-        {tab.startsWith('view:') && <WorkspaceViewTab workspaceId={ws.id} viewId={tab.slice(5)} />}
+      <div className="relative flex min-h-0 flex-1">
+        <section aria-label={guided ? 'Conversation with Maestro' : 'Conversation'} className="@container h-full min-w-[360px] flex-1">
+          <ChatPane workspaceId={ws.id} />
+        </section>
+        <WorkspaceInspector workspaceId={ws.id} renderView={(viewId) => <WorkspaceViewTab workspaceId={ws.id} viewId={viewId} />} />
       </div>
 
       {archiveDlg && <ArchiveDialog workspaceId={ws.id} name={title} mode={archiveDlg} guided={guided} onClose={() => setArchiveDlg(null)} />}
@@ -332,40 +308,183 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
   )
 }
 
-/** Chat on the left, the browser docked on the right, with a divider you can drag to rebalance. */
-function ChatBrowserSplit({ workspaceId, visible, ratio, onRatio }: { workspaceId: string; visible: boolean; ratio: number; onRatio: (r: number) => void }): React.JSX.Element {
-  const ref = useRef<HTMLDivElement>(null)
-  const [dragging, setDragging] = useState(false)
-  useEffect(() => {
-    if (!dragging) return
-    // The native browser page draws above the DOM and swallows pointer events; detach it while
-    // dragging so the divider tracks the cursor, then let it reattach at the new bounds on release.
-    void api.invoke('browser:suspend', true)
-    const onMove = (e: PointerEvent): void => {
-      const el = ref.current
-      if (!el) return
-      const r = el.getBoundingClientRect()
-      if (r.width > 0) onRatio(Math.min(0.8, Math.max(0.3, (e.clientX - r.left) / r.width)))
-    }
-    const onUp = (): void => setDragging(false)
-    window.addEventListener('pointermove', onMove)
-    window.addEventListener('pointerup', onUp)
-    return () => {
-      void api.invoke('browser:suspend', false)
-      window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerup', onUp)
-    }
-  }, [dragging, onRatio])
+/**
+ * What the workspace is doing right now, as a word: needs you, running, failed, setting up, archived. Nothing
+ * when it is simply idle; the stage next to it says where the work stands.
+ */
+function LiveStatus({ ws, guided }: { ws: Workspace; guided: boolean }): React.JSX.Element | null {
+  const busy = useChat((s) => s.chats[ws.id]?.busy ?? false)
+  const failed = useChat((s) => {
+    const c = s.chats[ws.id]
+    return Boolean(c && !c.busy && (c.error || c.lastResult?.isError))
+  })
+  const needsYou = useChat((s) => s.permissions.some((p) => p.workspaceId === ws.id) || s.questions.some((q) => q.workspaceId === ws.id))
+  const state: { tone: 'attn' | 'run' | 'danger' | 'idle'; text: string } | null =
+    ws.status === 'creating'
+      ? { tone: 'attn', text: guided ? 'Getting ready' : 'Setting up' }
+      : ws.status === 'error'
+        ? { tone: 'danger', text: guided ? 'Something went wrong' : 'Setup failed' }
+        : ws.status === 'archiving'
+          ? { tone: 'idle', text: guided ? 'Finishing' : 'Archiving' }
+          : ws.status === 'archived'
+            ? { tone: 'idle', text: guided ? 'Finished' : 'Archived' }
+            : needsYou
+              ? { tone: 'attn', text: guided ? 'Waiting for you' : 'Needs you' }
+              : busy
+                ? { tone: 'run', text: guided ? 'Working' : 'Running' }
+                : failed
+                  ? { tone: 'danger', text: guided ? 'Hit a problem' : 'Stopped with an error' }
+                  : null
+  if (!state) return null
   return (
-    <div ref={ref} className="flex h-full">
-      <div className="h-full min-w-0" style={{ width: `${Math.round(ratio * 100)}%` }}>
-        <ChatPane workspaceId={workspaceId} />
-      </div>
-      <div onPointerDown={() => setDragging(true)} className={clsx('relative z-10 w-1 shrink-0 cursor-col-resize bg-border transition-colors hover:bg-accent/60', dragging && 'bg-accent')} title="Drag to resize" />
-      <div className="h-full min-w-0 flex-1 border-l border-border">
-        <BrowserPane workspaceId={workspaceId} visible={visible} />
-      </div>
-    </div>
+    <span
+      role="status"
+      title={state.text}
+      className={clsx(
+        chipCls,
+        'min-w-[28px] shrink',
+        state.tone === 'attn' && 'bg-warn/15 text-warn',
+        state.tone === 'run' && 'bg-accent/15 text-accent',
+        state.tone === 'danger' && 'bg-danger/15 text-danger',
+        state.tone === 'idle' && 'bg-panel-2 text-muted'
+      )}
+    >
+      <span aria-hidden className={clsx('h-1.5 w-1.5 shrink-0 rounded-full', state.tone === 'attn' ? 'bg-warn' : state.tone === 'run' ? 'animate-pulse bg-accent' : state.tone === 'danger' ? 'bg-danger' : 'bg-muted')} />
+      <span className="truncate">{state.text}</span>
+    </span>
+  )
+}
+
+/** The ticket this workspace is for, with its status; opens the ticket. Refreshing lives in the ⋯ menu. */
+function TicketChip({ id, title, url, status, checkedAt, kind }: { id: string; title: string; url: string; status?: string; checkedAt?: string; kind: string }): React.JSX.Element {
+  return (
+    <button
+      className={clsx(chipCls, 'no-drag min-w-0 shrink border border-border bg-panel text-text hover:bg-panel-2 @max-[1180px]:hidden')}
+      title={`${title}${checkedAt ? ` · ${kind}, checked ${new Date(checkedAt).toLocaleTimeString()}` : ''}. Opens in the browser.`}
+      onClick={() => void api.invoke('shell:openExternal', url)}
+    >
+      <span className="shrink-0">{id}</span>
+      {status && <span className="truncate text-muted">· {status}</span>}
+      <ExternalLink size={10} className="opacity-60" aria-hidden />
+    </button>
+  )
+}
+
+/**
+ * Run · :port. Starts every repository's run script and shows the app in Preview; while it runs, the button
+ * opens Preview and a second button stops it. With no run script anywhere it opens the scripts, which explain
+ * how to add one.
+ */
+function RunButton({ ws }: { ws: Workspace }): React.JSX.Element {
+  const runs = useScripts((s) => s.runs)
+  const repos = useApp((s) => s.repos)
+  const setTab = useApp((s) => s.setTab)
+  const setError = useApp((s) => s.setError)
+  const running = ws.repos.some((r) => runs[`${ws.id}:${r.repoId}:run`]?.running)
+  const hasScript = ws.repos.some((r) => Boolean(repos.find((x) => x.id === r.repoId)?.config?.scripts?.run))
+  const ready = ws.status === 'ready'
+  const showPreview = async (): Promise<void> => {
+    const st = await api.invoke('browser:state', ws.id).catch(() => null)
+    if (!st?.tabs.length) await api.invoke('browser:open', ws.id, previewUrlFor(ws))
+    setTab('browser')
+  }
+  const start = async (): Promise<void> => {
+    try {
+      if (!hasScript) {
+        setTab('run')
+        return
+      }
+      await api.invoke('workspaces:runScript', ws.id, 'run')
+      setTab('browser')
+      // Give the server a moment to bind before the first load; Preview has a reload button.
+      window.setTimeout(() => void showPreview().catch(() => undefined), 1500)
+    } catch (err) {
+      setError(friendlyError(err))
+    }
+  }
+  if (running) {
+    return (
+      <span className="inline-flex items-center">
+        <Button size="sm" variant="ghost" className="rounded-r-none" onClick={() => void showPreview().catch((e) => setError(friendlyError(e)))} aria-label={`Running on port ${ws.port}: show it in Preview`} title={`Running on port ${ws.port}. Show it in Preview.`}>
+          <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-ok" />
+          <Globe size={12} aria-hidden className="hidden @max-[860px]:block" />
+          <span className="@max-[860px]:hidden">Running · :{ws.port}</span>
+        </Button>
+        <IconButton label="Stop the run scripts" className="h-[26px] rounded-l-none hover:text-danger" onClick={() => void api.invoke('workspaces:stopScript', ws.id, 'run').catch((e) => setError(friendlyError(e)))}>
+          <Square size={11} />
+        </IconButton>
+      </span>
+    )
+  }
+  return (
+    <Button size="sm" variant="ghost" disabled={!ready} onClick={() => void start()} aria-label={`Run on port ${ws.port}`} title={hasScript ? `Run: start the run script of every repository on port ${ws.port} and open Preview` : 'Run: no run script yet, see how to add one'}>
+      <Play size={12} aria-hidden /> <span className="@max-[860px]:hidden">Run · :{ws.port}</span>
+    </Button>
+  )
+}
+
+/**
+ * Open PRs, or the pull requests' state once they exist. One repository opens the pull request dialog right
+ * away; several go to Checks, where each repository has its own.
+ */
+function PrButton({ ws }: { ws: Workspace }): React.JSX.Element | null {
+  const prs = useGithub((s) => s.byWorkspace[ws.id]?.repos)
+  const refresh = useGithub((s) => s.refresh)
+  const setTab = useApp((s) => s.setTab)
+  const notify = useApp((s) => s.notify)
+  const [dlg, setDlg] = useState(false)
+  const fetched = useGithub((s) => Boolean(s.byWorkspace[ws.id]?.fetchedAt))
+  const withPr = useMemo(() => (prs ?? []).filter((p) => p.pr), [prs])
+  if (ws.repos.length === 0) return null
+  // Until GitHub has answered (or when it could not), don't guess: the button just leads to Checks.
+  if (!fetched || (prs ?? []).some((p) => p.error)) {
+    return (
+      <Button size="sm" variant="ghost" onClick={() => setTab('prs')} aria-label="Pull requests" title="Pull requests, checks and review comments">
+        <GitPullRequest size={12} aria-hidden /> <span className="@max-[860px]:hidden">Pull requests</span>
+      </Button>
+    )
+  }
+  const missing = ws.repos.filter((r) => !withPr.some((p) => p.repoId === r.repoId))
+  if (withPr.length === 0 || missing.length > 0) {
+    const n = missing.length
+    const label = withPr.length ? `Open ${n} more PR${n === 1 ? '' : 's'}` : n === 1 ? 'Open PR' : `Open ${n} PRs`
+    return (
+      <>
+        <Button
+          size="sm"
+          disabled={ws.status !== 'ready'}
+          onClick={() => (n === 1 ? setDlg(true) : setTab('prs'))}
+          aria-label={label}
+          title={n === 1 ? `${label}: a pull request for ${missing[0].repoName}` : `${label}: one per repository, in Checks`}
+        >
+          <GitPullRequest size={12} aria-hidden /> <span className="@max-[860px]:hidden">{label}</span>
+        </Button>
+        {dlg && missing[0] && (
+          <PrDialog
+            onClose={() => setDlg(false)}
+            defaultTitle={ws.jira ? `${ws.jira.key}: ${ws.jira.summary}` : ws.linear ? `${ws.linear.identifier}: ${ws.linear.title}` : ws.name}
+            hint="The ticket link and the sibling branches of this workspace are appended automatically."
+            onSubmit={async (t, b) => {
+              const out = await api.invoke('git:createPr', ws.id, missing[0].repoId, t, b)
+              const url = /https?:\/\/\S+/.exec(out ?? '')?.[0]
+              notify({ kind: 'success', text: 'Pull request opened', link: url ? { label: 'View on GitHub', url } : undefined })
+              void refresh(ws.id)
+            }}
+          />
+        )}
+      </>
+    )
+  }
+  const open = withPr.filter((p) => p.pr!.state === 'OPEN')
+  const failing = open.some((p) => p.pr!.checks.some((c) => c.status === 'failure'))
+  const changes = open.some((p) => p.pr!.reviewDecision === 'CHANGES_REQUESTED' || p.threads.some((t) => !t.isResolved))
+  const merged = withPr.every((p) => p.pr!.state === 'MERGED')
+  const text = merged ? 'Merged' : failing ? 'Checks failing' : changes ? 'Changes requested' : open.length ? (withPr.length === 1 ? `PR #${withPr[0].pr!.number}` : `${open.length} PRs open`) : 'PRs closed'
+  return (
+    <Button size="sm" variant="ghost" onClick={() => setTab('prs')} aria-label={text} title={`${text}: pull requests, checks and review comments`}>
+      <span aria-hidden className={clsx('h-1.5 w-1.5 rounded-full', merged ? 'bg-accent' : failing ? 'bg-danger' : changes ? 'bg-warn' : open.length ? 'bg-ok' : 'bg-muted')} />
+      <GitPullRequest size={12} aria-hidden /> <span className="@max-[860px]:hidden">{text}</span>
+    </Button>
   )
 }
 

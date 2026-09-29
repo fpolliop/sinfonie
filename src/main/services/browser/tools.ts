@@ -89,7 +89,7 @@ const DEFS: Def[] = [
   {
     name: 'browser_screenshot',
     kind: 'read',
-    description: 'JPEG screenshot of the visible viewport, so you can see layout, images and visual bugs. Only works while the workspace Browser tab is on screen; use browser_snapshot for structure.',
+    description: 'JPEG screenshot of the visible viewport, so you can see layout, images and visual bugs. Only works while the workspace Preview tab is on screen; use browser_snapshot for structure.',
     shape: { ...tabIdArg },
     run: (ws, i) => browser.agentOp(ws, async (tab) => ({ text: `Screenshot of ${tab.title()} ${tab.url()}`, image: await tab.screenshot() }), i.tab_id as string | undefined)
   },

@@ -223,7 +223,7 @@ export class BrowserTab {
   async screenshot(): Promise<Shot> {
     const img = await this.wc.capturePage()
     const size = img.getSize()
-    if (size.width === 0 || size.height === 0) throw new Error('The browser pane is not on screen, so there is nothing to capture. The Browser tab of this workspace must be visible for screenshots; snapshots work regardless.')
+    if (size.width === 0 || size.height === 0) throw new Error('The browser pane is not on screen, so there is nothing to capture. The Preview tab of this workspace must be visible for screenshots; snapshots work regardless.')
     const scaled = size.width > 1280 ? img.resize({ width: 1280 }) : img
     const s = scaled.getSize()
     return { data: scaled.toJPEG(72).toString('base64'), mimeType: 'image/jpeg', width: s.width, height: s.height }

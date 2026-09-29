@@ -19,7 +19,7 @@ const isMarkdown = (path: string): boolean => /\.(md|markdown)$/i.test(path)
 const STATUS_WORDS: Record<string, string> = { M: 'Modified', A: 'Added', D: 'Deleted', R: 'Renamed', C: 'Copied', U: 'Conflicted', '?': 'New, not tracked yet' }
 
 /**
- * Code tab: the worktrees as a tree with git status, an editor with inline suggestions and change
+ * Changes › All files: the worktrees as a tree with git status, an editor with inline suggestions and change
  * markers against the committed version, the diff of a changed file, and commit/push/PR for the repo.
  */
 export function FilesPane({ workspaceId }: { workspaceId: string }): React.JSX.Element {
@@ -295,7 +295,7 @@ export function FilesPane({ workspaceId }: { workspaceId: string }): React.JSX.E
 
   return (
     <div className="flex h-full">
-      <aside className="flex w-[320px] shrink-0 flex-col border-r border-border">
+      <aside className="flex w-[320px] min-w-[180px] max-w-[45%] shrink-0 flex-col border-r border-border">
         <div className="flex items-center gap-1 border-b border-border px-2 py-1.5">
           <input className="min-w-0 flex-1 rounded-md border border-border bg-bg px-2 py-1 text-[12px] outline-none focus:border-accent" placeholder="Filter loaded files…" value={filter} onChange={(e) => setFilter(e.target.value)} />
           <IconButton className={clsx(changedOnly && 'text-warn')} aria-pressed={changedOnly} label={changedOnly ? 'Show every file' : 'Show changed files only'} onClick={() => setChangedOnly(!changedOnly)}>
@@ -327,7 +327,7 @@ export function FilesPane({ workspaceId }: { workspaceId: string }): React.JSX.E
           ))}
         </div>
         {actionRoot && actionRoot.id !== 'root' && (
-          <div className="flex items-center gap-1 border-t border-border px-2 py-1.5">
+          <div className="flex flex-wrap items-center gap-1 border-t border-border px-2 py-1.5">
             <span className="mr-auto truncate text-[11px] text-muted" title={actionRoot.path}>
               {actionRoot.label}
               {changedIn(actionRoot.path) ? ` · ${changedIn(actionRoot.path)} changed` : ''}

@@ -15,8 +15,12 @@ export interface Notice {
   /** A button that opens a web page (e.g. the pull request just opened). */
   link?: { label: string; url: string }
 }
-/** A generated view tab is `view:<id>`. */
-export type Tab = 'chat' | 'code' | 'prs' | 'terminal' | 'run' | 'browser' | 'data' | `view:${string}`
+/**
+ * The workspace's side panel (the inspector beside the conversation): changes, files, preview, checks, terminal,
+ * run scripts, data, or a generated view. 'chat' is kept for callers that ask to "show the conversation": the
+ * conversation is always on screen, so it changes nothing. A generated view tab is `view:<id>`.
+ */
+export type Tab = 'chat' | 'changes' | 'code' | 'prs' | 'terminal' | 'run' | 'browser' | 'data' | `view:${string}`
 export type AppPage = 'preferences' | 'general' | 'spaces' | 'repos' | 'providers' | 'accounts' | 'logins' | 'crew' | 'resources' | 'usage' | 'oncall' | 'mcp' | 'jira' | 'linear' | 'slack' | 'gcp' | 'integrations' | 'feedback' | 'phone' | 'plan' | 'about'
 export type SpacePage = 'general' | 'repos' | 'crew' | 'oncall' | 'mcp' | 'jira' | 'linear' | 'slack' | 'gcp' | 'databases' | 'github'
 export type SettingsTarget = { scope: 'app'; page: AppPage } | { scope: 'space'; spaceId: string; page: SpacePage }
@@ -54,12 +58,14 @@ interface AppState {
   /** The Home page view on screen (a generated view id). */
   homeViewId: string | null
   setHomeViewId: (id: string | null) => void
-  /** Show the browser docked beside the chat in the same view, instead of only as its own tab. */
-  browserDock: boolean
-  setBrowserDock: (v: boolean) => void
-  /** Fraction of the width the chat keeps when the browser is docked beside it (0.3–0.8). */
-  browserDockRatio: number
-  setBrowserDockRatio: (r: number) => void
+  /** The workspace's side panel is expanded (collapsed, it is a thin rail of tab icons). */
+  inspectorOpen: boolean
+  setInspectorOpen: (v: boolean) => void
+  /** Bumped whenever a panel tab is asked for, so a panel folded for lack of room can show itself over the chat. */
+  inspectorReveal: number
+  /** The side panel's width in px; the conversation keeps the rest. */
+  inspectorWidth: number
+  setInspectorWidth: (w: number) => void
   /** The agent library, mirrored from main. */
   agents: AgentSpec[]
   setAgents: (a: AgentSpec[]) => void
@@ -119,6 +125,27 @@ interface AppState {
   setError: (e: string | null) => void
   setBranchPrompt: (p: AppState['branchPrompt']) => void
 }
+
+/** localStorage can be unavailable or full; a preference that cannot be read or saved just uses its default. */
+function readLocal(key: string): string | null {
+  try {
+    return localStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+function writeLocal(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value)
+  } catch {
+    /* the preference lasts for this session only */
+  }
+}
+/** The side panel's width limits; the conversation also keeps a minimum, enforced by the layout. */
+export const INSPECTOR_MIN = 360
+export const INSPECTOR_MAX = 1100
+export const INSPECTOR_DEFAULT = 560
+const clampInspector = (w: number): number => Math.min(INSPECTOR_MAX, Math.max(INSPECTOR_MIN, Math.round(w)))
 
 export const useApp = create<AppState>((set, get) => ({
   loaded: false,
@@ -214,7 +241,7 @@ export const useApp = create<AppState>((set, get) => ({
   openAgentId: null,
   setOpenAgentId: (openAgentId) => set({ openAgentId }),
   selectedId: localStorage.getItem('orchestra.selected'),
-  tab: 'chat',
+  tab: (readLocal('sinfonie.inspector.tab') as Tab | null) ?? 'changes',
   homeViewId: localStorage.getItem('sinfonie.homeView'),
   setHomeViewId: (homeViewId) => {
     if (homeViewId) localStorage.setItem('sinfonie.homeView', homeViewId)
@@ -274,21 +301,30 @@ export const useApp = create<AppState>((set, get) => ({
       localStorage.setItem('orchestra.activeSpace', sid)
       set({ newWorkspaceSpaceId: sid, activeSpaceId: sid })
     }
-    set({ selectedId: id, tab: 'chat', view: 'workspace' })
+    // The side panel keeps its tab from one workspace to the next; the conversation is always beside it.
+    set({ selectedId: id, view: 'workspace' })
   },
   setView: (view) => {
     set({ view })
   },
-  setTab: (tab) => set({ tab }),
-  browserDock: localStorage.getItem('orchestra.browserDock') === '1',
-  setBrowserDock: (browserDock) => {
-    localStorage.setItem('orchestra.browserDock', browserDock ? '1' : '0')
-    set({ browserDock })
+  // Asking for a panel tab also expands the panel, so whoever asked sees it. 'chat' is always on screen already.
+  setTab: (tab) => {
+    if (tab === 'chat') return
+    writeLocal('sinfonie.inspector.tab', tab)
+    writeLocal('sinfonie.inspector.open', '1')
+    set((s) => ({ tab, inspectorOpen: true, inspectorReveal: s.inspectorReveal + 1 }))
   },
-  browserDockRatio: Number(localStorage.getItem('orchestra.browserDockRatio')) || 0.55,
-  setBrowserDockRatio: (browserDockRatio) => {
-    localStorage.setItem('orchestra.browserDockRatio', String(browserDockRatio))
-    set({ browserDockRatio })
+  inspectorReveal: 0,
+  inspectorOpen: readLocal('sinfonie.inspector.open') !== '0',
+  setInspectorOpen: (inspectorOpen) => {
+    writeLocal('sinfonie.inspector.open', inspectorOpen ? '1' : '0')
+    set({ inspectorOpen })
+  },
+  inspectorWidth: clampInspector(Number(readLocal('sinfonie.inspector.width')) || INSPECTOR_DEFAULT),
+  setInspectorWidth: (w) => {
+    const inspectorWidth = clampInspector(w)
+    writeLocal('sinfonie.inspector.width', String(inspectorWidth))
+    set({ inspectorWidth })
   },
   newWorkspaceSeed: null,
   setNewWorkspaceSeed: (newWorkspaceSeed) => set({ newWorkspaceSeed }),
