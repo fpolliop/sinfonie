@@ -31,6 +31,8 @@ interface ChatState {
   chats: Record<string, WorkspaceChat>
   permissions: PermissionRequest[]
   questions: QuestionRequest[]
+  /** When each pending permission or question arrived (ms), by request id, so lists can say how long it has waited. */
+  promptSeenAt: Record<string, number>
   /** Workspaces whose turn ended while not on screen; cleared when opened. */
   unseenDone: Record<string, true>
   markSeen: (workspaceId: string) => void
@@ -59,6 +61,12 @@ interface ChatState {
 }
 
 let subscribed = false
+const withoutKey = (m: Record<string, number>, key: string): Record<string, number> => {
+  if (!(key in m)) return m
+  const next = { ...m }
+  delete next[key]
+  return next
+}
 const empty = (): WorkspaceChat => ({ items: [], loaded: false, busy: false, draft: '', images: [], queue: [] })
 
 function updateChat(state: ChatState, id: string, fn: (c: WorkspaceChat) => WorkspaceChat): Partial<ChatState> {
@@ -71,6 +79,7 @@ export const useChat = create<ChatState>((set, get) => ({
   chats: {},
   permissions: [],
   questions: [],
+  promptSeenAt: {},
   unseenDone: {},
   markSeen: (id) =>
     set((s) => {
@@ -82,7 +91,7 @@ export const useChat = create<ChatState>((set, get) => ({
   answerQuestion: async (response) => {
     // The card stays until main has the answer, so a failed send can be retried without retyping.
     await api.invoke('agent:answerQuestion', response)
-    set((s) => ({ questions: s.questions.filter((q) => q.requestId !== response.requestId) }))
+    set((s) => ({ questions: s.questions.filter((q) => q.requestId !== response.requestId), promptSeenAt: withoutKey(s.promptSeenAt, response.requestId) }))
   },
   ensure: (id) => get().chats[id] ?? empty(),
 
@@ -147,7 +156,7 @@ export const useChat = create<ChatState>((set, get) => ({
   setDraft: (id, draft) => set((s) => updateChat(s, id, (c) => ({ ...c, draft }))),
 
   answerPermission: async (requestId, decision) => {
-    set((s) => ({ permissions: s.permissions.filter((p) => p.requestId !== requestId) }))
+    set((s) => ({ permissions: s.permissions.filter((p) => p.requestId !== requestId), promptSeenAt: withoutKey(s.promptSeenAt, requestId) }))
     await api.invoke('agent:permission', { requestId, decision })
   },
 
@@ -218,9 +227,9 @@ export const useChat = create<ChatState>((set, get) => ({
     api.on('agent:event', (e) => get().handleEvent(e))
     // Browser-tool approvals are shown inline on the Browser pane (which is brought forward first),
     // so they skip this global modal — it would render behind the native page and double up the prompt.
-    api.on('agent:permission', (p) => set((s) => (/browser/.test(p.toolName) ? s : { permissions: [...s.permissions, p] })))
-    api.on('agent:question', (q) => set((s) => ({ questions: [...s.questions, q] })))
+    api.on('agent:permission', (p) => set((s) => (/browser/.test(p.toolName) ? s : { permissions: [...s.permissions, p], promptSeenAt: { ...s.promptSeenAt, [p.requestId]: Date.now() } })))
+    api.on('agent:question', (q) => set((s) => ({ questions: [...s.questions, q], promptSeenAt: { ...s.promptSeenAt, [q.requestId]: Date.now() } })))
     // Answered elsewhere (the phone): drop the card here too.
-    api.on('agent:promptResolved', ({ requestId }) => set((s) => ({ permissions: s.permissions.filter((p) => p.requestId !== requestId), questions: s.questions.filter((q) => q.requestId !== requestId) })))
+    api.on('agent:promptResolved', ({ requestId }) => set((s) => ({ permissions: s.permissions.filter((p) => p.requestId !== requestId), questions: s.questions.filter((q) => q.requestId !== requestId), promptSeenAt: withoutKey(s.promptSeenAt, requestId) })))
   }
 }))

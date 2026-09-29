@@ -1124,10 +1124,18 @@ export function noteStatuses(custom: NoteStatusDef[] | undefined): NoteStatusDef
   return [BUILTIN_NOTE_STATUSES[0], BUILTIN_NOTE_STATUSES[1], ...own, BUILTIN_NOTE_STATUSES[2]]
 }
 export type NotePriority = 'low' | 'medium' | 'high'
+/**
+ * What a note is. A decision records something decided ("Legacy tiers keep the 2023 table until Q1");
+ * a rule is a standing instruction from a person ("Staging migrations are fine; production needs a person").
+ * Decisions and rules are what Maestro and agents answer and act with. Older data only has note and todo.
+ */
+export type NoteKind = 'note' | 'todo' | 'decision' | 'rule'
+/** Decisions and rules: the notes Maestro answers and acts with. */
+export const isStandingNote = (n: Pick<Note, 'kind'>): boolean => n.kind === 'decision' || n.kind === 'rule'
 export interface Note {
   id: string
   text: string
-  kind: 'note' | 'todo'
+  kind: NoteKind
   /** Kept in step with status === 'done' for older readers. */
   done: boolean
   /** Todos only: to do, in progress, done. Absent means to do (or done when `done`). */
@@ -1152,7 +1160,8 @@ export type NoteScope = 'workspace' | 'space' | 'app'
 export interface NotesFilter {
   owners?: string[]
   source?: Note['source']
-  kind?: Note['kind']
+  /** A kind, or "standing" for decisions and rules together. */
+  kind?: Note['kind'] | 'standing'
   openOnly?: boolean
   /** ISO date; notes created at or after it. */
   since?: string

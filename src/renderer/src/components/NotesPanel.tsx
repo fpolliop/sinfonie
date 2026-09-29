@@ -1,13 +1,63 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import clsx from 'clsx'
-import { Bot, Check, ChevronDown, ChevronRight, MessageSquareShare, StickyNote, Trash2, X } from 'lucide-react'
+import { Bot, Check, ChevronDown, ChevronRight, MessageSquareShare, Scale, ShieldCheck, StickyNote, Trash2, X } from 'lucide-react'
 import { useNotes } from '@/stores/notes'
 import { useChat } from '@/stores/chat'
 import { useApp } from '@/stores/app'
-import { noteStatuses, type Note, type NotePatch } from '@shared/types'
+import { isStandingNote, noteStatuses, type Note, type NotePatch } from '@shared/types'
 import { IconButton } from './ui'
 
 const EMPTY: Note[] = []
+
+/** The four kinds, in picker order, with what the composer asks for. Shared with the Notes view. */
+export const NOTE_KINDS: { id: Note['kind']; label: string; placeholder: string }[] = [
+  { id: 'todo', label: 'Todo', placeholder: 'Something to do… (Enter adds)' },
+  { id: 'note', label: 'Note', placeholder: 'A note to keep… (Enter adds)' },
+  { id: 'decision', label: 'Decision', placeholder: 'Something decided, e.g. legacy tiers keep the 2023 table until Q1 (Enter adds)' },
+  { id: 'rule', label: 'Rule', placeholder: 'A standing rule, e.g. staging changes are fine; production needs a person (Enter adds)' }
+]
+
+/**
+ * A leading "[] " or "- [ ] " means todo, "# " or "note:" note, "decision:" decision, "rule:" rule;
+ * otherwise the picked kind decides. Returns the kind and the text without the prefix.
+ */
+export function parseNoteInput(t: string, picked: Note['kind']): { kind: Note['kind']; text: string } {
+  const m = /^(\[\s?\]|-\s\[\s?\]|note:|#|decision:|rule:)\s*/i.exec(t)
+  if (!m) return { kind: picked, text: t }
+  const p = m[1].toLowerCase()
+  const kind: Note['kind'] = p === 'decision:' ? 'decision' : p === 'rule:' ? 'rule' : p === 'note:' || p === '#' ? 'note' : 'todo'
+  return { kind, text: t.slice(m[0].length) }
+}
+
+/** The kind picker under a composer: one button per kind, Tab-reachable, pressed state announced. */
+export function KindPicker({ value, onChange }: { value: Note['kind']; onChange: (k: Note['kind']) => void }): React.JSX.Element {
+  return (
+    <div role="group" aria-label="Kind" className="flex items-center gap-1">
+      {NOTE_KINDS.map((k) => (
+        <button
+          key={k.id}
+          type="button"
+          aria-pressed={value === k.id}
+          onClick={() => onChange(k.id)}
+          className={clsx('rounded-md px-1.5 py-0.5 text-[11px]', value === k.id ? (k.id === 'decision' || k.id === 'rule' ? 'bg-maestro/15 text-maestro' : 'bg-panel-2 text-text') : 'text-muted hover:text-text')}
+        >
+          {k.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/** "Decision" or "Rule", in Maestro's colour: these are what Maestro answers and acts with. */
+export function KindChip({ kind }: { kind: Note['kind'] }): React.JSX.Element | null {
+  if (kind !== 'decision' && kind !== 'rule') return null
+  return (
+    <span className="inline-flex items-center gap-0.5 rounded bg-maestro/15 px-1 text-[11px] font-medium text-maestro">
+      {kind === 'rule' ? <ShieldCheck size={10} /> : <Scale size={10} />}
+      {kind === 'rule' ? 'Rule' : 'Decision'}
+    </span>
+  )
+}
 
 /** Notes, reminders and todos for one workspace. The orchestrator sees and edits the same list. */
 export function NotesPanel({ workspaceId, onClose }: { workspaceId: string; onClose: () => void }): React.JSX.Element {
@@ -47,15 +97,15 @@ export function NotesPanel({ workspaceId, onClose }: { workspaceId: string; onCl
   const visible = useMemo(() => notes.filter((n) => !hiding.has(n.id)), [notes, hiding])
   const open = useMemo(() => visible.filter((n) => n.kind === 'todo' && !n.done), [visible])
   const plain = useMemo(() => visible.filter((n) => n.kind === 'note'), [visible])
+  // Rules first, then decisions, newest first.
+  const standing = useMemo(() => visible.filter(isStandingNote).sort((a, b) => (a.kind === b.kind ? b.createdAt.localeCompare(a.createdAt) : a.kind === 'rule' ? -1 : 1)), [visible])
   const done = useMemo(() => visible.filter((n) => n.kind === 'todo' && n.done), [visible])
   const submit = (): void => {
     const t = text.trim()
     if (!t) return
-    // A leading "[] " or "- [ ] " means todo, "# " or "note:" means note; otherwise the toggle decides.
-    const asTodo = /^(\[\s?\]|-\s\[\s?\])\s*/.test(t)
-    const asNote = /^(note:|#)\s*/i.test(t)
-    const clean = t.replace(/^(\[\s?\]|-\s\[\s?\]|note:|#)\s*/i, '')
-    go(() => add(workspaceId, clean, asTodo ? 'todo' : asNote ? 'note' : kind))
+    const parsed = parseNoteInput(t, kind)
+    if (!parsed.text.trim()) return
+    go(() => add(workspaceId, parsed.text, parsed.kind))
     setText('')
   }
   return (
@@ -76,7 +126,7 @@ export function NotesPanel({ workspaceId, onClose }: { workspaceId: string; onCl
           <textarea
             value={text}
             rows={2}
-            placeholder={kind === 'todo' ? 'Something to do later… (Enter adds)' : 'A note to keep… (Enter adds)'}
+            placeholder={NOTE_KINDS.find((k) => k.id === kind)?.placeholder}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
@@ -87,12 +137,8 @@ export function NotesPanel({ workspaceId, onClose }: { workspaceId: string; onCl
             className="w-full resize-none bg-transparent px-2.5 pt-2 text-[12px] outline-none placeholder:text-muted"
           />
           <div className="flex items-center gap-1 px-1.5 pb-1.5">
-            {(['todo', 'note'] as const).map((k) => (
-              <button key={k} onClick={() => setKind(k)} className={clsx('rounded-md px-1.5 py-0.5 text-[11px]', kind === k ? 'bg-panel-2 text-text' : 'text-muted hover:text-text')}>
-                {k === 'todo' ? 'Todo' : 'Note'}
-              </button>
-            ))}
-            <span className="ml-auto text-[11px] text-muted">The agent reads these and can add its own.</span>
+            <KindPicker value={kind} onChange={setKind} />
+            <span className="ml-auto truncate text-[11px] text-muted">{kind === 'rule' ? 'Agents and Maestro follow rules.' : kind === 'decision' ? 'Agents and Maestro build on decisions.' : 'The agent reads these and can add its own.'}</span>
           </div>
         </div>
       </div>
@@ -103,6 +149,13 @@ export function NotesPanel({ workspaceId, onClose }: { workspaceId: string; onCl
           </div>
         )}
         {open.length > 0 && <Section title="To do">{open.map((n) => <Row key={n.id} note={n} workspaceId={workspaceId} onUpdate={(p) => go(() => update(workspaceId, n.id, p))} onRemove={() => removeLater(n)} />)}</Section>}
+        {standing.length > 0 && (
+          <Section title="Decisions and rules" hint="Maestro answers and acts with these." maestro>
+            {standing.map((n) => (
+              <Row key={n.id} note={n} workspaceId={workspaceId} onUpdate={(p) => go(() => update(workspaceId, n.id, p))} onRemove={() => removeLater(n)} />
+            ))}
+          </Section>
+        )}
         {plain.length > 0 && <Section title="Notes">{plain.map((n) => <Row key={n.id} note={n} workspaceId={workspaceId} onUpdate={(p) => go(() => update(workspaceId, n.id, p))} onRemove={() => removeLater(n)} />)}</Section>}
         {done.length > 0 && (
           <div className="mt-2">
@@ -117,10 +170,11 @@ export function NotesPanel({ workspaceId, onClose }: { workspaceId: string; onCl
   )
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }): React.JSX.Element {
+function Section({ title, hint, maestro, children }: { title: string; hint?: string; maestro?: boolean; children: React.ReactNode }): React.JSX.Element {
   return (
     <div className="mb-2">
-      <div className="px-1 text-[11px] font-medium uppercase tracking-wide text-muted">{title}</div>
+      <div className={clsx('px-1 text-[11px] font-medium uppercase tracking-wide', maestro ? 'text-maestro' : 'text-muted')}>{title}</div>
+      {hint && <div className="px-1 text-[11px] text-muted">{hint}</div>}
       <div className="mt-1 flex flex-col gap-1">{children}</div>
     </div>
   )
@@ -138,8 +192,10 @@ export function Row({ note, workspaceId, onUpdate, onRemove }: { note: Note; wor
     else setDraft(note.text)
   }
   return (
-    <div className={clsx('group flex items-start gap-2 rounded-md border px-2 py-1.5 text-[12px]', note.done ? 'border-transparent opacity-60' : 'border-border bg-bg/40')}>
-      {note.kind === 'todo' ? (
+    <div className={clsx('group flex items-start gap-2 rounded-md border px-2 py-1.5 text-[12px]', isStandingNote(note) ? 'border-maestro/30 bg-maestro/10' : note.done ? 'border-transparent opacity-60' : 'border-border bg-bg/40')}>
+      {isStandingNote(note) ? (
+        note.kind === 'rule' ? <ShieldCheck size={13} className="mt-0.5 shrink-0 text-maestro" /> : <Scale size={13} className="mt-0.5 shrink-0 text-maestro" />
+      ) : note.kind === 'todo' ? (
         <button onClick={() => onUpdate({ done: !note.done })} className={clsx('mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border', note.done ? 'border-ok bg-ok/20 text-ok' : 'border-muted hover:border-accent')} title={note.done ? 'Mark not done' : 'Mark done'}>
           {note.done && <Check size={9} />}
         </button>
@@ -172,6 +228,7 @@ export function Row({ note, workspaceId, onUpdate, onRemove }: { note: Note; wor
           </div>
         )}
         <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted">
+          <KindChip kind={note.kind} />
           {note.source === 'agent' && (
             <span className="inline-flex items-center gap-0.5 rounded bg-accent/10 px-1 text-accent" title="Added by the agent">
               <Bot size={9} /> agent

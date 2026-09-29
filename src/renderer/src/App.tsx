@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { useApp, spaceOrder } from '@/stores/app'
+import { useApp, spaceScope } from '@/stores/app'
 import { useChat } from '@/stores/chat'
 import { useScripts } from '@/stores/scripts'
 import { Sidebar } from './components/Sidebar'
@@ -24,6 +24,7 @@ import { MaestroSide } from './components/maestro/MaestroSide'
 import { Rail } from './components/Rail'
 import { ReviewSwitch } from './components/ReviewSwitch'
 import { MaestroHome } from './components/maestro/MaestroHome'
+import { MissionControl, useHasMissionControl, useListsFirstPrompt } from './components/MissionControl'
 import { findView } from '@/lib/views'
 import { useMaestro, openMaestro, toggleMaestroDock } from './stores/maestro'
 import { SetupWizard } from './components/onboarding/SetupWizard'
@@ -153,8 +154,7 @@ export default function App(): React.JSX.Element {
         stepSpace(e.key === 'ArrowRight' ? 1 : -1)
       }
       if (e.ctrlKey && !e.metaKey && /^[1-9]$/.test(e.key)) {
-        const { spaces, workspaces } = useApp.getState()
-        const ids = spaceOrder(spaces.map((s) => s.id), workspaces.some((w) => w.status !== 'archived' && !w.spaceId))
+        const { ids } = spaceScope(useApp.getState())
         const target = ids[Number(e.key) - 1]
         if (target !== undefined) {
           e.preventDefault()
@@ -167,6 +167,10 @@ export default function App(): React.JSX.Element {
   }, [setShowNewWorkspace, setShowSettings, stepSpace, setActiveSpace, setFeedbackDialog, setAssistantOpen])
 
   const guided = useGuided()
+  const hasMissionControl = useHasMissionControl()
+  const missionControl = view === 'workspace' && !selectedId && hasMissionControl
+  // Mission control answers prompts inline, so the modal steps aside there for prompts it lists (real workspaces).
+  const inlinePrompt = useListsFirstPrompt()
   const dockOpen = useMaestro((s) => s.open)
   const dockWidth = useMaestro((s) => s.width)
   useEffect(() => {
@@ -189,13 +193,13 @@ export default function App(): React.JSX.Element {
       {(view === 'workspace' || view === 'agents') && <Sidebar />}
       <main className="flex min-w-0 flex-1 flex-col">
         {view === 'reviews' || view === 'oncall' ? <ReviewSwitch /> : null}
-        {view === 'reviews' ? <ReviewCockpit /> : view === 'oncall' ? <OnCallView /> : view === 'agents' ? <AgentsView /> : view === 'notes' ? <NotesView /> : view === 'maestro' ? <MaestroHome tab="maestro" /> : view === 'home' ? <MaestroHome tab="pages" /> : selectedId ? <WorkspaceView key={selectedId} workspaceId={selectedId} /> : <EmptyState />}
+        {view === 'reviews' ? <ReviewCockpit /> : view === 'oncall' ? <OnCallView /> : view === 'agents' ? <AgentsView /> : view === 'notes' ? <NotesView /> : view === 'maestro' ? <MaestroHome tab="maestro" /> : view === 'home' ? <MaestroHome tab="pages" /> : selectedId ? <WorkspaceView key={selectedId} workspaceId={selectedId} /> : missionControl ? <MissionControl /> : <EmptyState />}
       </main>
       {showNewWorkspace && (guided ? <NewTaskDialog onClose={() => setShowNewWorkspace(false)} /> : <NewWorkspaceDialog onClose={() => setShowNewWorkspace(false)} />)}
       {settingsTarget && <SettingsWindow target={settingsTarget} onClose={closeSettings} />}
       {feedbackDialog && <FeedbackDialog tab={feedbackDialog} onClose={() => setFeedbackDialog(null)} />}
       <MaestroSide />
-      <PermissionPrompt />
+      {!(missionControl && inlinePrompt) && <PermissionPrompt />}
       <BranchRenamePrompt />
       {onboarding === 'setup' && <SetupWizard onClose={() => setOnboarding(null)} />}
       {authLink && <AuthLinkDialog link={authLink} onClose={() => setAuthLink(null)} />}

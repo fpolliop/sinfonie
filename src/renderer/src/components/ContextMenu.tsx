@@ -8,6 +8,10 @@ export interface MenuEntry {
   danger?: boolean
   disabled?: boolean
   separator?: boolean
+  /** A keyboard shortcut shown at the right edge, e.g. "⌃1". */
+  hint?: string
+  /** Marks the entry that is already in effect (the current space). */
+  current?: boolean
 }
 
 /**
@@ -74,13 +78,15 @@ export function ContextMenu({ x, y, entries, onClose, label }: { x: number; y: n
             type="button"
             role="menuitem"
             disabled={m.disabled}
+            aria-current={m.current ? 'true' : undefined}
             onClick={() => {
               onClose()
               m.onClick?.()
             }}
-            className={clsx('flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] hover:bg-panel-2 focus:bg-panel-2 focus:outline-none disabled:opacity-40', m.danger ? 'text-danger' : 'text-text')}
+            className={clsx('flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] hover:bg-panel-2 focus:bg-panel-2 focus:outline-none disabled:opacity-40', m.danger ? 'text-danger' : 'text-text', m.current && 'font-semibold')}
           >
-            {m.icon} {m.label}
+            {m.icon} <span className="min-w-0 flex-1 truncate">{m.label}</span>
+            {m.hint && <span className="shrink-0 text-[11px] text-muted">{m.hint}</span>}
           </button>
         )
       )}

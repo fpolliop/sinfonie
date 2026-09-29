@@ -9,7 +9,8 @@ import { Markdown } from '@/lib/markdown'
 import { Button, Dialog, inputCls } from './ui'
 import { ErrorNote } from './ErrorNote'
 import { useGuided } from '@/lib/guided'
-import { noteStatus, noteStatuses, BUILTIN_NOTE_STATUSES, type Note, type NotePatch, type NotePriority, type NoteStatus, type NoteStatusDef, type NotesFilter } from '@shared/types'
+import { KindChip, KindPicker, NOTE_KINDS, parseNoteInput } from './NotesPanel'
+import { isStandingNote, noteStatus, noteStatuses, BUILTIN_NOTE_STATUSES, type Note, type NotePatch, type NotePriority, type NoteStatus, type NoteStatusDef, type NotesFilter } from '@shared/types'
 
 const APP = 'app'
 const SINCE_OPTIONS: { id: string; label: string; days?: number }[] = [
@@ -25,6 +26,11 @@ const PRIORITY: { id: NotePriority; label: string; cls: string }[] = [
 ]
 const PRIORITY_RANK: Record<string, number> = { high: 0, medium: 1, low: 2 }
 type Located = Note & { owner: string }
+/** `accepts` says which dragged cards a column takes; decisions and rules have no status or priority to set. */
+type Column = { id: string; label: string; notes: Located[]; drop?: (n: Located) => void; accepts?: (n: Located) => boolean; maestro?: boolean; hint?: string }
+/** Rules first, then decisions, newest first. */
+const standingOrder = (a: Located, b: Located): number => (a.kind === b.kind ? b.createdAt.localeCompare(a.createdAt) : a.kind === 'rule' ? -1 : 1)
+const shortDate = (iso: string): string => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 type GroupBy = 'status' | 'owner' | 'priority'
 type Sort = 'created' | 'due' | 'priority' | 'updated'
 
@@ -41,9 +47,10 @@ const overdue = (n: Note): boolean => Boolean(n.due && n.due < today() && noteSt
 const isSpace = (o: string): boolean => o.startsWith('space:')
 
 /**
- * Every note and todo in one place, as a list or a board. Filter by where it lives, who wrote it,
- * kind, status and date; drag cards between columns; open one for status, priority, due date and
- * moving it elsewhere; ask Claude for a summary of what is shown.
+ * Every note, todo, decision and rule in one place, as a list or a board. Filter by where it lives, who
+ * wrote it, kind, status and date; drag cards between columns; open one for status, priority, due date and
+ * moving it elsewhere; ask Claude for a summary of what is shown. Decisions and rules get their own board
+ * column in Maestro's colour: Maestro and agents answer and act with them.
  */
 export function NotesView(): React.JSX.Element {
   const byOwner = useNotes((s) => s.byWorkspace)
@@ -60,7 +67,7 @@ export function NotesView(): React.JSX.Element {
   const [sort, setSort] = useState<Sort>('created')
   const [owner, setOwner] = useState<string>('all')
   const [source, setSource] = useState<'all' | Note['source']>('all')
-  const [kind, setKind] = useState<'all' | Note['kind']>('all')
+  const [kind, setKind] = useState<'all' | NonNullable<NotesFilter['kind']>>('all')
   const [status, setStatus] = useState<'open' | 'done' | 'all'>('open')
   const [since, setSince] = useState('any')
   const [query, setQuery] = useState('')
@@ -110,7 +117,7 @@ export function NotesView(): React.JSX.Element {
       for (const n of byOwner[o] ?? []) {
         const st = noteStatus(n)
         if (source !== 'all' && n.source !== source) continue
-        if (kind !== 'all' && n.kind !== kind) continue
+        if (kind !== 'all' && (kind === 'standing' ? !isStandingNote(n) : n.kind !== kind)) continue
         const boardByStatus = view === 'board' && groupBy === 'status'
         if (!boardByStatus && status === 'open' && n.kind === 'todo' && st === 'done') continue
         if (!boardByStatus && status === 'done' && !(n.kind === 'todo' && st === 'done')) continue
@@ -133,29 +140,35 @@ export function NotesView(): React.JSX.Element {
   const submit = (): void => {
     const t = text.trim()
     if (!t) return
-    const asTodo = /^(\[\s?\]|-\s\[\s?\])\s*/.test(t)
-    const asNote = /^(note:|#)\s*/i.test(t)
-    const clean = t.replace(/^(\[\s?\]|-\s\[\s?\]|note:|#)\s*/i, '')
-    go(() => add(addOwner, clean, asTodo ? 'todo' : asNote ? 'note' : addKind))
+    const parsed = parseNoteInput(t, addKind)
+    if (!parsed.text.trim()) return
+    go(() => add(addOwner, parsed.text, parsed.kind))
     setText('')
   }
   const patch = (n: Located, p: NotePatch): void => go(() => update(n.owner, n.id, p))
   const select = 'h-7 rounded-md border border-border bg-bg px-1.5 text-[12px]'
 
   // Board columns for the chosen grouping.
-  const columns: { id: string; label: string; notes: Located[]; drop?: (n: Located) => void }[] = useMemo(() => {
-    if (groupBy === 'status') return statuses.map((s) => ({ id: s.id, label: s.label, notes: shown.filter((n) => (n.kind === 'note' ? s.id === 'todo' : noteStatus(n) === s.id)), drop: (n) => patch(n, { status: s.id, ...(n.kind === 'note' ? { kind: 'todo' as const } : {}) }) }))
-    if (groupBy === 'priority') return [...PRIORITY.map((p) => ({ id: p.id, label: p.label, notes: shown.filter((n) => n.priority === p.id), drop: (n: Located) => patch(n, { priority: p.id }) })), { id: 'none', label: 'No priority', notes: shown.filter((n) => !n.priority), drop: (n: Located) => patch(n, { priority: undefined as unknown as NotePriority }) }]
+  const columns: Column[] = useMemo(() => {
+    if (groupBy === 'status') {
+      // Decisions and rules have no status: they get their own column, just before Done.
+      const byStatus: Column[] = statuses.map((s) => ({ id: s.id, label: s.label, notes: shown.filter((n) => !isStandingNote(n) && (n.kind === 'note' ? s.id === 'todo' : noteStatus(n) === s.id)), accepts: (n) => !isStandingNote(n), drop: (n) => patch(n, { status: s.id, ...(n.kind === 'note' ? { kind: 'todo' as const } : {}) }) }))
+      const standing = shown.filter(isStandingNote).sort(standingOrder)
+      if (!standing.length && kind !== 'standing') return byStatus
+      const col: Column = { id: 'standing', label: 'Decisions and rules', notes: standing, maestro: true, hint: 'Maestro answers and acts with these.' }
+      return kind === 'standing' ? [col] : [...byStatus.slice(0, -1), col, byStatus[byStatus.length - 1]]
+    }
+    if (groupBy === 'priority') return [...PRIORITY.map((p) => ({ id: p.id, label: p.label, notes: shown.filter((n) => n.priority === p.id), accepts: (n: Located) => !isStandingNote(n), drop: (n: Located) => patch(n, { priority: p.id }) })), { id: 'none', label: 'No priority', notes: shown.filter((n) => !n.priority), accepts: (n: Located) => !isStandingNote(n), drop: (n: Located) => patch(n, { priority: undefined as unknown as NotePriority }) }]
     const ids = [...new Set([...(owner === 'all' ? owners.filter((o) => o === APP || isSpace(o) || shown.some((n) => n.owner === o)) : [owner]), ...shown.map((n) => n.owner)])]
     return ids.map((o) => ({ id: o, label: labelOf(o), notes: shown.filter((n) => n.owner === o), drop: (n: Located) => n.owner !== o && go(() => move(n.owner, n.id, o)) }))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groupBy, shown, status, owner, owners, spaces, workspaces, statuses])
+  }, [groupBy, shown, status, owner, owners, spaces, workspaces, statuses, kind])
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="drag flex h-[52px] shrink-0 items-center gap-2 border-b border-border px-4">
         <StickyNote size={16} className="text-accent" />
-        <span className="text-[13px] font-semibold">Todos &amp; notes</span>
+        <span className="text-[13px] font-semibold">Notes</span>
         <span className="text-[11px] text-muted">{openTotal ? `${openTotal} open todo${openTotal === 1 ? '' : 's'}` : 'nothing open'}</span>
         <div className="no-drag ml-auto flex items-center gap-2">
           <div className="flex rounded-md bg-panel p-0.5">
@@ -193,9 +206,12 @@ export function NotesView(): React.JSX.Element {
           <option value="agent">Agents</option>
         </select>
         <select className={select} value={kind} onChange={(e) => setKind(e.target.value as typeof kind)}>
-          <option value="all">Todos &amp; notes</option>
+          <option value="all">Every kind</option>
           <option value="todo">Todos</option>
           <option value="note">Notes</option>
+          <option value="standing">Decisions and rules</option>
+          <option value="decision">Decisions</option>
+          <option value="rule">Rules</option>
         </select>
         <select className={select} value={status} onChange={(e) => setStatus(e.target.value as typeof status)}>
           <option value="open">Open</option>
@@ -239,7 +255,7 @@ export function NotesView(): React.JSX.Element {
           <textarea
             value={text}
             rows={1}
-            placeholder={addKind === 'todo' ? 'Something to do… (Enter adds)' : 'A note to keep… (Enter adds)'}
+            placeholder={NOTE_KINDS.find((k) => k.id === addKind)?.placeholder}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
@@ -250,11 +266,7 @@ export function NotesView(): React.JSX.Element {
             className="w-full resize-none bg-transparent px-2.5 pt-2 text-[12px] outline-none placeholder:text-muted"
           />
           <div className="flex items-center gap-1 px-1.5 pb-1.5">
-            {(['todo', 'note'] as const).map((k) => (
-              <button key={k} onClick={() => setAddKind(k)} className={clsx('rounded-md px-1.5 py-0.5 text-[11px]', addKind === k ? 'bg-panel-2 text-text' : 'text-muted hover:text-text')}>
-                {k === 'todo' ? 'Todo' : 'Note'}
-              </button>
-            ))}
+            <KindPicker value={addKind} onChange={setAddKind} />
             <span className="text-[11px] text-muted">in</span>
             <select className="h-6 rounded-md border border-border bg-bg px-1 text-[11px]" value={addOwner} onChange={(e) => setAddOwner(e.target.value)}>
               {owners.map((o) => (
@@ -274,7 +286,7 @@ export function NotesView(): React.JSX.Element {
         <div className="min-h-0 min-w-0 flex-1 overflow-auto">
           {shown.length === 0 && (
             <div className="mx-auto mt-10 max-w-md rounded-md border border-dashed border-border p-4 text-center text-[12px] text-muted">
-              {Object.values(byOwner).some((l) => l.length) ? 'Nothing matches these filters.' : 'Nothing yet. Add a todo above, jot notes in a workspace, or let an agent file what it finds.'}
+              {Object.values(byOwner).some((l) => l.length) ? 'Nothing matches these filters.' : 'Nothing yet. Add a todo, a decision or a rule above, jot notes in a workspace, or let an agent file what it finds.'}
             </div>
           )}
           {shown.length > 0 && view === 'board' && <Board columns={columns} openId={openId} onOpen={setOpenId} labelOf={labelOf} statuses={statuses} />}
@@ -290,7 +302,7 @@ export function NotesView(): React.JSX.Element {
 
 // ---------- board ----------
 
-function Board({ columns, openId, onOpen, labelOf, statuses }: { columns: { id: string; label: string; notes: Located[]; drop?: (n: Located) => void }[]; openId: string | null; onOpen: (id: string) => void; labelOf: (o: string) => string; statuses: NoteStatusDef[] }): React.JSX.Element {
+function Board({ columns, openId, onOpen, labelOf, statuses }: { columns: Column[]; openId: string | null; onOpen: (id: string) => void; labelOf: (o: string) => string; statuses: NoteStatusDef[] }): React.JSX.Element {
   const [dragging, setDragging] = useState<Located | null>(null)
   const [over, setOver] = useState<string | null>(null)
   return (
@@ -298,25 +310,29 @@ function Board({ columns, openId, onOpen, labelOf, statuses }: { columns: { id: 
       {columns.map((c) => (
         <div
           key={c.id}
-          className={clsx('flex w-[280px] shrink-0 flex-col rounded-xl border bg-panel/40', over === c.id && dragging ? 'border-accent/60 bg-accent/5' : 'border-border')}
+          className={clsx('flex w-[280px] shrink-0 flex-col rounded-xl border', over === c.id && dragging ? 'border-accent/60 bg-accent/5' : c.maestro ? 'border-maestro/30 bg-maestro/5' : 'border-border bg-panel/40')}
           onDragOver={(e) => {
-            if (!dragging || !c.drop) return
+            if (!dragging || !c.drop || (c.accepts && !c.accepts(dragging))) return
             e.preventDefault()
             setOver(c.id)
           }}
           onDragLeave={() => setOver((o) => (o === c.id ? null : o))}
           onDrop={(e) => {
             e.preventDefault()
-            if (dragging && c.drop) c.drop(dragging)
+            if (dragging && c.drop && (!c.accepts || c.accepts(dragging))) c.drop(dragging)
             setDragging(null)
             setOver(null)
           }}
         >
-          <div className="flex items-center gap-2 px-3 py-2">
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted">{c.label}</span>
-            <span className="rounded-full bg-panel-2 px-1.5 text-[11px] text-muted">{c.notes.length}</span>
+          <div className="px-3 py-2">
+            <div className="flex items-center gap-2">
+              <span className={clsx('text-[11px] font-semibold uppercase tracking-wide', c.maestro ? 'text-maestro' : 'text-muted')}>{c.label}</span>
+              <span className={clsx('rounded-full px-1.5 text-[11px]', c.maestro ? 'bg-maestro/15 text-maestro' : 'bg-panel-2 text-muted')}>{c.notes.length}</span>
+            </div>
+            {c.hint && <div className="mt-0.5 text-[11px] text-muted">{c.hint}</div>}
           </div>
           <div className="flex min-h-[80px] flex-1 flex-col gap-2 overflow-auto px-2 pb-2">
+            {c.maestro && c.notes.length === 0 && <div className="rounded-lg border border-dashed border-maestro/30 p-3 text-center text-[11px] text-muted">None yet. Pick Decision or Rule above to add one.</div>}
             {c.notes.map((n) => (
               <Card key={`${n.owner}:${n.id}`} note={n} selected={n.id === openId} labelOf={labelOf} statuses={statuses} onOpen={() => onOpen(n.id)} onDragStart={() => setDragging(n)} onDragEnd={() => (setDragging(null), setOver(null))} />
             ))}
@@ -330,6 +346,25 @@ function Board({ columns, openId, onOpen, labelOf, statuses }: { columns: { id: 
 function Card({ note: n, selected, labelOf, statuses, onOpen, onDragStart, onDragEnd }: { note: Located; selected: boolean; labelOf: (o: string) => string; statuses: NoteStatusDef[]; onOpen: () => void; onDragStart: () => void; onDragEnd: () => void }): React.JSX.Element {
   const st = noteStatus(n)
   const stDef = statuses.find((s) => s.id === st)
+  if (isStandingNote(n)) {
+    return (
+      <div draggable onDragStart={onDragStart} onDragEnd={onDragEnd} onClick={onOpen} className={clsx('cursor-pointer rounded-lg border bg-maestro/10 px-3 py-2 text-[12px] shadow-sm hover:border-maestro', selected ? 'border-maestro' : 'border-maestro/30')}>
+        <div className="mb-1 flex items-center gap-1.5 text-[11px] text-muted">
+          <KindChip kind={n.kind} />
+          <span className="inline-flex items-center gap-0.5">
+            {n.source === 'agent' ? <Bot size={9} /> : <User size={9} />} {n.source === 'agent' ? 'an agent' : 'you'}
+          </span>
+          <span className="ml-auto" title={n.createdAt}>
+            {shortDate(n.createdAt)}
+          </span>
+        </div>
+        <div className="whitespace-pre-wrap break-words">{n.text.length > 220 ? `${n.text.slice(0, 220)}…` : n.text}</div>
+        <div className="mt-1.5 truncate text-[11px] text-muted" title={labelOf(n.owner)}>
+          {labelOf(n.owner)}
+        </div>
+      </div>
+    )
+  }
   return (
     <div draggable onDragStart={onDragStart} onDragEnd={onDragEnd} onClick={onOpen} className={clsx('cursor-pointer rounded-lg border bg-bg px-3 py-2 text-[12px] shadow-sm hover:border-accent/60', selected ? 'border-accent' : 'border-border', st === 'done' && 'opacity-60')}>
       <div className={clsx('whitespace-pre-wrap break-words', st === 'done' && 'line-through')}>{n.text.length > 220 ? `${n.text.slice(0, 220)}…` : n.text}</div>
@@ -367,8 +402,11 @@ function List({ notes, openId, onOpen, labelOf, onPatch, statuses }: { notes: Lo
           const st = noteStatus(n)
           return (
             <div key={`${n.owner}:${n.id}`} onClick={() => onOpen(n.id)} className={clsx('grid cursor-pointer grid-cols-[24px_1fr_110px_90px_90px_150px_70px] items-center gap-2 rounded-md border-b border-border/60 px-2 py-1.5 text-[12px] hover:bg-panel-2/60', n.id === openId && 'bg-panel-2', st === 'done' && 'opacity-60')}>
-              {n.kind === 'todo' ? (
+              {isStandingNote(n) ? (
+                <span className="h-3.5 w-3.5 rounded-full bg-maestro/30" aria-hidden />
+              ) : n.kind === 'todo' ? (
                 <button
+                  aria-label={st === 'done' ? 'Mark not done' : 'Mark done'}
                   onClick={(e) => {
                     e.stopPropagation()
                     onPatch(n, { status: st === 'done' ? 'todo' : 'done' })
@@ -392,26 +430,32 @@ function List({ notes, openId, onOpen, labelOf, onPatch, statuses }: { notes: Lo
                       </option>
                     ))}
                   </select>
+                ) : isStandingNote(n) ? (
+                  <KindChip kind={n.kind} />
                 ) : (
                   <span className="text-[11px] text-muted">note</span>
                 )}
               </span>
               <span onClick={(e) => e.stopPropagation()}>
-                <select className="h-6 w-full rounded-md border border-border bg-bg px-1 text-[11px]" value={n.priority ?? ''} onChange={(e) => onPatch(n, { priority: (e.target.value || undefined) as NotePriority })}>
-                  <option value="">—</option>
-                  {PRIORITY.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.label}
-                    </option>
-                  ))}
-                </select>
+                {isStandingNote(n) ? (
+                  <span className="text-[11px] text-muted">—</span>
+                ) : (
+                  <select className="h-6 w-full rounded-md border border-border bg-bg px-1 text-[11px]" value={n.priority ?? ''} onChange={(e) => onPatch(n, { priority: (e.target.value || undefined) as NotePriority })}>
+                    <option value="">—</option>
+                    {PRIORITY.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.label}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </span>
               <span className={clsx('text-[11px]', overdue(n) ? 'text-danger' : 'text-muted')}>{n.due ?? '—'}</span>
               <span className="truncate text-[11px] text-muted" title={labelOf(n.owner)}>
                 {labelOf(n.owner)}
               </span>
               <span className="text-[11px] text-muted" title={n.createdAt}>
-                {new Date(n.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                {shortDate(n.createdAt)}
               </span>
             </div>
           )
@@ -439,7 +483,7 @@ function Detail({ note: n, owners, labelOf, statuses, onPatch, onMove, onRemove,
   return (
     <aside className="flex w-[360px] shrink-0 flex-col border-l border-border bg-panel">
       <div className="flex items-center gap-2 border-b border-border px-3 py-2">
-        <span className="text-[12px] font-semibold">{n.kind === 'todo' ? 'Todo' : 'Note'}</span>
+        <span className="text-[12px] font-semibold">{NOTE_KINDS.find((k) => k.id === n.kind)?.label ?? 'Note'}</span>
         <span className="inline-flex items-center gap-1 text-[11px] text-muted">{n.source === 'agent' ? <Bot size={10} /> : <User size={10} />} {n.source === 'agent' ? 'by an agent' : 'by you'}</span>
         <button className="ml-auto text-muted hover:text-text" onClick={onClose} aria-label="Close">
           <X size={14} />
@@ -448,6 +492,11 @@ function Detail({ note: n, owners, labelOf, statuses, onPatch, onMove, onRemove,
       <div className="flex-1 overflow-auto p-3">
         <div className={field}>
           <textarea value={text} rows={Math.min(10, Math.max(3, text.split('\n').length + 1))} onChange={(e) => setText(e.target.value)} onBlur={() => text.trim() && text.trim() !== n.text && onPatch({ text })} className={clsx(inputCls, 'resize-none')} />
+        </div>
+        <div className={field}>
+          <span className={label}>Kind</span>
+          <KindPicker value={n.kind} onChange={(k) => k !== n.kind && onPatch({ kind: k })} />
+          {isStandingNote(n) && <p className="mt-1 text-[11px] text-muted">{n.kind === 'rule' ? 'A standing rule. Maestro and agents follow it and ask you when a request goes against it.' : 'Something decided. Maestro and agents build on it and say when they do.'}</p>}
         </div>
         {n.kind === 'todo' && (
           <div className={field}>
@@ -461,33 +510,37 @@ function Detail({ note: n, owners, labelOf, statuses, onPatch, onMove, onRemove,
             </div>
           </div>
         )}
-        <div className={field}>
-          <span className={label}>
-            <Flag size={9} className="mr-1 inline" />
-            Priority
-          </span>
-          <div className="flex rounded-md border border-border bg-bg p-0.5 text-[12px]">
-            {[...PRIORITY, { id: '' as NotePriority, label: 'None', cls: '' }].map((p) => (
-              <button key={p.id || 'none'} onClick={() => onPatch({ priority: (p.id || undefined) as NotePriority })} className={clsx('flex-1 rounded px-2 py-1', (n.priority ?? '') === p.id ? `bg-panel-2 font-medium ${p.id === 'high' ? 'text-danger' : p.id === 'medium' ? 'text-warn' : 'text-text'}` : 'text-muted hover:text-text')}>
-                {p.label}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className={field}>
-          <span className={label}>
-            <CalendarDays size={9} className="mr-1 inline" />
-            Due
-          </span>
-          <div className="flex items-center gap-2">
-            <input type="date" className={clsx(inputCls, 'w-44')} value={n.due ?? ''} onChange={(e) => onPatch({ due: e.target.value || undefined })} />
-            {n.due && (
-              <button className="text-[11px] text-muted hover:text-text" onClick={() => onPatch({ due: undefined })}>
-                clear
-              </button>
-            )}
-          </div>
-        </div>
+        {!isStandingNote(n) && (
+          <>
+            <div className={field}>
+              <span className={label}>
+                <Flag size={9} className="mr-1 inline" />
+                Priority
+              </span>
+              <div className="flex rounded-md border border-border bg-bg p-0.5 text-[12px]">
+                {[...PRIORITY, { id: '' as NotePriority, label: 'None', cls: '' }].map((p) => (
+                  <button key={p.id || 'none'} onClick={() => onPatch({ priority: (p.id || undefined) as NotePriority })} className={clsx('flex-1 rounded px-2 py-1', (n.priority ?? '') === p.id ? `bg-panel-2 font-medium ${p.id === 'high' ? 'text-danger' : p.id === 'medium' ? 'text-warn' : 'text-text'}` : 'text-muted hover:text-text')}>
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className={field}>
+              <span className={label}>
+                <CalendarDays size={9} className="mr-1 inline" />
+                Due
+              </span>
+              <div className="flex items-center gap-2">
+                <input type="date" className={clsx(inputCls, 'w-44')} value={n.due ?? ''} onChange={(e) => onPatch({ due: e.target.value || undefined })} />
+                {n.due && (
+                  <button className="text-[11px] text-muted hover:text-text" onClick={() => onPatch({ due: undefined })}>
+                    clear
+                  </button>
+                )}
+              </div>
+            </div>
+          </>
+        )}
         <div className={field}>
           <span className={label}>Tags</span>
           <input className={inputCls} placeholder="comma separated" value={tags} onChange={(e) => setTags(e.target.value)} onBlur={() => onPatch({ tags: tags.split(',').map((t) => t.trim()).filter(Boolean) })} />

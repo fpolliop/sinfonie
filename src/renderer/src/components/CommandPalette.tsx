@@ -220,6 +220,9 @@ export function ShortcutSheet({ onClose }: { onClose: () => void }): React.JSX.E
     ['⌥⌘↑ / ⌥⌘↓', `Previous / next ${t.workspace} (on ${guided ? 'Tasks' : 'Build'})`],
     ['⌥⌘← / ⌥⌘→', `Previous / next ${t.space}`],
     ['⌃1…⌃9', `Jump to a ${t.space}`],
+    ['J / K', `Move through the overview on ${guided ? 'Tasks' : 'Build'} (↵ opens)`],
+    ['A', guided ? 'Go ahead, on a focused request in the overview' : 'Allow once, on a focused permission in the overview'],
+    ['R', 'Open the focused row to answer it'],
     ...(guided ? [] : ([['F2', 'Rename the focused workspace in the sidebar']] as [string, string][])),
     ['Esc', 'Close a dialog or menu']
   ]
