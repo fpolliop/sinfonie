@@ -169,7 +169,8 @@ function createWindow(): void {
     show: false,
     title: 'Sinfonie',
     titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 14, y: 14 },
+    // Centred in the 84px rail and on the 52px top bars (Rail.tsx).
+    trafficLightPosition: { x: 13, y: 19 },
     backgroundColor: '#0f1115',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),

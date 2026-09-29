@@ -6,6 +6,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { Wand2, Layers, CircleCheck, StickyNote, Users, Settings, Plus } from 'lucide-react'
+import { api } from '@/lib/api'
 import { useApp, spaceScope, type View } from '@/stores/app'
 import { useChat } from '@/stores/chat'
 import { useReviews } from '@/stores/reviews'
@@ -16,6 +17,8 @@ import { tokens } from '@/lib/theme'
 import { ContextMenu, type MenuEntry } from './ContextMenu'
 
 /** Views that belong to each rail place, so the right item lights up wherever the person is. */
+/** On macOS the window buttons sit at the top of the rail, so it is wide enough to hold them with a margin each side. */
+const MAC = api.platform === 'darwin'
 const BUILD_VIEWS: View[] = ['workspace', 'agents']
 const REVIEW_VIEWS: View[] = ['reviews', 'oncall']
 
@@ -45,7 +48,7 @@ export function Rail(): React.JSX.Element {
   const showTeam = !guided || isAdmin
 
   return (
-    <nav aria-label="Main" className="drag flex w-[72px] shrink-0 flex-col items-center gap-1 border-r border-border bg-panel pb-3 pt-[52px]">
+    <nav aria-label="Main" className={clsx('drag flex shrink-0', MAC ? 'w-[84px]' : 'w-[72px]', 'flex-col items-center gap-1 border-r border-border bg-panel pb-3 pt-[52px]')}>
       <RailItem tour="maestro" label="Maestro" hint="Maestro, your home (⌘J opens it on any screen)" active={view === 'maestro' || view === 'home'} maestro onClick={() => setView('maestro')} icon={<Wand2 size={19} />} dot={maestroBusy} />
       <RailItem tour="build" label={guided ? cap(t.workspaces) : 'Build'} hint={guided ? 'Your tasks' : 'Workspaces and agents'} active={BUILD_VIEWS.includes(view)} onClick={() => select(null)} icon={<Layers size={19} />} count={waiting} countLabel={`${waiting} waiting on you`} />
       {showReview && <RailItem tour="reviews" label="Review" hint="Reviews and on-call" active={REVIEW_VIEWS.includes(view)} onClick={() => setView('reviews')} icon={<CircleCheck size={19} />} count={reviews} countLabel={`${reviews} new`} />}
