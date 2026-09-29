@@ -184,6 +184,15 @@ export const useApp = create<AppState>((set, get) => ({
     const spaceOf = (w: Workspace): string => (w.spaceId && spaces.some((s) => s.id === w.spaceId) ? w.spaceId : '')
     const current = workspaces.find((w) => w.id === selectedId)
     if (current && spaceOf(current) === id) return
+    // Build's overview (nothing open) shows the new space's overview; away from Build (Maestro, Notes, Agents) the
+    // switch never pulls the person onto a workspace. Either way another space's workspace stops being selected.
+    if (get().view !== 'workspace' || !selectedId) {
+      if (current) {
+        localStorage.removeItem('orchestra.selected')
+        set({ selectedId: null })
+      }
+      return
+    }
     const next = workspaces
       .filter((w) => w.status !== 'archived' && spaceOf(w) === id)
       .sort((a, b) => (b.lastMessageAt ?? b.createdAt).localeCompare(a.lastMessageAt ?? a.createdAt))[0]
@@ -301,6 +310,23 @@ export const useApp = create<AppState>((set, get) => ({
 /** Dot-bar order: every space, then the ungrouped bucket when it has something (or when there are no spaces at all). */
 export function spaceOrder(spaceIds: string[], hasUngrouped: boolean): string[] {
   return spaceIds.length === 0 || hasUngrouped ? [...spaceIds, ''] : spaceIds
+}
+
+/**
+ * The space Build is showing and what lives in it, derived the same way the sidebar does: the active space when it
+ * still exists, else the first one in dot-bar order ('' is the ungrouped bucket). Archived workspaces and ones
+ * waiting out an Undo are left out.
+ */
+export function spaceScope(s: Pick<AppState, 'spaces' | 'workspaces' | 'activeSpaceId' | 'pendingRemoval'>): { ids: string[]; currentId: string; live: Workspace[]; inSpace: Workspace[] } {
+  const live = s.workspaces.filter((w) => w.status !== 'archived' && !s.pendingRemoval.includes(w.id))
+  const isUngrouped = (w: Workspace): boolean => !w.spaceId || !s.spaces.some((sp) => sp.id === w.spaceId)
+  const ids = spaceOrder(
+    s.spaces.map((sp) => sp.id),
+    live.some(isUngrouped)
+  )
+  const currentId = ids.includes(s.activeSpaceId) ? s.activeSpaceId : (ids[0] ?? '')
+  const inSpace = currentId ? live.filter((w) => w.spaceId === currentId) : live.filter(isUngrouped)
+  return { ids, currentId, live, inSpace }
 }
 
 export function useSelectedWorkspace(): Workspace | undefined {

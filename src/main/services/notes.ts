@@ -6,7 +6,7 @@ import { z } from 'zod'
 import { tool as aiTool, type ToolSet } from 'ai'
 import { createSdkMcpServer, query, tool as sdkTool, type Options, type SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 import type { Note, NotePatch, NoteScope, NotesContext, NotesFilter } from '@shared/types'
-import { isAgentOwner } from '@shared/types'
+import { isAgentOwner, isStandingNote } from '@shared/types'
 import { getStore } from '../store'
 import * as agentLib from './agents'
 import { claudeExecutableOption } from './claude-cli'
@@ -14,9 +14,10 @@ import { accountEnv, defaultAccountId } from './accounts'
 import * as usage from './usage'
 
 /**
- * Notes, reminders and todos, one JSON file per owner. An owner is a workspace id, a space
- * ("space:<id>") or the app itself ("app", for things tied to no project). The user edits them
- * in the workspace Notes panel and the Notes view; agents get the same lists as tools.
+ * Notes, reminders, todos, decisions and rules, one JSON file per owner. An owner is a workspace id,
+ * a space ("space:<id>") or the app itself ("app", for things tied to no project). The user edits them
+ * in the workspace Notes panel and the Notes view; agents get the same lists as tools. Decisions and
+ * rules bind agents and Maestro: agents see them first and labelled, may file decisions, never rules.
  */
 
 export const APP_OWNER = 'app'
@@ -93,7 +94,14 @@ export function update(owner: string, id: string, patch: NotePatch): Note[] {
       if (n.id !== id) return n
       const next: Note = { ...n, updatedAt: new Date().toISOString() }
       if (patch.text !== undefined) next.text = patch.text.trim()
-      if (patch.kind) next.kind = patch.kind
+      if (patch.kind) {
+        next.kind = patch.kind
+        // Decisions and rules have no status; a todo turned into one stops counting as open or done.
+        if (isStandingNote(next)) {
+          next.done = false
+          delete next.status
+        }
+      }
       // status and done are one fact; whichever the caller sends wins and the other follows.
       if (patch.status) {
         next.status = patch.status
@@ -193,11 +201,44 @@ function findOwner(c: string | NotesContext, id: string, scope?: NoteScope): str
   throw new Error(`No note ${id} in this workspace, its space or the app`)
 }
 
-/** One owner's list as text, for prompts and tool results. */
+/** Rules first, then decisions, then everything else; order kept within each group. */
+const KIND_RANK: Record<Note['kind'], number> = { rule: 0, decision: 1, todo: 2, note: 2 }
+export const byStanding = (a: Pick<Note, 'kind'>, b: Pick<Note, 'kind'>): number => KIND_RANK[a.kind] - KIND_RANK[b.kind]
+
+/** How a note's kind reads in text for agents: "Rule: ", "Decision: ", a todo checkbox, or nothing. */
+export function kindPrefix(n: Note): string {
+  if (n.kind === 'rule') return 'Rule: '
+  if (n.kind === 'decision') return 'Decision: '
+  if (n.kind === 'todo') return `${n.done ? '[x]' : n.status === 'doing' ? '[~]' : '[ ]'} `
+  return ''
+}
+
+/** One owner's list as text, for prompts and tool results. Rules and decisions come first, labelled. */
 export function render(owner: string): string {
-  const notes = list(owner)
+  return renderNotes(list(owner))
+}
+function renderNotes(list: Note[]): string {
+  const notes = [...list].sort(byStanding)
   if (notes.length === 0) return '(no notes yet)'
-  return notes.map((n) => `- [${n.id}] ${n.kind === 'todo' ? (n.done ? '[x]' : n.status === 'doing' ? '[~]' : '[ ]') + ' ' : ''}${n.text}${n.priority ? ` (${n.priority} priority)` : ''}${n.due ? ` (due ${n.due})` : ''}${n.source === 'agent' ? ' (added by agent)' : ''}`).join('\n')
+  return notes.map((n) => `- [${n.id}] ${kindPrefix(n)}${n.text}${n.priority ? ` (${n.priority} priority)` : ''}${n.due ? ` (due ${n.due})` : ''}${n.source === 'agent' ? ' (added by agent)' : ''}`).join('\n')
+}
+
+/** The decisions and rules visible from a context (workspace, its space, the app), rules first, for system prompts. */
+function standingAround(c: string | NotesContext, cap = 20): string {
+  const items = ownersAround(c).flatMap((o) => list(o.owner).filter(isStandingNote).map((n) => ({ n, where: o.scope })))
+  if (items.length === 0) return ''
+  items.sort((a, b) => byStanding(a.n, b.n) || b.n.createdAt.localeCompare(a.n.createdAt))
+  const shown = items.slice(0, cap).map(({ n, where }) => `- ${kindPrefix(n)}${n.text.length > 200 ? `${n.text.slice(0, 199)}…` : n.text} (${where})`)
+  return `${shown.join('\n')}${items.length > cap ? `\n(${items.length - cap} more: list_notes)` : ''}`
+}
+
+/**
+ * The decisions and rules around a context as a compact, self-explaining block, for engines that get no notes
+ * prompt (lean mode, ACP), so rules bind on every engine. Empty when there are none.
+ */
+export function standingPrompt(c: string | NotesContext): string {
+  const standing = standingAround(c)
+  return standing ? `\nDecisions and rules that apply here. A Rule is a standing instruction from a person: follow it, and if the task conflicts with it, stop and ask the user. A Decision is settled: build on it and do not reopen it.\n${standing}\n` : ''
 }
 
 function renderScopes(c: string | NotesContext, scope: NoteScope | 'all' | undefined): string {
@@ -217,11 +258,14 @@ export function promptFor(c: string | NotesContext, toolsAvailable: boolean): st
     '',
     ctx.workspaceId
       ? `Session notes: the user keeps notes, reminders and todos in a Notes panel, at three levels: this workspace${open ? ` (${open} open todo${open === 1 ? '' : 's'})` : ''}, its space, and the app for things tied to no project.`
-      : `Notes: the user keeps notes, reminders and todos in a Notes view, per workspace, per space, and at the app level for things tied to no project. You are not inside a workspace, so the default scope here is ${ctx.spaceId ? 'the space' : 'the app'}${open ? ` (${open} open todo${open === 1 ? '' : 's'})` : ''}.`
+      : `Notes: the user keeps notes, reminders and todos in a Notes view, per workspace, per space, and at the app level for things tied to no project. You are not inside a workspace, so the default scope here is ${ctx.spaceId ? 'the space' : 'the app'}${open ? ` (${open} open todo${open === 1 ? '' : 's'})` : ''}.`,
+    'Two kinds of note bind you. A "Rule" is a standing instruction from a person: follow it, and if the task conflicts with a rule, stop and ask the user instead of working around it. A "Decision" records something already decided: build on it and do not reopen it unless the user does. When your work relies on one, say so ("Following your rule …", "As decided: …").'
   ]
+  const standing = standingAround(c)
+  if (standing) lines.push(`Decisions and rules that apply here:\n${standing}`)
   if (toolsAvailable) {
     lines.push(
-      'Read them with list_notes (scope "workspace" by default, "space", "app" or "all") when the user refers to notes, todos or "what is left", and at the start of a substantial task. When the user asks you to remember something, or you find follow-up work that should not be lost (a skipped test, a TODO you left, a question for later), add it with add_note; use scope "app" or "space" for things that are not about this workspace, such as requests gathered from Slack or email. Mark todos done with update_note when you complete them. Do not remove notes unless asked.'
+      'Read them with list_notes (scope "workspace" by default, "space", "app" or "all") when the user refers to notes, todos or "what is left", and at the start of a substantial task. When the user asks you to remember something, or you find follow-up work that should not be lost (a skipped test, a TODO you left, a question for later), add it with add_note; use scope "app" or "space" for things that are not about this workspace, such as requests gathered from Slack or email. When the user decides something in the conversation (a choice between options, a scope cut, a convention), file it with add_note kind "decision" in one sentence. You cannot create or edit rules; rules come from people, so if something sounds like a standing rule, suggest the user adds it. Mark todos done with update_note when you complete them. Do not remove notes unless asked.'
     )
   } else {
     lines.push('The current notes are included at the top of each message; you cannot edit them, so when something should be recorded, say so plainly and the user will add it.')
@@ -231,12 +275,22 @@ export function promptFor(c: string | NotesContext, toolsAvailable: boolean): st
 
 /** Prefix for engines that get no tools: the notes as read-only context. */
 export function prefixFor(workspaceId: string): string {
-  const notes = list(workspaceId)
-  if (notes.length === 0) return ''
-  return `<session_notes>\n${render(workspaceId)}\n</session_notes>\n\n`
+  // Standing notes from the workspace, its space and the app lead; the workspace's other notes follow.
+  const rest = list(workspaceId).filter((n) => !isStandingNote(n))
+  const standing = standingPrompt(workspaceId).trim()
+  if (rest.length === 0 && !standing) return ''
+  return `<session_notes>\n${[standing, rest.length ? renderNotes(rest) : ''].filter(Boolean).join('\n\n')}\n</session_notes>\n\n`
 }
 
-const kindSchema = z.enum(['note', 'todo'])
+/** Kinds an agent may file. Rules come from people, so agents never create or edit one. */
+const kindSchema = z.enum(['note', 'todo', 'decision']).describe('"todo" for actionable follow-ups, "note" for context worth keeping, "decision" when the user decides something in the conversation (one sentence: what was decided). Rules are set by people only.')
+const ADD_HINT = 'Add a note, todo or decision for the user. Use kind "todo" for actionable follow-ups, "note" for context worth keeping, "decision" to record something the user decided in this conversation. You cannot add rules: rules come from people. Optional priority (low|medium|high) and due date (YYYY-MM-DD).'
+const UPDATE_HINT = 'Edit a note; set status (todo|doing|done), priority, due date, kind, or mark done. Rules are the user\'s and cannot be edited by agents.'
+/** Agents may not turn a note into a rule or change one; a clear refusal they can relay. */
+function guardRule(owner: string, id: string, kind: string | undefined): void {
+  if ((kind as Note['kind'] | undefined) === 'rule') throw new Error('Agents cannot create rules; rules come from people. Suggest the rule to the user and let them add it in Notes.')
+  if (list(owner).find((n) => n.id === id)?.kind === 'rule') throw new Error('This note is a rule set by a person; agents cannot change it. Tell the user what you would change and why.')
+}
 const statusSchema = z.string().describe('todo, doing, done, or one of the user\'s own statuses')
 const prioritySchema = z.enum(['low', 'medium', 'high'])
 const scopeSchema = z.enum(['workspace', 'space', 'app'])
@@ -248,21 +302,24 @@ export function sdkServer(workspaceId: string | NotesContext): NonNullable<Optio
   return createSdkMcpServer({
     name: 'notes',
     tools: [
-      sdkTool('list_notes', "The user's notes and todos, with ids. Scope: workspace (default), space, app or all.", { scope: z.enum(['workspace', 'space', 'app', 'all']).optional() }, async ({ scope }) => text(renderScopes(workspaceId, scope))),
-      sdkTool('add_note', 'Add a note or todo for the user. Use kind "todo" for actionable follow-ups, "note" for context worth keeping. Optional priority (low|medium|high) and due date (YYYY-MM-DD).', { text: z.string(), kind: kindSchema.default('todo'), scope: scopeSchema.optional().describe(SCOPE_HINT), priority: prioritySchema.optional(), due: z.string().optional() }, async ({ text: t, kind, scope, priority, due }) => {
+      sdkTool('list_notes', "The user's notes, todos, decisions and rules, with ids (rules and decisions first). Scope: workspace (default), space, app or all.", { scope: z.enum(['workspace', 'space', 'app', 'all']).optional() }, async ({ scope }) => text(renderScopes(workspaceId, scope))),
+      sdkTool('add_note', ADD_HINT, { text: z.string(), kind: kindSchema.default('todo'), scope: scopeSchema.optional().describe(SCOPE_HINT), priority: prioritySchema.optional(), due: z.string().optional() }, async ({ text: t, kind, scope, priority, due }) => {
         const owner = ownerFor(scope, workspaceId)
+        guardRule(owner, '', kind)
         const added = add(owner, t, kind, 'agent')
         const last = added[added.length - 1]
         if (last && (priority || due)) update(owner, last.id, { priority, due })
         return text(`Added at the ${scope ?? 'workspace'} level. Notes there now:\n${render(owner)}`)
       }),
-      sdkTool('update_note', 'Edit a note; set status (todo|doing|done), priority, due date, or mark done.', { id: z.string(), text: z.string().optional(), done: z.boolean().optional(), status: statusSchema.optional(), priority: prioritySchema.optional(), due: z.string().optional(), kind: kindSchema.optional(), scope: scopeSchema.optional().describe(SCOPE_HINT) }, async ({ id, text: t, done, status, priority, due, kind, scope }) => {
+      sdkTool('update_note', UPDATE_HINT, { id: z.string(), text: z.string().optional(), done: z.boolean().optional(), status: statusSchema.optional(), priority: prioritySchema.optional(), due: z.string().optional(), kind: kindSchema.optional(), scope: scopeSchema.optional().describe(SCOPE_HINT) }, async ({ id, text: t, done, status, priority, due, kind, scope }) => {
         const owner = findOwner(workspaceId, id, scope)
+        guardRule(owner, id, kind)
         update(owner, id, { text: t, done, status, priority, due, kind })
         return text(`Updated. Notes there now:\n${render(owner)}`)
       }),
       sdkTool('remove_note', 'Delete a note. Only when the user asked for it.', { id: z.string(), scope: scopeSchema.optional().describe(SCOPE_HINT) }, async ({ id, scope }) => {
         const owner = findOwner(workspaceId, id, scope)
+        guardRule(owner, id, undefined)
         remove(owner, id)
         return text(`Removed. Notes there now:\n${render(owner)}`)
       })
@@ -273,12 +330,13 @@ export function sdkServer(workspaceId: string | NotesContext): NonNullable<Optio
 /** Notes as AI SDK tools for the native engine and native workers. */
 export function aiTools(workspaceId: string | NotesContext): ToolSet {
   return {
-    list_notes: aiTool({ description: "The user's notes and todos, with ids. Scope: workspace (default), space, app or all.", inputSchema: z.object({ scope: z.enum(['workspace', 'space', 'app', 'all']).optional() }), execute: async ({ scope }) => renderScopes(workspaceId, scope) }),
+    list_notes: aiTool({ description: "The user's notes, todos, decisions and rules, with ids (rules and decisions first). Scope: workspace (default), space, app or all.", inputSchema: z.object({ scope: z.enum(['workspace', 'space', 'app', 'all']).optional() }), execute: async ({ scope }) => renderScopes(workspaceId, scope) }),
     add_note: aiTool({
-      description: 'Add a note or todo for the user. Use kind "todo" for actionable follow-ups, "note" for context worth keeping. Optional priority (low|medium|high) and due date (YYYY-MM-DD).',
+      description: ADD_HINT,
       inputSchema: z.object({ text: z.string(), kind: kindSchema.default('todo'), scope: scopeSchema.optional().describe(SCOPE_HINT), priority: prioritySchema.optional(), due: z.string().optional() }),
       execute: async ({ text, kind, scope, priority, due }) => {
         const owner = ownerFor(scope, workspaceId)
+        guardRule(owner, '', kind)
         const added = add(owner, text, kind, 'agent')
         const last = added[added.length - 1]
         if (last && (priority || due)) update(owner, last.id, { priority, due })
@@ -286,10 +344,11 @@ export function aiTools(workspaceId: string | NotesContext): ToolSet {
       }
     }),
     update_note: aiTool({
-      description: 'Edit a note; set status (todo|doing|done), priority, due date, or mark done.',
+      description: UPDATE_HINT,
       inputSchema: z.object({ id: z.string(), text: z.string().optional(), done: z.boolean().optional(), status: statusSchema.optional(), priority: prioritySchema.optional(), due: z.string().optional(), kind: kindSchema.optional(), scope: scopeSchema.optional().describe(SCOPE_HINT) }),
       execute: async ({ id, text, done, status, priority, due, kind, scope }) => {
         const owner = findOwner(workspaceId, id, scope)
+        guardRule(owner, id, kind)
         update(owner, id, { text, done, status, priority, due, kind })
         return `Updated. Notes there now:\n${render(owner)}`
       }
@@ -299,6 +358,7 @@ export function aiTools(workspaceId: string | NotesContext): ToolSet {
       inputSchema: z.object({ id: z.string(), scope: scopeSchema.optional().describe(SCOPE_HINT) }),
       execute: async ({ id, scope }) => {
         const owner = findOwner(workspaceId, id, scope)
+        guardRule(owner, id, undefined)
         remove(owner, id)
         return `Removed. Notes there now:\n${render(owner)}`
       }
@@ -322,7 +382,7 @@ export function filtered(filter: NotesFilter): { owner: string; label: string; n
   const out: { owner: string; label: string; notes: Note[] }[] = []
   for (const { owner, notes } of listAll()) {
     if (filter.owners?.length && !filter.owners.includes(owner)) continue
-    const keep = notes.filter((n) => (!filter.source || n.source === filter.source) && (!filter.kind || n.kind === filter.kind) && (!filter.openOnly || (n.kind === 'todo' && !n.done)) && (!since || new Date(n.createdAt).getTime() >= since) && (!q || n.text.toLowerCase().includes(q)))
+    const keep = notes.filter((n) => (!filter.source || n.source === filter.source) && (!filter.kind || (filter.kind === 'standing' ? isStandingNote(n) : n.kind === filter.kind)) && (!filter.openOnly || (n.kind === 'todo' && !n.done)) && (!since || new Date(n.createdAt).getTime() >= since) && (!q || n.text.toLowerCase().includes(q)))
     if (keep.length) out.push({ owner, label: ownerLabel(owner), notes: keep })
   }
   return out
@@ -333,7 +393,7 @@ export async function summarize(filter: NotesFilter, question?: string): Promise
   const groups = filtered(filter)
   if (groups.length === 0) return 'Nothing matches these filters.'
   const { settings } = getStore().get()
-  const body = groups.map((g) => `## ${g.label}\n${g.notes.map((n) => `- ${n.kind === 'todo' ? (n.done ? '[x]' : '[ ]') + ' ' : ''}${n.text} (${n.source}, ${n.createdAt.slice(0, 10)})`).join('\n')}`).join('\n\n')
+  const body = groups.map((g) => `## ${g.label}\n${[...g.notes].sort(byStanding).map((n) => `- ${kindPrefix(n)}${n.text} (${n.source}, ${n.createdAt.slice(0, 10)})`).join('\n')}`).join('\n\n')
   const prompt = [
     question?.trim()
       ? `Answer the question below about the user's notes and todos. Be concrete, cite the workspace or space a todo belongs to, and keep it short.\n\nQuestion: ${question.trim()}`

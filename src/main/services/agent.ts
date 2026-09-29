@@ -403,7 +403,7 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
     abortController: abort,
     canUseTool,
     systemPrompt: lean
-      ? { type: 'preset', preset: 'claude_code', append: systemPromptFor(ws, true) + (Object.keys(mcpServers).length ? `\nMCP servers available in this workspace: ${Object.keys(mcpServers).join(', ')}.` : '') + (mcpServers.gcp ? gcp.promptFor(ws.spaceId) : '') + (mcpServers.db && ws.spaceId ? dbTools.promptFor(ws.spaceId) : '') + leanPrompt() }
+      ? { type: 'preset', preset: 'claude_code', append: systemPromptFor(ws, true) + (Object.keys(mcpServers).length ? `\nMCP servers available in this workspace: ${Object.keys(mcpServers).join(', ')}.` : '') + (mcpServers.gcp ? gcp.promptFor(ws.spaceId) : '') + (mcpServers.db && ws.spaceId ? dbTools.promptFor(ws.spaceId) : '') + notes.standingPrompt(ws.id) + leanPrompt() }
       : { type: 'preset', preset: 'claude_code', append: systemPromptFor(ws) + (Object.keys(mcpServers).length ? `\nMCP servers available in this workspace: ${Object.keys(mcpServers).join(', ')}.` : '') + crew.prompt + notes.promptFor(ws.id, true) + (mcpServers.gcp ? gcp.promptFor(ws.spaceId) : '') + (mcpServers.db && ws.spaceId ? dbTools.promptFor(ws.spaceId) : '') + '\n' + browserTools.promptFor(ws.port) },
     ...(Object.keys(crew.agents).length ? { agents: crew.agents } : {}),
     ...(Object.keys(mcpServers).length ? { mcpServers } : {}),

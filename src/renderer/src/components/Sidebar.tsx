@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { yieldsToEditor } from '@/lib/keys'
 import clsx from 'clsx'
-import { Plus, Settings, Archive, Pencil, Folder, Code2, TerminalSquare, Trash2, Layers, ArrowDownWideNarrow, ArrowUpNarrowWide, Filter, ChevronRight, MessageSquarePlus, Activity, Users2 } from 'lucide-react'
+import { Plus, Settings, Archive, Pencil, Folder, Code2, TerminalSquare, Trash2, Layers, ArrowDownWideNarrow, ArrowUpNarrowWide, Filter, ChevronRight, MessageSquarePlus, Activity, Users2, LayoutDashboard } from 'lucide-react'
 import { ERRORS_SEEN_KEY } from './FeedbackDialog'
 import { useResources, subscribeResources, gb } from '@/stores/resources'
 import { useUsage, subscribeUsage, windowLabel, clock } from '@/stores/usage'
@@ -183,6 +183,7 @@ export function Sidebar(): React.JSX.Element {
         </div>
       )}
       <div key={currentId} className="space-enter flex-1 overflow-auto px-2 pb-2">
+        {inSpace.length > 0 && <OverviewRow active={view === 'workspace' && !selectedId} spaceIds={inSpace.map((w) => w.id)} onClick={() => select(null)} guided={guided} />}
         <div
           className="group flex h-8 items-center gap-2 px-2"
           onContextMenu={(e) => {
@@ -333,6 +334,28 @@ export function Sidebar(): React.JSX.Element {
         />
       )}
     </aside>
+  )
+}
+
+/** Back to mission control (Build's overview): highlighted when no workspace is open, with what waits on the person. */
+function OverviewRow({ active, spaceIds, onClick, guided }: { active: boolean; spaceIds: string[]; onClick: () => void; guided: boolean }): React.JSX.Element {
+  const waiting = useChat((s) => new Set([...s.permissions, ...s.questions].map((p) => p.workspaceId).filter((id) => spaceIds.includes(id))).size)
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-current={active ? 'page' : undefined}
+      title={guided ? 'Everything in this team at a glance' : 'Mission control: what needs you, what is running, what is in review'}
+      className={clsx('mb-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] font-medium transition-colors', active ? 'bg-panel-2 text-text' : 'text-muted hover:bg-panel-2/60 hover:text-text')}
+    >
+      <LayoutDashboard size={14} className="shrink-0" />
+      Overview
+      {waiting > 0 && (
+        <span aria-label={`${waiting} waiting on you`} className="ml-auto min-w-4 rounded-full bg-warn/15 px-1.5 text-center text-[11px] font-semibold leading-4 text-warn">
+          {waiting}
+        </span>
+      )}
+    </button>
   )
 }
 

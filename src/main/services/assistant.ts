@@ -35,8 +35,8 @@ import * as reviews from './reviews'
 import { viewTools } from './views/tools'
 import { mcpServersFor } from './agent'
 import { getTranscript } from './transcripts'
-import { agentOwner, type MaestroConversation, type MaestroConversationMeta, type MaestroContext, type MaestroEvent, type MaestroSuggestion, type MaestroAutonomy, type MaestroMemoryCategory, type MaestroMemoryEntry, type CreateWorkspaceInput, type WorkspaceStage, type ReviewPr, type IncidentStatus, type Severity } from '@shared/types'
-import { SPACE_COLORS, type AgentSpec, type AssistantItem, type CostMode, type CostModeScope, type OnCallSettings, type Repo, type Space, type Settings } from '@shared/types'
+import { agentOwner, isAgentOwner, isStandingNote, type MaestroConversation, type MaestroConversationMeta, type MaestroContext, type MaestroEvent, type MaestroSuggestion, type MaestroAutonomy, type MaestroMemoryCategory, type MaestroMemoryEntry, type CreateWorkspaceInput, type WorkspaceStage, type ReviewPr, type IncidentStatus, type Severity } from '@shared/types'
+import { SPACE_COLORS, type AgentSpec, type AssistantItem, type CostMode, type CostModeScope, type OnCallSettings, type Repo, type Space, type Settings, type NoteKind, type NotesFilter } from '@shared/types'
 
 export const ASSISTANT_WORKSPACE_ID = 'assistant'
 
@@ -246,6 +246,24 @@ function memoryText(): string {
   return groups.map((g) => `${CATEGORY_LABEL[g.c]}:\n${g.items.map((m) => `- [${m.id}] ${m.text}`).join('\n')}`).join('\n').slice(0, 8000)
 }
 
+/**
+ * Every decision and rule across the app, spaces and workspaces, for Maestro's system prompt: rules first,
+ * then decisions, newest first, capped. A separate, visible layer from memory: the user edits these in Notes.
+ */
+function standingText(cap = 40): string {
+  // Only owners still in use: the app, spaces, agents, and workspaces that exist and are not archived.
+  const { workspaces: all } = getStore().get()
+  const liveOwner = (owner: string): boolean => owner === notes.APP_OWNER || owner.startsWith('space:') || isAgentOwner(owner) || all.some((w) => w.id === owner && w.status !== 'archived')
+  const items = notes.listAll().filter((g) => liveOwner(g.owner)).flatMap((g) => g.notes.filter(isStandingNote).map((n) => ({ n, owner: g.owner })))
+  if (items.length === 0) return ''
+  items.sort((a, b) => notes.byStanding(a.n, b.n) || b.n.createdAt.localeCompare(a.n.createdAt))
+  const line = ({ n, owner }: (typeof items)[number]): string => {
+    const text = n.text.replace(/\s+/g, ' ')
+    return `- ${n.kind === 'rule' ? 'Rule' : 'Decision'} [${n.id}, owner ${owner}] ${notes.ownerLabel(owner)}, by ${n.source === 'agent' ? 'an agent' : 'the user'}, ${n.createdAt.slice(0, 10)}: ${text.length > 200 ? `${text.slice(0, 199)}…` : text}`
+  }
+  return `${items.slice(0, cap).map(line).join('\n')}${items.length > cap ? `\n(${items.length - cap} older decisions not shown: notes_list kind "decision")` : ''}`
+}
+
 /** What changed since the previous conversation: injected into the first message of a new one. */
 function digestSince(since: string): string {
   if (!since) return ''
@@ -365,7 +383,7 @@ function overview(): unknown {
       .filter((w) => w.status !== 'archived')
       .map((w) => ({ id: w.id, name: w.name, space: spaces.find((s) => s.id === w.spaceId)?.name ?? null, stage: w.stage, status: w.status, repos: w.repos.map((r) => `${r.repoName}@${r.branch}`), lastMessageAt: w.lastMessageAt ?? null, openTodos: notes.list(w.id).filter((n) => n.kind === 'todo' && !n.done).length })),
     agents: library.list().map((a) => ({ id: a.id, name: a.name, icon: a.icon, role: a.crew ? 'crew' : 'standalone', enabled: a.enabled, model: a.model, scope: a.scope ? (spaces.find((s) => s.id === a.scope)?.name ?? a.scope) : 'every space', tools: a.tools?.length ? a.tools : 'all', schedule: a.schedule?.enabled ? `${a.schedule.kind === 'daily' ? `daily at ${a.schedule.at}` : `every ${a.schedule.everyMinutes} min`}${scheduler.nextRunAt(a) ? `, next ${scheduler.nextRunAt(a)!.toISOString()}` : ''}` : 'off', lastRun: runs.lastRun(a.id)?.startedAt ?? null, description: a.description.slice(0, 120) })),
-    notes: notes.listAll().map((g) => ({ owner: g.owner, where: notes.ownerLabel(g.owner), openTodos: g.notes.filter((n) => n.kind === 'todo' && !n.done).length, notes: g.notes.filter((n) => n.kind === 'note').length, done: g.notes.filter((n) => n.kind === 'todo' && n.done).length })),
+    notes: notes.listAll().map((g) => ({ owner: g.owner, where: notes.ownerLabel(g.owner), openTodos: g.notes.filter((n) => n.kind === 'todo' && !n.done).length, notes: g.notes.filter((n) => n.kind === 'note').length, decisions: g.notes.filter((n) => n.kind === 'decision').length, rules: g.notes.filter((n) => n.kind === 'rule').length, done: g.notes.filter((n) => n.kind === 'todo' && n.done).length })),
     reviews: reviews.listRuns().slice(0, 20).map((r) => ({ key: r.key, status: r.status, title: (r as unknown as { title?: string }).title ?? r.key })),
     oncall: { running: oncall.state().running, openIncidents: oncall.state().incidents.filter((i) => i.status !== 'resolved' && i.status !== 'dismissed').length },
     unassignedRepos: repos.filter((r) => !r.spaceId).map((r) => ({ id: r.id, name: r.name, path: r.path })),
@@ -425,6 +443,13 @@ const agentShape = z.object({
 
 // ---------- tools ----------
 type ToolDef = { name: string; description: string; shape: z.ZodRawShape; run: (args: Record<string, unknown>) => Promise<string> }
+
+/** Rules are the user's standing instructions: Maestro touches one only after a yes in this conversation (like delete_space). */
+const CONFIRMED = z.boolean().optional().describe('true only after the user said yes to this exact change in this conversation')
+const isRule = (owner: string, id: string): boolean => notes.list(owner).some((n) => n.id === id && n.kind === 'rule')
+function needsYes(confirmed: unknown, what: string): void {
+  if (confirmed !== true) throw new Error(`${what} needs the user's yes. Say the change in one line, ask, and call again with confirmed: true after they agree.`)
+}
 
 const TOOLS: ToolDef[] = [
   {
@@ -774,40 +799,45 @@ const TOOLS: ToolDef[] = [
   },
   {
     name: 'notes_list',
-    description: 'Notes and todos, everywhere or filtered: owner (a workspace id, "space:<id>" or "app"), source (user|agent), kind (note|todo), openOnly, since (ISO date), query (text).',
-    shape: { owner: z.string().optional(), source: z.enum(['user', 'agent']).optional(), kind: z.enum(['note', 'todo']).optional(), openOnly: z.boolean().optional(), since: z.string().optional(), query: z.string().optional() },
+    description: 'Notes, todos, decisions and rules, everywhere or filtered: owner (a workspace id, "space:<id>" or "app"), source (user|agent), kind (note|todo|decision|rule, or "standing" for decisions and rules), openOnly, since (ISO date), query (text). Rules and decisions come first.',
+    shape: { owner: z.string().optional(), source: z.enum(['user', 'agent']).optional(), kind: z.enum(['note', 'todo', 'decision', 'rule', 'standing']).optional(), openOnly: z.boolean().optional(), since: z.string().optional(), query: z.string().optional() },
     run: async (i) => {
-      const groups = notes.filtered({ ...(i.owner ? { owners: [String(i.owner)] } : {}), ...(i.source ? { source: i.source as 'user' | 'agent' } : {}), ...(i.kind ? { kind: i.kind as 'note' | 'todo' } : {}), ...(i.openOnly ? { openOnly: true } : {}), ...(i.since ? { since: String(i.since) } : {}), ...(i.query ? { query: String(i.query) } : {}) })
+      const groups = notes.filtered({ ...(i.owner ? { owners: [String(i.owner)] } : {}), ...(i.source ? { source: i.source as 'user' | 'agent' } : {}), ...(i.kind ? { kind: i.kind as NotesFilter['kind'] } : {}), ...(i.openOnly ? { openOnly: true } : {}), ...(i.since ? { since: String(i.since) } : {}), ...(i.query ? { query: String(i.query) } : {}) })
       if (groups.length === 0) return 'Nothing matches.'
-      return groups.map((g) => `## ${g.label} (owner ${g.owner})\n${g.notes.map((n) => `- [${n.id}] ${n.kind === 'todo' ? (n.done ? '[x] ' : '[ ] ') : ''}${n.text} (${n.source}, ${n.createdAt.slice(0, 10)})`).join('\n')}`).join('\n\n')
+      return groups.map((g) => `## ${g.label} (owner ${g.owner})\n${[...g.notes].sort(notes.byStanding).map((n) => `- [${n.id}] ${notes.kindPrefix(n)}${n.text} (${n.source}, ${n.createdAt.slice(0, 10)})`).join('\n')}`).join('\n\n')
     }
   },
   {
     name: 'notes_add',
-    description: 'Add a note or todo. owner: "app" (default, tied to no project), "space:<id>", or a workspace id. Optional priority and due date (YYYY-MM-DD).',
-    shape: { text: z.string().min(1), kind: z.enum(['note', 'todo']).default('todo'), owner: z.string().optional(), priority: z.enum(['low', 'medium', 'high']).optional(), due: z.string().optional() },
+    description: 'Add a note, todo, decision or rule. owner: "app" (default, tied to no project), "space:<id>", or a workspace id. kind "decision" records something the user decided (offer it first, add after a yes); kind "rule" only when the user states a standing instruction and asks you to keep it. A rule needs confirmed: true, set only after the user said yes to that exact rule in this conversation; a decision filed with confirmed: true is recorded as the user\'s, otherwise as yours. Optional priority and due date (YYYY-MM-DD).',
+    shape: { text: z.string().min(1), kind: z.enum(['note', 'todo', 'decision', 'rule']).default('todo'), owner: z.string().optional(), priority: z.enum(['low', 'medium', 'high']).optional(), due: z.string().optional(), confirmed: CONFIRMED },
     run: async (i) => {
       const owner = String(i.owner || notes.APP_OWNER)
-      const list = notes.add(owner, String(i.text), (i.kind as 'note' | 'todo') ?? 'todo', 'agent')
+      const kind = (i.kind as NoteKind | undefined) ?? 'todo'
+      if (kind === 'rule') needsYes(i.confirmed, 'Adding a rule')
+      // A decision or rule is the user's only when they said yes to it in this conversation; otherwise it is Maestro's.
+      const list = notes.add(owner, String(i.text), kind, (kind === 'decision' || kind === 'rule') && i.confirmed === true ? 'user' : 'agent')
       const last = list[list.length - 1]
       if (last && (i.priority || i.due)) notes.update(owner, last.id, { ...(i.priority ? { priority: i.priority as 'low' | 'medium' | 'high' } : {}), ...(i.due ? { due: String(i.due) } : {}) })
-      return `Added to ${notes.ownerLabel(owner)}.`
+      return `Added ${kind === 'todo' ? 'a todo' : `a ${kind}`} to ${notes.ownerLabel(owner)}.`
     }
   },
   {
     name: 'notes_update',
-    description: 'Edit a note: text, status (todo|doing|done), priority (low|medium|high), due date (YYYY-MM-DD), tags, kind. Pass the owner from notes_list.',
-    shape: { owner: z.string(), id: z.string(), text: z.string().optional(), status: z.string().optional().describe('todo | doing | done | one of the user\'s own statuses'), done: z.boolean().optional(), priority: z.enum(['low', 'medium', 'high']).optional(), due: z.string().optional(), tags: z.array(z.string()).optional(), kind: z.enum(['note', 'todo']).optional() },
+    description: 'Edit a note: text, status (todo|doing|done), priority (low|medium|high), due date (YYYY-MM-DD), tags, kind (note|todo|decision|rule). Editing a rule, or making a note a rule, needs confirmed: true, set only after the user said yes to that change in this conversation. Pass the owner from notes_list.',
+    shape: { confirmed: CONFIRMED, owner: z.string(), id: z.string(), text: z.string().optional(), status: z.string().optional().describe('todo | doing | done | one of the user\'s own statuses'), done: z.boolean().optional(), priority: z.enum(['low', 'medium', 'high']).optional(), due: z.string().optional(), tags: z.array(z.string()).optional(), kind: z.enum(['note', 'todo', 'decision', 'rule']).optional() },
     run: async (i) => {
-      notes.update(String(i.owner), String(i.id), { ...(i.text !== undefined ? { text: String(i.text) } : {}), ...(i.status ? { status: String(i.status) } : {}), ...(i.done !== undefined ? { done: Boolean(i.done) } : {}), ...(i.priority ? { priority: i.priority as 'low' | 'medium' | 'high' } : {}), ...(i.due !== undefined ? { due: String(i.due) } : {}), ...(i.tags !== undefined ? { tags: i.tags as string[] } : {}), ...(i.kind ? { kind: i.kind as 'note' | 'todo' } : {}) })
+      if (i.kind === 'rule' || isRule(String(i.owner), String(i.id))) needsYes(i.confirmed, 'Changing a rule')
+      notes.update(String(i.owner), String(i.id), { ...(i.text !== undefined ? { text: String(i.text) } : {}), ...(i.status ? { status: String(i.status) } : {}), ...(i.done !== undefined ? { done: Boolean(i.done) } : {}), ...(i.priority ? { priority: i.priority as 'low' | 'medium' | 'high' } : {}), ...(i.due !== undefined ? { due: String(i.due) } : {}), ...(i.tags !== undefined ? { tags: i.tags as string[] } : {}), ...(i.kind ? { kind: i.kind as NoteKind } : {}) })
       return 'Updated.'
     }
   },
   {
     name: 'notes_remove',
-    description: 'Delete a note. Only when the user asked for it.',
-    shape: { owner: z.string(), id: z.string() },
+    description: 'Delete a note. Only when the user asked for it. Deleting a rule needs confirmed: true, set only after the user said yes to deleting that rule in this conversation.',
+    shape: { owner: z.string(), id: z.string(), confirmed: CONFIRMED },
     run: async (i) => {
+      if (isRule(String(i.owner), String(i.id))) needsYes(i.confirmed, 'Deleting a rule')
       notes.remove(String(i.owner), String(i.id))
       return 'Removed.'
     }
@@ -1075,6 +1105,7 @@ function systemFor(): string {
         ? '3. Make ordinary changes (settings, notes, agents, crews, sending a message to a workspace) without asking and report what you changed. Ask first, naming the thing, before anything destructive: deleting or archiving a space, workspace, agent or note, or a change that is hard to undo.'
         : '3. Before any write (settings, spaces, crews, agents, notes, sending a message to a workspace), say what you are about to change in one or two lines and get a clear yes, or use AskUserQuestion with the options. After a write, confirm what changed. Never delete anything without the user naming it.'
   const mem = memoryText()
+  const standing = standingText()
   // Guided mode: same Maestro, same name, in the builder's words (docs/design/README.md, "Voice and copy").
   const guided = getStore().get().settings.mode === 'guided'
     ? `\n\nTHE PERSON BUILDS WITH AI AND DOES NOT WRITE CODE (guided mode). Speak in plain sentences. Never use developer words: no branch, worktree, repository or repo (say app), commit, push, pull request or PR (say "sent for review"), CLI, MCP, API key, terminal, localhost, file paths, tool names, error codes or stack traces. A workspace is a "task". Describe changes by what the person will see ("the button is bigger on phones"), never by files. When something fails, say what happened and what they can do, and offer to ask a teammate.`
@@ -1082,6 +1113,9 @@ function systemFor(): string {
   return `${SYSTEM.replace('3. Before any write (settings, spaces, crews, agents, notes, sending a message to a workspace), say what you are about to change in one or two lines and get a clear yes, or use AskUserQuestion with the options. After a write, confirm what changed. Never delete anything without the user naming it.', rule)}
 
 ${guided}
+
+DECISIONS AND RULES. These come from Notes (every workspace, space and the app) and are what you answer and act with. They are the user's, visible and editable in Notes, and separate from your memory: never copy them into remember(). Follow rules; a rule never replaces asking before a write. When an answer or action relies on a decision or rule, say so and name it ("You decided …", "Your rule: …") with a link to [Notes](sinfonie://notes). If a rule and the user's request conflict, point out the rule and ask before going on. When the user decides something in the conversation, offer in one line to record it ("Add this to Notes as a decision?") and add it with notes_add kind "decision" only after a yes. Add a rule only when the user states one and asks you to keep it.
+${standing ? `Current decisions and rules (rules first, newest first):\n${standing}` : 'None recorded yet.'}
 
 MEMORY. You keep durable facts about the user with remember(category, text): who they are (user), how they work (work), preferences (preference), facts about their spaces and apps (space), and open threads to follow up (thread). Save a fact as soon as you learn it, in one sentence, without asking; correct or drop it with forget when it changes. Never store secrets. ${mem ? `What you know so far:\n${mem}` : 'You know nothing about the user yet: early in this first conversation, ask three or four short questions with AskUserQuestion (their role, what they build and for whom, how their team ships, what they want you to be best at) and remember the answers.'}`
 }
@@ -1092,7 +1126,7 @@ Sinfonie in one minute:
 - A SPACE groups repositories (one product, one client, one team). Each space can have its own engine, model, permission mode, cost mode, crew, and integrations (Jira, Linear, Slack, Google Cloud, on-call, databases); anything unset falls back to the app default.
 - A WORKSPACE is one task inside a space: a git worktree per repository the task touches, plus a conversation with an orchestrator agent. You can read its transcript (workspace_transcript) and send it a message (send_to_workspace); the user creates workspaces from the sidebar.
 - AGENTS live in a library. A crew agent is a subagent orchestrators delegate to. A standalone agent is one the user runs directly: by @name in a workspace chat, in the agent's own chat, on a schedule (every N minutes or daily), or by you with run_agent. Agents have a name, description, prompt, model (haiku cheap and fast; sonnet the default coder; opus deep reasoning; fable the strongest), optional tool allow-list (mcp__slack for Slack, mcp__notes for notes, Read/Grep/Glob for read-only code) and turn cap.
-- NOTES and todos live at three levels: a workspace, a space ("space:<id>"), or the app ("app", tied to no project). Agents file into them; the user sees everything in the Notes view.
+- NOTES live at three levels: a workspace, a space ("space:<id>"), or the app ("app", tied to no project). Kinds: note, todo, decision (something decided) and rule (a standing instruction from a person). Agents file notes, todos and decisions, never rules; the user sees everything in the Notes view.
 - The ENGINE runs conversations; Sinfonie works with any of four: claude-code (the user's Claude login), codex (OpenAI login), gemini (Gemini CLI, Google login), grok (Grok Build, xAI login), plus native (any API provider with a key). Each space and workspace can pick its own.
 - COST MODES: standard, budget (Sonnet orchestrator, low effort, capped calls), lean (one Sonnet agent, no crew, trimmed tools).
 - INTEGRATIONS: Slack, Jira and Linear sign in through the browser; Google Cloud uses the local gcloud login; GitHub uses gh. The on-call agent watches Slack channels and triages incidents. The review cockpit runs AI reviews on pull requests.
