@@ -228,7 +228,7 @@
   <canvas id="stage" aria-hidden="true"></canvas>
   <div class="wrap">
     <img src="/assets/logo.svg" width="72" height="72" alt="Sinfonie" style="display:block;margin-bottom:22px;border-radius:18px;box-shadow:0 20px 60px rgba(91,124,255,.25)">
-    <span class="eyebrow"><i class="dot"></i> macOS · Apple Silicon · <span id="hv">v0.1.0</span></span>
+    <span class="eyebrow"><i class="dot"></i> macOS · Apple silicon and Intel · <span id="hv">v0.1.0</span></span>
     <h1>One workspace across <span class="grad">all your repositories.</span></h1>
     <p class="lead">Full-stack features live in more than one repo. Sinfonie gives every feature its own isolated workspace: <b>a worktree on the same branch in every repository you pick</b>, side by side, with a crew of models working across them.</p>
     <div class="cta">
@@ -237,7 +237,7 @@
         Download for Mac
       </a>
       <a class="btn ghost" href="#how">See how it works</a>
-      <span class="meta"><span id="hsize"></span> Free while in beta · <a href="#install" style="color:var(--muted)">first-launch steps</a></span>
+      <span class="meta"><span id="hsize"></span> Free while in beta · <a href="#install" style="color:var(--muted)">first-launch steps</a> · <a class="dl-other" href="/download?arch=x64" style="color:var(--muted)">Intel Mac</a></span>
     </div>
 
     <div class="mock" id="mock" aria-label="Sinfonie app preview">
@@ -435,7 +435,8 @@ Never let two agents edit the same repo at once.</span></pre>
       <h2>One workspace per feature. Every repo it touches.</h2>
       <p style="color:var(--muted);max-width:520px;margin:0 auto 24px">One workspace per feature, every repo it touches, a crew that knows the difference between exploring and deciding.</p>
       <a class="btn primary dl" href="/download"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg> Download Sinfonie <span id="bv"></span></a>
-      <div class="sys">macOS 13+ · Apple Silicon · needs git and a Claude Code, Codex, Gemini CLI or Grok Build login, or an API key</div>
+      <div style="margin-top:10px"><a class="dl-other" data-long="1" href="/download?arch=x64" style="color:var(--muted);font-size:13px">Download for Intel Mac</a></div>
+      <div class="sys">macOS 13+ · Apple silicon and Intel · needs git and a Claude Code, Codex, Gemini CLI or Grok Build login, or an API key</div>
     </div>
   </div>
 </section>
@@ -457,14 +458,46 @@ Never let two agents edit the same repo at once.</span></pre>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 (function(){
-  // ---- latest release → every download button ----
-  fetch('https://api.github.com/repos/fpolliop/sinfonie-releases/releases/latest').then(r => r.ok ? r.json() : null).then(rel => {
+  // ---- which Mac is this? Apple silicon unless we can tell it is Intel ----
+  // Chromium answers directly; Safari does not, so fall back to the WebGL renderer
+  // ("Apple M…" on Apple silicon, "Intel…" on Intel Macs). Both links are always on the page,
+  // so a wrong guess still leaves the other build one click away.
+  function intelFromWebgl(){
+    try {
+      var gl = document.createElement('canvas').getContext('webgl')
+      var dbg = gl && gl.getExtension('WEBGL_debug_renderer_info')
+      var r = dbg ? String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL)) : ''
+      return /intel/i.test(r) && !/apple\s*m/i.test(r)
+    } catch (e) { return false }
+  }
+  function detectArch(){
+    var ua = navigator.userAgentData
+    if (ua && ua.getHighEntropyValues) {
+      return ua.getHighEntropyValues(['architecture']).then(function(h){
+        return h && h.architecture === 'arm' ? 'arm64' : h && h.architecture ? 'x64' : (intelFromWebgl() ? 'x64' : 'arm64')
+      }).catch(function(){ return intelFromWebgl() ? 'x64' : 'arm64' })
+    }
+    return Promise.resolve(intelFromWebgl() ? 'x64' : 'arm64')
+  }
+
+  // ---- latest release → every download button, for this Mac's architecture ----
+  Promise.all([
+    detectArch(),
+    fetch('https://api.github.com/repos/fpolliop/sinfonie-releases/releases/latest').then(r => r.ok ? r.json() : null).catch(function(){ return null })
+  ]).then(function(res){
+    var arch = res[0], rel = res[1], other = arch === 'x64' ? 'arm64' : 'x64'
+    var otherLabel = other === 'x64' ? 'Intel Mac' : 'Apple silicon'
+    Array.prototype.forEach.call(document.querySelectorAll('a.dl'), function(a){ a.href = '/download?arch=' + arch })
+    Array.prototype.forEach.call(document.querySelectorAll('a.dl-other'), function(a){
+      a.href = '/download?arch=' + other
+      a.textContent = a.getAttribute('data-long') === '1' ? 'Download for ' + otherLabel : otherLabel
+    })
     if (!rel) return
-    var dmg = (rel.assets||[]).find(a => /arm64.*\.dmg$/.test(a.name)) || (rel.assets||[]).find(a => /\.dmg$/.test(a.name))
+    var dmg = (rel.assets||[]).find(function(a){ return new RegExp(arch + '.*\\.dmg$').test(a.name) }) || (rel.assets||[]).find(function(a){ return /\.dmg$/.test(a.name) })
     document.getElementById('hv').textContent = rel.tag_name
     document.getElementById('bv').textContent = rel.tag_name
     if (dmg) document.getElementById('hsize').textContent = Math.round(dmg.size/1048576) + ' MB DMG · '
-  }).catch(function(){})
+  })
 
 
   // ---- feedback form ----
