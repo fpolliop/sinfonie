@@ -13,6 +13,7 @@ import { useGuided, useWords, cap } from '@/lib/guided'
 import { workspaceLabel } from '@/lib/labels'
 import { MaestroView } from './MaestroView'
 import { HomeView } from '../views/HomeView'
+import { GettingStarted } from '../onboarding/GettingStarted'
 import { Button, Segmented } from '../ui'
 
 const BRIEF_KEY = 'sinfonie.maestro.briefOpen'
@@ -41,7 +42,14 @@ export function MaestroHome({ tab }: { tab: 'maestro' | 'pages' }): React.JSX.El
         <>
           <Brief />
           <div className="min-h-0 flex-1">
-            <MaestroView />
+            {/* First steps stay visible on the landing screen, beside the conversation, until done or dismissed. */}
+            <MaestroView
+              top={
+                <div className="flex shrink-0 justify-center px-6 empty:hidden">
+                  <GettingStarted />
+                </div>
+              }
+            />
           </div>
         </>
       )}
@@ -93,7 +101,8 @@ function Brief(): React.JSX.Element | null {
     return ws ? workspaceLabel(ws, guided) : t.workspace
   }
   const rows: Row[] = []
-  const waitingIds = [...new Set([...permissions.map((p) => p.workspaceId), ...questions.map((q) => q.workspaceId)])].filter(Boolean)
+  // Only real workspaces: Maestro's own questions carry a "maestro:<id>" workspace id and are answered in its conversation.
+  const waitingIds = [...new Set([...permissions.map((p) => p.workspaceId), ...questions.map((q) => q.workspaceId)])].filter((id) => id && workspaces.some((w) => w.id === id))
   if (waitingIds.length) {
     const first = waitingIds[0]
     rows.push({

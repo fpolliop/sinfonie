@@ -40,6 +40,9 @@ interface MaestroState {
 
 const empty = (): Loaded => ({ items: [], deltas: {}, busy: false, draft: '' })
 let subscribed = false
+/** Two contexts are the same place: the same workspace, space and screen. */
+const contextKey = (c?: MaestroContext): string => `${c?.workspaceId ?? ''}|${c?.spaceId ?? ''}|${c?.screen ?? ''}`
+const sameContext = (a?: MaestroContext, b?: MaestroContext): boolean => contextKey(a) === contextKey(b)
 /** newConversation calls in flight, by context, so two at once create one conversation. */
 const creating = new Map<string, Promise<string>>()
 
@@ -79,13 +82,14 @@ export const useMaestro = create<MaestroState>((set, get) => ({
   newConversation: async (context) => {
     // An untouched conversation with the same context is reused, so opening Maestro twice (or React running an
     // effect twice) never leaves a trail of empty "New conversation"s. Concurrent calls share one request.
-    const same = (c: MaestroConversationMeta): boolean => !c.archivedAt && !c.preview && !c.titleLocked && (c.context?.workspaceId ?? '') === (context?.workspaceId ?? '') && (c.context?.screen ?? '') === (context?.screen ?? '')
+    // Untouched means no preview yet, no items loaded and not sending: a first message in flight has no preview yet.
+    const same = (c: MaestroConversationMeta): boolean => !c.archivedAt && !c.preview && !c.titleLocked && !c.busy && !get().byId[c.id]?.busy && !get().byId[c.id]?.items.length && sameContext(c.context, context)
     const reuse = get().conversations.find(same)
     if (reuse) {
       await get().select(reuse.id)
       return reuse.id
     }
-    const key = `${context?.workspaceId ?? ''}|${context?.screen ?? ''}`
+    const key = contextKey(context)
     const pending = creating.get(key)
     if (pending) return pending
     const job = (async (): Promise<string> => {
@@ -179,7 +183,9 @@ export async function openMaestro(opts?: { context?: MaestroContext; fresh?: boo
     const id = await useMaestro.getState().newConversation(opts?.context)
     if (opts?.prompt) useMaestro.getState().setDraft(id, opts.prompt)
   } else await useMaestro.getState().select(useMaestro.getState().activeId)
-  if (useMaestro.getState().shape === 'full') setView('maestro')
+  // Already on Maestro home: stay there, and don't arm the dock to pop up on the next screen.
+  const onHome = (await import('./app')).useApp.getState().view === 'maestro'
+  if (useMaestro.getState().shape === 'full' || onHome) setView('maestro')
   else useMaestro.getState().setOpen(true)
 }
 
@@ -195,11 +201,24 @@ const RESUME_WITHIN_MS = 8 * 60 * 60 * 1000
 export async function toggleMaestroDock(): Promise<void> {
   const m = useMaestro.getState()
   const app = (await import('./app')).useApp.getState()
-  if (app.view === 'maestro') return
+  if (app.view === 'maestro' || toggling) return
   if (m.open) {
     m.setOpen(false)
     return
   }
+  toggling = true
+  try {
+    await openDock(app)
+  } finally {
+    toggling = false
+  }
+}
+
+/** A second ⌘J while the dock is still opening is ignored instead of racing it. */
+let toggling = false
+
+async function openDock(app: { view: string; selectedId: string | null; activeSpaceId: string | null }): Promise<void> {
+  const m = useMaestro.getState()
   m.subscribe()
   if (!m.listLoaded) await m.loadList()
   const screen = SCREEN_OF[app.view]
@@ -208,20 +227,33 @@ export async function toggleMaestroDock(): Promise<void> {
   const now = Date.now()
   const same = useMaestro
     .getState()
-    .conversations.find((c) => !c.archivedAt && now - new Date(c.updatedAt).getTime() < RESUME_WITHIN_MS && (workspaceId ? c.context?.workspaceId === workspaceId : !c.context?.workspaceId && c.context?.screen === screen))
+    .conversations.find((c) => !c.archivedAt && now - new Date(c.updatedAt).getTime() < RESUME_WITHIN_MS && (workspaceId ? c.context?.workspaceId === workspaceId : sameContext(c.context, context)))
   if (same) await useMaestro.getState().select(same.id)
   else await useMaestro.getState().newConversation(context)
-  useMaestro.getState().setShape('side')
+  // The dock opens beside the screen; the saved shape (dock or full screen) is left as the person chose it.
   useMaestro.getState().setOpen(true)
 }
 
 /** ⌘K's fallback: send a question to Maestro, on Maestro home or in the dock of the current screen. */
 export async function askMaestro(text: string): Promise<void> {
-  const app = (await import('./app')).useApp.getState()
-  if (app.view !== 'maestro' && !useMaestro.getState().open) await toggleMaestroDock()
-  const m = useMaestro.getState()
-  m.subscribe()
-  if (!m.listLoaded) await m.loadList()
-  const id = useMaestro.getState().activeId ?? (await useMaestro.getState().newConversation())
-  await useMaestro.getState().send(id, text)
+  const { useApp } = await import('./app')
+  try {
+    const m = useMaestro.getState()
+    m.subscribe()
+    if (!m.listLoaded) await m.loadList()
+    if (useApp.getState().view === 'maestro') {
+      // On Maestro home a question goes to a conversation of its own, never to a dock conversation about something else.
+      const active = useMaestro.getState().conversations.find((c) => c.id === useMaestro.getState().activeId)
+      const usable = active && !active.archivedAt && !active.context && !active.busy
+      const id = usable ? active.id : await useMaestro.getState().newConversation()
+      await useMaestro.getState().send(id, text)
+      return
+    }
+    if (!useMaestro.getState().open) await toggleMaestroDock()
+    let id = useMaestro.getState().activeId
+    if (!id || useMaestro.getState().byId[id]?.busy) id = await useMaestro.getState().newConversation()
+    await useMaestro.getState().send(id, text)
+  } catch (err) {
+    useApp.getState().setError(err instanceof Error ? err.message : String(err))
+  }
 }

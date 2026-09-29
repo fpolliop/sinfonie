@@ -355,14 +355,25 @@ function FeedbackButton(): React.JSX.Element {
 }
 
 /** Shown when a newer release exists on GitHub. Unsigned builds update by download. */
+/** The update found this launch: Build mounts and unmounts as the person moves around, the check runs once. */
+let knownUpdate: UpdateInfo | null = null
+let updateChecked = false
+
 function UpdateBanner(): React.JSX.Element | null {
-  const [info, setInfo] = useState<UpdateInfo | null>(null)
+  const [info, setInfoState] = useState<UpdateInfo | null>(knownUpdate)
+  const setInfo = (u: UpdateInfo | null): void => {
+    knownUpdate = u
+    setInfoState(u)
+  }
   const [dismissed, setDismissed] = useState<string | null>(() => localStorage.getItem('orchestra.dismissedUpdate'))
   const setError = useApp((s) => s.setError)
   useEffect(() => api.on('update:available', setInfo), [])
   useEffect(() => {
-    // Pick up an update found before this component mounted.
+    // Pick up an update found before this component first mounted; once per launch.
+    if (updateChecked) return
+    updateChecked = true
     api.invoke('updates:check').then((u) => u && setInfo(u)).catch(() => undefined)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   if (!info) return null
   if (dismissed === info.version && info.state === 'available') return null

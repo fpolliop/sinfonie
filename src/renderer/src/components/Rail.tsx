@@ -24,7 +24,8 @@ export function Rail(): React.JSX.Element {
   const account = useApp((s) => s.settings.cloud?.account)
   const guided = useGuided()
   const t = useWords()
-  const waiting = useChat((s) => s.permissions.length + s.questions.length)
+  // Prompts from real workspaces only; Maestro's own questions ("maestro:<id>") are answered in its conversation.
+  const waiting = useChat((s) => s.permissions.filter((p) => !p.workspaceId.startsWith('maestro:')).length + s.questions.filter((q) => !q.workspaceId.startsWith('maestro:')).length)
   const reviews = useReviews((s) => Object.keys(s.unseen).length)
   const maestroBusy = useMaestro((s) => Object.values(s.byId).some((c) => c.busy))
   const todos = useNotes((s) => Object.values(s.byWorkspace).reduce((n, list) => n + list.filter((x) => x.kind === 'todo' && !x.done).length, 0))

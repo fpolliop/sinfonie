@@ -268,7 +268,6 @@ export const useApp = create<AppState>((set, get) => ({
     set({ selectedId: id, tab: 'chat', view: 'workspace' })
   },
   setView: (view) => {
-    localStorage.setItem('orchestra.view', view)
     set({ view })
   },
   setTab: (tab) => set({ tab }),

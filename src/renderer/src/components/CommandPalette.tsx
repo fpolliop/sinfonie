@@ -209,17 +209,18 @@ export function ShortcutSheet({ onClose }: { onClose: () => void }): React.JSX.E
   const guided = useGuided()
   const t = words(guided)
   const rows: [string, string][] = [
-    ['⌘K', 'Command palette'],
+    ['⌘J', 'Maestro, beside this screen'],
+    ['⌘K', 'Search, run a command, or ask Maestro'],
     ['⌘/', 'Keyboard shortcuts'],
     ['⇧⌘N or ⌘T', `${t.newWorkspace}`],
     ['⌘↵', guided ? 'Start the task (in New task)' : 'Send or start (in dialogs that say so)'],
     ['⌘,', 'Settings'],
     ['⇧⌘F', 'Send feedback'],
     ['⌘1…⌘9', guided ? 'Switch between Chat and Preview' : 'Switch workspace tabs'],
-    ['⌥⌘↑ / ⌥⌘↓', `Previous / next ${t.workspace}`],
+    ['⌥⌘↑ / ⌥⌘↓', `Previous / next ${t.workspace} (on ${guided ? 'Tasks' : 'Build'})`],
     ['⌥⌘← / ⌥⌘→', `Previous / next ${t.space}`],
     ['⌃1…⌃9', `Jump to a ${t.space}`],
-    ...(guided ? [] : ([['⇧⌘A', 'Maestro'], ['F2', 'Rename the focused workspace in the sidebar']] as [string, string][])),
+    ...(guided ? [] : ([['F2', 'Rename the focused workspace in the sidebar']] as [string, string][])),
     ['Esc', 'Close a dialog or menu']
   ]
   return (

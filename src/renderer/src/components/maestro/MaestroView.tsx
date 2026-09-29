@@ -11,7 +11,7 @@ import { inputCls } from '../ui'
 import type { MaestroConversationMeta } from '@shared/types'
 
 /** Maestro full screen: the conversation list on the left, the conversation on the right. */
-export function MaestroView(): React.JSX.Element {
+export function MaestroView({ top }: { top?: React.ReactNode } = {}): React.JSX.Element {
   const { activeId, conversations, listLoaded, select, newConversation, loadList, subscribe, setShape, setOpen, rename, pin, archive, remove } = useMaestro()
   const setView = useApp((s) => s.setView)
   const setError = useApp((s) => s.setError)
@@ -115,7 +115,10 @@ export function MaestroView(): React.JSX.Element {
           </button>
         </div>
       </div>
-      <div className="min-w-0 flex-1">{activeId ? <MaestroConversation id={activeId} /> : null}</div>
+      <div className="flex min-w-0 flex-1 flex-col">
+        {top}
+        <div className="min-h-0 flex-1">{activeId ? <MaestroConversation id={activeId} /> : null}</div>
+      </div>
       {menu && <ContextMenu x={menu.x} y={menu.y} entries={entriesFor(conversations.find((c) => c.id === menu.id)!)} onClose={() => setMenu(null)} />}
       {memory && <MaestroMemory onClose={() => setMemory(false)} />}
     </div>

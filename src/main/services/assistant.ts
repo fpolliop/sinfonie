@@ -279,7 +279,7 @@ export function suggestions(): MaestroSuggestion[] {
   if (dueToday.length) out.push({ kind: 'todos', label: `${dueToday.length} due today`, text: 'What is due today, and what would you tackle first?' })
   const last = [...convos.values()].map((c) => c.updatedAt).sort().pop() ?? ''
   const finished = workspaces.filter((w) => w.status !== 'archived' && w.lastMessageAt && w.lastMessageAt > last).slice(0, 3)
-  for (const w of finished) out.push({ kind: 'workspace', label: `${w.name} was active`, text: guided ? `What changed in my task "${w.name}" since we last talked?` : `What happened in the "${w.name}" workspace since we last talked? Summarise it.`, id: w.id })
+  for (const w of finished) out.push({ kind: 'workspace', label: `${w.name} was active`, text: guided ? `What changed in my task "${w.name.includes(' ') ? w.name : w.name.replace(/-/g, ' ')}" since we last talked?` : `What happened in the "${w.name}" workspace since we last talked? Summarise it.`, id: w.id })
   if (guided) {
     const open = all.filter((n) => n.kind === 'todo' && !n.done).length
     if (open && out.length < 4) out.push({ kind: 'todos', label: `${open} open to-dos`, text: 'What is left on my to-do list, and what should I do first?' })
