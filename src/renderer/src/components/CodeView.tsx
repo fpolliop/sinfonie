@@ -7,7 +7,8 @@ import { ghostText } from '@/lib/ghost'
 import { changeGutter, setChangeBase } from '@/lib/changeGutter'
 import { HighlightStyle, LanguageDescription, type LanguageSupport, type TagStyle, bracketMatching, defaultHighlightStyle, foldGutter, foldKeymap, indentOnInput, syntaxHighlighting } from '@codemirror/language'
 import { languages } from '@codemirror/language-data'
-import { syntax, tokens } from '@/lib/theme'
+import { syntax, vars } from '@/lib/theme'
+import { themedEditor } from '@/lib/cmTheme'
 
 type Tag = Exclude<TagStyle['tag'], readonly unknown[]>
 
@@ -45,25 +46,27 @@ const appHighlightStyle = ((): HighlightStyle => {
     const tag = names.map((n) => byName.get(n)).filter((t): t is Tag => Boolean(t))
     if (tag.length) specs.push({ tag, ...style })
   }
-  return specs.length ? HighlightStyle.define(specs, { themeType: 'dark' }) : defaultHighlightStyle
+  return specs.length ? HighlightStyle.define(specs) : defaultHighlightStyle
 })()
 
-const theme = EditorView.theme(
+const theme = themedEditor(
   {
-    '&': { backgroundColor: 'transparent', color: tokens.text, fontSize: '11.5px', height: '100%' },
+    '&': { backgroundColor: 'transparent', color: vars.text, fontSize: '11.5px', height: '100%' },
     '.cm-scroller': { fontFamily: 'var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace)', lineHeight: '1.5', overflow: 'auto' },
     '.cm-content': { padding: '6px 0' },
     '.cm-line': { padding: '0 12px' },
-    '.cm-gutters': { backgroundColor: 'transparent', color: tokens.faint, borderRight: `1px solid ${tokens.border}`, minWidth: '44px' },
+    '.cm-gutters': { backgroundColor: 'transparent', color: vars.faint, borderRight: `1px solid ${vars.border}`, minWidth: '44px' },
     '.cm-lineNumbers .cm-gutterElement': { padding: '0 8px 0 6px' },
-    '.cm-foldGutter .cm-gutterElement': { color: tokens.faint },
-    '.cm-activeLine': { backgroundColor: tokens.activeLine },
-    '.cm-activeLineGutter': { backgroundColor: 'transparent', color: tokens.muted },
+    '.cm-foldGutter .cm-gutterElement': { color: vars.faint },
+    '.cm-activeLine': { backgroundColor: vars.activeLine },
+    '.cm-activeLineGutter': { backgroundColor: 'transparent', color: vars.muted },
     '&.cm-focused': { outline: 'none' },
-    '.cm-selectionBackground, &.cm-focused .cm-selectionBackground': { backgroundColor: tokens.accentSelection },
-    '.cm-matchingBracket, &.cm-focused .cm-matchingBracket': { backgroundColor: tokens.accentMatch, outline: `1px solid ${tokens.accentOutline}` }
-  },
-  { dark: true }
+    '.cm-selectionBackground, &.cm-focused .cm-selectionBackground': { backgroundColor: vars.accentSelection },
+    '.cm-matchingBracket, &.cm-focused .cm-matchingBracket': { backgroundColor: vars.accentMatch, outline: `1px solid ${vars.accentOutline}` },
+    '.cm-cursor, .cm-dropCursor': { borderLeftColor: vars.text },
+    '.cm-panels': { backgroundColor: vars.panel2, color: vars.text },
+    '.cm-tooltip': { backgroundColor: vars.panel2, border: `1px solid ${vars.border}`, color: vars.text }
+  }
 )
 
 const langCache = new Map<string, Promise<LanguageSupport>>()
@@ -140,7 +143,7 @@ export function CodeView({ text, filename, editable = false, onChange, onSave, s
           }),
           langConf.current.of(langExt.current),
           syntaxHighlighting(appHighlightStyle),
-          theme
+          theme()
         ]
       }),
       parent: host.current

@@ -7,6 +7,7 @@ import * as github from '../github'
 import * as workspaces from '../workspaces'
 import { ACTIONS } from '@shared/views/catalog'
 import { invalidate } from './data'
+import * as teamRules from '../team-rules'
 
 interface ActionHost {
   createPr: (workspaceId: string, repoId: string, title: string, body: string, draft: boolean) => Promise<string>
@@ -99,8 +100,12 @@ export async function run(name: string, params: Record<string, unknown>, confirm
   const p = def.params.parse(params) as { workspaceId: string; draft?: boolean; repo: string; number: number; method?: 'squash' | 'merge' | 'rebase' }
   try {
     switch (name) {
-      case 'mergePr':
+      case 'mergePr': {
+        // Team guardrail: builders merge only what a reviewer approved.
+        const veto = await teamRules.mergeVeto(p.repo, p.number)
+        if (veto) throw new Error(veto)
         return await github.mergePr(p.repo, p.number, p.method)
+      }
       case 'pushAll':
         return await pushAll(p.workspaceId)
       case 'rebaseAll':

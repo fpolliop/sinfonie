@@ -3,14 +3,31 @@
  * "Error:" prefix and IPC wrapper noise); guided mode gets a plain sentence and never sees git, paths or stacks.
  */
 import { isGuided } from '@/lib/guided'
+import { PLAIN_ERROR_MARK } from '@shared/types'
 
 /** The raw message, cleaned of Electron's IPC wrapper and a leading "Error:". */
 export function rawMessage(err: unknown): string {
   const msg = err instanceof Error ? err.message : typeof err === 'string' ? err : String(err)
-  return msg
-    .replace(/^Error invoking remote method '[^']+':\s*/, '')
-    .replace(/^(Uncaught\s+)?Error:\s*/, '')
-    .trim()
+  // IPC rejections arrive as "Error: Error invoking remote method 'x': Error: …": peel every layer.
+  const out = unwrap(msg)
+  return out.startsWith(PLAIN_ERROR_MARK) ? out.slice(PLAIN_ERROR_MARK.length).trim() : out
+}
+
+function unwrap(msg: string): string {
+  let out = msg.trim()
+  for (let prev = ''; prev !== out; ) {
+    prev = out
+    out = out
+      .replace(/^(Uncaught\s+)?Error:\s*/, '')
+      .replace(/^Error invoking remote method '[^']+':\s*/, '')
+      .trim()
+  }
+  return out
+}
+
+/** Main wrote this message for the person already (PLAIN_ERROR_MARK): show it as is in either lens. */
+export function isPlainError(err: unknown): boolean {
+  return unwrap(err instanceof Error ? err.message : typeof err === 'string' ? err : String(err)).startsWith(PLAIN_ERROR_MARK)
 }
 
 const GUIDED_RULES: [RegExp, string][] = [
@@ -25,7 +42,9 @@ const GUIDED_RULES: [RegExp, string][] = [
 /** Guided: a plain sentence (with `fallback` when nothing specific matches). Expert: the cleaned raw message. */
 export function friendlyError(err: unknown, fallback = 'Something went wrong. Try again, or ask a teammate.', guided = isGuided()): string {
   const raw = rawMessage(err)
-  if (!guided) return raw || fallback
+  if (!guided || isPlainError(err)) return raw || fallback
+  // Team guardrail refusals (src/main/services/team-rules.ts) are written for builders already.
+  if (/^(Your team requires|Only a team admin|Today's spending limit|Only saved on this Mac)/.test(raw)) return raw
   for (const [re, text] of GUIDED_RULES) if (re.test(raw)) return text
   return fallback
 }

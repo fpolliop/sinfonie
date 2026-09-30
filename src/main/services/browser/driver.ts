@@ -87,10 +87,19 @@ export class BrowserTab {
     }
     // Whether the last main-frame load failed (connection refused, DNS…): the preview can tell "not running" from "loaded".
     this.wc.on('did-fail-load', (_e, code, _desc, _url, isMainFrame) => {
-      if (isMainFrame && code !== -3) this.loadFailed = true
+      if (isMainFrame && code !== -3) {
+        this.loadFailed = true
+        this.onChange?.()
+      }
+    })
+    this.wc.on('did-navigate', () => (this.navigatedAt = new Date().toISOString()))
+    // A new main-frame load clears the failure; finishing does not, because Chromium "finishes" its own error page
+    // right after a failed load, which would hide the failure again.
+    this.wc.on('did-start-navigation', (_e, _url, isInPlace, isMainFrame) => {
+      if (isMainFrame && !isInPlace) this.loadFailed = false
     })
     this.wc.on('did-finish-load', () => {
-      this.loadFailed = false
+      this.finishedAt = Date.now()
       this.onChange?.()
     })
     this.wc.on('destroyed', () => (this.attached = false))
@@ -98,6 +107,12 @@ export class BrowserTab {
 
   /** The last main-frame load failed; cleared by the next load that finishes. (-3 is an aborted load, not a failure.) */
   loadFailed = false
+  /** When the main frame last navigated (ISO, comparable with console and network entries). */
+  navigatedAt = ''
+  /** When the last load finished (ms), so checks can skip reloading a page that just loaded. */
+  finishedAt = 0
+  /** The device metrics this driver set, so a temporary override can put the previous one back. */
+  private metrics: Record<string, unknown> | null = null
 
   // ---------- CDP plumbing ----------
 
@@ -227,6 +242,50 @@ export class BrowserTab {
     const scaled = size.width > 1280 ? img.resize({ width: 1280 }) : img
     const s = scaled.getSize()
     return { data: scaled.toJPEG(72).toString('base64'), mimeType: 'image/jpeg', width: s.width, height: s.height }
+  }
+  /**
+   * A picture of the page (or of `rect`, in page CSS pixels) as a JPEG data URL, or null when the view is not on
+   * screen. Used by the builder's thumbnails, change cards and picked-element crops.
+   */
+  async capture(opts: { rect?: { x: number; y: number; width: number; height: number }; maxWidth?: number; quality?: number } = {}): Promise<string | null> {
+    if (this.wc.isDestroyed()) return null
+    const img = await this.wc.capturePage(opts.rect ? { x: Math.round(opts.rect.x), y: Math.round(opts.rect.y), width: Math.max(1, Math.round(opts.rect.width)), height: Math.max(1, Math.round(opts.rect.height)) } : undefined)
+    const size = img.getSize()
+    if (size.width === 0 || size.height === 0 || img.isEmpty()) return null
+    const max = opts.maxWidth ?? 960
+    const scaled = size.width > max ? img.resize({ width: max, quality: 'good' }) : img
+    return `data:image/jpeg;base64,${scaled.toJPEG(opts.quality ?? 72).toString('base64')}`
+  }
+  /**
+   * Role and name, from the accessibility tree, of the first element matching `selector` (the builder marks the
+   * element the person pointed at). Null when the tree has nothing useful for it.
+   */
+  async describe(selector: string): Promise<{ role: string; name: string } | null> {
+    try {
+      const { root } = await this.cdp<{ root: { nodeId: number } }>('DOM.getDocument', { depth: 0 })
+      const { nodeId } = await this.cdp<{ nodeId: number }>('DOM.querySelector', { nodeId: root.nodeId, selector })
+      if (!nodeId) return null
+      const { nodes } = await this.cdp<{ nodes: AXNode[] }>('Accessibility.getPartialAXTree', { nodeId, fetchRelatives: false })
+      const n = nodes.find((x) => !x.ignored) ?? nodes[0]
+      if (!n) return null
+      const role = n.role?.value ?? ''
+      return { role: SKIP.has(role) ? '' : role, name: String(n.name?.value ?? '').trim().slice(0, 150) }
+    } catch {
+      return null
+    }
+  }
+  /** Run `fn` with the page laid out at a phone's width, then put it back. */
+  async atWidth<T>(width: number, height: number, fn: () => Promise<T>): Promise<T> {
+    const previous = this.metrics
+    this.metrics = { width, height, deviceScaleFactor: 0, mobile: true }
+    await this.cdp('Emulation.setDeviceMetricsOverride', this.metrics)
+    try {
+      await sleep(250)
+      return await fn()
+    } finally {
+      this.metrics = previous
+      await (previous ? this.cdp('Emulation.setDeviceMetricsOverride', previous) : this.cdp('Emulation.clearDeviceMetricsOverride')).catch(() => undefined)
+    }
   }
   async text(maxChars = 40_000): Promise<string> {
     const t = (await this.wc.executeJavaScript('document.body ? document.body.innerText : ""', true)) as string

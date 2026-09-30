@@ -24,6 +24,7 @@ import { join } from 'path'
 import { app } from 'electron'
 import { nanoid } from 'nanoid'
 import * as interaction from './interaction'
+import * as teamRules from './team-rules'
 import * as remote from './remote'
 import { getStore } from '../store'
 import { effectivePermissionMode } from './permission-mode'
@@ -152,12 +153,15 @@ export async function start(workspaceId: string, opts: { prompt?: string; fresh?
     inProcess.slack ? slackTools.promptFor(slackConn) : '',
     gcpOn ? gcp.promptFor(ws.spaceId) : '',
     servers.db && ws.spaceId ? dbTools.promptFor(ws.spaceId) : '',
-    browserTools.promptFor(ws.port)
+    browserTools.promptFor(ws.port),
+    teamRules.promptFor(ws)
   ]
     .filter(Boolean)
     .join('\n')
   args.push('--append-system-prompt', q(appendPrompt))
-  const hook = (event: string, timeout: number): object => ({ hooks: [{ type: 'command', command: `curl -sS -m ${timeout} -X POST --data-binary @- 'http://127.0.0.1:${port}/hook/${workspaceId}/${hookToken}/${event}'`, timeout }] })
+  // PreToolUse fails closed: if Sinfonie can't answer (app quit, server down), exit 2 blocks the tool, so team
+  // guardrails can't be skipped by a dead hook. The other events stay best-effort.
+  const hook = (event: string, timeout: number): object => ({ hooks: [{ type: 'command', command: `curl -${event === 'PreToolUse' ? 'f' : ''}sS -m ${timeout} -X POST --data-binary @- 'http://127.0.0.1:${port}/hook/${workspaceId}/${hookToken}/${event}'${event === 'PreToolUse' ? " || { echo 'Sinfonie could not check this tool call against the team guardrails, so it was blocked.' >&2; exit 2; }" : ''}`, timeout }] })
   const settingsFile = join(app.getPath('userData'), 'cli', `${workspaceId}.settings.json`)
   mkdirSync(join(app.getPath('userData'), 'cli'), { recursive: true })
   writeFileSync(settingsFile, JSON.stringify({ hooks: { PreToolUse: [hook('PreToolUse', 3600)], UserPromptSubmit: [hook('UserPromptSubmit', 10)], Stop: [hook('Stop', 10)], Notification: [hook('Notification', 10)] } }))
@@ -537,6 +541,9 @@ async function preToolUse(l: Live, input: HookInput): Promise<object | null> {
   const { settings, spaces } = getStore().get()
   const mode = effectivePermissionMode(ws, spaces.find((s) => s.id === ws.spaceId), settings)
   if (!tool || READ_ONLY.has(tool) || tool.startsWith('mcp__')) return null
+  // Team guardrails before any mode shortcut: they hold under bypass and auto too.
+  const veto = teamRules.toolVeto(ws, tool, input.tool_input, (input as { cwd?: string }).cwd)
+  if (veto) return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: veto } }
   if (mode === 'plan' || mode === 'bypassPermissions' || mode === 'auto') return null
   if (mode === 'acceptEdits' && EDITS.has(tool)) return null
   const abort = new AbortController()

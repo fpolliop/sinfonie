@@ -7,6 +7,7 @@ import { dirname, isAbsolute, relative, resolve } from 'path'
 import fg from 'fast-glob'
 import type { Question, Workspace } from '@shared/types'
 import { askQuestion } from '../interaction'
+import * as teamRules from '../team-rules'
 
 /**
  * The native engine's built-in tools. Same names as Claude Code's where the
@@ -55,6 +56,8 @@ export function buildTools(ctx: ToolContext): ToolSet {
     inputSchema: z.object({ file_path: z.string(), content: z.string() }),
     execute: async ({ file_path, content }) => {
       const abs = resolvePath(ctx, file_path)
+      const veto = teamRules.writeVeto(ctx.workspace, abs)
+      if (veto) return veto
       mkdirSync(dirname(abs), { recursive: true })
       writeFileSync(abs, content)
       return `Wrote ${content.length} characters to ${abs}`
@@ -65,6 +68,8 @@ export function buildTools(ctx: ToolContext): ToolSet {
     inputSchema: z.object({ file_path: z.string(), old_string: z.string(), new_string: z.string(), replace_all: z.boolean().optional() }),
     execute: async ({ file_path, old_string, new_string, replace_all }) => {
       const abs = resolvePath(ctx, file_path)
+      const veto = teamRules.writeVeto(ctx.workspace, abs)
+      if (veto) return veto
       if (!existsSync(abs)) return `File not found: ${abs}`
       const src = readFileSync(abs, 'utf8')
       const count = src.split(old_string).length - 1
@@ -113,6 +118,8 @@ export function buildTools(ctx: ToolContext): ToolSet {
     inputSchema: z.object({ command: z.string(), description: z.string().optional().describe('What this command does, in a few words'), timeout: z.number().int().optional().describe('Milliseconds, default 120000, max 600000'), cwd: z.string().optional() }),
     execute: async ({ command, timeout, cwd }) => {
       const dir = cwd ? resolvePath(ctx, cwd) : ctx.cwd
+      const veto = teamRules.commandVeto(ctx.workspace, command, dir)
+      if (veto) return veto
       const out = await run('/bin/zsh', ['-lc', command], dir, ctx.signal, Math.min(timeout ?? 120_000, 600_000))
       const text = [out.stdout, out.stderr].filter(Boolean).join('\n').trim()
       const body = text.length > MAX_OUT ? text.slice(0, MAX_OUT / 2) + '\n… truncated …\n' + text.slice(-MAX_OUT / 2) : text

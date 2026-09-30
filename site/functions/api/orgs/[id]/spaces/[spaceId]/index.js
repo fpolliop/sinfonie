@@ -7,6 +7,20 @@ import { currentUser, json, error } from '../../../../../_session.js'
 import { membership } from '../../index.js'
 import { spaceView } from '../index.js'
 
+/**
+ * Team guardrails (settings.rules) are the admins' to change. A member's push keeps the stored rules, and so does
+ * a push from an older app that does not know the key (it would otherwise wipe them).
+ */
+export function guardRules(incoming, current, isAdmin) {
+  const stored = current?.settings?.rules
+  const has = incoming?.settings && Object.prototype.hasOwnProperty.call(incoming.settings, 'rules')
+  if (isAdmin && has) return incoming
+  const settings = { ...(incoming.settings || {}) }
+  if (stored === undefined) delete settings.rules
+  else settings.rules = stored
+  return { ...incoming, settings }
+}
+
 export async function onRequestPut({ request, env, params }) {
   const user = await currentUser(request, env)
   if (!user) return error('unauthorized', 'Sign in again.', 401)
@@ -18,7 +32,7 @@ export async function onRequestPut({ request, env, params }) {
   if (!b.definition || typeof b.definition !== 'object') return error('invalid_request', 'A definition is needed.')
   if (Number(b.version) !== row.version) return json({ error: 'stale', error_description: 'Someone updated this space since you last synced.', current: spaceView(row) }, 409)
   const name = String(b.name || b.definition.name || row.name).trim().slice(0, 80)
-  const def = JSON.stringify({ ...b.definition, name, orgId: org.id })
+  const def = JSON.stringify({ ...guardRules(b.definition, JSON.parse(row.definition || '{}'), org.role === 'admin'), name, orgId: org.id })
   await env.DB.prepare("UPDATE org_spaces SET name = ?2, definition = ?3, version = version + 1, updated_by = ?4, updated_at = datetime('now') WHERE id = ?1").bind(row.id, name, def, user.id).run()
   const fresh = await env.DB.prepare('SELECT * FROM org_spaces WHERE id = ?1').bind(row.id).first()
   return json({ ...spaceView(fresh), updatedBy: user.login })

@@ -103,7 +103,7 @@ export function LabelPicker({ ws }: { ws: Workspace }): React.JSX.Element {
             </div>
             <div role="radiogroup" aria-label="New label colour" className="mt-1.5 flex gap-1">
               {SPACE_COLORS.map((c) => (
-                <button key={c} type="button" role="radio" aria-checked={c === color} aria-label={colorName(c)} title={colorName(c)} className="h-4 w-4 rounded-full border-2" style={{ background: c, borderColor: c === color ? '#fff' : 'transparent' }} onClick={() => setColor(c)} />
+                <button key={c} type="button" role="radio" aria-checked={c === color} aria-label={colorName(c)} title={colorName(c)} className="h-4 w-4 rounded-full border-2" style={{ background: c, borderColor: c === color ? 'var(--color-text)' : 'transparent' }} onClick={() => setColor(c)} />
               ))}
             </div>
           </div>

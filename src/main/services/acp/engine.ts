@@ -22,6 +22,7 @@ import * as jira from '../jira'
 import { logError } from '../telemetry'
 import { apiKeyForKind } from '../providers'
 import * as notes from '../notes'
+import * as teamRules from '../team-rules'
 
 type Emit = (e: AgentEvent) => void
 type AcpEngine = 'codex' | 'gemini' | 'grok'
@@ -95,9 +96,47 @@ interface Session {
   modes: schema.SessionModeState | null
   tokens: { input: number; output: number }
   emit: Emit
+  /** Team guardrail notes for the agent's next turn (files put back after an edit it made without asking). */
+  guardNotes: string[]
+  guard: (u: GuardedUpdate) => void
 }
 
 const sessions = new Map<string, Session>()
+
+type GuardedUpdate = { toolCallId: string; kind?: string | null; status?: string | null; rawInput?: unknown; title?: string | null; locations?: { path: string }[] | null }
+
+/**
+ * The last line of the team guardrails for agents that edit without asking (their own auto modes): when an edit
+ * finishes, any file it touched that a rule protects is put back (team-rules.restorePath) and reported.
+ */
+function editGuard(getWs: () => Workspace, cwd: string, onRestored: (rel: string, reason: string) => void): (u: GuardedUpdate) => void {
+  const calls = new Map<string, { kind?: string | null; input: Record<string, unknown> }>()
+  return (u) => {
+    const prev = calls.get(u.toolCallId)
+    const locations = u.locations?.length ? u.locations : prev?.input.locations
+    const input: Record<string, unknown> = { ...(prev?.input ?? {}), ...inputOf(u), ...(locations ? { locations } : {}) }
+    const kind = u.kind ?? prev?.kind
+    calls.set(u.toolCallId, { kind, input })
+    if (u.status !== 'completed' && u.status !== 'failed') return
+    calls.delete(u.toolCallId)
+    if (kind && kind !== 'edit' && kind !== 'delete' && kind !== 'move' && kind !== 'other') return
+    let ws: Workspace
+    try {
+      ws = getWs()
+    } catch {
+      return
+    }
+    for (const p of teamRules.acpPaths(input)) {
+      const reason = teamRules.writeVeto(ws, p, cwd)
+      if (reason) void teamRules.restorePath(ws, p, cwd).then((rel) => onRestored(rel, reason)).catch(() => undefined)
+    }
+  }
+}
+
+/** ACP agents skip our permission request in their own auto modes; while team rules apply, keep them asking. */
+function modeForAgent(ws: Workspace, mode: PermissionMode): PermissionMode {
+  return teamRules.acpNeedsAsk(ws) && (mode === 'bypassPermissions' || mode === 'auto' || mode === 'acceptEdits') ? 'default' : mode
+}
 
 function within(roots: string[], p: string): boolean {
   const abs = resolve(p)
@@ -279,10 +318,12 @@ async function openSession(workspaceId: string, engine: AcpEngine, emit: Emit): 
           s.toolItems.set(update.toolCallId, s.itemId)
           e({ type: 'tool_start', workspaceId, itemId: s.itemId, toolUseId: update.toolCallId, name })
           e({ type: 'tool_input', workspaceId, itemId: s.itemId, toolUseId: update.toolCallId, input: inputOf(update) })
+          s.guard(update)
           if (update.status === 'completed' || update.status === 'failed') e({ type: 'tool_result', workspaceId, toolUseId: update.toolCallId, result: contentText(update.content), isError: update.status === 'failed' })
           break
         }
         case 'tool_call_update':
+          s.guard(update)
           if (update.status === 'completed' || update.status === 'failed') e({ type: 'tool_result', workspaceId, toolUseId: update.toolCallId, result: contentText(update.content ?? undefined) || (update.status === 'completed' ? 'done' : 'failed'), isError: update.status === 'failed' })
           break
         case 'usage_update': {
@@ -302,7 +343,12 @@ async function openSession(workspaceId: string, engine: AcpEngine, emit: Emit): 
     async requestPermission(p) {
       const s = session
       const pick = (kinds: schema.PermissionOptionKind[]): string | undefined => kinds.map((k) => p.options.find((o) => o.kind === k)?.optionId).find(Boolean)
-      if (mode === 'bypassPermissions' || mode === 'auto') {
+      // Team guardrails first: auto and bypass would otherwise approve without asking.
+      if (teamRules.acpVeto(getWorkspace(workspaceId), p.toolCall.kind ?? undefined, { ...inputOf(p.toolCall), locations: p.toolCall.locations }, wsCwd)) {
+        const no = pick(['reject_once', 'reject_always'])
+        return { outcome: no ? { outcome: 'selected', optionId: no } : { outcome: 'cancelled' } }
+      }
+      if (mode === 'bypassPermissions' || mode === 'auto' || (mode === 'acceptEdits' && p.toolCall.kind === 'edit')) {
         const id = pick(['allow_once', 'allow_always']) ?? p.options[0]?.optionId
         return { outcome: { outcome: 'selected', optionId: id } }
       }
@@ -320,6 +366,8 @@ async function openSession(workspaceId: string, engine: AcpEngine, emit: Emit): 
     },
     async writeTextFile({ path, content }) {
       if (!within(roots, path)) throw new Error(`Path outside the workspace: ${path}`)
+      const veto = teamRules.writeVeto(getWorkspace(workspaceId), path)
+      if (veto) throw new Error(veto)
       mkdirSync(dirname(path), { recursive: true })
       writeFileSync(path, content)
       return {}
@@ -331,6 +379,8 @@ async function openSession(workspaceId: string, engine: AcpEngine, emit: Emit): 
       // verbatim fails with ENOENT, so hand such strings to a shell instead.
       const viaShell = (!args || args.length === 0) && /\s/.test(command.trim())
       const [file, argv] = viaShell ? ['/bin/zsh', ['-lc', command]] : [command, args ?? []]
+      const veto = teamRules.commandVeto(getWorkspace(workspaceId), viaShell ? command : [command, ...(args ?? [])].join(' '), cwd ?? wsCwd)
+      if (veto) throw new Error(veto)
       const child = spawn(file, argv, { cwd: cwd ?? wsCwd, env: { ...loginEnv(), ...Object.fromEntries((env ?? []).map((e) => [e.name, e.value])) } })
       resources.registerProcess(child.pid, { kind: 'tool', workspaceId, label: command })
       child.once('exit', () => resources.unregisterProcess(child.pid))
@@ -382,7 +432,16 @@ async function openSession(workspaceId: string, engine: AcpEngine, emit: Emit): 
   const { child, conn } = connect(engine, wsCwd, client, accountEnvById(engine, ws.claudeAccountId))
   resources.registerProcess(child.pid, { kind: 'agent', workspaceId, label: engine })
   child.once('exit', () => resources.unregisterProcess(child.pid))
-  session = { workspaceId, engine, child, conn, sessionId: '', busy: false, queue: [], interrupted: false, toolItems: new Map(), itemId: '', terminals: new Map(), modes: null, tokens: { input: 0, output: 0 }, emit }
+  session = { workspaceId, engine, child, conn, sessionId: '', busy: false, queue: [], interrupted: false, toolItems: new Map(), itemId: '', terminals: new Map(), modes: null, tokens: { input: 0, output: 0 }, emit, guardNotes: [], guard: () => undefined }
+  session.guard = editGuard(
+    () => getWorkspace(workspaceId),
+    wsCwd,
+    (rel, reason) => {
+      session.guardNotes.push(`You changed ${rel} without asking, and a team guardrail protects it, so Sinfonie put it back. ${reason}`)
+      const text = getStore().get().settings.mode === 'guided' ? 'Something your team protects was changed, so it was put back.' : `Guardrail: ${engine} changed ${rel}, which the team protects; it was restored.`
+      session.emit({ type: 'notice', workspaceId, itemId: nanoid(8), level: 'warn', text, createdAt: new Date().toISOString() })
+    }
+  )
   child.on('exit', (code) => {
     if (sessions.get(workspaceId) === session) {
       sessions.delete(workspaceId)
@@ -410,7 +469,7 @@ async function openSession(workspaceId: string, engine: AcpEngine, emit: Emit): 
   }
   session.sessionId = s.sessionId
   session.modes = s.modes ?? null
-  await applyMode(conn, s.sessionId, s.modes ?? null, mode)
+  await applyMode(conn, s.sessionId, s.modes ?? null, modeForAgent(ws, mode))
   await applyModel(conn, s.sessionId, s, space?.model || settings[`${engine}Model` as keyof typeof settings] as string | undefined)
   sessions.set(workspaceId, session)
   return session
@@ -478,6 +537,13 @@ function contentText(content: schema.ToolCallContent[] | null | undefined): stri
 
 // ---------- public surface ----------
 
+/** The team's guardrails, restated on every turn: ACP agents get no system prompt of ours. */
+function teamPrefix(session: Session): string {
+  const notes = session.guardNotes.splice(0).join('\n')
+  const text = [teamRules.promptFor(getWorkspace(session.workspaceId)).trim(), notes].filter(Boolean).join('\n')
+  return text ? `<team_guardrails>\n${text}\n</team_guardrails>\n\n` : ''
+}
+
 function deliver(session: Session, text: string, images?: ChatImageRef[]): void {
   const { workspaceId, emit } = session
   session.busy = true
@@ -485,7 +551,7 @@ function deliver(session: Session, text: string, images?: ChatImageRef[]): void 
   emit({ type: 'user_message', workspaceId, itemId: nanoid(8), text, createdAt: new Date().toISOString(), ...(images?.length ? { images } : {}) })
   emit({ type: 'status', workspaceId, busy: true })
   session.conn
-    .prompt({ sessionId: session.sessionId, prompt: [...(images ?? []).map((img) => ({ type: 'image' as const, data: toBase64(img), mimeType: img.mimeType })), { type: 'text', text: notes.prefixFor(workspaceId) + (text || (images?.length ? 'See the attached image.' : '')) }] })
+    .prompt({ sessionId: session.sessionId, prompt: [...(images ?? []).map((img) => ({ type: 'image' as const, data: toBase64(img), mimeType: img.mimeType })), { type: 'text', text: notes.prefixFor(workspaceId) + teamPrefix(session) + (text || (images?.length ? 'See the attached image.' : '')) }] })
     .then((r) => {
       if (session.itemId) emit({ type: 'assistant_end', workspaceId, itemId: session.itemId })
       if (session.interrupted || r.stopReason === 'cancelled') {
@@ -596,13 +662,18 @@ export async function runWorker(run: AcpWorkerRun): Promise<string> {
   const roots = [...ws.repos.map((r) => r.worktreePath), ws.rootPath]
   let text = ''
   const seen = new Set<string>()
+  const guard = editGuard(() => ws, wsCwd, (rel) => run.onStep({ kind: 'text', detail: `Guardrail: ${engine} changed ${rel}, which the team protects; it was restored.` }))
   const client = (): Client => ({
     async sessionUpdate({ update }) {
       switch (update.sessionUpdate) {
         case 'agent_message_chunk':
           if (update.content.type === 'text') text += update.content.text
           break
+        case 'tool_call_update':
+          guard(update)
+          break
         case 'tool_call': {
+          guard(update)
           if (seen.has(update.toolCallId)) break
           seen.add(update.toolCallId)
           const i = inputOf(update)
@@ -616,7 +687,11 @@ export async function runWorker(run: AcpWorkerRun): Promise<string> {
     },
     async requestPermission(p) {
       const pick = (kinds: schema.PermissionOptionKind[]): string | undefined => kinds.map((k) => p.options.find((o) => o.kind === k)?.optionId).find(Boolean)
-      if (run.mode === 'bypassPermissions' || run.mode === 'auto') return { outcome: { outcome: 'selected', optionId: pick(['allow_once', 'allow_always']) ?? p.options[0]?.optionId } }
+      if (teamRules.acpVeto(ws, p.toolCall.kind ?? undefined, { ...inputOf(p.toolCall), locations: p.toolCall.locations }, wsCwd)) {
+        const no = pick(['reject_once', 'reject_always'])
+        return { outcome: no ? { outcome: 'selected', optionId: no } : { outcome: 'cancelled' } }
+      }
+      if (run.mode === 'bypassPermissions' || run.mode === 'auto' || (run.mode === 'acceptEdits' && p.toolCall.kind === 'edit')) return { outcome: { outcome: 'selected', optionId: pick(['allow_once', 'allow_always']) ?? p.options[0]?.optionId } }
       const tc = p.toolCall
       const r = await askPermission({ workspaceId: ws.id, toolName: `${engine}: ${toolName(tc.kind ?? undefined, tc.title ?? undefined, tc.name ?? undefined)}`, input: inputOf(tc), canAlwaysAllow: false })
       const id = r.decision === 'deny' ? pick(['reject_once', 'reject_always']) : pick(['allow_once', 'allow_always'])
@@ -630,6 +705,8 @@ export async function runWorker(run: AcpWorkerRun): Promise<string> {
     },
     async writeTextFile({ path, content }) {
       if (!within(roots, path)) throw new Error(`Path outside the workspace: ${path}`)
+      const veto = teamRules.writeVeto(ws, path)
+      if (veto) throw new Error(veto)
       mkdirSync(dirname(path), { recursive: true })
       writeFileSync(path, content)
       return {}
@@ -645,9 +722,9 @@ export async function runWorker(run: AcpWorkerRun): Promise<string> {
   try {
     const init = await conn.initialize({ protocolVersion: 1, clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: false } })
     const s = await newSessionWithAuth(conn, engine, { cwd: wsCwd, mcpServers: [] }, init.authMethods ?? [])
-    await applyMode(conn, s.sessionId, s.modes ?? null, run.mode)
+    await applyMode(conn, s.sessionId, s.modes ?? null, modeForAgent(ws, run.mode))
     await applyModel(conn, s.sessionId, s, run.model)
-    await conn.prompt({ sessionId: s.sessionId, prompt: [{ type: 'text', text: run.prompt }] })
+    await conn.prompt({ sessionId: s.sessionId, prompt: [{ type: 'text', text: (teamRules.promptFor(ws).trim() ? `<team_guardrails>\n${teamRules.promptFor(ws).trim()}\n</team_guardrails>\n\n` : '') + run.prompt }] })
     return text
   } finally {
     run.signal?.removeEventListener('abort', kill)

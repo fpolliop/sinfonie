@@ -348,7 +348,7 @@ const DECISION: Record<ReviewVerdict['decision'], { label: string; verb: string;
   comment: { label: 'Comment', verb: 'comment', tone: 'text-muted', badge: 'muted' }
 }
 
-function PrDetail({ pr, run, onStart }: { pr: ReviewPr; run?: ReviewRun; onStart: () => void }): React.JSX.Element {
+export function PrDetail({ pr, run, onStart }: { pr: ReviewPr; run?: ReviewRun; onStart: () => void }): React.JSX.Element {
   const setError = useApp((s) => s.setError)
   const [submitting, setSubmitting] = useState(false)
   const [hidden, setHidden] = useState<Set<ReviewSeverity>>(new Set())

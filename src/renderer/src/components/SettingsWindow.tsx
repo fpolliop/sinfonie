@@ -239,8 +239,30 @@ function PreferencesPage(): React.JSX.Element {
   return (
     <div className="max-w-[560px]">
       <ModeField />
+      <ThemeField />
       <NotificationsField />
     </div>
+  )
+}
+
+/** Light, dark, or follow macOS. Until the person picks, guided mode is light and expert mode is dark. */
+function ThemeField(): React.JSX.Element {
+  const pref = useApp((s) => s.settings.theme)
+  const guided = useApp((s) => s.settings.mode === 'guided')
+  const go = useGo()
+  const value = pref ?? (guided ? 'light' : 'dark')
+  return (
+    <Field label="Appearance" hint={pref ? 'System follows your Mac’s light or dark setting.' : `Light suits guided mode and dark suits expert mode; that is the default until you pick one. System follows your Mac.`}>
+      <Segmented
+        value={value}
+        onChange={(v) => void go(() => api.invoke('settings:update', { theme: v }))}
+        options={[
+          { id: 'system', label: 'System' },
+          { id: 'light', label: 'Light' },
+          { id: 'dark', label: 'Dark' }
+        ]}
+      />
+    </Field>
   )
 }
 
@@ -677,7 +699,7 @@ function SpacePageView({ space, page }: { space: Space; page: SpacePage }): Reac
               <div className="mb-1 text-[12px] font-medium text-muted">Colour</div>
               <div role="radiogroup" aria-label="Space colour" className="flex h-[34px] items-center gap-1.5">
                 {SPACE_COLORS.map((c) => (
-                  <button key={c} type="button" role="radio" aria-checked={c === space.color} aria-label={colorName(c)} title={colorName(c)} className="h-5 w-5 rounded-full border-2" style={{ background: c, borderColor: c === space.color ? '#fff' : 'transparent' }} onClick={() => go(() => upd({ color: c }))} />
+                  <button key={c} type="button" role="radio" aria-checked={c === space.color} aria-label={colorName(c)} title={colorName(c)} className="h-5 w-5 rounded-full border-2" style={{ background: c, borderColor: c === space.color ? 'var(--color-text)' : 'transparent' }} onClick={() => go(() => upd({ color: c }))} />
                 ))}
               </div>
             </div>

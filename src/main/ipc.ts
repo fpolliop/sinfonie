@@ -36,6 +36,7 @@ import * as remote from './services/remote'
 import { setAuthLinkEmitters, authDone } from './services/auth-link'
 import * as accounts from './services/accounts'
 import * as reviews from './services/reviews'
+import * as inbox from './services/inbox'
 import * as sessionsSvc from './services/sessions'
 import { checkForUpdate, latestKnownUpdate, downloadUpdate, installUpdate, installWhenIdle, setIdleProbe } from './services/updates'
 import { clearErrors, listErrors, logsDir, sendFeedback, noteMessage } from './services/telemetry'
@@ -50,6 +51,8 @@ import * as scheduler from './services/crew/scheduler'
 import * as resources from './services/resources'
 import * as browser from './services/browser/service'
 import * as browserHttp from './services/browser/http'
+import * as previewShots from './services/browser/preview'
+import * as builder from './services/builder'
 import * as logins from './services/logins'
 import * as workspaceTools from './services/workspace-tools'
 import { saveImages } from './services/images'
@@ -70,6 +73,7 @@ import * as usage from './services/usage'
 import * as power from './services/power'
 import { costModeFor } from './services/cost-mode'
 import * as limits from './services/limits'
+import * as teamRules from './services/team-rules'
 import type { ChatImageInput, ChatImageRef, Engine } from '@shared/types'
 import { carrySessionToAccount } from './services/sessions'
 
@@ -118,7 +122,12 @@ export function registerIpc(): void {
     send('agent:promptResolved', { requestId: id })
   })
   remote.setStatusEmitter((s) => send('remote:status', s))
-  agent.setGuidedChangedEmitter((e) => send('guided:changed', e))
+  // The change card goes out at once; its before/after pictures follow when the preview has reloaded (bounded).
+  agent.setGuidedChangedEmitter((e) => {
+    const changeId = nanoid(8)
+    send('guided:changed', { ...e, changeId })
+    void previewShots.pictures(e.workspaceId, changeId).then((p) => p && send('guided:pictures', p))
+  })
   getStore().subscribe(() => send('store:changed', getStore().public()))
   workspaceTools.setScriptEmitter(emitScript)
 
@@ -158,6 +167,40 @@ export function registerIpc(): void {
     orgSpaces.pushSoon(id)
     return out
   })
+  // Guardrail changes are published right away, not debounced, so a failure reaches the admin instead of "saved".
+  // A stale version means a teammate pushed first: the sync takes theirs, then this admin's change is re-applied on top.
+  const shareRules = async (spaceId: string, apply: () => unknown): Promise<Space> => {
+    apply()
+    const s = teamRules.spaceOf(spaceId)
+    if (!s?.orgSpace || !s.orgId || !cloud.hasSession()) return s as Space
+    // The cloud's own words stay in the log (and in the message for experts); guided mode gets the plain sentence.
+    const fail = (err: unknown): Error => {
+      const detail = err instanceof Error ? err.message : String(err)
+      console.warn('[team] sharing guardrails failed', detail)
+      const expert = getStore().get().settings.mode !== 'guided'
+      return new Error(`Only saved on this Mac: the guardrails could not be shared with the team${expert ? ` (${detail})` : ''}. Try again.`)
+    }
+    try {
+      await orgSpaces.publish(spaceId, s.orgId)
+    } catch (err) {
+      if (!/updated this space since/i.test(err instanceof Error ? err.message : String(err))) throw fail(err)
+      apply()
+      try {
+        await orgSpaces.publish(spaceId, s.orgId)
+      } catch (again) {
+        throw fail(again)
+      }
+    }
+    return teamRules.spaceOf(spaceId) as Space
+  }
+  handle('team:setRules', (spaceId, rules) => shareRules(spaceId, () => teamRules.setRules(spaceId, rules)))
+  handle('team:setAppLookOnly', async (spaceId, repoId, lookOnly) => {
+    const apply = await teamRules.setAppLookOnly(spaceId, repoId, lookOnly)
+    return shareRules(spaceId, apply)
+  })
+  handle('team:appKeys', (spaceId) => teamRules.appKeys(spaceId))
+  handle('team:spend', (spaceId) => teamRules.spendStatus(spaceId))
+  handle('team:overrideSpend', (spaceId) => teamRules.overrideSpend(spaceId))
   handle('spaces:delete', (id) => {
     for (const a of agentLib.list()) if (a.scope === id) agentLib.remove(a.id)
     notes.deleteAll(notes.spaceOwner(id))
@@ -374,10 +417,15 @@ export function registerIpc(): void {
       })
     })
   })
-  handle('workspaces:setStage', (id, stage) => workspaces.setStage(id, stage))
+  handle('workspaces:setStage', async (id, stage) => {
+    // A PR opened outside Sinfonie counts as sent for review for the team's review gate.
+    if (stage === 'done') await teamRules.ensureReviewKnown(workspaces.getWorkspace(id))
+    return workspaces.setStage(id, stage)
+  })
   handle('workspaces:refreshJira', (id) => workspaces.refreshJiraStatus(id))
   handle('workspaces:delete', (id) => {
     browser.closeWorkspace(id)
+    previewShots.forget(id)
     agent.closeSession(id)
     clearTranscript(id)
     notes.deleteAll(id)
@@ -630,6 +678,15 @@ export function registerIpc(): void {
   handle('reviews:fix', (key, ids) => reviews.fixFindings(key, ids, emitReview))
   handle('reviews:iterate', (key, max) => reviews.iterate(key, max ?? 3, emitReview))
   handle('reviews:stopIteration', (key) => reviews.stopIteration(key))
+  // ---- review inbox ----
+  handle('inbox:preread', (pr, force) => inbox.prereadPr(pr, force))
+  handle('inbox:prereadWorkspace', (id, force) => inbox.prereadWorkspace(id, force))
+  handle('inbox:marks', () => inbox.marks())
+  handle('inbox:mark', (key, mark) => inbox.setMark(key, mark))
+  handle('inbox:noteBackPr', (pr, text) => inbox.noteBackPr(pr, text))
+  handle('inbox:approvePr', (pr, head) => inbox.approvePr(pr, head))
+  handle('inbox:repoRemotes', () => inbox.repoRemotes())
+  handle('inbox:takeOverPr', (pr) => inbox.takeOverPr(pr, emitScript))
 
   // ---- agent ----
   // Messages held back by a limit warning, until the user picks a way forward.
@@ -637,6 +694,10 @@ export function registerIpc(): void {
   const sendMessage = (id: string, text: string, images?: ChatImageInput[]): void | Promise<void> => {
     // The agent's own conversation: no workspace, no orchestrator.
     if (isAgentOwner(id)) return runs.chat(id.slice(6), text)
+    // Team guardrail: the space's daily spend limit stops new turns.
+    const overSpend = teamRules.spendBlock(workspaces.getWorkspace(id))
+    // Thrown, not emitted: the turn never starts, so the composer stops being busy and keeps the draft (stores/chat.ts).
+    if (overSpend) throw new Error(overSpend)
     // "@name …" goes straight to that agent, outside the orchestrator.
     if (!images?.length && !agent.isBusy(id)) {
       const mention = runs.parseMention(text, workspaces.getWorkspace(id).spaceId)
@@ -657,7 +718,13 @@ export function registerIpc(): void {
   handle('agent:send', (id, text, images) => sendMessage(id, text, images))
   remote.setBridge({
     // In CLI mode the phone types into the terminal; otherwise the SDK session takes the message.
-    send: async (id, text) => (cliSession.isRunning(id) ? cliSession.type(id, text) : sendMessage(id, text)),
+    send: async (id, text) => {
+      if (!cliSession.isRunning(id)) return sendMessage(id, text)
+      // The spend limit holds for phone messages typed into a CLI session too (sendMessage checks it otherwise).
+      const overSpend = teamRules.spendBlock(workspaces.getWorkspace(id))
+      if (overSpend) throw new Error(overSpend)
+      return cliSession.type(id, text)
+    },
     interrupt: async (id) => (cliSession.isRunning(id) ? cliSession.interrupt(id) : agent.interrupt(id)),
     permission: (r) => interaction.answerPermission(r),
     question: (r) => interaction.answerQuestion(r),
@@ -668,6 +735,9 @@ export function registerIpc(): void {
       const repos = spaceId ? store.repos.filter((r) => r.spaceId === spaceId) : []
       const words = text.trim().replace(/\s+/g, ' ').split(' ').slice(0, 6).join(' ')
       const wsName = (name?.trim() || words || 'New task').slice(0, 60)
+      // Over the spend limit: refuse before making a task, so the phone gets the reason and no empty task is left.
+      const overSpend = teamRules.spendBlock({ spaceId })
+      if (overSpend) throw new Error(overSpend)
       try {
         const ws = await workspaces.createWorkspace(
           {
@@ -857,7 +927,10 @@ export function registerIpc(): void {
       }
     },
     startReview: async (pr, accountId) => ({ key: (await reviews.startReview(pr, accountId, emitReview)).key }),
-    addRepoAt, setCostMode: (scope, mode) => applyCostMode(scope, mode), openSettings: (t) => send('ui:openSettings', t), sendToWorkspace: (id, text) => sendMessage(id, text), openView: (viewId, workspaceId) => send('ui:openView', { viewId, workspaceId }), openWorkspace: (id) => send('ui:openWorkspace', { workspaceId: id }) })
+    addRepoAt, setCostMode: (scope, mode) => applyCostMode(scope, mode), openSettings: (t) => send('ui:openSettings', t), sendToWorkspace: (id, text) => {
+      // Rules bind Maestro: sendMessage throws the spend limit, so Maestro is told instead of reporting it as sent.
+      return sendMessage(id, text)
+    }, openView: (viewId, workspaceId) => send('ui:openView', { viewId, workspaceId }), openWorkspace: (id) => send('ui:openWorkspace', { workspaceId: id }) })
   // ---- generated views ----
   handle('views:save', (input, scope) => viewStore.save(input, scope, 'user'))
   handle('views:undo', (id) => viewStore.undo(id))
@@ -930,6 +1003,14 @@ export function registerIpc(): void {
   })
   handle('browser:setPaused', (id, paused) => browser.setPaused(id, paused))
   handle('browser:suspend', (on) => browser.setSuspended(on))
+  // ---- builder: the guided task screen's preview ----
+  handle('preview:capture', (id) => previewShots.thumbnail(id))
+  handle('preview:thumbnails', (ids) => previewShots.thumbnails(ids))
+  handle('preview:pick', (id, token) => previewShots.pick(id, token))
+  handle('preview:cancelPick', (id, token) => previewShots.cancelPick(id, token))
+  handle('preview:checks', (id) => previewShots.checks(id))
+  handle('preview:cancelChecks', (id) => previewShots.cancelChecks(id))
+  handle('builder:undoChange', (id, checkpoints) => builder.undoChange(id, checkpoints))
   handle('resources:get', () => resources.current())
   handle('resources:stopTask', (workspaceId, taskId) => agent.stopTask(workspaceId, taskId))
   handle('resources:cancelWaiting', (workspaceId) => resources.cancelWaiting(workspaceId))
@@ -1107,6 +1188,9 @@ export function registerIpc(): void {
 /** gh pr create for one repo of a workspace, with a footer linking the ticket and the sibling branches. */
 async function createPr(id: string, repoId: string, title: string, body: string, reviewers?: string[], draft?: boolean): Promise<string> {
   const ws = workspaces.getWorkspace(id)
+  // Team guardrail: builders go out through Send for review (with the team's reviewers) when reviews are required.
+  const reviewVeto = teamRules.prVeto(ws, reviewers)
+  if (reviewVeto) throw new Error(reviewVeto)
   const wr = ws.repos.find((r) => r.repoId === repoId)
   if (!wr) throw new Error('Repo not in workspace')
   const siblings = ws.repos.filter((r) => r.repoId !== repoId).map((r) => `- ${r.repoName} on branch \`${r.branch}\``)
@@ -1124,6 +1208,7 @@ async function createPr(id: string, repoId: string, title: string, body: string,
     child.on('close', (code) => {
       if (code === 0) {
         workspaces.advanceStage(id, 'in-review')
+        if (!workspaces.getWorkspace(id).reviewRequestedAt) workspaces.patchWorkspace(id, { reviewRequestedAt: new Date().toISOString() })
         resolve(out.trim())
       } else reject(new Error(out.trim() || `gh exited ${code}`))
     })

@@ -6,7 +6,7 @@ import { api } from '@/lib/api'
 import { Button, Dialog } from './ui'
 import type { LoginProgress } from '@shared/types'
 import { useGuided } from '@/lib/guided'
-import { tokens } from '@/lib/theme'
+import { onThemeChange, terminalTheme } from '@/lib/theme'
 
 /**
  * Guided sign-in for one account. The vendor's CLI runs in the background and opens the browser;
@@ -26,7 +26,7 @@ export function LoginDialog({ accountId, vendorLabel, accountName, onClose }: { 
   useEffect(() => {
     const el = ref.current
     if (!el) return
-    const term = new Terminal({ fontFamily: 'ui-monospace, SF Mono, Menlo, monospace', fontSize: 12, theme: { background: tokens.sunken, foreground: tokens.text, cursor: tokens.accent }, cursorBlink: true })
+    const term = new Terminal({ fontFamily: 'ui-monospace, SF Mono, Menlo, monospace', fontSize: 12, theme: terminalTheme(), cursorBlink: true })
     const fit = new FitAddon()
     fitRef.current = fit
     term.loadAddon(fit)
@@ -34,6 +34,7 @@ export function LoginDialog({ accountId, vendorLabel, accountName, onClose }: { 
     let tid: string | null = null
     let cancelled = false
     const offs: Array<() => void> = []
+    offs.push(onThemeChange(() => (term.options.theme = terminalTheme())))
     offs.push(api.on('accounts:loginProgress', (p) => p.accountId === accountId && (tid === null || p.terminalId === tid) && setProgress(p)))
     // StrictMode mounts twice in dev: make sure a run started before the first cleanup is torn down, or the browser opens twice.
     void api.invoke('accounts:login', accountId).then((id) => {

@@ -32,6 +32,7 @@ import * as runs from './crew/runs'
 import * as scheduler from './crew/scheduler'
 import * as slackTools from './slack-tools'
 import * as reviews from './reviews'
+import * as teamRules from './team-rules'
 import { viewTools } from './views/tools'
 import { mcpServersFor } from './agent'
 import { getTranscript } from './transcripts'
@@ -980,6 +981,7 @@ const TOOLS: ToolDef[] = [
     description: 'Move a workspace to a stage: todo, in-progress, on-hold, in-review, done.',
     shape: { workspaceId: z.string(), stage: z.enum(['todo', 'in-progress', 'on-hold', 'in-review', 'done']) },
     run: async (i) => {
+      if (i.stage === 'done') await teamRules.ensureReviewKnown(workspaces.getWorkspace(String(i.workspaceId)))
       const ws = workspaces.setStage(String(i.workspaceId), i.stage as WorkspaceStage)
       return `"${ws.name}" is now ${ws.stage}.`
     }
@@ -1113,6 +1115,7 @@ function systemFor(): string {
   return `${SYSTEM.replace('3. Before any write (settings, spaces, crews, agents, notes, sending a message to a workspace), say what you are about to change in one or two lines and get a clear yes, or use AskUserQuestion with the options. After a write, confirm what changed. Never delete anything without the user naming it.', rule)}
 
 ${guided}
+${teamRules.maestroPrompt()}
 
 DECISIONS AND RULES. These come from Notes (every workspace, space and the app) and are what you answer and act with. They are the user's, visible and editable in Notes, and separate from your memory: never copy them into remember(). Follow rules; a rule never replaces asking before a write. When an answer or action relies on a decision or rule, say so and name it ("You decided …", "Your rule: …") with a link to [Notes](sinfonie://notes). If a rule and the user's request conflict, point out the rule and ask before going on. When the user decides something in the conversation, offer in one line to record it ("Add this to Notes as a decision?") and add it with notes_add kind "decision" only after a yes. Add a rule only when the user states one and asks you to keep it.
 ${standing ? `Current decisions and rules (rules first, newest first):\n${standing}` : 'None recorded yet.'}

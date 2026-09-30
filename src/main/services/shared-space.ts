@@ -15,7 +15,7 @@ import * as cloud from './cloud'
 import { SPACE_FILE, SPACE_COLORS } from '@shared/types'
 import type { Repo, SharedRepo, SharedSpaceSettings, Space, SpaceDefinition, SpaceImportPreview, SpaceImportResolution } from '@shared/types'
 
-const SHARED_KEYS = ['engine', 'model', 'permissionMode', 'useCrew', 'agents', 'budgetMode', 'leanMode', 'strictMcp', 'githubOwners', 'browserSensitiveOrigins', 'exposeGcpMcp', 'exposeJiraMcp', 'exposeLinearMcp', 'guided', 'views'] as const
+const SHARED_KEYS = ['engine', 'model', 'permissionMode', 'useCrew', 'agents', 'budgetMode', 'leanMode', 'strictMcp', 'githubOwners', 'browserSensitiveOrigins', 'exposeGcpMcp', 'exposeJiraMcp', 'exposeLinearMcp', 'guided', 'views', 'rules'] as const
 
 /** github.com/org/repo, however the remote was written (https, ssh, with or without .git). */
 export function normalizeRemote(remote: string): string {
@@ -140,6 +140,8 @@ export async function ensureRepo(path: string, spaceId: string, name: string, me
 export function applySettings(s: Space, settings: SharedSpaceSettings): void {
   const target = s as unknown as Record<string, unknown>
   for (const k of SHARED_KEYS) {
+    // A definition written by an older app has no rules key at all: keep the team's guardrails rather than wipe them.
+    if (k === 'rules' && !('rules' in settings)) continue
     if (settings[k] === undefined) delete target[k]
     else target[k] = settings[k]
   }

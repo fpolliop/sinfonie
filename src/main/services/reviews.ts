@@ -684,6 +684,7 @@ export async function submitReview(key: string, emit: Emit): Promise<ReviewRun> 
   if (fileLevel.length) bodyParts.push(fileLevel.map((f) => `- \`${f.path}\`: ${formatComment(f).replace(/\n+/g, ' ')}`).join('\n'))
   // gh api with --input reads stdin; execFile has no stdin helper, so shell out via a temp file.
   const tmp = join(app.getPath('temp'), `sinfonie-review-${nanoid(6)}.json`)
+  let head: string | undefined
   const send = async (comments: ReviewFinding[], extraBody: string): Promise<string> => {
     const payload = {
       event: EVENT[run.verdict!.decision],
@@ -693,7 +694,8 @@ export async function submitReview(key: string, emit: Emit): Promise<ReviewRun> 
     writeFileSync(tmp, JSON.stringify(payload))
     try {
       const { stdout } = await exec('gh', ['api', '-X', 'POST', `repos/${run.pr.nameWithOwner}/pulls/${run.pr.number}/reviews`, '--input', tmp], { env: process.env, maxBuffer: 4 * 1024 * 1024 })
-      const j = JSON.parse(stdout) as { html_url?: string }
+      const j = JSON.parse(stdout) as { html_url?: string; commit_id?: string }
+      head = j.commit_id
       return j.html_url ?? run.pr.url
     } catch (e) {
       throw new Error(githubError(e))
@@ -715,7 +717,7 @@ export async function submitReview(key: string, emit: Emit): Promise<ReviewRun> 
       /* ignore */
     }
   }
-  const out = update(key, { status: 'submitted', submittedUrl: url }, emit)
+  const out = update(key, { status: 'submitted', submittedUrl: url, submittedAt: new Date().toISOString(), ...(head ? { submittedHead: head } : {}) }, emit)
   await cleanupCheckout(out)
   return update(key, { checkoutPath: undefined }, emit)
 }

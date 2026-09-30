@@ -41,7 +41,8 @@ interface ChatState {
   load: (workspaceId: string) => Promise<void>
   /** Re-read the transcript from main (after a resume replaced it). */
   reload: (workspaceId: string) => Promise<void>
-  send: (workspaceId: string, text: string) => Promise<void>
+  /** Resolves false when nothing was sent; `draft` is what goes back into the composer then (default: `text`). */
+  send: (workspaceId: string, text: string, draft?: string) => Promise<boolean>
   addImages: (workspaceId: string, files: (File | Blob)[]) => Promise<void>
   removeImage: (workspaceId: string, imageId: string) => void
   interrupt: (workspaceId: string) => Promise<void>
@@ -105,10 +106,11 @@ export const useChat = create<ChatState>((set, get) => ({
     const { items, busy } = await api.invoke('chat:load', id)
     set((s) => updateChat(s, id, (c) => ({ ...c, items, busy, loaded: true, error: undefined })))
   },
-  send: async (id, text) => {
+  send: async (id, text, draft = text) => {
     const trimmed = text.trim()
     const images = get().chats[id]?.images ?? []
-    if (!trimmed && images.length === 0) return
+    const wasBusy = Boolean(get().chats[id]?.busy)
+    if (!trimmed && images.length === 0) return false
     // Once the fresh conversation has a message, Undo would throw that message away: withdraw the offer.
     if (useApp.getState().notice?.id === `chat-restore:${id}`) useApp.getState().notify(null)
     // The user item itself arrives back as a user_message event (or a queue event while a turn runs).
@@ -116,8 +118,11 @@ export const useChat = create<ChatState>((set, get) => ({
     try {
       await api.invoke('agent:send', id, trimmed, images.length ? images.map(({ name, mimeType, data }) => ({ name, mimeType, data })) : undefined)
       for (const img of images) URL.revokeObjectURL(img.preview)
+      return true
     } catch (err) {
-      set((s) => updateChat(s, id, (c) => ({ ...c, busy: false, error: String(err), images })))
+      // Nothing was sent (e.g. the team's daily spend limit): give the person's own words back so they aren't lost.
+      set((s) => updateChat(s, id, (c) => ({ ...c, busy: wasBusy, error: err instanceof Error ? err.message : String(err), images, draft: c.draft || draft })))
+      return false
     }
   },
   addImages: async (id, files) => {

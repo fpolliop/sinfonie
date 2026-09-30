@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { Loader2, CheckCircle2, ExternalLink, Send } from 'lucide-react'
-import type { Workspace } from '@shared/types'
+import { Loader2, CheckCircle2, ExternalLink, Send, AlertTriangle, Check } from 'lucide-react'
+import type { VisualCheck, Workspace } from '@shared/types'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
+import { useChat } from '@/stores/chat'
+import { composeFix } from '@/stores/builder'
 import { useGithub } from '@/stores/github'
 import { Button, Dialog, Field, inputCls } from './ui'
 import { friendlyError, rawMessage } from '@/lib/errors'
@@ -39,7 +41,7 @@ export function SendForReviewButton({ ws }: { ws: Workspace }): React.JSX.Elemen
   if (ws.status !== 'ready' || ws.repos.length === 0) return null
   return (
     <>
-      <Button size="sm" variant={hasChanges ? 'primary' : 'subtle'} className="no-drag" onClick={() => setOpen(true)} title={hasChanges ? 'Save your changes and ask a colleague to review them' : 'Nothing has changed yet. Describe what you want in the chat first.'}>
+      <Button variant={hasChanges ? 'primary' : 'subtle'} className="no-drag" onClick={() => setOpen(true)} title={hasChanges ? 'Save your changes and ask a colleague to review them' : 'Nothing has changed yet. Describe what you want in the chat first.'}>
         <Send size={12} /> Send for review
       </Button>
       {open && <SendDialog ws={ws} onClose={() => setOpen(false)} />}
@@ -60,6 +62,29 @@ function SendDialog({ ws, onClose }: { ws: Workspace; onClose: () => void }): Re
   const [checkFail, setCheckFail] = useState<{ name: string; output: string }[] | null>(null)
   const [links, setLinks] = useState<{ repo: string; url: string }[]>([])
   const refresh = useGithub((s) => s.refresh)
+  // Quick visual checks on the preview, run as the sheet opens: they inform, they never block sending.
+  const [visual, setVisual] = useState<VisualCheck[] | null>(null)
+  const [looking, setLooking] = useState(true)
+  const look = (): void => {
+    setLooking(true)
+    api
+      .invoke('preview:checks', ws.id)
+      .then(setVisual)
+      .catch(() => setVisual([{ id: 'loads', ok: false, title: 'The preview could not be checked', detail: 'You can still send it.' }]))
+      .finally(() => setLooking(false))
+  }
+  useEffect(() => {
+    look()
+    // Closing the sheet stops the checks it started.
+    return () => void api.invoke('preview:cancelChecks', ws.id).catch(() => undefined)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ws.id])
+  const issues = (visual ?? []).filter((c) => !c.ok)
+  const fix = (c: VisualCheck): void => {
+    if (!c.fix) return
+    void useChat.getState().send(ws.id, composeFix(c.fix, c.evidence), c.fix)
+    onClose()
+  }
   const submit = async (): Promise<void> => {
     setError(null)
     setCheckFail(null)
@@ -106,7 +131,7 @@ function SendDialog({ ws, onClose }: { ws: Workspace; onClose: () => void }): Re
   const busy = phase === 'checking' || phase === 'saving' || phase === 'sending'
   const busyText = phase === 'checking' ? 'Checking your changes…' : phase === 'saving' ? 'Saving your changes…' : 'Sending…'
   return (
-    <Dialog title="Send for review" onClose={onClose} width={460}>
+    <Dialog title="Send for review" onClose={onClose} width={560}>
       {phase === 'done' ? (
         <div>
           <div className="mb-2 flex items-center gap-2 text-[13px]">
@@ -129,7 +154,35 @@ function SendDialog({ ws, onClose }: { ws: Workspace; onClose: () => void }): Re
         </div>
       ) : (
         <div>
-          <p className="mb-3 text-[12px] text-muted">Your changes are checked, then sent to the team for review{reviewers.length ? ` (${reviewers.join(', ')})` : ''}. Give it a short title and, if you like, a note for the reviewer.</p>
+          <p className="mb-4 text-[13px] text-muted">Nothing goes live until someone approves it. Your changes are checked, then sent to the team for review{reviewers.length ? ` (${reviewers.join(', ')})` : ''}.</p>
+          <section aria-labelledby="send-checks" className="mb-4">
+            <h3 id="send-checks" className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted">
+              Maestro checked the preview
+            </h3>
+            {looking ? (
+              <div role="status" className="flex items-center gap-2 text-[13px] text-muted">
+                <Loader2 size={13} className="animate-spin" aria-hidden /> Opening the page and looking for problems…
+              </div>
+            ) : (
+              <ul className="flex flex-col gap-2">
+                {(visual ?? []).map((c) => (
+                  <li key={c.id} className="flex items-start gap-2.5 text-[15px]">
+                    {c.ok ? <Check size={16} className="mt-0.5 shrink-0 text-ok" aria-label="Passed" /> : <AlertTriangle size={16} className="mt-0.5 shrink-0 text-warn" aria-label="Needs a look" />}
+                    <span className="min-w-0 flex-1">
+                      <span className="block">{c.title}</span>
+                      {!c.ok && c.detail && <span className="block text-[13px] text-muted">{c.detail}</span>}
+                    </span>
+                    {!c.ok && c.fix && (
+                      <Button size="sm" onClick={() => fix(c)} disabled={busy} title="Close this and ask Maestro to fix it">
+                        Fix it
+                      </Button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {!looking && issues.length > 0 && <p className="mt-2 text-[13px] text-muted">You can ask Maestro to fix {issues.length === 1 ? 'it' : 'them'} first, or send anyway and mention it in the note.</p>}
+          </section>
           {checkFail && (
             <div className="mb-3 rounded-md border border-warn/40 bg-warn/10 p-2 text-[12px]">
               <div className="font-medium text-warn">Not ready yet: a check did not pass.</div>
@@ -157,10 +210,10 @@ function SendDialog({ ws, onClose }: { ws: Workspace; onClose: () => void }): Re
               </span>
             )}
             <Button onClick={onClose} disabled={busy}>
-              Cancel
+              Not yet
             </Button>
-            <Button variant="primary" onClick={() => void submit()} disabled={busy || !title.trim()}>
-              Send
+            <Button variant="primary" onClick={() => void submit()} disabled={busy || !title.trim()} title={looking ? 'The preview checks are still running; you can send without waiting.' : undefined}>
+              {issues.length ? 'Send anyway' : reviewers.length === 1 ? `Send to ${reviewers[0]}` : 'Send for review'}
             </Button>
           </div>
         </div>

@@ -4,13 +4,15 @@ import { useChat } from '@/stores/chat'
 import { useScripts } from '@/stores/scripts'
 import { Sidebar } from './components/Sidebar'
 import { WorkspaceView } from './components/WorkspaceView'
-import { OnCallView } from './components/OnCallView'
+import { ReviewInbox } from './components/ReviewInbox'
 import { AgentsView } from './components/agents/AgentsView'
 import { NotesView } from './components/NotesView'
+import { TeamView } from './components/team/TeamView'
 import { AuthLinkDialog } from './components/AuthLinkDialog'
 import type { AuthLink } from '@shared/types'
 import { useOnCall } from './stores/oncall'
 import { useReviews } from './stores/reviews'
+import { openInbox } from './stores/inbox'
 import { NewWorkspaceDialog } from './components/NewWorkspaceDialog'
 import { NewTaskDialog } from './components/NewTaskDialog'
 import { useGuided } from '@/lib/guided'
@@ -18,13 +20,13 @@ import { yieldsToEditor } from '@/lib/keys'
 import { SettingsWindow } from './components/SettingsWindow'
 import { PermissionPrompt } from './components/PermissionPrompt'
 import { BranchRenamePrompt } from './components/BranchRenamePrompt'
-import { ReviewCockpit } from './components/ReviewCockpit'
 import { FeedbackDialog } from './components/FeedbackDialog'
 import { MaestroSide } from './components/maestro/MaestroSide'
 import { Rail } from './components/Rail'
-import { ReviewSwitch } from './components/ReviewSwitch'
 import { MaestroHome } from './components/maestro/MaestroHome'
 import { MissionControl, useHasMissionControl, useListsFirstPrompt } from './components/MissionControl'
+import { BuilderHome } from './components/builder/BuilderHome'
+import { useThemeSync } from '@/lib/useTheme'
 import { findView } from '@/lib/views'
 import { useMaestro, openMaestro, toggleMaestroDock } from './stores/maestro'
 import { SetupWizard } from './components/onboarding/SetupWizard'
@@ -39,6 +41,8 @@ export default function App(): React.JSX.Element {
   const { loaded, load, selectedId, view, showNewWorkspace, settingsTarget, closeSettings, setShowNewWorkspace, setShowSettings, error, setError, stepSpace, setActiveSpace, feedbackDialog, setFeedbackDialog, onboarding, setOnboarding, assistantOpen, setAssistantOpen, openSettings } = useApp()
   const subscribeChat = useChat((s) => s.subscribe)
   const subscribeScripts = useScripts((s) => s.subscribe)
+  // Light or dark, per Preferences and the lens (lib/useTheme).
+  useThemeSync()
 
   useEffect(() => {
     void load()
@@ -101,16 +105,16 @@ export default function App(): React.JSX.Element {
   useEffect(
     () =>
       api.on('ui:openReview', ({ key }) => {
-        useApp.getState().setView('reviews')
         useReviews.getState().select(key)
+        openInbox({ key })
       }),
     []
   )
   useEffect(
     () =>
       api.on('ui:openOnCall', ({ incidentId }) => {
-        useApp.getState().setView('oncall')
         if (incidentId) useOnCall.getState().select(incidentId)
+        openInbox(incidentId ? { key: `inc:${incidentId}` } : { filter: 'incidents' })
       }),
     []
   )
@@ -192,14 +196,13 @@ export default function App(): React.JSX.Element {
       <Rail />
       {(view === 'workspace' || view === 'agents') && <Sidebar />}
       <main className="flex min-w-0 flex-1 flex-col">
-        {view === 'reviews' || view === 'oncall' ? <ReviewSwitch /> : null}
-        {view === 'reviews' ? <ReviewCockpit /> : view === 'oncall' ? <OnCallView /> : view === 'agents' ? <AgentsView /> : view === 'notes' ? <NotesView /> : view === 'maestro' ? <MaestroHome tab="maestro" /> : view === 'home' ? <MaestroHome tab="pages" /> : selectedId ? <WorkspaceView key={selectedId} workspaceId={selectedId} /> : missionControl ? <MissionControl /> : <EmptyState />}
+        {view === 'reviews' || view === 'oncall' ? <ReviewInbox /> : view === 'agents' ? <AgentsView /> : view === 'notes' ? <NotesView /> : view === 'team' ? <TeamView /> : view === 'maestro' ? <MaestroHome tab="maestro" /> : view === 'home' ? <MaestroHome tab="pages" /> : selectedId ? <WorkspaceView key={selectedId} workspaceId={selectedId} /> : missionControl ? guided ? <BuilderHome /> : <MissionControl /> : <EmptyState />}
       </main>
       {showNewWorkspace && (guided ? <NewTaskDialog onClose={() => setShowNewWorkspace(false)} /> : <NewWorkspaceDialog onClose={() => setShowNewWorkspace(false)} />)}
       {settingsTarget && <SettingsWindow target={settingsTarget} onClose={closeSettings} />}
       {feedbackDialog && <FeedbackDialog tab={feedbackDialog} onClose={() => setFeedbackDialog(null)} />}
       <MaestroSide />
-      {!(missionControl && inlinePrompt) && <PermissionPrompt />}
+      {!(missionControl && !guided && inlinePrompt) && <PermissionPrompt />}
       <BranchRenamePrompt />
       {onboarding === 'setup' && <SetupWizard onClose={() => setOnboarding(null)} />}
       {authLink && <AuthLinkDialog link={authLink} onClose={() => setAuthLink(null)} />}

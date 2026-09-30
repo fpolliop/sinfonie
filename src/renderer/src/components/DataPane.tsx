@@ -10,25 +10,27 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { Button, IconButton, Spinner } from './ui'
-import { tokens } from '@/lib/theme'
+import { vars } from '@/lib/theme'
+import { themedEditor } from '@/lib/cmTheme'
 import { ErdView } from './ErdView'
 import { ImportCsvDialog } from './ImportCsvDialog'
 import { InlineRename } from './InlineRename'
 import type { DbConnection, DbHistoryEntry, DbQueryResult, DbSchema, DbTable } from '@shared/types'
 
-const theme = EditorView.theme(
+const theme = themedEditor(
   {
-    '&': { backgroundColor: 'transparent', color: tokens.text, fontSize: '12.5px', height: '100%' },
-    '.cm-content': { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', caretColor: tokens.text },
-    '.cm-gutters': { backgroundColor: 'transparent', color: tokens.faint, border: 'none' },
-    '.cm-activeLine': { backgroundColor: tokens.activeLine },
+    '&': { backgroundColor: 'transparent', color: vars.text, fontSize: '12.5px', height: '100%' },
+    '.cm-content': { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', caretColor: vars.text },
+    '.cm-gutters': { backgroundColor: 'transparent', color: vars.faint, border: 'none' },
+    '.cm-activeLine': { backgroundColor: vars.activeLine },
     '.cm-activeLineGutter': { backgroundColor: 'transparent' },
     '&.cm-focused': { outline: 'none' },
-    '.cm-selectionBackground, &.cm-focused .cm-selectionBackground': { backgroundColor: tokens.accentSelection },
-    '.cm-tooltip': { backgroundColor: tokens.panel2, border: `1px solid ${tokens.border}`, color: tokens.text },
-    '.cm-tooltip-autocomplete ul li[aria-selected]': { backgroundColor: tokens.accentSelection }
-  },
-  { dark: true }
+    '.cm-selectionBackground, &.cm-focused .cm-selectionBackground': { backgroundColor: vars.accentSelection },
+    '.cm-tooltip': { backgroundColor: vars.panel2, border: `1px solid ${vars.border}`, color: vars.text },
+    '.cm-tooltip-autocomplete ul li[aria-selected]': { backgroundColor: vars.accentSelection },
+    '.cm-cursor, .cm-dropCursor': { borderLeftColor: vars.text },
+    '.cm-panels': { backgroundColor: vars.panel2, color: vars.text }
+  }
 )
 
 interface QueryTab {
@@ -189,7 +191,7 @@ export function DataPane({ workspaceId }: { workspaceId: string }): React.JSX.El
           keymap.of([{ key: 'Mod-Enter', run: () => (runRef.current(), true) }]),
           basicSetup,
           langConf.current.of(langExt()),
-          theme,
+          theme(),
           EditorView.updateListener.of((u) => {
             if (!u.docChanged) return
             const text = u.state.doc.toString()

@@ -277,7 +277,7 @@ function Pill({ x, y, w, label, sub, accent }: { x: number; y: number; w: number
   const h = sub ? 30 : 22
   return (
     <g>
-      <rect x={x} y={y} width={w} height={h} rx={6} fill={accent ? 'rgba(124,156,255,.12)' : 'var(--color-bg)'} stroke={accent ? 'rgba(124,156,255,.6)' : 'var(--color-border)'} />
+      <rect x={x} y={y} width={w} height={h} rx={6} fill={accent ? 'color-mix(in srgb, var(--color-accent) 12%, transparent)' : 'var(--color-bg)'} stroke={accent ? 'color-mix(in srgb, var(--color-accent) 60%, transparent)' : 'var(--color-border)'} />
       <text x={x + w / 2} y={y + (sub ? 12 : 15)} textAnchor="middle" fill={accent ? 'var(--color-accent)' : 'var(--color-text)'} style={SVG_TEXT} fontWeight={accent ? 600 : 500}>
         {label}
       </text>
@@ -302,11 +302,11 @@ function ArtRepos(): React.JSX.Element {
       {rows.map((r) => (
         <g key={r.n}>
           <Pill x={8} y={r.y} w={70} label={r.n} />
-          <path d={`M78 ${r.y + 11} C 110 ${r.y + 11}, 110 45, 138 45`} fill="none" stroke="rgba(124,156,255,.55)" strokeWidth={1.2} />
+          <path d={`M78 ${r.y + 11} C 110 ${r.y + 11}, 110 45, 138 45`} fill="none" stroke="color-mix(in srgb, var(--color-accent) 55%, transparent)" strokeWidth={1.2} />
         </g>
       ))}
       <circle cx={140} cy={45} r={5} fill="var(--color-accent)" />
-      <line x1={145} y1={45} x2={156} y2={45} stroke="rgba(124,156,255,.55)" strokeWidth={1.2} />
+      <line x1={145} y1={45} x2={156} y2={45} stroke="color-mix(in srgb, var(--color-accent) 55%, transparent)" strokeWidth={1.2} />
       <Pill x={156} y={34} w={80} label="feature/login" accent />
     </svg>
   )
