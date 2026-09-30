@@ -103,6 +103,12 @@ export interface AgentRun {
 }
 
 /** Transcript and task id of an agent's own conversation (no workspace). */
+/**
+ * Marks an error message main already wrote for the person (guided voice): it survives the IPC boundary, the
+ * renderer's friendlyError() shows the text as is and rawMessage() strips the marker.
+ */
+export const PLAIN_ERROR_MARK = '[plain] '
+
 export const agentOwner = (agentId: string): string => `agent-${agentId}`
 export const isAgentOwner = (id: string): boolean => id.startsWith('agent-')
 
@@ -451,6 +457,27 @@ export interface Space {
   guided?: GuidedSpace
   /** Generated views of this space (Home pages, workspace tabs), shared with its team. */
   views?: ViewDef[]
+  /** Team guardrails every agent (and Maestro) in this space follows. Travels with the shared definition. */
+  rules?: TeamRules
+  /** An admin lifted the daily spend limit on this Mac for one day (YYYY-MM-DD, UTC). Never shared. */
+  rulesOverride?: { spendDay?: string }
+}
+
+/**
+ * Team guardrails, set in Team → Guardrails and enforced in the agent permission layer of every engine
+ * (src/main/services/team-rules.ts).
+ */
+export interface TeamRules {
+  /** Repository names builders (guided mode) may not change: agents in guided tasks treat them as read-only. */
+  builderReadOnly?: string[]
+  /** Path globs, relative to each repository root, that no agent writes (e.g. "payments/", "**\/*.sql", ".env*"). */
+  protectedPaths?: string[]
+  /** Builders must send a task for review before it is opened as a PR or marked done; experts see a warning. */
+  requireReview?: boolean
+  /** Estimated agent spend per person per day in this space, in USD; new turns stop when it is reached. */
+  dailySpendUsd?: number
+  /** When an admin last saved these rules (the setup checklist's "guardrails reviewed"). */
+  reviewedAt?: string
 }
 
 /** The tech lead's setup for guided-mode members of a space. Travels with the shared definition. */
@@ -499,7 +526,7 @@ export interface SharedRepo {
   description?: string
 }
 /** The keys of a Space that are shared; everything about accounts, secrets and local paths stays personal. */
-export type SharedSpaceSettings = Pick<Space, 'engine' | 'model' | 'permissionMode' | 'useCrew' | 'agents' | 'budgetMode' | 'leanMode' | 'strictMcp' | 'githubOwners' | 'browserSensitiveOrigins' | 'exposeGcpMcp' | 'exposeJiraMcp' | 'exposeLinearMcp' | 'guided' | 'views'> & {
+export type SharedSpaceSettings = Pick<Space, 'engine' | 'model' | 'permissionMode' | 'useCrew' | 'agents' | 'budgetMode' | 'leanMode' | 'strictMcp' | 'githubOwners' | 'browserSensitiveOrigins' | 'exposeGcpMcp' | 'exposeJiraMcp' | 'exposeLinearMcp' | 'guided' | 'views' | 'rules'> & {
   mcpServers?: McpServerSpec[]
   jira?: Pick<JiraSettings, 'siteUrl' | 'defaultJql'>
   linear?: Pick<LinearSettings, 'defaultQuery'>
@@ -617,6 +644,8 @@ export interface Workspace {
   /** Last known status of the linked Jira ticket, refreshed when the workspace is opened. */
   jiraStatus?: string
   jiraStatusAt?: string
+  /** When a pull request was first opened from this workspace (Send for review or Open PR): the team's review gate. */
+  reviewRequestedAt?: string
 }
 
 /** Same modes as the Claude Code CLI (Shift+Tab cycles them there and here). */
@@ -766,6 +795,8 @@ export interface Settings {
    * default for members on their first sign-in.
    */
   mode?: AppMode
+  /** Light or dark, or follow macOS. Unset: light in guided mode, dark in expert mode. */
+  theme?: 'system' | 'light' | 'dark'
   /** First-run setup, tour and getting-started checklist state. */
   onboarding?: { setupDoneAt?: string; tourDoneAt?: string; checklistDismissedAt?: string }
   maestro?: MaestroSettings
@@ -1250,6 +1281,9 @@ export interface ReviewRun {
   finishedAt?: string
   costUsd?: number
   submittedUrl?: string
+  /** When the review was posted and the head commit it was posted on (the inbox compares it with the PR's head). */
+  submittedAt?: string
+  submittedHead?: string
   checkoutPath?: string
   /** owner/name of the head repository; pushes are only possible when it is the PR's own repository. */
   headRepo?: string
@@ -2035,4 +2069,65 @@ export interface PermissionResponse {
   requestId: string
   decision: 'allow' | 'always' | 'deny'
   message?: string
+}
+
+// ---- builder (guided task screen) ----
+
+/** Guided mode: an element the person pointed at in the preview. */
+export interface PickedElement {
+  /** Role from the page's accessibility tree ("button", "heading", "img"). */
+  role: string
+  /** Accessible name ("Add to cart"); may be empty. */
+  name: string
+  /** Visible text, trimmed and shortened. */
+  text: string
+  tag: string
+  /** A CSS path to find it again, for Maestro; never shown in guided mode. */
+  selector: string
+  /** The page it was on. */
+  url: string
+  /** A picture of the element (JPEG data URL), when the preview could be captured. */
+  image?: string
+}
+
+/** The save a guided turn made in one app (a git commit), which "Undo this change" reverts. */
+export interface ChangeCheckpoint {
+  repoId: string
+  sha: string
+}
+
+/** A guided turn changed the app: which apps, the saves to undo, and where the card goes in the conversation. */
+export interface GuidedChange {
+  workspaceId: string
+  /** Pairs the card with its pictures, which follow in a `guided:pictures` event. */
+  changeId: string
+  apps: string[]
+  checkpoints: ChangeCheckpoint[]
+  /** The turn's last assistant message, which the card follows. */
+  afterItemId: string | null
+  /** The turn's file edits (tool name and paths only), for the card's plain summary. */
+  edits: { name: string; input: Record<string, unknown> }[]
+}
+
+/** The preview before and after a change (JPEG data URLs), plus a small copy for the task's thumbnail. */
+export interface GuidedPictures {
+  workspaceId: string
+  changeId: string
+  before: string
+  after: string
+  thumb?: string
+}
+
+/** One quick check on the preview before sending for review. `fix` is the instruction for Maestro when it failed. */
+export interface VisualCheck {
+  id: 'loads' | 'console' | 'images' | 'requests' | 'overflow'
+  ok: boolean
+  /** Plain sentence: what was checked, or what is wrong. */
+  title: string
+  /** Plain detail for the person, when useful. */
+  detail?: string
+  /** The plain request to Maestro when it failed. */
+  fix?: string
+  /** What the page itself reported (errors, addresses): untrusted text, sent to Maestro fenced as data. */
+  evidence?: string
 }

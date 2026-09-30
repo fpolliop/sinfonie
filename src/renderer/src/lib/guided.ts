@@ -24,7 +24,7 @@ export const useGuided = (): boolean => useApp((s) => s.settings.mode === 'guide
 export const isGuided = (): boolean => useApp.getState().settings.mode === 'guided'
 
 /** Stage labels in guided words: the same four stages, seen from the person's side. */
-const GUIDED_STAGES: Record<WorkspaceStage, string> = { todo: 'Not started', 'in-progress': 'Working', 'on-hold': 'Paused', 'in-review': 'Waiting for review', done: 'Live' }
+const GUIDED_STAGES: Record<WorkspaceStage, string> = { todo: 'Not started', 'in-progress': 'In progress', 'on-hold': 'Paused', 'in-review': 'Waiting for review', done: 'Live' }
 
 export function stageLabel(stage: WorkspaceStage | undefined, guided: boolean): string {
   if (!stage) return ''
@@ -88,3 +88,5 @@ export const useWords = (): Words => words(useGuided())
 
 /** Capitalises the first letter, for a word used at the start of a label. */
 export const cap = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1)
+/** The word with its indefinite article, for copy built from the vocabulary: an("organisation") → "an organisation". */
+export const an = (word: string): string => `${/^[aeiou]/i.test(word) ? 'an' : 'a'} ${word}`

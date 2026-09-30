@@ -10,6 +10,7 @@ import { resolveModel, estimateCost } from '../providers'
 import { isReadOnlyCommand } from '../readonly'
 import { accountEnv } from '../accounts'
 import { askPermission } from '../interaction'
+import * as teamRules from '../team-rules'
 import * as acp from '../acp/engine'
 import * as notes from '../notes'
 import * as slack from '../slack'
@@ -115,9 +116,24 @@ async function runClaude(run: WorkerRun): Promise<string> {
     mcpServers: own.servers,
     // Sinfonie's servers only: the CLI's own MCP entries (and their auth state) would confuse the agent.
     strictMcpConfig: true,
-    systemPrompt: { type: 'preset', preset: 'claude_code', append: `\n${spec.prompt}\n\n${whereLine(spec, ws)}\nFinish with a clear report.\n${own.prompt}` },
+    systemPrompt: { type: 'preset', preset: 'claude_code', append: `\n${spec.prompt}\n\n${whereLine(spec, ws)}\nFinish with a clear report.\n${own.prompt}${teamRules.promptFor(ws)}` },
     settingSources: ['user', 'project', 'local'],
     env: { ...process.env, ...accountEnv(ws.claudeAccountId) },
+    // Team guardrails bind workers in every permission mode (team-rules.ts).
+    hooks: {
+      PreToolUse: [
+        {
+          matcher: 'Write|Edit|MultiEdit|NotebookEdit|Bash',
+          hooks: [
+            async (raw) => {
+              const input = raw as { tool_name?: string; tool_input?: unknown; cwd?: string }
+              const reason = teamRules.toolVeto(ws, input.tool_name ?? '', input.tool_input, input.cwd)
+              return reason ? { hookSpecificOutput: { hookEventName: 'PreToolUse' as const, permissionDecision: 'deny' as const, permissionDecisionReason: reason } } : {}
+            }
+          ]
+        }
+      ]
+    },
     canUseTool: async (toolName, toolInput, opts) => {
       if (toolName === 'AskUserQuestion') return { behavior: 'deny', message: 'Workers cannot ask the user; decide yourself or report the open question.' }
       const d = await askPermission({ workspaceId: ws.id, toolName: `${spec.name}: ${toolName}`, input: toolInput, blockedPath: opts.blockedPath, canAlwaysAllow: false }, opts.signal)
@@ -170,7 +186,7 @@ async function runNative(run: WorkerRun): Promise<string> {
   const modelId = classifyModel(spec.model).modelId
   const sub = new ToolLoopAgent({
     model: resolveModel(spec.model),
-    instructions: `${spec.prompt}\n\n${whereLine(spec, ws)}\n${readOnly ? 'You are read-only: do not modify files.' : ''}\nFinish with a clear report.\n${own.prompt}`,
+    instructions: `${spec.prompt}\n\n${whereLine(spec, ws)}\n${readOnly ? 'You are read-only: do not modify files.' : ''}\nFinish with a clear report.\n${own.prompt}${teamRules.promptFor(ws)}`,
     tools,
     stopWhen: stepCountIs(spec.maxTurns ?? 40),
     toolApproval: ({ toolCall }) => {
@@ -179,6 +195,9 @@ async function runNative(run: WorkerRun): Promise<string> {
     }
   })
   const result = await sub.stream({ prompt: run.prompt, abortSignal: run.signal })
+  // Callers with an onUsage (the native engine) fold this into their own turn; otherwise the worker records itself.
+  const spent = { costUsd: 0, inputTokens: 0, outputTokens: 0 }
+  const startedAt = Date.now()
   let text = ''
   for await (const part of result.fullStream) {
     if (part.type === 'text-delta') text += part.text
@@ -189,9 +208,19 @@ async function runNative(run: WorkerRun): Promise<string> {
     } else if (part.type === 'finish-step') {
       const u = part.usage
       run.onUsage?.(modelId, u.inputTokens ?? 0, u.outputTokens ?? 0)
+      spent.inputTokens += u.inputTokens ?? 0
+      spent.outputTokens += u.outputTokens ?? 0
+      spent.costUsd += estimateCost(modelId, u.inputTokens ?? 0, u.outputTokens ?? 0)
     }
   }
   if (text.trim()) run.onStep({ kind: 'text', detail: text.slice(0, 600) }, modelId)
+  if (!run.onUsage && (spent.costUsd > 0 || spent.outputTokens > 0)) {
+    try {
+      usage.recordTurn({ at: new Date().toISOString(), workspaceId: ws.id, spaceId: ws.spaceId ?? '', accountId: 'native', engine: 'native', kind: 'crew', ...spent, cacheReadTokens: 0, durationMs: Date.now() - startedAt, byModel: [{ model: modelId, ...spent, cacheReadTokens: 0 }] })
+    } catch {
+      /* ledger must never break the run */
+    }
+  }
   return text || '(no report)'
 }
 

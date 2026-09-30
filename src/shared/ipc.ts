@@ -1,6 +1,11 @@
 import type { MaestroMemoryCategory, MaestroMemoryEntry, MaestroConversation, MaestroConversationMeta, MaestroContext, MaestroEvent, MaestroSuggestion, NotePatch, NotesFilter, AgentRun, AgentDraft, AgentRunEvent, AgentSpec, AgentMode, AppMode, AuthLink, CompletionRequest, DiscoveredOrg, SharedRepo, TeammateWorkspace, BillingPeriod, CliStatus, CloudOrgDetail, CloudState, Plan, RemoteSettings, RemoteStatus, SpaceDefinition, SpaceImportPreview, SpaceImportResolution, BrowserState, ContextUsage, CrewPriority, FsEntry, LimitAlternative, UsageSnapshot, ChatImageInput, Incident, IncidentStatus, LinearIssue, LinearSettings, OnCallState, ResourceSnapshot, Severity, SlackConnection, LoginProgress, LoginBrowser, ScannedRepo, Note, ModelInventoryItem, CrewSuggestion, OnCallBulkOp,
   AgentEvent,
   ChatItem,
+  ChangeCheckpoint,
+  GuidedChange,
+  GuidedPictures,
+  PickedElement,
+  VisualCheck,
   JiraIssue,
   JiraSettings,
   Label,
@@ -47,6 +52,16 @@ export interface SinfonieInvoke {
   /** MCP servers found in Claude Code's own config (~/.claude.json), for importing. */
   'mcp:importable': () => McpServerSpec[]
   'spaces:delete': (id: string) => void
+  /** Team → Guardrails: replace a space's team rules (admins only). */
+  'team:setRules': (spaceId: string, rules: import('./types').TeamRules) => Space
+  /** Lift today's daily spend limit for a space on this Mac (admins only). */
+  'team:overrideSpend': (spaceId: string) => Space
+  /** Team → Apps: whether builders may change one app (admins only). Keyed by the app's remote. */
+  'team:setAppLookOnly': (spaceId: string, repoId: string, lookOnly: boolean) => Space
+  /** The key each app of a space has in `rules.builderReadOnly`: its normalised remote, else its name. */
+  'team:appKeys': (spaceId: string) => Record<string, string>
+  /** Today's (local day) estimated spend in a space on this Mac, against its limit. */
+  'team:spend': (spaceId: string) => { spent: number; limit?: number; lifted: boolean; day: string }
   'workspaces:setSpace': (workspaceId: string, spaceId: string | null) => Workspace
   'labels:create': (name: string, color: string, spaceId: string | null) => Label
   'labels:update': (id: string, patch: Partial<Pick<Label, 'name' | 'color'>>) => Label
@@ -233,6 +248,21 @@ export interface SinfonieInvoke {
   /** Fix, push, re-review, repeat until approved or maxRounds. */
   'reviews:iterate': (key: string, maxRounds?: number) => ReviewRun
   'reviews:stopIteration': (key: string) => void
+  // ---- review inbox (pre-reads, marks, GitHub fallbacks) ----
+  /** Pre-read and rule-based risk for a PR; cached per PR update. */
+  'inbox:preread': (pr: ReviewPr, force?: boolean) => import('./inbox').PreRead
+  /** Pre-read for a local workspace's branch (a hand-off with no pull request yet). */
+  'inbox:prereadWorkspace': (workspaceId: string, force?: boolean) => import('./inbox').PreRead
+  'inbox:marks': () => Record<string, import('./inbox').InboxMark>
+  'inbox:mark': (key: string, mark: import('./inbox').InboxMark | null) => Record<string, import('./inbox').InboxMark>
+  /** A note on an external PR as a GitHub review asking for changes (a comment on your own PR). */
+  'inbox:noteBackPr': (pr: ReviewPr, text: string) => import('./inbox').InboxMark
+  /** Approve the head commit the reviewer read; refused when the PR moved on since. */
+  'inbox:approvePr': (pr: ReviewPr, expectedHead: string) => void
+  /** Local repository id to its origin's owner/name (lowercase). */
+  'inbox:repoRemotes': () => Record<string, string>
+  /** The workspace on the PR's branch, created from origin when there is none. */
+  'inbox:takeOverPr': (pr: ReviewPr) => Workspace
 
   'agent:send': (workspaceId: string, text: string, images?: ChatImageInput[]) => void
   'agent:interrupt': (workspaceId: string) => void
@@ -400,6 +430,21 @@ export interface SinfonieInvoke {
   'gcp:login': (account?: string) => GcpStatus
   /** Runs one small read in the space's (or app's) project and describes the result. */
   'gcp:test': (spaceId: string) => string
+  // ---- builder: the guided task screen's preview ----
+  /** A small picture of the preview as it is now (JPEG data URL, the task's thumbnail, also saved on disk), or null when it is not open or not on screen. */
+  'preview:capture': (workspaceId: string) => string | null
+  /** The last saved preview picture per task, for the builder home. */
+  'preview:thumbnails': (workspaceIds: string[]) => Record<string, string>
+  /** "Point at something": waits for the person to click an element in the preview; null when cancelled (Esc). */
+  'preview:pick': (workspaceId: string, token: string) => PickedElement | null
+  /** Cancels that pick only (a newer pick is left alone). */
+  'preview:cancelPick': (workspaceId: string, token: string) => void
+  /** Quick checks on the preview before sending for review. */
+  'preview:checks': (workspaceId: string) => VisualCheck[]
+  /** The Send for review sheet closed: stop the checks it started. */
+  'preview:cancelChecks': (workspaceId: string) => void
+  /** Reverts the saves one guided turn made, newest first; refuses when later work depends on them. */
+  'builder:undoChange': (workspaceId: string, checkpoints: ChangeCheckpoint[]) => void
   // ---- workspace browser ----
   'browser:state': (workspaceId: string) => BrowserState
   /** Chromium browsers whose logins can be imported into a space's in-app browser (macOS). */
@@ -456,7 +501,8 @@ export interface SinfonieEvents {
   'ui:openOnboarding': { kind: 'setup' | 'tour' }
   'notes:changed': { workspaceId: string; notes: Note[] }
   /** Guided mode: a turn changed files in these apps, so the person can look at the preview. */
-  'guided:changed': { workspaceId: string; apps: string[] }
+  'guided:changed': GuidedChange
+  'guided:pictures': GuidedPictures
   'agents:changed': AgentSpec[]
   'agents:run': AgentRunEvent
   'agents:runsChanged': { agentId: string; runs: AgentRun[] }

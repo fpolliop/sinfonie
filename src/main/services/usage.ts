@@ -119,6 +119,14 @@ export function fromResult(msg: SDKResultMessage, ctx: { workspaceId: string; sp
   }
 }
 
+/** Estimated spend since a moment (e.g. local midnight) in one space, from the ledger. For the team's daily limit. */
+export function spentSince(spaceId: string, sinceMs: number): number {
+  load()
+  let n = 0
+  for (const t of turns) if (t.spaceId === spaceId && new Date(t.at).getTime() >= sinceMs) n += t.costUsd
+  return n
+}
+
 // ---------- limits ----------
 
 export function recordLimit(accountId: string, info: { rateLimitType?: LimitType; utilization?: number; status: UsageLimit['status']; resetsAt?: number }): void {

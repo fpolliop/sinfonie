@@ -14,7 +14,7 @@ import { LabelPicker } from './LabelPicker'
 import type { RepoSafety, Workspace } from '@shared/types'
 import { ManageReposDialog } from './ManageReposDialog'
 import clsx from 'clsx'
-import { Folder, Code2, TerminalSquare, Archive, Trash2, MoreHorizontal, Pencil, GitBranch, ExternalLink, RefreshCw, AlertTriangle, SearchX, Play, Square, GitPullRequest, Layers, Sparkles, Globe } from 'lucide-react'
+import { ArrowLeft, Folder, Code2, TerminalSquare, Archive, Trash2, MoreHorizontal, Pencil, GitBranch, ExternalLink, RefreshCw, AlertTriangle, SearchX, Play, Square, GitPullRequest, Layers, Sparkles, Globe } from 'lucide-react'
 import { useGithub } from '@/stores/github'
 import { useApp } from '@/stores/app'
 import { useChat } from '@/stores/chat'
@@ -28,6 +28,7 @@ import { shortPath } from '@/lib/format'
 import { WorkspaceInspector } from './WorkspaceInspector'
 import { useGuided, previewUrlFor } from '@/lib/guided'
 import { SendForReviewButton, ReviewStatusLine } from './SendForReview'
+import { TaskScreen, TaskSteps } from './builder/TaskScreen'
 
 /**
  * The workspace split view: one header (name, live status, branch, repositories, ticket; Ask Maestro, Run, pull
@@ -169,6 +170,11 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
       */}
       <header className="drag @container flex h-[48px] shrink-0 items-center gap-3 border-b border-border px-4">
         <div className="flex min-w-0 flex-1 items-center gap-2">
+          {guided && (
+            <Button size="sm" variant="ghost" className="shrink-0 @max-[700px]:hidden" onClick={() => useApp.getState().select(null)} title="Back to all your tasks">
+              <ArrowLeft size={13} aria-hidden /> Tasks
+            </Button>
+          )}
           {!guided && space && (
             <span className="flex min-w-0 max-w-[140px] shrink items-center gap-2 text-[13px] text-muted @max-[700px]:hidden" title={`Space: ${space.name}`}>
               <span className="truncate">{space.name}</span>
@@ -242,6 +248,11 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
             </span>
           )}
         </div>
+        {guided && (
+          <div className="shrink-0 @max-[1180px]:hidden">
+            <TaskSteps workspaceId={ws.id} />
+          </div>
+        )}
         <div className="flex shrink-0 items-center gap-1.5">
           <button
             type="button"
@@ -283,12 +294,17 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
       )}
       <HealthBanner workspaceId={ws.id} />
 
-      <div className="relative flex min-h-0 flex-1">
-        <section aria-label={guided ? 'Conversation with Maestro' : 'Conversation'} className="@container h-full min-w-[360px] flex-1">
-          <ChatPane workspaceId={ws.id} />
-        </section>
-        <WorkspaceInspector workspaceId={ws.id} renderView={(viewId) => <WorkspaceViewTab workspaceId={ws.id} viewId={viewId} />} />
-      </div>
+      {guided ? (
+        // Guided: the builder's task screen, preview first (components/builder/TaskScreen).
+        <TaskScreen workspaceId={ws.id} />
+      ) : (
+        <div className="relative flex min-h-0 flex-1">
+          <section aria-label="Conversation" className="@container h-full min-w-[360px] flex-1">
+            <ChatPane workspaceId={ws.id} />
+          </section>
+          <WorkspaceInspector workspaceId={ws.id} renderView={(viewId) => <WorkspaceViewTab workspaceId={ws.id} viewId={viewId} />} />
+        </div>
+      )}
 
       {archiveDlg && <ArchiveDialog workspaceId={ws.id} name={title} mode={archiveDlg} guided={guided} onClose={() => setArchiveDlg(null)} />}
       {reposDlg && <ManageReposDialog workspaceId={ws.id} onClose={() => setReposDlg(false)} />}

@@ -18,7 +18,7 @@ const started = new Set<string>()
  * The workspace browser. The page itself is a native view the main process places over this pane,
  * so this component owns the chrome (tabs, address bar, agent controls) and reports its bounds.
  */
-export function BrowserPane({ workspaceId, visible }: { workspaceId: string; visible: boolean }): React.JSX.Element {
+export function BrowserPane({ workspaceId, visible, frame = 'desktop', leading }: { workspaceId: string; visible: boolean; frame?: 'desktop' | 'phone'; leading?: React.ReactNode }): React.JSX.Element {
   const guided = useGuided()
   const state = useBrowser((s) => s.states[workspaceId])
   const ws = useApp((s) => s.workspaces.find((w) => w.id === workspaceId))
@@ -61,9 +61,46 @@ export function BrowserPane({ workspaceId, visible }: { workspaceId: string; vis
       .join('\n\n')
   const askToFix = (): void => {
     const out = failedOutput()
-    const text = `The app did not start in the preview. Please find out why and fix it, then start it again.${out ? `\n\nWhat it printed:\n\n\`\`\`\n${out}\n\`\`\`` : ''}`
-    // The conversation sits beside the preview, so the request shows up there at once.
-    void useChat.getState().send(workspaceId, text)
+    const ask = 'The app did not start in the preview. Please find out why and fix it, then start it again.'
+    const text = `${ask}${out ? `\n\nWhat it printed:\n\n\`\`\`\n${out}\n\`\`\`` : ''}`
+    // The conversation sits beside the preview, so the request shows up there at once. If it is refused, only the
+    // plain ask goes back into the composer, never the app's output.
+    void useChat.getState().send(workspaceId, text, ask)
+  }
+  // Guided: when the page cannot load (nothing is listening, or the app crashed), the canvas explains it in plain
+  // words instead of a blank or browser error page, and keeps retrying quietly.
+  const pageDown = guided && Boolean(active?.url && active.failed && !active.loading)
+  const hasRunScript = useApp((s) => Boolean(ws?.repos.some((r) => s.repos.find((x) => x.id === r.repoId)?.config?.scripts?.run)))
+  const scriptRunning = Object.entries(runs).some(([k, r]) => k.startsWith(`${workspaceId}:`) && k.endsWith(':run') && r.running)
+  useEffect(() => {
+    if (!pageDown || !visible) return
+    const t = setInterval(() => void api.invoke('browser:tabAction', workspaceId, 'reload').catch(() => undefined), 5000)
+    return () => clearInterval(t)
+  }, [pageDown, visible, workspaceId])
+  // The app stopped while its page was on screen (a crash): reload, so the canvas says so instead of a stale page.
+  const wasRunning = useRef(scriptRunning)
+  useEffect(() => {
+    const stopped = wasRunning.current && !scriptRunning
+    wasRunning.current = scriptRunning
+    if (!guided || !stopped || !active?.url) return
+    const t = setTimeout(() => void api.invoke('browser:tabAction', workspaceId, 'reload').catch(() => undefined), 1000)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scriptRunning])
+  const tryAgain = (): void => {
+    if (hasRunScript && !scriptRunning) void api.invoke('workspaces:runScript', workspaceId, 'run').catch(() => undefined)
+    window.setTimeout(() => void api.invoke(state?.tabs.length ? 'browser:tabAction' : 'browser:open', workspaceId, state?.tabs.length ? 'reload' : previewUrl).catch(() => undefined), hasRunScript && !scriptRunning ? 1500 : 0)
+  }
+  const askToSetUp = (): void => {
+    const port = ws?.port
+    const ask = "The preview can't show my app because Sinfonie doesn't know how to start it yet. Please set up how this app starts, then start it so I can see it in the preview."
+    void useChat
+      .getState()
+      .send(
+        workspaceId,
+        `${ask}\n\n\`\`\`\nNo run script is configured. Add scripts.run to the app's sinfonie.json so it serves the app on $PORT (this task's port is ${port}), and set "preview" if the page is not at the root. Then start it.\n\`\`\``,
+        ask
+      )
   }
   const runState = ((): 'starting' | 'running' | 'failed' | null => {
     if (!guided || !ws) return null
@@ -78,7 +115,8 @@ export function BrowserPane({ workspaceId, visible }: { workspaceId: string; vis
   // Report where the page should be drawn; null while this pane is hidden.
   useLayoutEffect(() => {
     const el = host.current
-    if (!visible || !el) {
+    // A page that failed to load is taken off screen, so the plain explanation below shows instead of an error page.
+    if (!visible || !el || pageDown) {
       void api.invoke('browser:setBounds', workspaceId, null)
       return
     }
@@ -95,7 +133,7 @@ export function BrowserPane({ workspaceId, visible }: { workspaceId: string; vis
       window.removeEventListener('resize', report)
       void api.invoke('browser:setBounds', workspaceId, null)
     }
-  }, [visible, workspaceId, state?.tabs.length === 0])
+  }, [visible, workspaceId, state?.tabs.length === 0, frame, pageDown])
 
   // Sensitive-origin approvals for browser tools land here, since the chat pane is hidden behind the page.
   useEffect(
@@ -135,11 +173,13 @@ export function BrowserPane({ workspaceId, visible }: { workspaceId: string; vis
   return (
     <div className="flex h-full flex-col">
       <div className={clsx('flex items-center gap-1 border-b border-border px-2 py-1', state?.agentBusy && 'bg-accent/5')}>
+        {leading}
         <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
           {guided && active && (
             <span className="flex min-w-0 items-center gap-1.5 px-2 py-1 text-[12px] text-text">
               {active.loading ? <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-accent" aria-label="Loading" /> : <Globe size={11} className="shrink-0 opacity-60" />}
-              <span className="truncate">{active.title}</span>
+              {/* A page with no title of its own falls back to its address: builders see "Your app" instead. */}
+              <span className="truncate">{/^(https?:\/\/)?[\w.-]+(:\d+)?(\/.*)?$/.test(active.title) || active.title === 'New tab' ? 'Your app' : active.title}</span>
             </span>
           )}
           {!guided && state?.tabs.map((t) => (
@@ -234,7 +274,7 @@ export function BrowserPane({ workspaceId, visible }: { workspaceId: string; vis
           </IconButton>
         </div>
       )}
-      {runState && (
+      {runState && !pageDown && (
         <div className={clsx('flex items-center gap-2 border-b px-3', runState === 'failed' ? 'border-danger/30 bg-danger/10 py-2 text-[13px]' : 'border-border bg-panel/40 py-1 text-[11px] text-muted')}>
           {runState === 'failed' ? (
             <>
@@ -285,7 +325,31 @@ export function BrowserPane({ workspaceId, visible }: { workspaceId: string; vis
           </Button>
         </div>
       )}
-      <div ref={host} className="relative min-h-0 flex-1 bg-bg">
+      {/* Phone: the page is laid out at a phone's width (390 px), centred on the canvas. */}
+      <div className={clsx('relative min-h-0 flex-1', frame === 'phone' && 'flex justify-center p-4')}>
+      <div ref={host} className={clsx('relative bg-bg', frame === 'phone' ? 'h-full max-h-[844px] w-[390px] max-w-full overflow-hidden rounded-lg border border-border shadow-lg' : 'h-full w-full')}>
+        {pageDown && (
+          <div role="status" className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-panel-2 p-6 text-center">
+            <Globe size={28} className="text-muted" aria-hidden />
+            <h2 className="text-[18px] font-semibold">{scriptRunning ? 'Your app is starting' : hasRunScript ? 'Your app is not running' : 'Your app isn’t running yet'}</h2>
+            <p className="max-w-[440px] text-[15px] text-muted">
+              {scriptRunning
+                ? 'It can take a moment. The preview opens by itself as soon as the app is ready.'
+                : hasRunScript
+                  ? 'It stopped, or it has not started. Try again, or ask Maestro to find out why and fix it.'
+                  : 'Sinfonie doesn’t know how to start this app yet. Maestro can set that up for you, once.'}
+            </p>
+            <div className="flex flex-wrap justify-center gap-2">
+              {!scriptRunning && (
+                <Button variant="primary" onClick={hasRunScript ? askToFix : askToSetUp}>
+                  {hasRunScript ? 'Ask Maestro to fix it' : 'Ask Maestro to set it up'}
+                </Button>
+              )}
+              <Button onClick={tryAgain}>{scriptRunning ? 'Check again' : 'Try again'}</Button>
+            </div>
+            <p className="text-[13px] text-muted">Sinfonie checks again every few seconds.</p>
+          </div>
+        )}
         {(!state || state.tabs.length === 0) && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-[13px] text-muted">
             <Globe size={28} className="opacity-40" />
@@ -316,6 +380,7 @@ export function BrowserPane({ workspaceId, visible }: { workspaceId: string; vis
             <div className="max-w-[460px] text-center text-[11px]">{guided ? 'Nobody else sees it until you send for review. Sign-ins are remembered.' : 'Logins persist per space. Actions on infrastructure consoles ask you first; use Pause to take over, for example to sign in.'}</div>
           </div>
         )}
+      </div>
       </div>
     </div>
   )

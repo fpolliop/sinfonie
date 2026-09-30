@@ -8,7 +8,7 @@ import { ChevronDown, ExternalLink, Plus, Search, X } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { Button, IconButton } from './ui'
-import { tokens } from '@/lib/theme'
+import { onThemeChange, terminalTheme } from '@/lib/theme'
 import { CaffeineButton } from './CaffeineButton'
 import { ACP_ENGINES, type Engine } from '@shared/types'
 
@@ -44,6 +44,10 @@ interface Shell {
   unsub: () => void
 }
 const shells = new Map<string, Shell>()
+// Open terminals follow the light and dark theme.
+onThemeChange(() => {
+  for (const s of shells.values()) s.term.options.theme = terminalTheme()
+})
 const opening = new Set<string>()
 const listeners = new Set<() => void>()
 const notify = (): void => listeners.forEach((l) => l())
@@ -60,7 +64,7 @@ function spawnShell(workspaceId: string, repoId: string | null, label: string, a
     fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace',
     fontSize: 12,
     lineHeight: 1.2,
-    theme: { background: tokens.sunken, foreground: tokens.text, cursor: tokens.accent, selectionBackground: tokens.accentSelection, black: tokens.panel2, brightBlack: tokens.faint },
+    theme: terminalTheme(),
     cursorBlink: true,
     scrollback: 10000,
     macOptionIsMeta: true,

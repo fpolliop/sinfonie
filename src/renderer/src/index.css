@@ -21,9 +21,59 @@
   --color-danger: #ff6b6b;
   --color-ok: #4ade80;
   --color-warn: #fbbf24;
+  /* Text on a solid warn fill (count badges). */
+  --color-on-warn: #1b1300;
+  /* A switch's track when off. */
+  --color-track: #262b35;
   --font-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, 'SF Pro Text', Inter, system-ui, sans-serif;
   --font-mono: ui-monospace, 'SF Mono', Menlo, Monaco, Consolas, monospace;
 }
+
+/*
+ * Editor and terminal colours that are not Tailwind utilities (lib/theme.ts `vars` reads them). The light lens
+ * (docs/design/README.md §7) overrides every token below; lib/theme.ts sets data-theme on <html>.
+ */
+:root {
+  --color-faint: #5f6776;
+  --color-selection: rgba(124,156,255,0.25);
+  --color-match: rgba(124,156,255,0.18);
+  --color-match-outline: rgba(124,156,255,0.4);
+  --color-active-line: rgba(255,255,255,0.03);
+  --syn-keyword: #a78bfa; --syn-string: #4ade80; --syn-literal: #fbbf24; --syn-regexp: #f472b6; --syn-comment: #8b93a1;
+  --syn-type: #7c9cff; --syn-definition: #f472b6; --syn-property: #c7cede; --syn-invalid: #ff6b6b; --syn-heading: #e6e8ec;
+  color-scheme: dark;
+}
+:root[data-theme='light'] {
+  --color-bg: #f6f5f2;
+  --color-panel: #ffffff;
+  --color-panel-2: #f1f0ec;
+  --color-border: #dedbd4;
+  --color-text: #1b1c20;
+  --color-muted: #55585f;
+  --color-accent: #3b57d4;
+  --color-accent-2: #3b57d4;
+  --color-primary: #3b57d4;
+  --color-primary-hover: #324cc0;
+  --color-sunken: #efede8;
+  --color-scrollbar: #cbc7be;
+  --color-maestro: #5b3fc4;
+  --color-danger: #b42318;
+  --color-ok: #137a4b;
+  --color-warn: #9a5200;
+  --color-on-warn: #ffffff;
+  --color-track: #b3afa6;
+  --color-faint: #7b7e85;
+  --color-selection: rgba(59,87,212,0.18);
+  --color-match: rgba(59,87,212,0.12);
+  --color-match-outline: rgba(59,87,212,0.45);
+  --color-active-line: rgba(0,0,0,0.035);
+  --syn-keyword: #6d28d9; --syn-string: #137a4b; --syn-literal: #9a5200; --syn-regexp: #b4236b; --syn-comment: #6b6e75;
+  --syn-type: #3b57d4; --syn-definition: #b4236b; --syn-property: #1f4f8f; --syn-invalid: #b42318; --syn-heading: #1b1c20;
+  color-scheme: light;
+}
+/* Guided lens reads at 15px (docs/design/README.md §7): the conversation and the composer of a task. */
+.guided-comfy .prose-chat { font-size: 15px; line-height: 1.55; }
+.guided-comfy .prose-chat code, .guided-comfy .prose-chat pre { font-size: 13px; }
 
 /* Type scale: 11 · 12 · 13 · 15 · 18 · 24 px (body is 13). `pnpm lint:ui` rejects any other text-[Npx]. */
 html, body, #root { height: 100%; margin: 0; }

@@ -6,6 +6,11 @@ import { useApp } from './app'
 const useAppView = (): string => useApp.getState().view
 
 let subscribed = false
+/** The PR the review inbox shows, so a run finishing there on screen is not flagged as unseen. */
+let inboxSelection: () => string | null = () => null
+export const setInboxSelection = (fn: () => string | null): void => {
+  inboxSelection = fn
+}
 
 export type StatusFilter = 'all' | 'ready' | 'draft' | 'unreviewed' | 'running' | 'reviewed' | 'submitted' | 'failed'
 export type SortDir = 'desc' | 'asc'
@@ -246,7 +251,8 @@ export const useReviews = create<ReviewsState>((set, get) => ({
         const inBatch = s.batchRunning.includes(run.key) && !isRunBusy(run)
         freed = finished || inBatch
         // Finished while the user was elsewhere: flag it until they open it.
-        const onScreen = useAppView() === 'reviews' && s.selectedKey === run.key && document.hasFocus()
+        const view = useAppView()
+        const onScreen = (view === 'reviews' || view === 'oncall') && (s.selectedKey === run.key || inboxSelection() === run.key) && document.hasFocus()
         return {
           runs: { ...s.runs, [run.key]: run },
           ...(inBatch ? { batchRunning: s.batchRunning.filter((k) => k !== run.key) } : {}),

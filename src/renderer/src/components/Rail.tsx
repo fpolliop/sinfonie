@@ -9,7 +9,7 @@ import { Wand2, Layers, CircleCheck, StickyNote, Users, Settings, Plus } from 'l
 import { api } from '@/lib/api'
 import { useApp, spaceScope, type View } from '@/stores/app'
 import { useChat } from '@/stores/chat'
-import { useReviews } from '@/stores/reviews'
+import { useInboxBadge } from '@/stores/inbox'
 import { useNotes } from '@/stores/notes'
 import { useMaestro } from '@/stores/maestro'
 import { useGuided, useWords, cap } from '@/lib/guided'
@@ -32,7 +32,8 @@ export function Rail(): React.JSX.Element {
   const t = useWords()
   // Prompts from real workspaces only; Maestro's own questions ("maestro:<id>") are answered in its conversation.
   const waiting = useChat((s) => s.permissions.filter((p) => !p.workspaceId.startsWith('maestro:')).length + s.questions.filter((q) => !q.workspaceId.startsWith('maestro:')).length)
-  const reviews = useReviews((s) => Object.keys(s.unseen).length)
+  // What waits on the person in the review inbox; guided people don't see Review, so nothing loads for them.
+  const reviews = useInboxBadge(!guided)
   const maestroBusy = useMaestro((s) => Object.values(s.byId).some((c) => c.busy))
   const todos = useNotes((s) => Object.values(s.byWorkspace).reduce((n, list) => n + list.filter((x) => x.kind === 'todo' && !x.done).length, 0))
   const { loadAll, subscribe } = useNotes()
@@ -51,9 +52,9 @@ export function Rail(): React.JSX.Element {
     <nav aria-label="Main" className={clsx('drag flex shrink-0', MAC ? 'w-[84px]' : 'w-[72px]', 'flex-col items-center gap-1 border-r border-border bg-panel pb-3 pt-[52px]')}>
       <RailItem tour="maestro" label="Maestro" hint="Maestro, your home (⌘J opens it on any screen)" active={view === 'maestro' || view === 'home'} maestro onClick={() => setView('maestro')} icon={<Wand2 size={19} />} dot={maestroBusy} />
       <RailItem tour="build" label={guided ? cap(t.workspaces) : 'Build'} hint={guided ? 'Your tasks' : 'Workspaces and agents'} active={BUILD_VIEWS.includes(view)} onClick={() => select(null)} icon={<Layers size={19} />} count={waiting} countLabel={`${waiting} waiting on you`} />
-      {showReview && <RailItem tour="reviews" label="Review" hint="Reviews and on-call" active={REVIEW_VIEWS.includes(view)} onClick={() => setView('reviews')} icon={<CircleCheck size={19} />} count={reviews} countLabel={`${reviews} new`} />}
+      {showReview && <RailItem tour="reviews" label="Review" hint="Reviews and on-call" active={REVIEW_VIEWS.includes(view)} onClick={() => setView('reviews')} icon={<CircleCheck size={19} />} count={reviews} countLabel={`${reviews} waiting on you`} />}
       <RailItem tour="notes-all" label="Notes" hint="To-dos, findings, decisions and rules" active={view === 'notes'} onClick={() => setView('notes')} icon={<StickyNote size={19} />} count={todos} countLabel={`${todos} open to-dos`} quiet />
-      {showTeam && <RailItem tour="team" label="Team" hint="Apps, people, connections, plan" active={false} onClick={() => openSettings({ scope: 'app', page: guided ? 'plan' : 'spaces' })} icon={<Users size={19} />} />}
+      {showTeam && <RailItem tour="team" label="Team" hint="Apps, people, guardrails, connections, plan" active={view === 'team'} onClick={() => setView('team')} icon={<Users size={19} />} />}
       <div className="flex-1" />
       <SpaceSwitcher />
       <RailItem tour="settings" label="Settings" hint="Your settings (⌘,)" active={false} onClick={() => openSettings({ scope: 'app', page: 'preferences' })} icon={<Settings size={19} />} quiet />
@@ -77,7 +78,7 @@ function RailItem({ label, hint, icon, active, onClick, count = 0, countLabel, q
       {icon}
       {label}
       {count > 0 && (
-        <span aria-label={countLabel} className={clsx('absolute right-2 top-1 min-w-4 rounded-full px-1 text-center text-[11px] font-bold leading-4', quiet ? 'bg-panel-2 text-muted' : 'bg-warn text-[#1b1300]')}>
+        <span aria-label={countLabel} className={clsx('absolute right-2 top-1 min-w-4 rounded-full px-1 text-center text-[11px] font-bold leading-4', quiet ? 'bg-panel-2 text-muted' : 'bg-warn text-on-warn')}>
           {count > 99 ? '99+' : count}
         </span>
       )}

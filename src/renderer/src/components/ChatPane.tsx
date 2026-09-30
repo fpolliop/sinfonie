@@ -1,6 +1,6 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { ChevronRight, ChevronDown, ChevronsUpDown, Square, RotateCcw, Send, ShieldCheck, XCircle, AlertTriangle, Info, History, Users, GitFork, ListTree, ArrowLeft, StickyNote, Paperclip, X, Plus, Coffee, Check } from 'lucide-react'
+import { ChevronRight, ChevronDown, ChevronsUpDown, Square, RotateCcw, Send, ShieldCheck, XCircle, AlertTriangle, Info, History, Users, GitFork, ListTree, ArrowLeft, StickyNote, Paperclip, X, Plus, Coffee, Check, Crosshair } from 'lucide-react'
 import { imageFiles } from '@/lib/images'
 import type { AgentMode, ContextUsage, ChatTurnResult, AgentEvent, ChatImageRef, LimitAlternative, CostMode, CostModeScope } from '@shared/types'
 import { CliView, closeCliView } from './TerminalPane'
@@ -23,6 +23,8 @@ import { yieldsToEditor } from '@/lib/keys'
 import { expertToolName, formatDuration, formatElapsed, guidedNotice, recentGuidedSteps, turnActivity } from '@/lib/activity'
 import { AskTeammate, AskTeammateButton } from './AskTeammate'
 import { CaffeineButton } from './CaffeineButton'
+import { ChangeCard } from './builder/ChangeCard'
+import { useBuilder, pickLabel, composeMessage, dataUrlToBlob, type ChangeCard as ChangeCardData } from '@/stores/builder'
 import type { ChatBlock, ChatItem, ChatToolBlock } from '@shared/types'
 
 /** Right panel state: closed, the activity overview, or one delegation's detail. */
@@ -110,15 +112,11 @@ function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Elem
   useEffect(() => {
     void load(workspaceId)
   }, [workspaceId, load])
-  // Guided mode: a small "what changed" nudge after a turn touches files, with a look at the preview.
-  const setTab = useApp((s) => s.setTab)
-  const [changed, setChanged] = useState<string[] | null>(null)
-  useEffect(() => {
-    if (!guided) return
-    return api.on('guided:changed', (e) => {
-      if (e.workspaceId === workspaceId) setChanged(e.apps)
-    })
-  }, [guided, workspaceId])
+  // Guided mode shows each change as a card in the conversation instead (stores/builder, components/builder/ChangeCard).
+  useEffect(() => useBuilder.getState().subscribe(), [])
+  const cards = useBuilder((s) => s.cards[workspaceId]) ?? NO_CARDS
+  const pick = useBuilder((s) => s.picks[workspaceId] ?? null)
+  const picking = useBuilder((s) => Boolean(s.picking[workspaceId]))
   const ws = useApp((s) => s.workspaces.find((w) => w.id === workspaceId))
   const scrollRef = useRef<HTMLDivElement>(null)
   const items = chat?.items ?? []
@@ -266,7 +264,6 @@ function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Elem
       setError(friendlyError(err))
       return
     }
-    setChanged(null)
     if (sessionId)
       notify({
         id: `chat-restore:${workspaceId}`,
@@ -304,10 +301,41 @@ function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Elem
     return null
   }, [items])
 
-  // While a turn runs, Enter queues the message; main delivers it when the turn ends.
+  const itemIds = useMemo(() => new Set(items.map((it) => it.id)), [items])
+  // Something was just pointed at: the next thing to do is say what should change about it.
+  useEffect(() => {
+    if (pick) taRef.current?.focus()
+  }, [pick])
+  // While a turn runs, Enter queues the message; main delivers it when the turn ends. Guided: what the person pointed
+  // at (and an undone change) travels with the message, folded away in the conversation.
+  const sending = useRef(false)
   const onSubmit = (): void => {
-    if (!canSend) return
-    void send(workspaceId, draft)
+    if (!canSend || sending.current) return
+    if (!guided) return void send(workspaceId, draft)
+    const b = useBuilder.getState()
+    const undone = Boolean(b.undoneSince[workspaceId])
+    const text = composeMessage(draft, pick, undone)
+    // Attaching the picked element's picture takes a moment: clear the box and hold further sends until it went out,
+    // so a second Enter cannot send the message twice.
+    sending.current = true
+    setDraft(workspaceId, '')
+    b.clearPick(workspaceId)
+    if (undone) useBuilder.setState((s) => ({ undoneSince: { ...s.undoneSince, [workspaceId]: false } }))
+    void (async () => {
+      try {
+        const before = useChat.getState().chats[workspaceId]?.images.length ?? 0
+        if (pick?.image) await addImages(workspaceId, [dataUrlToBlob(pick.image)]).catch(() => undefined)
+        const attached = (useChat.getState().chats[workspaceId]?.images.length ?? 0) > before
+        // Not sent: the composer gets back what the person typed, and the pick and undo note wait for the next try
+        // (the picture is already back among the attachments).
+        if (!(await send(workspaceId, text, draft))) {
+          if (pick) useBuilder.setState((s) => ({ picks: { ...s.picks, [workspaceId]: attached ? { ...pick, image: undefined } : pick } }))
+          if (undone) useBuilder.setState((s) => ({ undoneSince: { ...s.undoneSince, [workspaceId]: true } }))
+        }
+      } finally {
+        sending.current = false
+      }
+    })()
   }
   const contextShare = chat?.contextTokens && chat?.contextWindow ? chat.contextTokens / chat.contextWindow : 0
 
@@ -338,7 +366,7 @@ function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Elem
       <div ref={scrollRef} onScroll={onScroll} className="relative flex-1 overflow-auto px-6 py-4">
         {items.length === 0 && (
           <div className="mx-auto mt-16 max-w-md text-center text-muted">
-            <p className="mb-2">{guided ? 'Describe what should change. You’ll see it in Preview.' : 'Claude Code runs here with every worktree of this workspace in scope.'}</p>
+            <p className="mb-2">{guided ? 'Describe what should change. You’ll see it in the preview as Maestro works. To talk about one part of the page, use Point at something.' : 'Claude Code runs here with every worktree of this workspace in scope.'}</p>
             <p className="text-[12px]">
               {ws?.repos.map((r) => r.repoName).join(' · ')}
               {ws?.sessionId && <span className="mt-1 block">{guided ? 'You can pick up where you left off.' : 'Previous session will be resumed.'}</span>}
@@ -348,8 +376,12 @@ function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Elem
         <div className="mx-auto flex max-w-4xl flex-col gap-4">
           <LatestPlan.Provider value={{ id: latestPlan, busy }}>
             {items.map((it) => (
-              <Message key={it.id} item={it} />
+              <React.Fragment key={it.id}>
+                <Message item={it} />
+                {guided && cards.filter((c) => c.afterItemId === it.id).map((c) => <ChangeCard key={c.id} card={c} />)}
+              </React.Fragment>
             ))}
+            {guided && cards.filter((c) => !c.afterItemId || !itemIds.has(c.afterItemId)).map((c: ChangeCardData) => <ChangeCard key={c.id} card={c} />)}
           </LatestPlan.Provider>
           {questions.map((q) => (
             <QuestionCard key={q.requestId} req={q} />
@@ -388,17 +420,6 @@ function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Elem
             </div>
           )}
           {chat?.limit && <LimitCard workspaceId={workspaceId} ev={chat.limit} />}
-          {guided && changed && (
-            <div className="mb-2 flex items-center gap-2 rounded-lg border border-accent/30 bg-accent/5 px-3 py-2 text-[12px]">
-              <span className="min-w-0 flex-1">Updated {changed.join(' and ')}. The preview shows it.</span>
-              <Button size="sm" variant="primary" onClick={() => { setTab('browser'); setChanged(null) }}>
-                Look
-              </Button>
-              <IconButton label="Dismiss" onClick={() => setChanged(null)}>
-                <X size={12} />
-              </IconButton>
-            </div>
-          )}
           {!guided && <CrewBar items={items} busy={busy} model={chat?.model ?? settingsModel} crewNames={crewNames} />}
           {disabled && notReady && (
             <div role="status" className="mb-2 flex items-center gap-2 px-1 text-[12px] text-muted">
@@ -429,6 +450,20 @@ function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Elem
                     </IconButton>
                   </div>
                 ))}
+              </div>
+            )}
+            {guided && pick && (
+              <div className="flex px-3 pt-3">
+                <span className="inline-flex max-w-full items-center gap-2 rounded-lg border border-accent/40 bg-accent/10 py-1 pl-1 pr-1 text-[13px] text-accent">
+                  {pick.image ? <img src={pick.image} alt="" className="h-7 w-10 shrink-0 rounded border border-border bg-panel object-cover" /> : <Crosshair size={13} className="ml-1 shrink-0" aria-hidden />}
+                  <span className="min-w-0 truncate">
+                    <span className="sr-only">You pointed at: </span>
+                    {pickLabel(pick)}
+                  </span>
+                  <IconButton label="Remove what you pointed at" className="shrink-0 text-accent hover:text-danger" onClick={() => useBuilder.getState().clearPick(workspaceId)}>
+                    <X size={12} />
+                  </IconButton>
+                </span>
               </div>
             )}
             <input ref={fileInput} type="file" accept="image/*" multiple className="hidden" onChange={(e) => (e.target.files?.length && void addImages(workspaceId, Array.from(e.target.files)), (e.target.value = ''))} />
@@ -509,7 +544,7 @@ function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Elem
               ref={taRef}
               style={taHeight ? { height: taHeight } : undefined}
               placeholder={disabled ? notReady ?? '' : busy ? (guided ? 'Type the next thing; it goes when Maestro is done (Enter)' : 'Type to queue a message for when this turn ends… (Enter to queue)') : words(guided).composerPlaceholder}
-              className="block min-h-[64px] max-h-[60vh] w-full resize-none bg-transparent pt-3 pl-3 pr-8 text-[13px] outline-none placeholder:text-muted"
+              className={clsx('block min-h-[64px] max-h-[60vh] w-full resize-none bg-transparent pt-3 pl-3 pr-8 outline-none placeholder:text-muted', guided ? 'text-[15px]' : 'text-[13px]')}
             />
             </div>
             <div className="flex min-w-0 flex-wrap items-center gap-1.5 px-2 pb-2">
@@ -527,6 +562,9 @@ function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Elem
               <span className="ml-auto" />
               {guided ? (
                 <>
+                  <Button size="sm" variant="ghost" aria-pressed={picking} onClick={() => void useBuilder.getState().startPick(workspaceId)} disabled={disabled} title={picking ? 'Click the part of the page you mean, or press Esc to cancel' : 'Point at a part of the preview to talk about it'}>
+                    <Crosshair size={13} aria-hidden /> {picking ? 'Pointing… Esc cancels' : 'Point'}
+                  </Button>
                   <IconButton label="Attach images (or paste or drop them into the message)" className="px-1.5" onClick={() => fileInput.current?.click()} disabled={disabled}>
                     <Paperclip size={13} />
                   </IconButton>
@@ -790,6 +828,9 @@ export function Message({ item }: { item: ChatItem }): React.JSX.Element | null 
     const text = fence > 0 ? full.slice(0, fence) : full
     const attached = fence > 0 ? full.slice(fence).trim().replace(/^```\w*\n?|```$/g, '').trim() : ''
     const images = item.blocks.filter((b): b is Extract<typeof b, { type: 'image' }> => b.type === 'image').map((b) => b.image)
+    // What the builder's composer adds (stores/builder composeMessage): a chip for the part pointed at, the rest for Maestro only.
+    const pointed = guided ? /^Pointed at: (.+)$/m.exec(attached)?.[1] ?? null : null
+    const builderOnly = guided && attached !== '' && attached.split('\n').every((l) => /^(Pointed at: |Element in the preview|Note: )/.test(l))
     return (
       <div className="flex flex-col items-end gap-1.5">
         {images.length > 0 && (
@@ -800,9 +841,16 @@ export function Message({ item }: { item: ChatItem }): React.JSX.Element | null 
           </div>
         )}
         {text.trim() && (
-          <div className="max-w-[80%] whitespace-pre-wrap rounded-2xl rounded-br-sm bg-accent-2/25 px-3.5 py-2 text-[13px]">
+          <div className={clsx('max-w-[80%] whitespace-pre-wrap rounded-2xl rounded-br-sm bg-accent-2/25 px-3.5 py-2', guided ? 'text-[15px]' : 'text-[13px]')}>
+            {pointed && (
+              <span className="mr-1.5 inline-flex h-6 items-center gap-1 rounded-md bg-panel px-1.5 align-middle text-[12px] font-medium text-accent">
+                <Crosshair size={11} aria-hidden />
+                <span className="sr-only">Pointed at: </span>
+                {pointed}
+              </span>
+            )}
             {text}
-            {attached && <AttachedDetails text={attached} />}
+            {attached && !builderOnly && <AttachedDetails text={attached} />}
           </div>
         )}
       </div>
@@ -1012,6 +1060,7 @@ function Block({ block }: { block: ChatBlock }): React.JSX.Element | null {
 }
 
 const NO_IMAGES: never[] = []
+const NO_CARDS: ChangeCardData[] = []
 
 /** The session's vitals in one small pill; the details, the context window and Compact open on click. */
 const COST_MODES: { id: CostMode; label: string; hint: string }[] = [

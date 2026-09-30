@@ -15,6 +15,7 @@ import { useApp } from '@/stores/app'
 import { useChat } from '@/stores/chat'
 import { useUsage, subscribeUsage } from '@/stores/usage'
 import { useOnCall, subscribeOnCall } from '@/stores/oncall'
+import { openInbox } from '@/stores/inbox'
 import { openMaestro } from '@/stores/maestro'
 import { Button, Dialog } from '@/components/ui'
 import { registry, UnknownElement } from './registry'
@@ -201,8 +202,8 @@ export function ViewHost({ view, context }: { view: ScopedView; context: ViewCon
           void openMaestro({ fresh: true, prompt: String(p.prompt) })
           return
         case 'openIncident':
-          app.setView('oncall')
           useOnCall.getState().select(String(p.incidentId))
+          openInbox({ key: `inc:${String(p.incidentId)}` })
           return
         case 'triageIncident':
           await api.invoke('oncall:triage', String(p.incidentId))

@@ -1,4 +1,4 @@
-import { tokens } from '@/lib/theme'
+import { vars } from '@/lib/theme'
 import { EditorView, GutterMarker, gutter, showTooltip, type Tooltip } from '@codemirror/view'
 import { StateEffect, StateField, type Extension, RangeSet } from '@codemirror/state'
 
@@ -223,14 +223,14 @@ export function changeGutter(): Extension {
     EditorView.theme({
       '.cm-change-gutter': { width: '4px', marginLeft: '2px' },
       '.cm-change': { width: '3px', height: '100%', borderRadius: '2px', cursor: 'pointer' },
-      '.cm-change-added': { background: tokens.ok },
-      '.cm-change-modified': { background: tokens.accent },
-      '.cm-change-deleted': { width: '0', height: '0', borderLeft: '5px solid transparent', borderRight: '5px solid transparent', borderTop: `6px solid ${tokens.danger}`, marginLeft: '-3px', marginTop: '-2px', borderRadius: '0', background: 'none' },
-      '.cm-tooltip.cm-change-tip, .cm-change-tip': { background: tokens.panel, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '6px 8px', maxWidth: '640px', fontSize: '12px', color: tokens.text },
-      '.cm-change-tip-head': { color: tokens.muted, fontSize: '11px', marginBottom: '4px' },
-      '.cm-change-tip pre': { margin: '0 0 6px', maxHeight: '220px', overflow: 'auto', background: tokens.sunken, padding: '6px 8px', borderRadius: '6px', fontFamily: 'ui-monospace, Menlo, monospace' },
+      '.cm-change-added': { background: vars.ok },
+      '.cm-change-modified': { background: vars.accent },
+      '.cm-change-deleted': { width: '0', height: '0', borderLeft: '5px solid transparent', borderRight: '5px solid transparent', borderTop: `6px solid ${vars.danger}`, marginLeft: '-3px', marginTop: '-2px', borderRadius: '0', background: 'none' },
+      '.cm-tooltip.cm-change-tip, .cm-change-tip': { background: vars.panel, border: `1px solid ${vars.border}`, borderRadius: '8px', padding: '6px 8px', maxWidth: '640px', fontSize: '12px', color: vars.text },
+      '.cm-change-tip-head': { color: vars.muted, fontSize: '11px', marginBottom: '4px' },
+      '.cm-change-tip pre': { margin: '0 0 6px', maxHeight: '220px', overflow: 'auto', background: vars.sunken, padding: '6px 8px', borderRadius: '6px', fontFamily: 'ui-monospace, Menlo, monospace' },
       '.cm-change-tip-bar': { display: 'flex', gap: '6px' },
-      '.cm-change-tip button': { background: tokens.panel2, border: `1px solid ${tokens.border}`, color: tokens.text, borderRadius: '6px', padding: '2px 8px', fontSize: '11px', cursor: 'pointer' }
+      '.cm-change-tip button': { background: vars.panel2, border: `1px solid ${vars.border}`, color: vars.text, borderRadius: '6px', padding: '2px 8px', fontSize: '11px', cursor: 'pointer' }
     })
   ]
 }

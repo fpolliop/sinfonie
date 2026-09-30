@@ -7,7 +7,8 @@ import { ToolLoopAgent, stepCountIs, tool, type ModelMessage, type ToolApprovalR
 import { z } from 'zod'
 import { createMCPClient, type MCPClient } from '@ai-sdk/mcp'
 import { Experimental_StdioMCPTransport as StdioMCPTransport } from '@ai-sdk/mcp/mcp-stdio'
-import type { AgentEvent, AgentSpec, McpServerSpec, PermissionMode, Workspace } from '@shared/types'
+import type { AgentEvent, AgentSpec, McpServerSpec, PermissionMode, UsageTurn, Workspace } from '@shared/types'
+import * as usage from '../usage'
 import { parseModelRef } from '@shared/types'
 import { getStore } from '../../store'
 import * as library from '../agents'
@@ -30,6 +31,7 @@ import * as linear from '../linear'
 import * as gcp from '../gcp'
 import * as dbTools from '../db/tools'
 import { logError } from '../telemetry'
+import * as teamRules from '../team-rules'
 
 type Emit = (e: AgentEvent) => void
 
@@ -40,7 +42,7 @@ interface NativeSession {
   abort: AbortController | null
   queue: { id: string; text: string; images?: ChatImageRef[] }[]
   interrupted: boolean
-  costByModel: Map<string, { costUsd: number; outputTokens: number }>
+  costByModel: Map<string, { costUsd: number; inputTokens: number; outputTokens: number }>
   mcpClients: MCPClient[]
 }
 
@@ -202,10 +204,28 @@ function crewTool(ws: Workspace, crew: AgentSpec[], baseCtx: ToolContext, emit: 
 }
 
 function addCost(s: NativeSession, modelId: string, input: number, output: number): void {
-  const cur = s.costByModel.get(modelId) ?? { costUsd: 0, outputTokens: 0 }
+  const cur = s.costByModel.get(modelId) ?? { costUsd: 0, inputTokens: 0, outputTokens: 0 }
   cur.costUsd += estimateCost(modelId, input, output)
+  cur.inputTokens += input
   cur.outputTokens += output
   s.costByModel.set(modelId, cur)
+}
+
+/** Ledger entry for one native turn: the growth of the session's per-model totals (crew workers included). */
+function recordNativeTurn(ws: Workspace, s: NativeSession, before: Map<string, { costUsd: number; inputTokens: number; outputTokens: number }>, startedAt: number): void {
+  const byModel: UsageTurn['byModel'] = []
+  for (const [model, c] of s.costByModel) {
+    const b = before.get(model) ?? { costUsd: 0, inputTokens: 0, outputTokens: 0 }
+    const d = { model, costUsd: Math.max(0, c.costUsd - b.costUsd), inputTokens: Math.max(0, c.inputTokens - b.inputTokens), outputTokens: Math.max(0, c.outputTokens - b.outputTokens), cacheReadTokens: 0 }
+    if (d.costUsd > 0 || d.inputTokens > 0 || d.outputTokens > 0) byModel.push(d)
+  }
+  if (!byModel.length) return
+  try {
+    const sum = (k: 'costUsd' | 'inputTokens' | 'outputTokens'): number => byModel.reduce((n, m) => n + m[k], 0)
+    usage.recordTurn({ at: new Date().toISOString(), workspaceId: ws.id, spaceId: ws.spaceId ?? '', accountId: 'native', engine: 'native', kind: 'chat', costUsd: sum('costUsd'), inputTokens: sum('inputTokens'), outputTokens: sum('outputTokens'), cacheReadTokens: 0, durationMs: Date.now() - startedAt, byModel })
+  } catch {
+    /* the ledger must never break a turn */
+  }
 }
 
 // ---------- approvals by permission mode ----------
@@ -246,6 +266,9 @@ async function runTurn(ws: Workspace, session: NativeSession, emit: Emit): Promi
   const wsCwd = primary?.worktreePath ?? ws.rootPath
   const abort = new AbortController()
   session.abort = abort
+  // This turn's share of the session's running totals goes to the usage ledger (spend view, team daily limit).
+  const costBefore = new Map([...session.costByModel].map(([k, v]) => [k, { ...v }]))
+  const turnStartedAt = Date.now()
   const ctx: ToolContext = { workspace: ws, roots: [...ws.repos.map((r) => r.worktreePath), ws.rootPath], cwd: wsCwd, signal: abort.signal }
   const builtin = buildTools(ctx)
   const lean = costModeFor(ws.spaceId, ws.id) === 'lean'
@@ -255,7 +278,7 @@ async function runTurn(ws: Workspace, session: NativeSession, emit: Emit): Promi
   const tools: ToolSet = { ...builtin, ...mcp.tools, ...(lean ? {} : { ...notes.aiTools(ws.id), ...browserTools.aiTools(ws.id) }), ...(gcpOn ? gcp.aiTools(ws.spaceId) : {}), ...(ws.spaceId && space?.databases?.length ? dbTools.aiTools(ws.spaceId, ws.id) : {}), ...workspaceTools.aiTools(ws.id), ...(crew.length ? { Agent: crewTool(ws, crew, ctx, emit, mode) } : {}) }
   const agent = new ToolLoopAgent({
     model: resolveModel(modelRef),
-    instructions: systemPrompt(ws, crew, mcp.names) + notes.promptFor(ws.id, true) + (gcpOn ? gcp.promptFor(ws.spaceId) : '') + (ws.spaceId && space?.databases?.length ? dbTools.promptFor(ws.spaceId) : ''),
+    instructions: systemPrompt(ws, crew, mcp.names) + notes.promptFor(ws.id, true) + (gcpOn ? gcp.promptFor(ws.spaceId) : '') + (ws.spaceId && space?.databases?.length ? dbTools.promptFor(ws.spaceId) : '') + teamRules.promptFor(ws),
     tools,
     stopWhen: stepCountIs(120),
     toolApproval: approvalPolicy(mode, ws)
@@ -349,6 +372,7 @@ async function runTurn(ws: Workspace, session: NativeSession, emit: Emit): Promi
       emit({ type: 'result', result: { workspaceId: ws.id, costUsd: 0, durationMs: 0, numTurns: 1, isError: true, errorText: message } })
     }
   } finally {
+    recordNativeTurn(ws, session, costBefore, turnStartedAt)
     for (const c of session.mcpClients) void c.close().catch(() => undefined)
     session.mcpClients = []
     session.abort = null

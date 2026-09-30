@@ -97,7 +97,8 @@ function CouponBox({ signedIn }: { signedIn: boolean }): React.JSX.Element {
 }
 
 /** Settings → Plan: the Sinfonie account, the current plan, and upgrades. */
-export function PlanPage(): React.JSX.Element {
+/** `hideTeam` leaves out the organisation section, for the Team console where People and roles shows it. */
+export function PlanPage({ hideTeam = false }: { hideTeam?: boolean } = {}): React.JSX.Element {
   const guided = useGuided()
   const cloud = useApp((s) => s.settings.cloud)
   const spaces = useApp((s) => s.spaces)
@@ -245,7 +246,7 @@ export function PlanPage(): React.JSX.Element {
         Your plan: {limitText(PLAN_LIMITS[plan], guided)}. You have {spaces.length} {words(guided).space}{spaces.length === 1 ? '' : 's'}.
         {account && !account.enforce ? ' Limits are not enforced yet; nothing you have today will be locked.' : ''} {guided ? 'Your AI subscriptions are yours and are billed by their vendors, never through Sinfonie.' : 'Agent subscriptions and API keys are yours and are billed by their vendors, never through Sinfonie.'}
       </p>
-      <TeamSection signedIn={Boolean(account)} />
+      {!hideTeam && <TeamSection signedIn={Boolean(account)} />}
     </div>
   )
 }

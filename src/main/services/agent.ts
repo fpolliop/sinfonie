@@ -3,6 +3,9 @@ import { query, createSdkMcpServer, tool as sdkTool, type Options, type Query, t
 import { spawn } from 'child_process'
 import * as resources from './resources'
 import * as browserTools from './browser/tools'
+import * as previewShots from './browser/preview'
+import { withWorkspaceLock } from './ws-lock'
+import type { GuidedChange } from '@shared/types'
 import * as workspaceTools from './workspace-tools'
 import { toBase64 } from './images'
 import * as usage from './usage'
@@ -34,12 +37,13 @@ import * as jira from './jira'
 import * as linear from './linear'
 import { logError } from './telemetry'
 import type { McpServerSpec } from '@shared/types'
+import * as teamRules from './team-rules'
 
 type EmitEvent = (e: AgentEvent) => void
 type EmitPermission = (r: PermissionRequest) => void
 
 /** Guided mode: told which apps a turn changed, so the renderer can offer a look at the preview. */
-let emitGuidedChanged: (e: { workspaceId: string; apps: string[] }) => void = () => undefined
+let emitGuidedChanged: (e: Omit<GuidedChange, 'changeId'>) => void = () => undefined
 export function setGuidedChangedEmitter(fn: typeof emitGuidedChanged): void {
   emitGuidedChanged = fn
 }
@@ -173,6 +177,8 @@ function systemPromptFor(ws: Workspace, lean = false): string {
   if (!lean) lines.push(`Sinfonie runs on the user's Mac next to other sessions and limits you to ${resources.resourceSettings().maxSubagentsPerSession} subagents at once; under memory pressure it refuses new ones. When a delegation is refused, the tool result says why: do that work yourself or wait for running subagents instead of retrying.`)
   const guided = guidedPromptFor(ws)
   if (guided) lines.push(guided)
+  const team = teamRules.promptFor(ws)
+  if (team) lines.push(team)
   return lines.join('\n')
 }
 
@@ -455,6 +461,19 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
               }
             ]
           : []),
+        // Team guardrails (team-rules.ts): hooks run in every permission mode, bypass included, and for subagents.
+        {
+          matcher: 'Write|Edit|MultiEdit|NotebookEdit|Bash',
+          hooks: [
+            async (raw: HookInput) => {
+              const input = raw as { tool_name?: string; tool_input?: unknown; cwd?: string }
+              const reason = teamRules.toolVeto(getWorkspace(workspaceId), input.tool_name ?? '', input.tool_input, input.cwd)
+              if (!reason) return {}
+              if (getStore().get().settings.mode !== 'guided') emit({ type: 'notice', workspaceId, itemId: nanoid(8), level: 'warn', text: `Guardrail: ${reason}`, createdAt: new Date().toISOString() })
+              return { hookSpecificOutput: { hookEventName: 'PreToolUse' as const, permissionDecision: 'deny' as const, permissionDecisionReason: reason } }
+            }
+          ]
+        },
         {
           matcher: 'Agent|Task',
           hooks: [
@@ -519,6 +538,9 @@ async function pump(session: Session, emit: EmitEvent): Promise<void> {
   let turnText = 0
   let turnTools = 0
   let turnStop: string | null = null
+  // Guided change cards: the files this turn edited (paths only) and its last assistant message, taken at turn end.
+  const toolNames = new Map<string, string>()
+  let turnEdits: { name: string; input: Record<string, unknown> }[] = []
   const notice = (level: 'info' | 'warn' | 'error', text: string): void =>
     emit({ type: 'notice', workspaceId, itemId: nanoid(8), level, text, createdAt: new Date().toISOString() })
   try {
@@ -643,6 +665,7 @@ async function pump(session: Session, emit: EmitEvent): Promise<void> {
                 session.crewCalls.set(n, [...(session.crewCalls.get(n) ?? []), block.id])
               }
               toolJson.set(ev.index, '')
+              toolNames.set(block.id, block.name)
               emit({ type: 'tool_start', workspaceId, itemId, toolUseId: block.id, name: block.name })
             }
           } else if (ev.type === 'content_block_delta') {
@@ -660,6 +683,11 @@ async function pump(session: Session, emit: EmitEvent): Promise<void> {
                 input = { raw: toolJson.get(ev.index) }
               }
               emit({ type: 'tool_input', workspaceId, itemId, toolUseId, input })
+              const name = toolNames.get(toolUseId) ?? ''
+              if (/^(Edit|Write|MultiEdit|NotebookEdit)$/.test(name) && input && typeof input === 'object') {
+                const i = input as Record<string, unknown>
+                turnEdits.push({ name, input: { file_path: i.file_path, notebook_path: i.notebook_path, path: i.path } })
+              }
             }
           } else if (ev.type === 'message_stop') {
             emit({ type: 'assistant_end', workspaceId, itemId })
@@ -686,6 +714,7 @@ async function pump(session: Session, emit: EmitEvent): Promise<void> {
         }
         case 'result': {
           session.busy = false
+          previewShots.turnEnded(workspaceId)
           const isError = msg.subtype !== 'success' || msg.is_error
           const errs = 'errors' in msg && Array.isArray(msg.errors) ? (msg.errors as string[]).join('\n') : ''
           const denials = 'permission_denials' in msg && Array.isArray(msg.permission_denials) ? msg.permission_denials.length : 0
@@ -752,17 +781,25 @@ async function pump(session: Session, emit: EmitEvent): Promise<void> {
           // Guided mode: checkpoint whatever the assistant changed this turn, so "changes not sent for review"
           // is honest and nothing is lost between turns (partial or interrupted work included). Never pushed;
           // Send for review does that.
+          // The card belongs to this turn: its last message and edits, taken now (a queued turn may already be starting).
+          const edits = turnEdits.slice(-200)
+          const afterItemId = itemId || null
+          turnEdits = []
+          toolNames.clear()
           if (getStore().get().settings.mode === 'guided') {
             const wsNow = getWorkspace(workspaceId)
-            void Promise.all(
-              wsNow.repos.map(async (r) => {
-                const sha = await checkpoint(r.worktreePath, `Checkpoint: ${wsNow.name}`).catch((err) => (logError('guided.checkpoint', err, { workspaceId }), null))
-                const repo = getStore().get().repos.find((x) => x.id === r.repoId)
-                return sha ? repo?.displayName || r.repoName : null
-              })
+            // One lock with "Undo this change" (builder.ts), so the two never touch the same worktree at once.
+            void withWorkspaceLock(workspaceId, () =>
+              Promise.all(
+                wsNow.repos.map(async (r) => {
+                  const sha = await checkpoint(r.worktreePath, `Checkpoint: ${wsNow.name}`).catch((err) => (logError('guided.checkpoint', err, { workspaceId }), null))
+                  const repo = getStore().get().repos.find((x) => x.id === r.repoId)
+                  return sha ? { app: repo?.displayName || r.repoName, repoId: r.repoId, sha } : null
+                })
+              )
             ).then((changed) => {
-              const apps = changed.filter((a): a is string => Boolean(a))
-              if (apps.length) emitGuidedChanged({ workspaceId, apps })
+              const hits = changed.filter((a): a is { app: string; repoId: string; sha: string } => Boolean(a))
+              if (hits.length) emitGuidedChanged({ workspaceId, apps: hits.map((h) => h.app), checkpoints: hits.map(({ repoId, sha }) => ({ repoId, sha })), afterItemId, edits })
             })
           }
           getStore().update((d) => {
@@ -804,6 +841,8 @@ function contextNote(session: Session): string {
 
 function deliver(session: Session, text: string, emit: EmitEvent, announce = true, images?: ChatImageRef[]): void {
   const { workspaceId } = session
+  // Guided mode: a picture of the preview before this turn, for the change card if the turn changes the app.
+  previewShots.beforeTurn(workspaceId)
   session.busy = true
   session.flags.leanCalls = 0
   session.flags.leanCapNoted = false

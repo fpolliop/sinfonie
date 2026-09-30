@@ -30,7 +30,9 @@ export async function onRequestPost({ request, env, params }) {
     if (Number(n?.n || 0) >= FREE_ORG_SPACES) return error('plan_limit', `A free organisation shares ${FREE_ORG_SPACES} space. The Team plan lifts the limit.`, 402)
   }
   const id = /^[A-Za-z0-9_-]{4,32}$/.test(String(b.id || '')) ? b.id : newId()
-  const def = JSON.stringify({ ...b.definition, name, orgId: org.id })
+  // Only admins bring guardrails into the organisation (see guardRules in [spaceId]/index.js).
+  const incoming = org.role === 'admin' ? b.definition : { ...b.definition, settings: Object.fromEntries(Object.entries(b.definition.settings || {}).filter(([k]) => k !== 'rules')) }
+  const def = JSON.stringify({ ...incoming, name, orgId: org.id })
   await env.DB.prepare('INSERT INTO org_spaces (id, org_id, name, definition, version, updated_by) VALUES (?1, ?2, ?3, ?4, 1, ?5)').bind(id, org.id, name, def, user.id).run()
   const row = await env.DB.prepare('SELECT * FROM org_spaces WHERE id = ?1').bind(id).first()
   return json({ ...spaceView(row), updatedBy: user.login })

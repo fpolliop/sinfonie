@@ -180,6 +180,16 @@ export function activeTab(workspaceId: string): BrowserTab {
   const s = get(workspaceId)
   return s.tabs.find((t) => t.id === s.activeId) ?? newTab(workspaceId)
 }
+/** The active tab if the workspace has one; never opens a tab (unlike activeTab). */
+export function peekTab(workspaceId: string): BrowserTab | null {
+  const s = state.get(workspaceId)
+  return s?.tabs.find((t) => t.id === s.activeId) ?? null
+}
+/** Whether the workspace's page is drawn in the window right now (captures need it on screen). */
+export function isShown(workspaceId: string): boolean {
+  const s = state.get(workspaceId)
+  return Boolean(s?.attachedId && s.attachedId === s.activeId)
+}
 export function tabById(workspaceId: string, tabId?: string): BrowserTab {
   if (!tabId) return activeTab(workspaceId)
   const t = get(workspaceId).tabs.find((x) => x.id === tabId)

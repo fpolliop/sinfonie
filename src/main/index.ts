@@ -14,7 +14,7 @@ import * as cloud from './services/cloud'
 import * as orgSpaces from './services/org-spaces'
 import * as remote from './services/remote'
 import { installCrashHandlers, rendererConsoleError, logError, startUsagePings } from './services/telemetry'
-import { Menu, nativeImage } from 'electron'
+import { Menu, nativeImage, nativeTheme } from 'electron'
 import { checkForUpdate } from './services/updates'
 
 function sendToWindows(channel: string, payload: unknown): void {
@@ -160,6 +160,14 @@ function migrateLegacyUserData(): void {
   }
 }
 
+/** Light or dark ground for the window: the Preferences choice, else light for guided and dark for expert. */
+function windowBackground(): string {
+  const { theme, mode } = getStore().get().settings
+  const pref = theme ?? (mode === 'guided' ? 'light' : 'dark')
+  const light = pref === 'system' ? !nativeTheme.shouldUseDarkColors : pref === 'light'
+  return light ? '#f6f5f2' : '#0f1115'
+}
+
 function createWindow(): void {
   const win = new BrowserWindow({
     width: 1400,
@@ -171,7 +179,8 @@ function createWindow(): void {
     titleBarStyle: 'hiddenInset',
     // Centred in the 84px rail and on the 52px top bars (Rail.tsx).
     trafficLightPosition: { x: 13, y: 19 },
-    backgroundColor: '#0f1115',
+    // The saved theme's ground, so a light start never flashes dark (lib/theme.ts resolveTheme, index.css tokens).
+    backgroundColor: windowBackground(),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,

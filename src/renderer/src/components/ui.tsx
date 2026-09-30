@@ -151,7 +151,7 @@ export function Segmented<T extends string>({ value, options, onChange, size = '
           role="tab"
           aria-selected={o.id === value}
           onClick={() => onChange(o.id)}
-          className={clsx('rounded px-2.5 font-medium transition-colors', size === 'sm' ? 'py-0.5 text-[11px]' : 'py-1 text-[12px]', o.id === value ? 'bg-panel-2 text-text' : 'text-muted hover:text-text')}
+          className={clsx('rounded px-2.5 font-medium transition-colors', size === 'sm' ? 'py-0.5 text-[11px]' : 'py-1 text-[12px]', o.id === value ? 'bg-panel-2 text-text [[data-theme=light]_&]:bg-panel [[data-theme=light]_&]:shadow-sm [[data-theme=light]_&]:ring-1 [[data-theme=light]_&]:ring-border' : 'text-muted hover:text-text')}
         >
           {o.label}
         </button>
@@ -170,7 +170,7 @@ export function Toggle({ checked, onChange, label, hint, disabled }: { checked: 
         aria-checked={checked}
         disabled={disabled}
         onClick={() => onChange(!checked)}
-        className={clsx('relative mt-0.5 h-4 w-7 shrink-0 rounded-full transition-colors', checked ? 'bg-primary' : 'bg-border')}
+        className={clsx('relative mt-0.5 h-4 w-7 shrink-0 rounded-full transition-colors', checked ? 'bg-primary' : 'bg-track')}
       >
         <span className={clsx('absolute top-0.5 h-3 w-3 rounded-full bg-white transition-all', checked ? 'left-3.5' : 'left-0.5')} />
       </button>

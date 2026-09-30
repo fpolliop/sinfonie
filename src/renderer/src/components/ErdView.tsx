@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { X, Key, Link2, Play } from 'lucide-react'
 import type { DbKind, DbSchema, DbTable } from '@shared/types'
 import { IconButton } from './ui'
-import { tokens } from '@/lib/theme'
+import { vars } from '@/lib/theme'
 
 interface Node {
   key: string
@@ -160,7 +160,7 @@ export function ErdView({ schema, kind, onPreview, onClose }: { schema: DbSchema
           <svg width={total.w} height={total.h} className="absolute left-0 top-0" style={{ overflow: 'visible' }}>
             <defs>
               <marker id="erd-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
-                <path d="M0,0 L8,4 L0,8 z" fill={tokens.accent} />
+                <path d="M0,0 L8,4 L0,8 z" style={{ fill: vars.accent }} />
               </marker>
             </defs>
             {edges.map((e, i) => {
@@ -176,7 +176,7 @@ export function ErdView({ schema, kind, onPreview, onClose }: { schema: DbSchema
               const dx = Math.max(40, Math.abs(x2 - x1) / 2)
               const c1 = leftToRight ? x1 + dx : x1 - dx
               const c2 = leftToRight ? x2 - dx : x2 + dx
-              return <path key={i} d={`M${x1},${y1} C${c1},${y1} ${c2},${y2} ${x2},${y2}`} fill="none" stroke={tokens.accent} strokeOpacity={0.7} strokeWidth={1.2} markerEnd="url(#erd-arrow)" />
+              return <path key={i} d={`M${x1},${y1} C${c1},${y1} ${c2},${y2} ${x2},${y2}`} fill="none" style={{ stroke: vars.accent }} strokeOpacity={0.7} strokeWidth={1.2} markerEnd="url(#erd-arrow)" />
             })}
           </svg>
           {nodes.map((n) => (

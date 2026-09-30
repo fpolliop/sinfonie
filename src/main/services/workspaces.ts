@@ -9,6 +9,7 @@ import { getStore } from '../store'
 import * as git from './git'
 import { runScript, stopAllScripts } from './scripts'
 import { renameRemoteBranch } from './github'
+import { stageVeto } from './team-rules'
 
 type Emit = (event: ScriptOutputEvent) => void
 
@@ -233,6 +234,9 @@ export async function safetyReport(workspaceId: string): Promise<RepoSafety[]> {
 }
 
 export function setStage(workspaceId: string, stage: WorkspaceStage): Workspace {
+  // Team guardrail: builders send for review before a task is done (renderer and Maestro both land here).
+  const veto = stageVeto(getWorkspace(workspaceId), stage)
+  if (veto) throw new Error(veto)
   return patchWorkspace(workspaceId, { stage })
 }
 

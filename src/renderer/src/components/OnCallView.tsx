@@ -287,7 +287,7 @@ function BulkButton({ icon, label, title, onClick, disabled, danger }: { icon: R
   )
 }
 
-function IncidentDetail({ inc, go, onRemove }: { inc: Incident; go: (fn: () => Promise<unknown>) => Promise<void>; onRemove: () => void }): React.JSX.Element {
+export function IncidentDetail({ inc, go, onRemove }: { inc: Incident; go: (fn: () => Promise<unknown>) => Promise<void>; onRemove: () => void }): React.JSX.Element {
   const setNewWorkspaceSeed = useApp((s) => s.setNewWorkspaceSeed)
   const setShowNewWorkspace = useApp((s) => s.setShowNewWorkspace)
   const setView = useApp((s) => s.setView)
