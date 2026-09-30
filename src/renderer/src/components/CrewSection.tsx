@@ -30,7 +30,7 @@ export function CrewSection({ spaceId, intro, useCrew, orchestrator }: { spaceId
   const standalone = useMemo(() => all.filter((a) => !a.crew), [all])
   const off = useMemo(() => new Set(space?.crewDisabled ?? []), [space])
   const models = space?.crewModels ?? {}
-  const fail = (err: unknown): void => setError(err instanceof Error ? err.message : String(err))
+  const fail = (err: unknown): void => setError(err)
 
   const inCrew = (a: AgentSpec): boolean => Boolean(a.crew) && !off.has(a.id)
   const toggle = (a: AgentSpec, on: boolean): void => {

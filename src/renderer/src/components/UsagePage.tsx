@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo } from 'react'
 import clsx from 'clsx'
 import { api } from '@/lib/api'
+import { friendlyError } from '@/lib/errors'
 import { useApp } from '@/stores/app'
 import { useUsage, subscribeUsage, windowLabel, clock, fmtTokens } from '@/stores/usage'
 import { Badge, Field, SectionHeader, inputCls } from './ui'
@@ -22,7 +23,7 @@ export function UsagePage(): React.JSX.Element {
   const nameOfWs = (id: string): string => workspaces.find((w) => w.id === id)?.name ?? (id ? 'Removed workspace' : 'Outside workspaces')
   const nameOfSpace = (id: string): string => spaces.find((s) => s.id === id)?.name ?? (id ? 'Removed space' : 'No space')
   const update = (patch: Record<string, unknown>): void => {
-    api.invoke('settings:update', { usage: { ...(settings.usage ?? {}), ...patch } }).catch((err) => setError(err instanceof Error ? err.message : String(err)))
+    api.invoke('settings:update', { usage: { ...(settings.usage ?? {}), ...patch } }).catch((err) => setError(friendlyError(err)))
   }
   const last14 = useMemo(() => (snap?.days ?? []).slice(-14), [snap])
   const maxDay = Math.max(0.01, ...last14.map((d) => d.costUsd))

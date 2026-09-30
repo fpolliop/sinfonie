@@ -21,13 +21,17 @@ interface MaestroState {
   byId: Record<string, Loaded>
   suggestions: MaestroSuggestion[]
   listLoaded: boolean
+  /** The conversation list could not be read; the list shows it with Try again. */
+  listError: string | null
   setOpen: (v: boolean) => void
   setShape: (s: Shape) => void
   setWidth: (w: number) => void
   loadList: () => Promise<void>
   select: (id: string | null) => Promise<void>
   newConversation: (context?: MaestroContext) => Promise<string>
-  send: (id: string, text: string) => Promise<void>
+  send: (id: string, text: string, opts?: { retry?: boolean; accountId?: string }) => Promise<void>
+  /** Send the last message again, optionally on another account (stops a turn still running first). */
+  retry: (id: string, text: string, accountId?: string) => Promise<void>
   stop: (id: string) => Promise<void>
   rename: (id: string, title: string) => Promise<void>
   pin: (id: string, pinned: boolean) => Promise<void>
@@ -55,6 +59,7 @@ export const useMaestro = create<MaestroState>((set, get) => ({
   byId: {},
   suggestions: [],
   listLoaded: false,
+  listError: null,
   setOpen: (open) => set({ open }),
   setShape: (shape) => {
     localStorage.setItem('sinfonie.maestro.shape', shape)
@@ -66,8 +71,14 @@ export const useMaestro = create<MaestroState>((set, get) => ({
     set({ width: w })
   },
   loadList: async () => {
-    const conversations = await api.invoke('maestro:conversations')
-    set({ conversations, listLoaded: true })
+    let conversations: MaestroConversationMeta[]
+    try {
+      conversations = await api.invoke('maestro:conversations')
+    } catch (err) {
+      set({ listError: err instanceof Error ? err.message : String(err) })
+      throw err
+    }
+    set({ conversations, listLoaded: true, listError: null })
     const { activeId } = get()
     if (activeId && !conversations.some((c) => c.id === activeId)) set({ activeId: null })
   },
@@ -105,16 +116,25 @@ export const useMaestro = create<MaestroState>((set, get) => ({
       creating.delete(key)
     }
   },
-  send: async (id, text) => {
+  send: async (id, text, opts) => {
     const t = text.trim()
     if (!t) return
-    set((s) => ({ byId: { ...s.byId, [id]: { ...(s.byId[id] ?? empty()), busy: true, draft: '' } } }))
+    const keep = opts?.retry ? (get().byId[id]?.draft ?? '') : ''
+    set((s) => ({ byId: { ...s.byId, [id]: { ...(s.byId[id] ?? empty()), busy: true, draft: keep } } }))
     try {
-      await api.invoke('maestro:send', id, t)
+      await api.invoke('maestro:send', id, t, opts)
     } catch (err) {
-      set((s) => ({ byId: { ...s.byId, [id]: { ...(s.byId[id] ?? empty()), busy: false, draft: t } } }))
+      set((s) => ({ byId: { ...s.byId, [id]: { ...(s.byId[id] ?? empty()), busy: false, draft: opts?.retry ? keep : t } } }))
       throw err
     }
+  },
+  retry: async (id, text, accountId) => {
+    if (get().byId[id]?.busy) {
+      await api.invoke('maestro:stop', id)
+      // The stop lands as a status event; wait for it (a few seconds at most) before sending again.
+      for (let i = 0; i < 50 && get().byId[id]?.busy; i++) await new Promise((r) => setTimeout(r, 100))
+    }
+    await get().send(id, text, { retry: true, ...(accountId ? { accountId } : {}) })
   },
   stop: (id) => api.invoke('maestro:stop', id),
   rename: async (id, title) => {
@@ -127,12 +147,19 @@ export const useMaestro = create<MaestroState>((set, get) => ({
     await api.invoke('maestro:archive', id, archived)
   },
   remove: async (id) => {
+    const wasActive = get().activeId === id
     await api.invoke('maestro:delete', id)
     set((s) => {
       const byId = { ...s.byId }
       delete byId[id]
       return { conversations: s.conversations.filter((c) => c.id !== id), byId, activeId: s.activeId === id ? null : s.activeId }
     })
+    // Deleting the open conversation moves to the next one, so the pane is never left blank.
+    if (wasActive) {
+      const next = get().conversations.find((c) => !c.archivedAt)
+      if (next) await get().select(next.id)
+      else localStorage.removeItem('sinfonie.maestro.active')
+    }
   },
   setDraft: (id, draft) => set((s) => ({ byId: { ...s.byId, [id]: { ...(s.byId[id] ?? empty()), draft } } })),
   loadSuggestions: async () => {
@@ -254,6 +281,28 @@ export async function askMaestro(text: string): Promise<void> {
     if (!id || useMaestro.getState().byId[id]?.busy) id = await useMaestro.getState().newConversation()
     await useMaestro.getState().send(id, text)
   } catch (err) {
-    useApp.getState().setError(err instanceof Error ? err.message : String(err))
+    useApp.getState().setError(err)
   }
+}
+
+/**
+ * Open the Maestro dock (never close it): ⌘K "Ask Maestro about this screen" and ⌘⇧A. On Maestro home the
+ * composer takes focus instead.
+ */
+export async function openMaestroDock(): Promise<void> {
+  const app = (await import('./app')).useApp.getState()
+  if (app.view === 'maestro') {
+    focusComposer()
+    return
+  }
+  if (useMaestro.getState().open) {
+    focusComposer()
+    return
+  }
+  await toggleMaestroDock()
+  focusComposer()
+}
+/** Put the cursor in the open Maestro composer, once it has rendered. */
+function focusComposer(): void {
+  setTimeout(() => document.querySelector<HTMLTextAreaElement>('textarea[data-maestro-composer]')?.focus(), 50)
 }

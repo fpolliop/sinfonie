@@ -5,6 +5,7 @@ import { MaestroMemory } from './MaestroMemory'
 import { useMaestro } from '@/stores/maestro'
 import { useApp } from '@/stores/app'
 import { MaestroConversation } from './MaestroConversation'
+import { ListError, NoConversation } from './MaestroParts'
 import { ContextMenu, type MenuEntry } from '../ContextMenu'
 import { InlineRename } from '../InlineRename'
 import { inputCls } from '../ui'
@@ -22,7 +23,7 @@ export function MaestroView({ top }: { top?: React.ReactNode } = {}): React.JSX.
   const [memory, setMemory] = useState(false)
   useEffect(() => {
     subscribe()
-    if (!listLoaded) void loadList()
+    if (!listLoaded) void loadList().catch(() => undefined)
   }, [subscribe, loadList, listLoaded])
   useEffect(() => {
     if (!listLoaded) return
@@ -36,7 +37,7 @@ export function MaestroView({ top }: { top?: React.ReactNode } = {}): React.JSX.
   const pinned = shown.filter((c) => c.pinnedAt)
   const rest = shown.filter((c) => !c.pinnedAt)
   const go = (fn: () => Promise<void>): void => {
-    fn().catch((e) => setError(e instanceof Error ? e.message : String(e)))
+    fn().catch((e) => setError(e))
   }
   const entriesFor = (c: MaestroConversationMeta): MenuEntry[] => [
     { label: 'Rename', icon: <Pencil size={13} />, onClick: () => setRenaming(c.id) },
@@ -99,6 +100,7 @@ export function MaestroView({ top }: { top?: React.ReactNode } = {}): React.JSX.
             <input className={clsx(inputCls, 'pl-7')} placeholder="Search conversations…" value={query} onChange={(e) => setQuery(e.target.value)} />
           </div>
         </div>
+        <ListError />
         <div className="flex-1 overflow-auto p-2">
           {pinned.length > 0 && <div className="px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-muted">Pinned</div>}
           {pinned.map(row)}
@@ -117,7 +119,7 @@ export function MaestroView({ top }: { top?: React.ReactNode } = {}): React.JSX.
       </div>
       <div className="flex min-w-0 flex-1 flex-col">
         {top}
-        <div className="min-h-0 flex-1">{activeId ? <MaestroConversation id={activeId} /> : null}</div>
+        <div className="min-h-0 flex-1">{activeId ? <MaestroConversation id={activeId} /> : listLoaded ? <NoConversation /> : null}</div>
       </div>
       {menu && <ContextMenu x={menu.x} y={menu.y} entries={entriesFor(conversations.find((c) => c.id === menu.id)!)} onClose={() => setMenu(null)} />}
       {memory && <MaestroMemory onClose={() => setMemory(false)} />}

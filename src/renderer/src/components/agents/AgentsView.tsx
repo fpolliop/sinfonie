@@ -79,7 +79,7 @@ export function AgentsView(): React.JSX.Element {
     setDraft(spec)
     setSelectedId('new')
   }
-  const fail = (err: unknown): void => setError(err instanceof Error ? err.message : String(err))
+  const fail = (err: unknown): void => setError(err)
 
   const save = async (): Promise<void> => {
     if (!draft) return
@@ -523,10 +523,13 @@ function TryIt({ draft, dirty }: { draft: AgentSpec; dirty: boolean }): React.JS
   const [durationMs, setDurationMs] = useState<number | null>(null)
   const endRef = useRef<HTMLDivElement>(null)
   const ws = wsId ? live.find((w) => w.id === wsId) : undefined
+  // A ref, not the state: the listener must match the new id before React re-renders with it.
+  const runRef = useRef<string | null>(null)
+  runRef.current = runId
   useEffect(
     () =>
       api.on('agents:run', (e: AgentRunEvent) => {
-        if (e.runId !== runId) return
+        if (e.runId !== runRef.current) return
         if (e.type === 'step') setSteps((s) => [...s, { step: e.step, model: e.model }].slice(-400))
         else if (e.type === 'done') {
           setReport(e.report)
@@ -537,7 +540,7 @@ function TryIt({ draft, dirty }: { draft: AgentSpec; dirty: boolean }): React.JS
           setRunId(null)
         }
       }),
-    [runId]
+    []
   )
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: 'end' })
@@ -548,10 +551,14 @@ function TryIt({ draft, dirty }: { draft: AgentSpec; dirty: boolean }): React.JS
     setReport(null)
     setError(null)
     setDurationMs(null)
+    // The id is made here and listened for before main starts, so an error main reports at once is not missed.
+    const id = crypto.randomUUID().slice(0, 12)
+    runRef.current = id
+    setRunId(id)
     try {
-      const id = await api.invoke('agents:run', draft.id, ws?.id ?? null, prompt.trim(), draft)
-      setRunId(id)
+      await api.invoke('agents:run', draft.id, ws?.id ?? null, prompt.trim(), draft, id)
     } catch (err) {
+      setRunId(null)
       setError(err instanceof Error ? err.message : String(err))
     }
   }

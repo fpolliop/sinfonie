@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react'
-import { RefreshCw, LogIn, PlugZap } from 'lucide-react'
+import { RefreshCw, LogIn, PlugZap, ExternalLink, X } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { Badge, Button, Field, Toggle, inputCls } from './ui'
 import { ErrorNote } from './ErrorNote'
+import { friendlyError, rawMessage } from '@/lib/errors'
 import type { GcpSettings, GcpStatus } from '@shared/types'
 
 /** Google Cloud for the app ('' connId) or for one space: local gcloud login, project, default region, tool exposure. */
@@ -16,24 +17,34 @@ export function GcpSection({ connId, intro }: { connId: string; intro?: string }
   const [projects, setProjects] = useState<{ projectId: string; name: string }[]>([])
   const [busy, setBusy] = useState<'status' | 'login' | 'projects' | 'test' | null>(null)
   const [testResult, setTestResult] = useState<string | null>(null)
+  /** Why the project list is empty, when asking gcloud failed (so the field does not just say "Type the project id"). */
+  const [projectsError, setProjectsError] = useState<string | null>(null)
+  const [projectsLoaded, setProjectsLoaded] = useState(false)
   const account = cfg.account || status?.accounts.find((a) => a.active)?.account
   const load = (force = false): void => {
     setBusy('status')
     api
       .invoke('gcp:status', force)
       .then(setStatus)
-      .catch((err) => setError(String(err)))
-      .finally(() => setBusy(null))
+      .catch((err) => setError(friendlyError(err)))
+      .finally(() => setBusy((b) => (b === 'status' ? null : b)))
   }
   useEffect(() => load(), [])
   useEffect(() => {
     if (!status?.installed || !status.accounts.length) return
     setBusy('projects')
+    setProjectsError(null)
     api
       .invoke('gcp:projects', account, false)
       .then(setProjects)
-      .catch(() => setProjects([]))
-      .finally(() => setBusy((b) => (b === 'projects' ? null : b)))
+      .catch((err) => {
+        setProjects([])
+        setProjectsError(rawMessage(err))
+      })
+      .finally(() => {
+        setProjectsLoaded(true)
+        setBusy((b) => (b === 'projects' ? null : b))
+      })
   }, [status?.installed, status?.accounts.length, account])
   const save = async (patch: Partial<GcpSettings>): Promise<void> => {
     const next = { ...cfg, ...patch }
@@ -41,7 +52,7 @@ export function GcpSection({ connId, intro }: { connId: string; intro?: string }
       if (connId) await api.invoke('spaces:update', connId, { gcp: next.projectId ? next : undefined })
       else await api.invoke('settings:update', { gcp: next.projectId ? next : undefined })
     } catch (err) {
-      setError(String(err))
+      setError(friendlyError(err))
     }
   }
   const login = (which?: string): void => {
@@ -49,8 +60,8 @@ export function GcpSection({ connId, intro }: { connId: string; intro?: string }
     api
       .invoke('gcp:login', which)
       .then(setStatus)
-      .catch((err) => setError(String(err)))
-      .finally(() => setBusy(null))
+      .catch((err) => rawMessage(err) !== 'Sign-in cancelled.' && setError(friendlyError(err)))
+      .finally(() => setBusy((b) => (b === 'login' ? null : b)))
   }
   const test = (): void => {
     setBusy('test')
@@ -58,7 +69,7 @@ export function GcpSection({ connId, intro }: { connId: string; intro?: string }
     api
       .invoke('gcp:test', connId)
       .then(setTestResult)
-      .catch((err) => setTestResult(`The test could not read the error log: ${err instanceof Error ? err.message : String(err)}`))
+      .catch((err) => setTestResult(`The test could not read the error log: ${friendlyError(err)}`))
       .finally(() => setBusy(null))
   }
   return (
@@ -71,19 +82,33 @@ export function GcpSection({ connId, intro }: { connId: string; intro?: string }
           <span className="font-medium">gcloud</span>
           {status === null ? <Badge>checking…</Badge> : status.installed ? <Badge tone="ok">installed{status.version ? ` · ${status.version}` : ''}</Badge> : <Badge tone="danger">not installed</Badge>}
           <span className="ml-auto flex gap-1.5">
-            <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => load(true)}>
+            <Button size="sm" variant="ghost" disabled={busy === 'status'} onClick={() => load(true)}>
               <RefreshCw size={12} className={busy === 'status' ? 'animate-spin' : ''} /> Refresh
             </Button>
-            <Button size="sm" disabled={busy !== null || status?.installed === false} onClick={() => login()}>
-              <LogIn size={12} /> {busy === 'login' ? 'Waiting for the browser…' : status?.accounts.length ? 'Sign in with another account' : 'Sign in'}
-            </Button>
+            {busy === 'login' ? (
+              <>
+                <span className="self-center text-muted">Waiting for the browser…</span>
+                <Button size="sm" variant="ghost" onClick={() => void api.invoke('gcp:cancelLogin')}>
+                  <X size={12} /> Cancel
+                </Button>
+              </>
+            ) : (
+              <Button size="sm" disabled={busy !== null || status?.installed === false} title={status?.installed === false ? 'Install the Google Cloud SDK first' : undefined} onClick={() => login()}>
+                <LogIn size={12} /> {status?.accounts.length ? 'Sign in with another account' : 'Sign in'}
+              </Button>
+            )}
           </span>
         </div>
         {status?.error && <ErrorNote className="mt-2" summary="Sinfonie could not ask gcloud for its status." detail={status.error} />}
         {status && !status.installed && (
-          <p className="mt-2 text-muted">
-            Install the Google Cloud SDK, then come back: <code className="rounded bg-bg px-1">brew install --cask google-cloud-sdk</code>
-          </p>
+          <div className="mt-2 text-muted">
+            <p>
+              Sinfonie needs the Google Cloud SDK (gcloud) on this Mac. Install it with <code className="rounded bg-bg px-1">brew install --cask google-cloud-sdk</code> or from Google’s download page, then press Refresh.
+            </p>
+            <Button size="sm" className="mt-1.5" onClick={() => void api.invoke('shell:openExternal', 'https://cloud.google.com/sdk/docs/install')}>
+              <ExternalLink size={12} /> Open the download page
+            </Button>
+          </div>
         )}
         {status?.installed && status.accounts.length === 0 && <p className="mt-2 text-muted">No Google account is signed in yet. Sign in opens the browser; the login stays in gcloud, not in Sinfonie.</p>}
         {status?.installed && status.accounts.length > 0 && (
@@ -120,7 +145,28 @@ export function GcpSection({ connId, intro }: { connId: string; intro?: string }
           ))}
         </select>
       </Field>
-      <Field label="Project" hint={busy === 'projects' ? 'Loading your projects…' : projects.length ? 'Projects the account can see. Type an id if yours is missing.' : 'Type the project id.'}>
+      {projectsError && busy !== 'projects' && (
+        <div className="flex items-start gap-2">
+          <ErrorNote className="flex-1" summary={/sign in again|re-authenticat/i.test(projectsError) ? `${account ?? 'This account'} needs to sign in again before Sinfonie can list its projects.` : 'Sinfonie could not list the projects this account can see.'} detail={projectsError} />
+          <Button size="sm" disabled={busy !== null} onClick={() => login(account)}>
+            <LogIn size={12} /> Re-authenticate
+          </Button>
+        </div>
+      )}
+      <Field
+        label="Project"
+        hint={
+          busy === 'projects'
+            ? 'Loading your projects…'
+            : projects.length
+              ? 'Projects the account can see. Type an id if yours is missing.'
+              : status?.installed && !status.accounts.length
+                ? 'Sign in above to list your projects, or type the project id.'
+                : projectsLoaded && !projectsError
+                  ? `${account ?? 'This account'} cannot see any projects. Type the project id, or sign in with the account that has access.`
+                  : 'Type the project id.'
+        }
+      >
         <div className="flex gap-2">
           <input className={inputCls} list={`gcp-projects-${connId || 'app'}`} placeholder="my-project-id" defaultValue={cfg.projectId} onBlur={(e) => e.target.value.trim() !== cfg.projectId && void save({ projectId: e.target.value.trim() })} />
           <datalist id={`gcp-projects-${connId || 'app'}`}>
@@ -136,7 +182,7 @@ export function GcpSection({ connId, intro }: { connId: string; intro?: string }
         <input className={inputCls} placeholder="us-central1" defaultValue={cfg.region ?? ''} onBlur={(e) => (e.target.value.trim() || undefined) !== cfg.region && void save({ region: e.target.value.trim() || undefined })} />
       </Field>
       {connId && (
-        <Toggle checked={space?.exposeGcpMcp !== false} onChange={(v) => void api.invoke('spaces:update', connId, { exposeGcpMcp: v }).catch((err) => setError(String(err)))} label="Give sessions in this space the Google Cloud tools" hint="Read-only. The on-call agent uses them regardless when a project is set." />
+        <Toggle checked={space?.exposeGcpMcp !== false} onChange={(v) => void api.invoke('spaces:update', connId, { exposeGcpMcp: v }).catch((err) => setError(friendlyError(err)))} label="Give sessions in this space the Google Cloud tools" hint="Read-only. The on-call agent uses them regardless when a project is set." />
       )}
       <div className="flex items-center gap-2">
         <Button size="sm" variant="ghost" disabled={busy !== null || !(cfg.projectId || inherited?.projectId)} onClick={test}>

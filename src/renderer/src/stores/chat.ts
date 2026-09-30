@@ -198,8 +198,11 @@ export const useChat = create<ChatState>((set, get) => ({
               try {
                 const n = new Notification(e.result.isError ? `${ws.name}: the turn failed` : `${ws.name} is done`, { body: e.result.isError ? (e.result.errorText ?? 'See the chat for details.') : `Finished in ${(e.result.durationMs / 1000).toFixed(0)}s${e.result.costUsd ? ` · $${e.result.costUsd.toFixed(2)}` : ''}. Click to open.`, silent: false })
                 n.onclick = () => {
-                  app.setView('workspace')
-                  app.select(id)
+                  // Clicking the notification brings Sinfonie to the front (restored if minimised) on that workspace.
+                  void api.invoke('window:focus').catch(() => window.focus())
+                  const st = useApp.getState()
+                  st.setView('workspace')
+                  st.select(id)
                 }
               } catch {
                 /* notifications unavailable */

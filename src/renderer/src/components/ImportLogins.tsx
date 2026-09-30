@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import clsx from 'clsx'
 import { KeyRound, Loader2, Check, AlertTriangle } from 'lucide-react'
 import { api } from '@/lib/api'
+import { friendlyError } from '@/lib/errors'
 import type { LoginBrowser } from '@shared/types'
 import { Button } from './ui'
 
@@ -32,7 +33,7 @@ export function ImportLogins({ spaceId, onImported, alwaysShow }: { spaceId?: st
       setResult({ ok: true, text: r.imported > 0 ? `Imported ${r.imported} login${r.imported === 1 ? '' : 's'} from ${r.browser}. Reload the page to use them.` : `No logins found to import from ${r.browser}.` })
       if (r.imported > 0) onImported?.()
     } catch (err) {
-      setResult({ ok: false, text: err instanceof Error ? err.message : String(err) })
+      setResult({ ok: false, text: friendlyError(err) })
     } finally {
       setBusy(null)
     }

@@ -14,12 +14,13 @@ import type { AcpProbe, AgentEvent, Engine, McpServerSpec, PermissionMode, Subag
 import { getStore } from '../../store'
 import { accountEnvFor } from '../accounts'
 import { assertOnDisk } from '../workspaces'
-import { isAgentOwner } from '@shared/types'
+import { isAgentOwner, PLAIN_ERROR_MARK } from '@shared/types'
 import { getWorkspace, patchWorkspace } from '../workspaces'
 import { askPermission } from '../interaction'
 import { run } from '../native/tools'
 import * as jira from '../jira'
 import { logError } from '../telemetry'
+import { whichSync } from '../shell-path'
 import { apiKeyForKind } from '../providers'
 import * as notes from '../notes'
 import * as teamRules from '../team-rules'
@@ -48,17 +49,21 @@ const PRESETS: Record<AcpEngine, { command: () => string[]; loginCommand: (metho
   }
 }
 
+/** What has to be installed before this engine can start: Node.js for the npx-launched agents, the Grok CLI for Grok. */
+export function missingFor(engine: Engine): 'node' | 'grok' | undefined {
+  const preset = PRESETS[engine as AcpEngine]
+  if (!preset) return undefined
+  const cmd = preset.command()[0]
+  if (whichSync(cmd)) return undefined
+  return cmd === 'npx' ? 'node' : cmd === 'grok' ? 'grok' : undefined
+}
+
 function localOk(bin: string): boolean {
-  try {
-    const r = require('child_process').spawnSync('/bin/zsh', ['-lc', `command -v ${bin}`])
-    return r.status === 0
-  } catch {
-    return false
-  }
+  return whichSync(bin) !== null
 }
 
 function loginEnv(engine?: AcpEngine, extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...process.env, PATH: `${process.env.HOME}/.grok/bin:${process.env.HOME}/.nvm/versions/node/v22.18.0/bin:/opt/homebrew/bin:/usr/local/bin:${process.env.PATH ?? ''}`, ...extra }
+  const env: NodeJS.ProcessEnv = { ...process.env, PATH: `${process.env.HOME}/.grok/bin:/opt/homebrew/bin:/usr/local/bin:${process.env.PATH ?? ''}`, ...extra }
   // Google no longer allows personal Google-account logins in the Gemini CLI; a Gemini API key from Model providers is the way in.
   if (engine === 'gemini' && !env.GEMINI_API_KEY) {
     const key = apiKeyForKind('google')
@@ -147,6 +152,8 @@ function within(roots: string[], p: string): boolean {
 function connect(engine: AcpEngine, cwd: string, client: (agent: ClientSideConnection) => Client, extraEnv: NodeJS.ProcessEnv = {}): { child: ChildProcess; conn: ClientSideConnection } {
   const [cmd, ...args] = PRESETS[engine].command()
   const child = spawn(cmd, args, { cwd, env: loginEnv(engine, extraEnv), stdio: ['pipe', 'pipe', 'pipe'] })
+  // A missing binary (ENOENT) is reported through 'error'; without a listener it would be an uncaught exception.
+  child.on('error', (e) => console.error(`[acp ${engine}] could not start ${cmd}:`, e.message))
   child.stderr?.on('data', (d: Buffer) => console.error(`[acp ${engine}]`, d.toString().trimEnd()))
   const stream = ndJsonStream(Writable.toWeb(child.stdin!) as WritableStream<Uint8Array>, Readable.toWeb(child.stdout!) as ReadableStream<Uint8Array>)
   let connRef: ClientSideConnection | null = null
@@ -181,12 +188,21 @@ async function probeUncached(engine: Engine, accountId?: string): Promise<AcpPro
   if (!PRESETS[e]) return { engine, installed: false, authMethods: [], models: [], modes: [], signedIn: false, error: 'Not an ACP engine' }
   const cwd = getStore().get().settings.workspacesRoot || process.env.HOME || '/'
   if (!existsSync(cwd)) mkdirSync(cwd, { recursive: true })
+  const missing = missingFor(e)
+  if (missing) return { engine, installed: false, missing, authMethods: [], models: [], modes: [], signedIn: false, error: missing === 'node' ? 'Node.js (npx) is not installed' : `${PRESETS[e].command()[0]} is not installed` }
   let child: ChildProcess | null = null
-  const timer = setTimeout(() => child?.kill('SIGKILL'), 90_000)
+  // The first run through npx downloads the agent, which can take a few minutes on a slow connection.
+  const viaNpx = PRESETS[e].command()[0] === 'npx'
+  const timer = setTimeout(() => child?.kill('SIGKILL'), viaNpx ? 300_000 : 90_000)
   try {
     const c = connect(e, cwd, () => ({ requestPermission: async (p) => ({ outcome: { outcome: 'selected', optionId: p.options[0].optionId } }), sessionUpdate: async () => undefined }), accountEnvById(e, accountId))
     child = c.child
-    const init = await c.conn.initialize({ protocolVersion: 1, clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: true } })
+    const spawnFailed = new Promise<never>((_, reject) => {
+      c.child.once('error', (err: NodeJS.ErrnoException) => reject(Object.assign(new Error(err.code === 'ENOENT' ? 'not installed' : err.message), { missing: err.code === 'ENOENT' })))
+      c.child.once('exit', (code) => reject(Object.assign(new Error(code === 127 ? 'not installed' : `The agent exited (code ${code}) before it answered`), { missing: code === 127 })))
+    })
+    spawnFailed.catch(() => undefined)
+    const init = await Promise.race([c.conn.initialize({ protocolVersion: 1, clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: true } }), spawnFailed])
     const out: AcpProbe = {
       engine,
       installed: true,
@@ -214,7 +230,8 @@ async function probeUncached(engine: Engine, accountId?: string): Promise<AcpPro
     }
     return out
   } catch (err) {
-    return { engine, installed: false, authMethods: [], models: [], modes: [], signedIn: false, error: err instanceof Error ? err.message : String(err) }
+    const notInstalled = Boolean((err as { missing?: boolean }).missing)
+    return { engine, installed: false, ...(notInstalled ? { missing: PRESETS[e].command()[0] === 'npx' ? ('node' as const) : ('grok' as const) } : {}), authMethods: [], models: [], modes: [], signedIn: false, error: err instanceof Error ? err.message : String(err) }
   } finally {
     clearTimeout(timer)
     child?.kill('SIGKILL')
@@ -429,6 +446,8 @@ async function openSession(workspaceId: string, engine: AcpEngine, emit: Emit): 
     }
   })
 
+  const need = missingFor(engine)
+  if (need) throw new Error(`${PLAIN_ERROR_MARK}${need === 'node' ? 'This agent needs Node.js, which is not installed on this Mac.' : 'The Grok CLI is not installed on this Mac.'} Set it up under Settings → Accounts, then try again.`)
   const { child, conn } = connect(engine, wsCwd, client, accountEnvById(engine, ws.claudeAccountId))
   resources.registerProcess(child.pid, { kind: 'agent', workspaceId, label: engine })
   child.once('exit', () => resources.unregisterProcess(child.pid))
@@ -712,6 +731,8 @@ export async function runWorker(run: AcpWorkerRun): Promise<string> {
       return {}
     }
   })
+  const need = missingFor(engine)
+  if (need) throw new Error(`${PLAIN_ERROR_MARK}${need === 'node' ? 'This agent needs Node.js, which is not installed on this Mac.' : 'The Grok CLI is not installed on this Mac.'} Set it up under Settings → Accounts, then try again.`)
   const { child, conn } = connect(engine, wsCwd, client, accountEnvById(engine, ws.claudeAccountId))
   resources.registerProcess(child.pid, { kind: 'agent', workspaceId: ws.id, label: engine })
   child.once('exit', () => resources.unregisterProcess(child.pid))

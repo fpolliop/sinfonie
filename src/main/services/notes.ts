@@ -122,6 +122,12 @@ export function update(owner: string, id: string, patch: NotePatch): Note[] {
         if (patch.tags.length) next.tags = patch.tags.map((t) => t.trim()).filter(Boolean)
         else delete next.tags
       }
+      if (patch.archived !== undefined) {
+        if (patch.archived) next.archived = true
+        else delete next.archived
+        // Putting a note away is not a change to it; keep its age so "older than 30 days" stays true.
+        next.updatedAt = n.updatedAt
+      }
       return next
     })
   )
@@ -218,14 +224,14 @@ export function render(owner: string): string {
   return renderNotes(list(owner))
 }
 function renderNotes(list: Note[]): string {
-  const notes = [...list].sort(byStanding)
+  const notes = list.filter((n) => !n.archived).sort(byStanding)
   if (notes.length === 0) return '(no notes yet)'
   return notes.map((n) => `- [${n.id}] ${kindPrefix(n)}${n.text}${n.priority ? ` (${n.priority} priority)` : ''}${n.due ? ` (due ${n.due})` : ''}${n.source === 'agent' ? ' (added by agent)' : ''}`).join('\n')
 }
 
 /** The decisions and rules visible from a context (workspace, its space, the app), rules first, for system prompts. */
 function standingAround(c: string | NotesContext, cap = 20): string {
-  const items = ownersAround(c).flatMap((o) => list(o.owner).filter(isStandingNote).map((n) => ({ n, where: o.scope })))
+  const items = ownersAround(c).flatMap((o) => list(o.owner).filter((n) => isStandingNote(n) && !n.archived).map((n) => ({ n, where: o.scope })))
   if (items.length === 0) return ''
   items.sort((a, b) => byStanding(a.n, b.n) || b.n.createdAt.localeCompare(a.n.createdAt))
   const shown = items.slice(0, cap).map(({ n, where }) => `- ${kindPrefix(n)}${n.text.length > 200 ? `${n.text.slice(0, 199)}…` : n.text} (${where})`)
@@ -379,20 +385,46 @@ export function ownerLabel(owner: string): string {
 export function filtered(filter: NotesFilter): { owner: string; label: string; notes: Note[] }[] {
   const since = filter.since ? new Date(filter.since).getTime() : 0
   const q = filter.query?.trim().toLowerCase()
+  const ids = filter.ids ? new Set(filter.ids) : null
   const out: { owner: string; label: string; notes: Note[] }[] = []
   for (const { owner, notes } of listAll()) {
     if (filter.owners?.length && !filter.owners.includes(owner)) continue
-    const keep = notes.filter((n) => (!filter.source || n.source === filter.source) && (!filter.kind || (filter.kind === 'standing' ? isStandingNote(n) : n.kind === filter.kind)) && (!filter.openOnly || (n.kind === 'todo' && !n.done)) && (!since || new Date(n.createdAt).getTime() >= since) && (!q || n.text.toLowerCase().includes(q)))
+    const keep = notes.filter((n) => (ids ? ids.has(n.id) : !n.archived) && (!filter.source || n.source === filter.source) && (!filter.kind || (filter.kind === 'standing' ? isStandingNote(n) : n.kind === filter.kind)) && (!filter.openOnly || (n.kind === 'todo' && !n.done)) && (!since || new Date(n.createdAt).getTime() >= since) && (!q || n.text.toLowerCase().includes(q)))
     if (keep.length) out.push({ owner, label: ownerLabel(owner), notes: keep })
   }
   return out
 }
 
 /** Ask Claude for a summary of the filtered notes, or an answer to a question about them. */
-export async function summarize(filter: NotesFilter, question?: string): Promise<string> {
-  const groups = filtered(filter)
-  if (groups.length === 0) return 'Nothing matches these filters.'
+/** The account Maestro runs on: the default Anthropic account, or a signed-in one when the default is signed out. */
+function maestroAccountId(): string {
   const { settings } = getStore().get()
+  const list = settings.claudeAccounts.filter((a) => (a.vendor ?? 'anthropic') === 'anthropic')
+  const def = settings.defaultClaudeAccountId ?? defaultAccountId('anthropic') ?? 'default'
+  if (list.find((a) => a.id === def)?.loggedIn === false) return list.find((a) => a.loggedIn === true)?.id ?? def
+  return def
+}
+type SummaryResult = { text: string } | { error: { code: 'auth' | 'limit' | 'billing' | 'busy' | 'other'; message: string; detail?: string } }
+function summaryError(code: string | undefined, raw: string): SummaryResult {
+  const kind =
+    code === 'authentication_failed' || /not logged in|invalid api key|please run \/login|authentication|unauthori[sz]ed|401/i.test(raw)
+      ? 'auth'
+      : code === 'rate_limit' || /usage limit|rate[ _]limit|limit reached|429/i.test(raw)
+        ? 'limit'
+        : code === 'billing_error' || /credit balance|billing/i.test(raw)
+          ? 'billing'
+          : code === 'overloaded' || /overloaded|529/i.test(raw)
+            ? 'busy'
+            : 'other'
+  const message = { auth: 'Maestro is not signed in to Claude, so it could not read your notes.', limit: 'Maestro has hit its usage limit for now.', billing: 'The Claude account Maestro uses has a billing problem.', busy: 'Claude is busy right now. Try again in a moment.', other: 'The summary could not be written. Try again in a moment.' }[kind]
+  return { error: { code: kind, message, ...(raw ? { detail: raw.slice(0, 800) } : {}) } }
+}
+
+export async function summarize(filter: NotesFilter, question?: string): Promise<SummaryResult> {
+  const groups = filtered(filter)
+  if (groups.length === 0) return { text: 'Nothing matches these filters.' }
+  const { settings } = getStore().get()
+  const accountId = maestroAccountId()
   const body = groups.map((g) => `## ${g.label}\n${[...g.notes].sort(byStanding).map((n) => `- ${kindPrefix(n)}${n.text} (${n.source}, ${n.createdAt.slice(0, 10)})`).join('\n')}`).join('\n\n')
   const prompt = [
     question?.trim()
@@ -412,24 +444,30 @@ export async function summarize(filter: NotesFilter, question?: string): Promise
     canUseTool: async (tool) => ({ behavior: 'deny', message: `${tool} is not needed; answer from the notes.` }),
     abortController: abort,
     settingSources: [],
-    env: { ...process.env, ...accountEnv(undefined) },
+    env: { ...process.env, ...accountEnv(accountId) },
     stderr: (d) => console.error('[notes summary]', d.trimEnd())
   }
   let out = ''
+  let apiError: string | undefined
   try {
     for await (const msg of query({ prompt, options }) as AsyncIterable<SDKMessage>) {
-      if (msg.type === 'result') {
+      if (msg.type === 'assistant' && msg.error) apiError = msg.error
+      else if (msg.type === 'result') {
         try {
-          usage.recordTurn(usage.fromResult(msg, { workspaceId: '', spaceId: '', accountId: defaultAccountId('anthropic') ?? 'default', kind: 'suggest' }))
+          usage.recordTurn(usage.fromResult(msg, { workspaceId: '', spaceId: '', accountId, kind: 'suggest' }))
         } catch {
           /* ledger must never break the summary */
         }
-        if (msg.subtype === 'success') out = msg.result
-        else throw new Error(`Summary ended with ${msg.subtype}`)
+        // is_error with subtype success: the result text is the API error ("Invalid API key · Please run /login"), not a summary.
+        if (msg.subtype !== 'success') return summaryError(apiError, `${msg.subtype.replace(/_/g, ' ')}${'errors' in msg && Array.isArray(msg.errors) ? ` (${(msg.errors as string[]).join('; ')})` : ''}`)
+        if (msg.is_error || apiError) return summaryError(apiError, msg.result ?? '')
+        out = msg.result
       }
     }
+  } catch (err) {
+    return summaryError(apiError, abort.signal.aborted ? 'The summary took too long and was stopped.' : err instanceof Error ? err.message : String(err))
   } finally {
     clearTimeout(timer)
   }
-  return out || '(no summary)'
+  return { text: out || '(no summary)' }
 }

@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react'
-import { Check, Copy, Globe, Smartphone, Tablet, Unlink } from 'lucide-react'
+import { Check, Copy, Globe, Loader2, RotateCcw, Smartphone, Tablet, Unlink } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { Badge, Button, Field, SectionHeader, Toggle, inputCls } from './ui'
 import { ErrorNote } from './ErrorNote'
 import { timeAgo } from '@/lib/format'
+import { friendlyError } from '@/lib/errors'
 import type { RemoteSettings, RemoteStatus } from '@shared/types'
 
 const EMPTY: RemoteSettings = {}
@@ -30,7 +31,7 @@ export function RemotePage(): React.JSX.Element {
     try {
       await fn()
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(friendlyError(err))
     } finally {
       setBusy(false)
     }
@@ -48,7 +49,7 @@ export function RemotePage(): React.JSX.Element {
     })
   }
   const update = (patch: Record<string, unknown>): void => {
-    void api.invoke('remote:updateSettings', patch).catch((err) => setError(err instanceof Error ? err.message : String(err)))
+    void api.invoke('remote:updateSettings', patch).catch((err) => setError(friendlyError(err)))
   }
   const copy = async (): Promise<void> => {
     if (!pairing) return
@@ -82,7 +83,25 @@ export function RemotePage(): React.JSX.Element {
             )}
           </span>
         </div>
-        {status?.lastError && <ErrorNote className="mt-1" tone="warn" summary="The connection to your devices hit a problem." detail={status.lastError} />}
+        {status?.lastError && (
+          <div className="mt-1 flex items-start gap-2">
+            <ErrorNote className="flex-1" tone="warn" summary="The connection to your devices hit a problem. Sinfonie keeps retrying; check your internet connection, or try again now." detail={status.lastError} />
+            <Button size="sm" disabled={busy} onClick={() => void run(async () => setStatus(await api.invoke('remote:reconnect')))}>
+              <RotateCcw size={12} /> Try again
+            </Button>
+          </div>
+        )}
+        {status?.paired && status.devices.length === 0 && status.phones === 0 && (
+          <p className="mt-2 inline-flex items-center gap-1.5 text-[12px] text-muted" role="status">
+            {pairing ? (
+              <>
+                <Loader2 size={12} className="animate-spin" /> Waiting for a device to scan the code.
+              </>
+            ) : (
+              'No device has connected since Sinfonie started. Open Sinfonie on your phone, or press “Pair another device” to show the code again.'
+            )}
+          </p>
+        )}
         {status?.paired && status.devices.length > 0 && (
           <div className="mt-3 space-y-1.5">
             {status.devices.map((d) => {
@@ -105,7 +124,8 @@ export function RemotePage(): React.JSX.Element {
         )}
         {pairing && (
           <div className="mt-3 flex gap-4">
-            <div className="h-[220px] w-[220px] shrink-0 rounded-md bg-panel-2 p-2 [&>svg]:h-full [&>svg]:w-full" dangerouslySetInnerHTML={{ __html: pairing.qrSvg }} />
+            {/* Black on white in both themes: phone cameras read a light-on-dark or transparent code poorly. */}
+            <div className="h-[220px] w-[220px] shrink-0 rounded-md bg-white p-2 [&>svg]:h-full [&>svg]:w-full" dangerouslySetInnerHTML={{ __html: pairing.qrSvg }} />
             <div className="text-[12px] text-muted">
               <ol className="list-decimal space-y-1.5 pl-4">
                 <li>Install Sinfonie on the device (TestFlight or Play beta for now) and scan this code from its Pair screen.</li>

@@ -5,7 +5,7 @@
  */
 import React, { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { Wand2, Layers, CircleCheck, StickyNote, Users, Settings, Plus } from 'lucide-react'
+import { Wand2, Layers, CircleCheck, StickyNote, Users, Settings, Plus, Download } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp, spaceScope, type View } from '@/stores/app'
 import { useChat } from '@/stores/chat'
@@ -15,6 +15,8 @@ import { useMaestro } from '@/stores/maestro'
 import { useGuided, useWords, cap } from '@/lib/guided'
 import { tokens } from '@/lib/theme'
 import { ContextMenu, type MenuEntry } from './ContextMenu'
+import { UpdateCard } from './UpdateCard'
+import { useUpdates, updateNeedsYou } from '@/stores/updates'
 
 /** Views that belong to each rail place, so the right item lights up wherever the person is. */
 /** On macOS the window buttons sit at the top of the rail, so it is wide enough to hold them with a margin each side. */
@@ -35,7 +37,14 @@ export function Rail(): React.JSX.Element {
   // What waits on the person in the review inbox; guided people don't see Review, so nothing loads for them.
   const reviews = useInboxBadge(!guided)
   const maestroBusy = useMaestro((s) => Object.values(s.byId).some((c) => c.busy))
-  const todos = useNotes((s) => Object.values(s.byWorkspace).reduce((n, list) => n + list.filter((x) => x.kind === 'todo' && !x.done).length, 0))
+  // Only what is due: overdue or due today. A count of every open to-do (often 100+) says nothing.
+  const due = useNotes((s) => {
+    const d = new Date()
+    const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    let n = 0
+    for (const list of Object.values(s.byWorkspace)) for (const x of list) if (x.due && x.due <= today && !x.done && !x.archived && x.kind !== 'decision' && x.kind !== 'rule') n += 1
+    return n
+  })
   const { loadAll, subscribe } = useNotes()
   useEffect(() => {
     subscribe()
@@ -53,16 +62,17 @@ export function Rail(): React.JSX.Element {
       <RailItem tour="maestro" label="Maestro" hint="Maestro, your home (⌘J opens it on any screen)" active={view === 'maestro' || view === 'home'} maestro onClick={() => setView('maestro')} icon={<Wand2 size={19} />} dot={maestroBusy} />
       <RailItem tour="build" label={guided ? cap(t.workspaces) : 'Build'} hint={guided ? 'Your tasks' : 'Workspaces and agents'} active={BUILD_VIEWS.includes(view)} onClick={() => select(null)} icon={<Layers size={19} />} count={waiting} countLabel={`${waiting} waiting on you`} />
       {showReview && <RailItem tour="reviews" label="Review" hint="Reviews and on-call" active={REVIEW_VIEWS.includes(view)} onClick={() => setView('reviews')} icon={<CircleCheck size={19} />} count={reviews} countLabel={`${reviews} waiting on you`} />}
-      <RailItem tour="notes-all" label="Notes" hint="To-dos, findings, decisions and rules" active={view === 'notes'} onClick={() => setView('notes')} icon={<StickyNote size={19} />} count={todos} countLabel={`${todos} open to-dos`} quiet />
+      <RailItem tour="notes-all" label="Notes" hint="To-dos, findings, decisions and rules" active={view === 'notes'} onClick={() => setView('notes')} icon={<StickyNote size={19} />} count={due} countLabel={`${due} due`} />
       {showTeam && <RailItem tour="team" label="Team" hint="Apps, people, guardrails, connections, plan" active={view === 'team'} onClick={() => setView('team')} icon={<Users size={19} />} />}
       <div className="flex-1" />
+      <UpdateItem />
       <SpaceSwitcher />
       <RailItem tour="settings" label="Settings" hint="Your settings (⌘,)" active={false} onClick={() => openSettings({ scope: 'app', page: 'preferences' })} icon={<Settings size={19} />} quiet />
     </nav>
   )
 }
 
-function RailItem({ label, hint, icon, active, onClick, count = 0, countLabel, quiet, maestro, dot, tour }: { label: string; hint: string; icon: React.ReactNode; active: boolean; onClick: () => void; count?: number; countLabel?: string; quiet?: boolean; maestro?: boolean; dot?: boolean; tour?: string }): React.JSX.Element {
+function RailItem({ label, hint, icon, active, onClick, count = 0, countLabel, quiet, maestro, dot, dotLabel, tour }: { label: string; hint: string; icon: React.ReactNode; active: boolean; onClick: () => void; count?: number; countLabel?: string; quiet?: boolean; maestro?: boolean; dot?: boolean; dotLabel?: string; tour?: string }): React.JSX.Element {
   return (
     <button
       type="button"
@@ -82,7 +92,7 @@ function RailItem({ label, hint, icon, active, onClick, count = 0, countLabel, q
           {count > 99 ? '99+' : count}
         </span>
       )}
-      {dot && <span aria-label="Maestro is working" className="absolute right-3 top-1.5 h-2 w-2 animate-pulse rounded-full bg-maestro" />}
+      {dot && <span aria-label={dotLabel ?? 'Maestro is working'} className={clsx('absolute right-3 top-1.5 h-2 w-2 rounded-full', maestro ? 'animate-pulse bg-maestro' : 'bg-warn')} />}
     </button>
   )
 }
@@ -140,5 +150,43 @@ function SpaceSwitcher(): React.JSX.Element | null {
       </button>
       {menu && <ContextMenu x={menu.x} y={menu.y} label={cap(t.spaces)} entries={entries} onClose={() => setMenu(null)} />}
     </>
+  )
+}
+
+/** A new release that needs the person (download, restart, or a failure): one Rail item opening the update card. */
+function UpdateItem(): React.JSX.Element | null {
+  const info = useUpdates((s) => s.info)
+  const dismissed = useUpdates((s) => s.dismissed)
+  const subscribe = useUpdates((s) => s.subscribe)
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => subscribe(), [subscribe])
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent): void => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    window.addEventListener('mousedown', onDown)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('mousedown', onDown)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+  if (!info || (!updateNeedsYou(info, dismissed) && !open)) return null
+  const label = info.state === 'ready' ? 'Restart' : info.state === 'error' ? 'Update failed' : info.state === 'downloading' ? `${info.percent ?? 0}%` : 'Update'
+  const hint = info.state === 'ready' ? `Sinfonie ${info.version} is ready: restart to update` : info.state === 'error' ? `Sinfonie ${info.version} could not be installed` : `Sinfonie ${info.version} is available`
+  return (
+    <div ref={ref} className="relative">
+      <RailItem label={label} hint={hint} active={open} onClick={() => setOpen(!open)} icon={<Download size={19} />} dot={info.state === 'ready' || info.state === 'error'} dotLabel={hint} />
+      {open && (
+        <div role="dialog" aria-label="Sinfonie update" className="no-drag fixed bottom-16 z-50 w-[300px] rounded-lg bg-panel shadow-xl" style={{ left: MAC ? 90 : 78 }}>
+          <UpdateCard info={info} onClose={() => setOpen(false)} />
+        </div>
+      )}
+    </div>
   )
 }

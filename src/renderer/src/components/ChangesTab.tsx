@@ -13,6 +13,8 @@ import { DiffView, type ViewMode } from './ChangesPane'
 import { FilesPane } from './FilesPane'
 import { Button, Dialog, IconButton, Segmented, Spinner } from './ui'
 import { useChangesLive } from './WorkspaceTabs'
+import { notReadyText } from './ChatPane'
+import { useGuided } from '@/lib/guided'
 import type { ChangeScope, ChangedFileStat, ReviewFinding } from '@shared/types'
 
 /** One changed file: its repository and its numstat line (+/− counts, git status letter). */
@@ -91,6 +93,7 @@ function ChangedFiles({ workspaceId, visible }: { workspaceId: string; visible: 
   const setError = useApp((s) => s.setError)
   const notify = useApp((s) => s.notify)
   const agentBusy = useChat((s) => s.chats[workspaceId]?.busy ?? false)
+  const guided = useGuided()
   const [data, setData] = useState<Loaded | null>(null)
   const [loading, setLoading] = useState(false)
   const [failed, setFailed] = useState<string | null>(null)
@@ -198,16 +201,23 @@ function ChangedFiles({ workspaceId, visible }: { workspaceId: string; visible: 
 
   // Only the selected file's diff is fetched: one git process, however many files changed.
   const diffSeq = useRef(0)
+  const [diffError, setDiffError] = useState<{ key: string; message: string } | null>(null)
+  const [diffTry, setDiffTry] = useState(0)
   useEffect(() => {
     if (!current || !scope || !data) return
     const mine = ++diffSeq.current
     const key = keyOf(current)
     api
       .invoke('git:fileDiff', workspaceId, current.repoId, current.stat.path, scope)
-      .then((raw) => mine === diffSeq.current && setDiff({ key, scope, file: parseUnifiedDiff(raw)[0] ?? null }))
-      .catch((err) => mine === diffSeq.current && setFailed(friendlyError(err, 'The diff could not be read.')))
+      .then((raw) => {
+        if (mine !== diffSeq.current) return
+        setDiff({ key, scope, file: parseUnifiedDiff(raw)[0] ?? null })
+        setDiffError(null)
+      })
+      // Shown in place of the diff, with Try again, instead of "Reading the diff…" forever.
+      .catch((err) => mine === diffSeq.current && setDiffError({ key, message: friendlyError(err, 'The diff could not be read.') }))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspaceId, currentKey, scope, data?.at])
+  }, [workspaceId, currentKey, scope, data?.at, diffTry])
   const shownDiff = diff && diff.key === currentKey && diff.scope === scope ? diff.file : undefined
 
   const findings = useFindings(workspaceId, current, scope === 'branch')
@@ -247,7 +257,13 @@ function ChangedFiles({ workspaceId, visible }: { workspaceId: string; visible: 
   }
 
   if (!ws) return <div />
-  if (!ready) return <div className="p-4 text-[12px] text-muted">Changes show here once the workspace is ready.</div>
+  if (!ready)
+    return (
+      <div role="status" className="flex flex-col gap-1 p-4 text-[12px] text-muted">
+        <span>{notReadyText(ws, guided)}</span>
+        <span>{guided ? 'Changes show here once the task is ready.' : 'Changes show here once the workspace is ready.'}</span>
+      </div>
+    )
 
   const scopeSwitch = (
     <Segmented
@@ -272,14 +288,29 @@ function ChangedFiles({ workspaceId, visible }: { workspaceId: string; visible: 
   if (!data || data.scope !== scope) {
     return (
       <div className="flex flex-col">
-        {scope && (
+        {(scope || failed) && (
           <div className="flex items-center gap-2 border-b border-border px-2 py-1">
-            {scopeSwitch}
+            {scope && scopeSwitch}
             <span className="ml-auto" />
             {refresh}
           </div>
         )}
-        <div className="flex items-center gap-2 p-4 text-[12px] text-muted">{failed ? <span className="text-danger">{failed}</span> : <><Spinner /> Reading the changes…</>}</div>
+        <div className="flex items-center gap-2 p-4 text-[12px] text-muted">
+          {failed ? (
+            <>
+              <span role="alert" className="min-w-0 flex-1 text-danger">
+                {failed}
+              </span>
+              <Button size="sm" onClick={() => void load(true)} disabled={loading}>
+                <RefreshCw size={12} className={clsx(loading && 'animate-spin')} aria-hidden /> Try again
+              </Button>
+            </>
+          ) : (
+            <>
+              <Spinner /> Reading the changes…
+            </>
+          )}
+        </div>
       </div>
     )
   }
@@ -359,7 +390,13 @@ function ChangedFiles({ workspaceId, visible }: { workspaceId: string; visible: 
             { id: 'file', label: 'File' }
           ]}
         />
-        <span className="ml-auto text-[11px] text-muted">{loading ? 'Updating…' : 'Updates live'}</span>
+        {failed ? (
+          <span role="alert" className="ml-auto min-w-0 truncate text-[11px] text-danger" title={failed}>
+            {failed}
+          </span>
+        ) : (
+          <span className="ml-auto text-[11px] text-muted">{loading ? 'Updating…' : 'Updates live'}</span>
+        )}
         {refresh}
       </div>
       <div className="flex min-h-0 flex-1">
@@ -435,7 +472,16 @@ function ChangedFiles({ workspaceId, visible }: { workspaceId: string; visible: 
             </div>
             <div className="min-h-0 flex-1 overflow-auto">
               {offLine.length > 0 && <div className="flex flex-col gap-2 border-b border-border p-2">{offLine.map(card)}</div>}
-              {shownDiff === undefined ? (
+              {shownDiff === undefined && diffError && diffError.key === currentKey ? (
+                <div className="flex items-center gap-2 p-3 text-[12px]">
+                  <span role="alert" className="min-w-0 flex-1 text-danger">
+                    {diffError.message}
+                  </span>
+                  <Button size="sm" onClick={() => setDiffTry((n) => n + 1)}>
+                    <RefreshCw size={12} aria-hidden /> Try again
+                  </Button>
+                </div>
+              ) : shownDiff === undefined ? (
                 <div className="flex items-center gap-2 p-3 text-[12px] text-muted">
                   <Spinner /> Reading the diff…
                 </div>

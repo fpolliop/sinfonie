@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { Badge, Button, Field, inputCls } from './ui'
+import { friendlyError, rawMessage } from '@/lib/errors'
 
 /** Linear connection for the app default ('') or one space. */
 export function LinearSection({ connId, intro }: { connId: string; intro?: string }): React.JSX.Element {
@@ -14,7 +15,7 @@ export function LinearSection({ connId, intro }: { connId: string; intro?: strin
     try {
       await api.invoke('linear:updateSettings', connId, patch)
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(friendlyError(err))
     }
   }
   const authenticate = async (): Promise<void> => {
@@ -24,7 +25,7 @@ export function LinearSection({ connId, intro }: { connId: string; intro?: strin
       await api.invoke('linear:authenticate', connId)
       setStatus('Connected.')
     } catch (err) {
-      setStatus(err instanceof Error ? err.message : String(err))
+      setStatus(rawMessage(err) === 'Sign-in cancelled.' ? null : friendlyError(err))
     } finally {
       setAuthing(false)
     }
@@ -35,7 +36,7 @@ export function LinearSection({ connId, intro }: { connId: string; intro?: strin
       const issues = await api.invoke('linear:search', connId, '')
       setStatus(`Connected. ${issues.length} issue${issues.length === 1 ? '' : 's'} match the default list.`)
     } catch (err) {
-      setStatus(err instanceof Error ? err.message : String(err))
+      setStatus(`The test search failed: ${friendlyError(err)}`)
     }
   }
   return (
@@ -58,13 +59,20 @@ export function LinearSection({ connId, intro }: { connId: string; intro?: strin
           )}
         </div>
         {linear.connected ? (
-          <Button size="sm" onClick={() => window.confirm('Disconnect Linear? You will need to sign in again.') && void api.invoke('linear:disconnect', connId).then(() => setStatus(null)).catch((e) => setError(String(e)))}>
+          <Button size="sm" onClick={() => window.confirm('Disconnect Linear? You will need to sign in again.') && void api.invoke('linear:disconnect', connId).then(() => setStatus(null)).catch((e) => setError(friendlyError(e)))}>
             Disconnect
           </Button>
         ) : (
-          <Button size="sm" variant="primary" onClick={authenticate} disabled={authing}>
-            {authing ? 'Waiting…' : 'Connect Linear'}
-          </Button>
+          <div className="flex items-center gap-1.5">
+            <Button size="sm" variant="primary" onClick={authenticate} disabled={authing}>
+              {authing ? 'Waiting…' : 'Connect Linear'}
+            </Button>
+            {authing && (
+              <Button size="sm" variant="ghost" onClick={() => void api.invoke('auth:cancel', 'linear', connId)}>
+                Cancel
+              </Button>
+            )}
+          </div>
         )}
       </div>
       <Field label="Default issue list" hint="Search text used when the picker's box is empty. Leave empty for your open issues.">

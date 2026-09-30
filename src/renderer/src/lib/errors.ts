@@ -4,6 +4,7 @@
  */
 import { isGuided } from '@/lib/guided'
 import { PLAIN_ERROR_MARK } from '@shared/types'
+import { GITHUB_AUTH_RE } from '@/lib/github'
 
 /** The raw message, cleaned of Electron's IPC wrapper and a leading "Error:". */
 export function rawMessage(err: unknown): string {
@@ -30,7 +31,17 @@ export function isPlainError(err: unknown): boolean {
   return unwrap(err instanceof Error ? err.message : typeof err === 'string' ? err : String(err)).startsWith(PLAIN_ERROR_MARK)
 }
 
+/** Plain words for "GitHub needs connecting". Screens that show this also offer <ConnectGitHubCard /> (needsGitHub). */
+export const GITHUB_CONNECT_TEXT = 'Sinfonie needs your GitHub account for this. Connect GitHub, then try again.'
+
+/** A git or GitHub failure fixed by connecting GitHub (not by any Settings page): show <ConnectGitHubCard />. */
+export function needsGitHub(err: unknown): boolean {
+  return GITHUB_AUTH_RE.test(rawMessage(err))
+}
+
 const GUIDED_RULES: [RegExp, string][] = [
+  // GitHub and git sign-in problems first: they are fixed by Connect GitHub, never by Settings → Sign-in.
+  [GITHUB_AUTH_RE, GITHUB_CONNECT_TEXT],
   [/rejected|non-fast-forward|fetch first|conflict/i, 'Someone else changed the same app in the meantime. Ask a teammate to help combine the changes.'],
   [/auth|permission denied|403|401|credential|not logged in|sign in/i, 'Sinfonie could not sign in to finish this. Check Settings → Sign-in, or ask a teammate.'],
   [/network|ENOTFOUND|ECONNREFUSED|ETIMEDOUT|timed out|offline/i, 'Sinfonie could not reach the internet. Check your connection and try again.'],

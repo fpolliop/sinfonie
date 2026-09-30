@@ -16,6 +16,9 @@ import { useChat } from '@/stores/chat'
 import { useUsage, subscribeUsage } from '@/stores/usage'
 import { useOnCall, subscribeOnCall } from '@/stores/oncall'
 import { openInbox } from '@/stores/inbox'
+import { useGithub } from '@/stores/github'
+import { friendlyError, rawMessage } from '@/lib/errors'
+import { isGuided } from '@/lib/guided'
 import { openMaestro } from '@/stores/maestro'
 import { Button, Dialog } from '@/components/ui'
 import { registry, UnknownElement } from './registry'
@@ -86,7 +89,7 @@ export function ViewHost({ view, context }: { view: ScopedView; context: ViewCon
   const store = useMemo(() => createStateStore({ data: {}, meta: {}, context: {}, ui: view.spec.state?.ui ?? {} }), [view.id]) // eslint-disable-line react-hooks/exhaustive-deps
   const [mainRows, setMainRows] = useState<Record<string, unknown[]>>({})
   const [pending, setPending] = useState<Pending | null>(null)
-  const [notice, setNotice] = useState<{ text: string; tone: 'ok' | 'danger' | 'muted' } | null>(null)
+  const [notice, setNotice] = useState<{ text: string; tone: 'ok' | 'danger' | 'muted'; actions?: { label: string; run: () => void }[] } | null>(null)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const ctxRef = useRef(context)
   ctxRef.current = context
@@ -225,38 +228,82 @@ export function ViewHost({ view, context }: { view: ScopedView; context: ViewCon
           app.select(ws.id)
           return
         }
-        case 'sendToAgent':
-          await useChat.getState().send(String(p.workspaceId), String(p.text))
+        case 'sendToAgent': {
+          const wsId = String(p.workspaceId)
+          if (!(await useChat.getState().send(wsId, String(p.text)))) {
+            notSent(wsId)
+            return
+          }
           setNotice({ text: 'Sent to the agent.', tone: 'ok' })
           return
+        }
         case 'fixWithAgent': {
           const pr = p.number ? `PR #${String(p.number)}${p.repo ? ` in ${String(p.repo)}` : ''}` : 'the pull request'
           const text = p.what
             ? `Please fix this on ${pr}: ${String(p.what)}`
             : `CI is failing on ${pr}. Look at the failing checks (gh pr checks ${String(p.number ?? '')}${p.repo ? ` --repo ${String(p.repo)}` : ''}), find the cause, fix it, then commit and push.`
-          await useChat.getState().send(String(p.workspaceId), text)
+          if (!(await useChat.getState().send(String(p.workspaceId), text))) {
+            notSent(String(p.workspaceId))
+            return
+          }
           app.select(String(p.workspaceId))
           return
         }
-        case 'runScript':
-          await api.invoke('workspaces:runScript', String(p.workspaceId), p.kind as 'setup' | 'run')
+        case 'runScript': {
+          // Returns once the scripts are started (a run script never exits), then shows their output.
+          const { started } = await api.invoke('workspaces:runScript', String(p.workspaceId), p.kind as 'setup' | 'run')
           app.select(String(p.workspaceId))
           app.setTab('run')
+          setNotice(started ? { text: `Started ${started} script${started === 1 ? '' : 's'}.`, tone: 'ok' } : { text: `No ${String(p.kind)} script is set up for this workspace yet; the Run tab shows how to add one.`, tone: 'muted' })
           return
+        }
         case 'rebaseAll':
         case 'pushAll':
         case 'openPrsAll':
         case 'mergePr': {
           setNotice({ text: 'Working…', tone: 'muted' })
-          const out = await api.invoke('views:action', name, p, true)
+          let out: string
+          try {
+            out = await api.invoke('views:action', name, p, true)
+          } catch (err) {
+            if (name !== 'mergePr') throw err
+            // A refused merge says why (main writes it plainly) and offers the next step: get it reviewed.
+            const repo = String(p.repo)
+            const num = Number(p.number)
+            const prUrl = `https://github.com/${repo}/pull/${num}`
+            const byWs = useGithub.getState().byWorkspace
+            const wsId = Object.keys(byWs).find((id) => byWs[id].repos.some((r) => r.pr?.url === prUrl || (r.nameWithOwner?.toLowerCase() === repo.toLowerCase() && r.pr?.number === num)))
+            const veto = /^Your team requires an approved review/.test(rawMessage(err))
+            const review = veto || /approving review|review first/i.test(rawMessage(err))
+            setNotice({
+              text: friendlyError(err, 'GitHub did not merge it. Open the pull request on GitHub to see why.'),
+              tone: 'danger',
+              actions: review
+                ? [...(wsId ? [{ label: 'Send for review', run: () => app.select(wsId) }] : []), { label: 'Ask a reviewer on GitHub', run: () => void api.invoke('shell:openExternal', prUrl) }]
+                : [{ label: 'Open on GitHub', run: () => void api.invoke('shell:openExternal', prUrl) }]
+            })
+            return
+          }
           setNotice({ text: out, tone: /failed|conflict/i.test(out) ? 'danger' : 'ok' })
           refreshAll(true)
           return
         }
       }
     } catch (err) {
-      setNotice({ text: err instanceof Error ? err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(err), tone: 'danger' })
+      setNotice({ text: friendlyError(err), tone: 'danger' })
     }
+  }
+  /** useChat.send said no (a spend limit, a closed workspace…): show why, with the way to the workspace, whose chat has the details. */
+  const notSent = (workspaceId: string): void => {
+    const why = useChat.getState().chats[workspaceId]?.error
+    setNotice({ text: why ? friendlyError(why, 'The message was not sent.') : 'The message was not sent.', tone: 'danger', actions: [{ label: 'Open workspace', run: () => useApp.getState().select(workspaceId) }] })
+  }
+  /** A data source that needs an app connected first ("Connect Jira or Linear…"): the settings page that does it. */
+  const setupFor = (error: string): { label: string; run: () => void } | null => {
+    if (!/\bconnect\b|not connected|sign in|signed in|log ?in|not authenticated|auth login/i.test(error)) return null
+    if (isGuided()) return { label: 'Ask Maestro to set it up', run: () => void openMaestro({ fresh: true, prompt: `This page needs something connected first: "${error}". Help me set it up.` }) }
+    const page = /slack/i.test(error) ? 'slack' : /google cloud|gcloud/i.test(error) ? 'gcp' : 'integrations'
+    return { label: 'Open settings', run: () => useApp.getState().openSettings({ scope: 'app', page }) }
   }
   const runRef = useRef(run)
   runRef.current = run
@@ -266,20 +313,29 @@ export function ViewHost({ view, context }: { view: ScopedView; context: ViewCon
     <div className="relative">
       {Object.keys(errors).length > 0 && (
         <div className="mb-3 flex flex-col gap-1 rounded-lg border border-warn/40 bg-warn/5 px-3 py-2 text-[12px]">
-          {Object.entries(errors).map(([name, e]) => (
-            <div key={name} className="flex items-center gap-2">
-              <span className="font-medium text-warn">{name}:</span>
-              <span className="min-w-0 flex-1 truncate text-muted" title={e}>
-                {e}
-              </span>
-              <button className="shrink-0 text-accent hover:underline" onClick={() => refreshAll(true, name)}>
-                Retry
-              </button>
-            </div>
-          ))}
+          {Object.entries(errors).map(([name, e]) => {
+            const setup = setupFor(e)
+            const shown = isGuided() ? friendlyError(e, 'Some of this page could not load.') : e
+            return (
+              <div key={name} className="flex items-center gap-2">
+                {!isGuided() && <span className="font-medium text-warn">{name}:</span>}
+                <span className="min-w-0 flex-1 truncate text-muted" title={shown}>
+                  {shown}
+                </span>
+                {setup && (
+                  <button className="shrink-0 text-accent hover:underline" onClick={setup.run}>
+                    {setup.label}
+                  </button>
+                )}
+                <button className="shrink-0 text-accent hover:underline" onClick={() => refreshAll(true, name)}>
+                  Retry
+                </button>
+              </div>
+            )
+          })}
         </div>
       )}
-      <ViewErrorBoundary key={view.updatedAt} viewId={view.id}>
+      <ViewErrorBoundary key={view.updatedAt} viewId={view.id} canUndo={Boolean(view.history?.length)}>
         <JSONUIProvider registry={registry} store={store} handlers={handlers}>
           <Renderer spec={view.spec as unknown as Spec} registry={registry} fallback={UnknownElement} />
         </JSONUIProvider>
@@ -287,6 +343,18 @@ export function ViewHost({ view, context }: { view: ScopedView; context: ViewCon
       {notice && (
         <div className={clsx('fixed bottom-4 left-1/2 z-40 max-w-[560px] -translate-x-1/2 whitespace-pre-wrap rounded-lg border bg-panel px-4 py-2 text-[12px] shadow-xl', notice.tone === 'danger' ? 'border-danger/40 text-danger' : notice.tone === 'ok' ? 'border-ok/40' : 'border-border text-muted')}>
           {notice.text}
+          {notice.actions?.map((a) => (
+            <button
+              key={a.label}
+              className="ml-3 text-accent hover:underline"
+              onClick={() => {
+                setNotice(null)
+                a.run()
+              }}
+            >
+              {a.label}
+            </button>
+          ))}
           <button className="ml-3 text-muted hover:text-text" onClick={() => setNotice(null)}>
             Dismiss
           </button>
@@ -332,23 +400,46 @@ export function ViewHost({ view, context }: { view: ScopedView; context: ViewCon
   )
 }
 
-class ViewErrorBoundary extends React.Component<{ viewId: string; children: React.ReactNode }, { error: string | null }> {
-  state = { error: null as string | null }
+class ViewErrorBoundary extends React.Component<{ viewId: string; canUndo: boolean; children: React.ReactNode }, { error: string | null; actionError: string | null; busy: boolean }> {
+  state = { error: null as string | null, actionError: null as string | null, busy: false }
   static getDerivedStateFromError(err: unknown): { error: string } {
     return { error: err instanceof Error ? err.message : String(err) }
   }
+  /** Undo and Remove replace the view; a failure says so here instead of doing nothing. */
+  private attempt(fn: () => Promise<unknown>, fallback: string): void {
+    this.setState({ busy: true, actionError: null })
+    fn()
+      .catch((err) => this.setState({ actionError: friendlyError(err, fallback) }))
+      .finally(() => this.setState({ busy: false }))
+  }
   render(): React.ReactNode {
     if (!this.state.error) return this.props.children
+    const { viewId, canUndo } = this.props
     return (
       <div className="flex flex-col items-start gap-2 rounded-lg border border-danger/40 bg-danger/5 p-4 text-[13px]">
         <div className="font-medium text-danger">This view could not be drawn.</div>
-        <div className="font-mono text-[12px] text-muted">{this.state.error}</div>
-        <div className="flex gap-2">
-          <Button size="sm" onClick={() => void api.invoke('views:undo', this.props.viewId).catch(() => undefined)}>
-            Undo last change
-          </Button>
-          <Button size="sm" variant="ghost" onClick={() => void openMaestro({ fresh: true, prompt: `My view ${this.props.viewId} fails to render: "${this.state.error}". Please fix it.` })}>
+        {!isGuided() && (
+          <div className="font-mono text-[12px] text-muted" data-expert-ok="">
+            {this.state.error}
+          </div>
+        )}
+        {this.state.actionError && <div className="text-[12px] text-danger">{this.state.actionError}</div>}
+        <div className="flex flex-wrap gap-2">
+          {canUndo && (
+            <Button size="sm" disabled={this.state.busy} onClick={() => this.attempt(() => api.invoke('views:undo', viewId), 'The last change could not be undone.')}>
+              Undo last change
+            </Button>
+          )}
+          <Button size="sm" variant="ghost" onClick={() => void openMaestro({ fresh: true, prompt: `My view ${viewId} fails to render: "${this.state.error}". Please fix it.` })}>
             Ask Maestro to fix it
+          </Button>
+          <Button
+            size="sm"
+            variant="danger"
+            disabled={this.state.busy}
+            onClick={() => window.confirm('Remove this view? It cannot be brought back.') && this.attempt(() => api.invoke('views:delete', viewId), 'The view could not be removed.')}
+          >
+            Remove this view
           </Button>
         </div>
       </div>

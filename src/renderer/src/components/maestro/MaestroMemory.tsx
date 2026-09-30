@@ -27,7 +27,7 @@ export function MaestroMemory({ onClose }: { onClose: () => void }): React.JSX.E
   const [text, setText] = useState('')
   const [category, setCategory] = useState<MaestroMemoryCategory>('user')
   const autonomy = settings.maestro?.autonomy ?? 'ask'
-  const fail = (err: unknown): void => setError(err instanceof Error ? err.message : String(err))
+  const fail = (err: unknown): void => setError(err)
   useEffect(() => {
     api.invoke('maestro:memory').then(setEntries).catch(fail)
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -5,6 +5,7 @@ import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { useGuided } from '@/lib/guided'
 import { openMaestro } from '@/stores/maestro'
+import { friendlyError } from '@/lib/errors'
 
 /** Eight things a new install does, ticked from real state. Lives on the empty page until dismissed or done. */
 export function GettingStarted(): React.JSX.Element | null {
@@ -24,11 +25,15 @@ export function GettingStarted(): React.JSX.Element | null {
   const guided = useGuided()
   if (settings.onboarding?.checklistDismissedAt) return null
   const orgs = settings.cloud?.account?.orgs ?? []
+  // The task to send: the most recent one that is ready and not already sent or finished; none → start one.
+  const sendable = workspaces
+    .filter((w) => w.status === 'ready' && w.stage !== 'in-review' && w.stage !== 'done')
+    .sort((a, b) => (b.lastMessageAt ?? b.createdAt).localeCompare(a.lastMessageAt ?? a.createdAt))[0]
   const items = guided ? [
     { done: settings.claudeAccounts.some((a) => a.loggedIn), text: 'Sign in so Maestro can work', go: () => openSettings({ scope: 'app', page: 'accounts' }) },
     { done: orgs.length > 0 || repos.length > 0, text: 'Join your team or add your app', go: () => useApp.getState().openSetupAt(2) },
     { done: workspaces.length > 0, text: 'Start a task', go: () => setShowNewWorkspace(true) },
-    { done: workspaces.some((w) => w.stage === 'in-review' || w.stage === 'done'), text: 'Send one for review', go: () => workspaces[0] && useApp.getState().select(workspaces[0].id) }
+    { done: workspaces.some((w) => w.stage === 'in-review' || w.stage === 'done'), text: 'Send one for review', go: () => (sendable ? useApp.getState().select(sendable.id) : setShowNewWorkspace(true)) }
   ] : [
     { done: settings.claudeAccounts.some((a) => a.loggedIn), text: 'Sign in to an agent', go: () => openSettings({ scope: 'app', page: 'accounts' }) },
     { done: spaces.length > 0, text: 'Create a space', go: () => openSettings({ scope: 'app', page: 'spaces' }) },
@@ -46,7 +51,7 @@ export function GettingStarted(): React.JSX.Element | null {
   const left = items.filter((i) => !i.done).length
   if (left === 0) return null
   const dismiss = (): void => {
-    void api.invoke('settings:update', { onboarding: { ...(settings.onboarding ?? {}), checklistDismissedAt: new Date().toISOString() } }).catch(() => undefined)
+    void api.invoke('settings:update', { onboarding: { ...(settings.onboarding ?? {}), checklistDismissedAt: new Date().toISOString() } }).catch((err) => useApp.getState().setError(friendlyError(err, 'Sinfonie could not hide the checklist. Try again.')))
   }
   return (
     <div className="no-drag mt-6 w-[360px] rounded-xl border border-border bg-panel/60 p-4 text-left">

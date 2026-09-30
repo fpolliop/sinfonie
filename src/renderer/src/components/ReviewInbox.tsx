@@ -21,6 +21,7 @@ import { AccountPicker } from './AccountPicker'
 import { PrDetail, ReviewCockpit } from './ReviewCockpit'
 import { IncidentDetail, OnCallView } from './OnCallView'
 import { ErrorNote } from './ErrorNote'
+import { ConnectGitHubCard } from './ConnectGitHub'
 import { Badge, Button, IconButton, Segmented, Spinner, hasOpenDialog, inputCls } from './ui'
 
 const RISK: Record<RiskLevel, { label: string; tone: 'ok' | 'warn' | 'danger' }> = {
@@ -59,6 +60,8 @@ function Inbox(): React.JSX.Element {
   const filter = override ?? savedFilter
   const loadingPrs = useReviews((s) => s.loadingPrs)
   const reviewsError = useReviews((s) => s.error)
+  const batchError = useReviews((s) => s.batchError)
+  const partial = useInbox((s) => s.partial)
   const items = useInboxItems()
   const [full, setFull] = useState<null | 'prs' | 'incidents'>(null)
   const [accountId, setAccountId] = useState(defaultAccount)
@@ -191,13 +194,41 @@ function Inbox(): React.JSX.Element {
         <AccountPicker value={accountId} onChange={setAccountId} className="no-drag" always engine="claude-code" />
       </header>
       {inboxError && (
-        <div className="border-b border-warn/30 bg-warn/10 px-4 py-2 text-[12px] text-warn" role="status">
-          {inboxError}
+        <div className="border-b border-warn/30 bg-warn/10 px-4 py-2 text-[12px]" role="status">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-warn">{inboxError.text}</span>
+            <Button size="sm" variant="ghost" disabled={loadingPrs} onClick={() => void boot(true, true)}>
+              {loadingPrs ? <Spinner /> : <RefreshCw size={12} />} Try again
+            </Button>
+            {inboxError.detail && (
+              <details className="w-full text-[11px] text-muted" data-expert-ok="">
+                <summary className="w-fit cursor-pointer select-none hover:text-text">Show details</summary>
+                <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-words font-mono">{inboxError.detail}</pre>
+              </details>
+            )}
+          </div>
+          {(inboxError.kind === 'gh-missing' || inboxError.kind === 'auth') && <ConnectGitHubCard className="mt-2 max-w-[560px]" reason="so the review inbox can list your team’s pull requests." onConnected={() => void boot(true, true)} />}
         </div>
       )}
       {reviewsError && !inboxError && (
         <div className="border-b border-danger/30 bg-danger/10 px-4 py-2">
           <ErrorNote summary="Pull requests could not be loaded. Refresh to try again." detail={reviewsError} />
+        </div>
+      )}
+      {batchError && (
+        <div className="flex items-center gap-2 border-b border-danger/30 bg-danger/10 px-4 py-2">
+          <ErrorNote className="flex-1" summary="A bulk AI review could not start." detail={batchError} />
+          <Button size="sm" variant="ghost" onClick={() => useReviews.setState({ batchError: undefined })}>
+            Dismiss
+          </Button>
+        </div>
+      )}
+      {partial.length > 0 && !inboxError && (
+        <div className="flex items-center gap-2 border-b border-border px-4 py-1.5 text-[11px] text-muted" role="status">
+          Partly loaded: {partial.join(', ')} could not be read.
+          <button className="text-accent hover:underline" onClick={() => void boot(true)}>
+            Retry
+          </button>
         </div>
       )}
       <div className="flex min-h-0 flex-1">
@@ -328,6 +359,12 @@ function ChangeDetail({ item, accountId, command }: { item: ChangeItem; accountI
   const { preread, prereadWorkspace, setMark } = useInbox()
   const run = useReviews((s) => s.runs[item.key])
   const startReview = useReviews((s) => s.startReview)
+  // reviews:orgs lists the signed-in GitHub login first. GitHub refuses approving your own pull request.
+  const me = useReviews((s) => s.orgs[0]?.toLowerCase() ?? '')
+  const ownPr = Boolean(item.pr && me && item.pr.author.toLowerCase() === me)
+  const activeSpaceId = useApp((s) => s.activeSpaceId)
+  const openSettings = useApp((s) => s.openSettings)
+  const [takeError, setTakeError] = useState<string | null>(null)
   const setError = useApp((s) => s.setError)
   const notify = useApp((s) => s.notify)
   const openWorkspace = useApp((s) => s.select)
@@ -360,11 +397,15 @@ function ChangeDetail({ item, accountId, command }: { item: ChangeItem; accountI
     if (!item.pr) return
     setConfirmTake(false)
     setTaking(true)
+    setTakeError(null)
     try {
       const ws = await api.invoke('inbox:takeOverPr', item.pr)
       openWorkspace(ws.id)
     } catch (err) {
-      setError(friendlyError(err, 'The change could not be opened as a workspace.'))
+      const text = friendlyError(err, 'The change could not be opened as a workspace.')
+      // The repository is not on this Mac: say so next to a button to its Repositories page instead of a dead end.
+      if (/is not on this Mac yet/.test(text)) setTakeError(text)
+      else setError(text)
     } finally {
       setTaking(false)
     }
@@ -418,7 +459,7 @@ function ChangeDetail({ item, accountId, command }: { item: ChangeItem; accountI
     if (command.kind === 'note') noteRef.current?.focus()
     else if (command.kind === 'take') askTakeOver()
     else if (command.kind === 'focus') focusAction('note')
-    else if (command.kind === 'approve' && item.pr) {
+    else if (command.kind === 'approve' && item.pr && !ownPr) {
       setConfirmApprove(true)
       requestAnimationFrame(() => focusAction('approve'))
     }
@@ -452,11 +493,12 @@ function ChangeDetail({ item, accountId, command }: { item: ChangeItem; accountI
         <Button className="no-drag" onClick={askTakeOver} disabled={taking} title={item.ws ? 'Open the workspace this change lives in (T)' : 'Open the pull request branch as a workspace on this Mac (T)'}>
           {taking ? <Spinner /> : <FolderInput size={13} />} Take it over
         </Button>
-        {item.pr && (
-          <Button variant="primary" className="no-drag" onClick={() => setConfirmApprove(true)} disabled={approving || !p?.headSha} title={p?.headSha ? 'Approve on GitHub (A)' : 'Waiting for the pre-read, so the approval is for the commit you read'}>
+        {item.pr && !ownPr && (
+          <Button variant="primary" className="no-drag" onClick={() => setConfirmApprove(true)} disabled={approving || !p?.headSha} title={p?.headSha ? 'Approve on GitHub (A)' : pre && pre !== 'loading' && 'error' in pre ? 'The pre-read failed. Read the change again, then approve the commit you read.' : 'Waiting for the pre-read, so the approval is for the commit you read'}>
             <Check size={13} /> Approve
           </Button>
         )}
+        {item.pr && ownPr && <span className="shrink-0 text-[12px] text-muted">Your own pull request: GitHub doesn’t let you approve it.</span>}
       </div>
       {confirmApprove && item.pr && (
         <div className="flex shrink-0 items-center gap-2 border-b border-border bg-ok/10 px-5 py-2 text-[12px]">
@@ -468,6 +510,17 @@ function ChangeDetail({ item, accountId, command }: { item: ChangeItem; accountI
           </Button>
           <Button size="sm" variant="ghost" onClick={() => setConfirmApprove(false)}>
             Cancel
+          </Button>
+        </div>
+      )}
+      {takeError && (
+        <div className="flex shrink-0 items-center gap-2 border-b border-border bg-warn/10 px-5 py-2 text-[12px]">
+          <span className="mr-auto">{takeError}</span>
+          <Button size="sm" variant="primary" onClick={() => openSettings(activeSpaceId ? { scope: 'space', spaceId: activeSpaceId, page: 'repos' } : { scope: 'app', page: 'repos' })}>
+            Add the repository
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setTakeError(null)}>
+            Dismiss
           </Button>
         </div>
       )}

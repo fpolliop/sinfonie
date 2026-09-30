@@ -1,5 +1,5 @@
-import { app } from 'electron'
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
+import { app, dialog, shell } from 'electron'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
 import type { Settings, StoreData } from '@shared/types'
@@ -60,8 +60,42 @@ class Store {
       }
     } catch (err) {
       console.error('Failed to read store, starting fresh', err)
+      this.setAside(err)
       return { spaces: [], labels: [], repos: [], workspaces: [], settings: { ...DEFAULT_SETTINGS } }
     }
+  }
+
+  /**
+   * The store could not be read: keep the bad file next to it (sinfonie.corrupt-<time>.json) instead of overwriting
+   * it on the next save, and say so once, with a way to find the file.
+   */
+  private setAside(err: unknown): void {
+    const aside = join(app.getPath('userData'), `sinfonie.corrupt-${new Date().toISOString().replace(/[:.]/g, '-')}.json`)
+    try {
+      renameSync(this.file, aside)
+    } catch {
+      try {
+        copyFileSync(this.file, aside)
+      } catch (copyErr) {
+        console.error('Could not keep a copy of the unreadable store', copyErr)
+        return
+      }
+    }
+    const reason = err instanceof Error ? err.message : String(err)
+    void app.whenReady().then(() =>
+      setTimeout(() => {
+        void dialog
+          .showMessageBox({
+            type: 'warning',
+            message: 'Sinfonie could not read its saved data',
+            detail: `The file was damaged (${reason.slice(0, 200)}), so Sinfonie started fresh. Your workspaces' folders on disk are untouched. The old file was kept as ${aside}; it can be repaired by hand or sent with feedback.`,
+            buttons: ['Continue', 'Show the old file'],
+            defaultId: 0,
+            cancelId: 0
+          })
+          .then(({ response }) => response === 1 && shell.showItemInFolder(aside))
+      }, 1500)
+    )
   }
 
   get(): StoreData {
@@ -76,7 +110,10 @@ class Store {
 
   update(mutator: (draft: StoreData) => void): StoreData {
     mutator(this.data)
-    writeFileSync(this.file, JSON.stringify(this.data, null, 2))
+    // Atomic: write a temp file next to it, then rename over, so a crash mid-write never leaves half a store.
+    const tmp = `${this.file}.${process.pid}.tmp`
+    writeFileSync(tmp, JSON.stringify(this.data, null, 2))
+    renameSync(tmp, this.file)
     for (const l of this.listeners) l(this.data)
     return this.data
   }

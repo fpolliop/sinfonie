@@ -5,6 +5,9 @@ import { GcpSection } from './GcpSection'
 import { DatabasesSection } from './DatabasesSection'
 import { api } from '@/lib/api'
 import { useApp, type SettingsTarget, type AppPage, type SpacePage } from '@/stores/app'
+import { UpdateCard } from './UpdateCard'
+import { useUpdates } from '@/stores/updates'
+import { useGitHubConnection } from '@/lib/github'
 import { Badge, Button, Field, IconButton, SectionHeader, Segmented, Toggle, hasOpenDialog, inputCls, useFocusTrap } from './ui'
 import { colorName } from './colorNames'
 import { CrossLink } from './CrossLink'
@@ -279,8 +282,19 @@ function NotificationsField(): React.JSX.Element {
     if (perm === 'granted') await go(() => api.invoke('settings:update', { desktopNotifications: true }))
   }
   return (
-    <Field label="Notifications" hint={state === 'denied' ? 'macOS is blocking notifications for Sinfonie. Allow them under System Settings → Notifications → Sinfonie, then switch this on.' : 'A notification when a turn finishes while Sinfonie is in the background. macOS asks for permission the first time you switch this on.'}>
+    <Field label="Notifications" hint={state === 'denied' ? 'macOS is blocking notifications for Sinfonie. Allow them under System Settings → Notifications → Sinfonie, then switch this on.' : state === 'unsupported' ? undefined : 'A notification when a turn finishes while Sinfonie is in the background. macOS asks for permission the first time you switch this on.'}>
       <Toggle checked={enabled && state === 'granted'} disabled={state === 'unsupported'} onChange={(v) => void toggle(v)} label="Tell me when a turn finishes in the background" />
+      {state === 'unsupported' && <p className="mt-1 text-[12px] text-muted">This version of macOS does not let Sinfonie show notifications, so this switch is off. Your phone can still notify you: see Devices.</p>}
+      {state === 'denied' && (
+        <div className="mt-1.5 flex items-center gap-2">
+          <Button size="sm" onClick={() => void api.invoke('shell:openExternal', 'x-apple.systempreferences:com.apple.Notifications-Settings.extension')}>
+            Open System Settings
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setState(typeof Notification === 'undefined' ? 'unsupported' : Notification.permission)}>
+            I’ve allowed them, check again
+          </Button>
+        </div>
+      )}
     </Field>
   )
 }
@@ -627,11 +641,15 @@ function AboutPage(): React.JSX.Element {
   useEffect(() => {
     api.invoke('app:version').then(setVersion).catch(() => undefined)
   }, [])
+  // The same update the rail's card offers: Download, progress, or Restart to update, right here.
+  const update = useUpdates((s) => s.info)
+  useEffect(() => useUpdates.getState().subscribe(), [])
   const check = async (): Promise<void> => {
     setStatus('Checking…')
     try {
       const u = await api.invoke('updates:check')
-      setStatus(u ? `Version ${u.version} is available.` : `You're on the latest version.`)
+      if (u) useUpdates.setState((s) => ({ info: s.info && s.info.version === u.version && s.info.state !== 'available' ? s.info : u }))
+      setStatus(u ? null : `You're on the latest version.`)
     } catch (err) {
       setStatus(friendlyError(err, 'Could not check for updates. Try again later.'))
     }
@@ -672,6 +690,11 @@ function AboutPage(): React.JSX.Element {
           </Button>
         </span>
       </div>
+      {update && (
+        <div className="mt-3">
+          <UpdateCard info={update} />
+        </div>
+      )}
       <div className="mt-3">
         <Toggle checked={settings.autoDownloadUpdates !== false} onChange={(v) => void api.invoke('settings:update', { autoDownloadUpdates: v }).catch((err) => setError(friendlyError(err)))} label="Download updates automatically" hint="New releases download in the background as soon as they are found. You choose when to restart: now, when idle, or on the next quit." />
       </div>
@@ -903,14 +926,72 @@ function SpaceRepos({ space }: { space: Space }): React.JSX.Element {
   )
 }
 
+/**
+ * Whether GitHub is reachable from this Mac, for pages that list GitHub data: the tool missing and not signed in are
+ * told apart, and both offer Connect GitHub (the shared connection service installs the tool when it is missing).
+ */
+function GitHubConnectionLine(): React.JSX.Element | null {
+  const gh = useGitHubConnection()
+  const c = gh.connection
+  const st = gh.state
+  if (!c) return null
+  if (c.gh === 'ok' && c.signedIn) return <p className="text-[12px] text-muted">Signed in to GitHub{c.login ? ` as ${c.login}` : ''}.</p>
+  const busy = st.phase === 'checking' || st.phase === 'installing' || st.phase === 'starting' || st.phase === 'code' || st.phase === 'finishing'
+  return (
+    <div className="rounded-lg border border-border px-3 py-2 text-[12px]" role="status">
+      <div className="flex items-center gap-2">
+        <span className="flex-1">
+          {c.gh === 'missing' ? 'The GitHub command-line tool (gh) is not on this Mac, so Sinfonie cannot list pull requests or your organisations.' : 'Not signed in to GitHub, so Sinfonie cannot list pull requests or your organisations.'}
+        </span>
+        {busy ? (
+          <Button size="sm" variant="ghost" onClick={() => void gh.cancel()}>
+            Cancel
+          </Button>
+        ) : (
+          <Button size="sm" variant="primary" onClick={() => void gh.connect().catch(() => undefined)}>
+            Connect GitHub
+          </Button>
+        )}
+      </div>
+      {st.phase === 'installing' && <p className="mt-1 text-muted">Getting the GitHub tool…</p>}
+      {st.phase === 'code' && st.code && (
+        <p className="mt-1 text-muted">
+          Type <span className="font-mono font-semibold text-text">{st.code}</span> on{' '}
+          <button className="text-accent hover:underline" onClick={() => void api.invoke('shell:openExternal', st.url ?? 'https://github.com/login/device')}>
+            {st.url ?? 'github.com/login/device'}
+          </button>
+          .
+        </p>
+      )}
+      {st.phase === 'failed' && <p className="mt-1 text-danger">{st.message ?? 'Connecting GitHub did not finish. Try again.'}</p>}
+      {c.gh === 'missing' && !busy && (
+        <p className="mt-1 text-muted">
+          Or install it yourself from{' '}
+          <button className="text-accent hover:underline" onClick={() => void api.invoke('shell:openExternal', 'https://cli.github.com')}>
+            cli.github.com
+          </button>
+          , then{' '}
+          <button className="text-accent hover:underline" onClick={() => void gh.refresh()}>
+            check again
+          </button>
+          .
+        </p>
+      )}
+    </div>
+  )
+}
+
 /** Which GitHub users/orgs the review cockpit lists for this space. Detected from the repos, overridable. */
 function GithubOwnersSection({ spaceId, configured, onChange }: { spaceId: string; configured: string[]; onChange: (owners: string[]) => void }): React.JSX.Element {
   const [orgs, setOrgs] = useState<string[]>([])
   const [detected, setDetected] = useState<string[]>([])
+  const gh = useGitHubConnection()
+  const signedIn = gh.connection?.signedIn
   useEffect(() => {
     api.invoke('reviews:orgs').then(setOrgs).catch(() => setOrgs([]))
     api.invoke('reviews:detectOwners', spaceId).then(setDetected).catch(() => setDetected([]))
-  }, [spaceId])
+    // Signing in (below) lists the organisations the account belongs to, so ask again once it is done.
+  }, [spaceId, signedIn])
   const all = Array.from(new Set([...detected, ...orgs, ...configured]))
   const effective = configured.length ? configured : detected
   const toggle = (o: string): void => {
@@ -930,7 +1011,8 @@ function GithubOwnersSection({ spaceId, configured, onChange }: { spaceId: strin
         )}
       </p>
       <div className="flex flex-col gap-2">
-        {all.length === 0 && <span className="text-[12px] text-muted">Nothing detected yet. Add a repository with a GitHub remote, or sign in with gh.</span>}
+        <GitHubConnectionLine />
+        {all.length === 0 && <span className="text-[12px] text-muted">Nothing detected yet. Add a repository with a GitHub remote{signedIn ? '' : ', or connect GitHub above to list your organisations'}.</span>}
         {all.map((o) => (
           <Toggle key={o} checked={effective.includes(o)} onChange={() => toggle(o)} label={o} hint={detected.includes(o) ? 'Detected from a repository in this space' : undefined} />
         ))}

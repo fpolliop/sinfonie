@@ -100,6 +100,8 @@ export interface AgentRun {
   error?: string
   /** Workspace it ran in, when it did; absent for runs in the agent's own context. */
   workspaceId?: string
+  /** Set by main on a run going on right now (never stored). */
+  running?: boolean
 }
 
 /** Transcript and task id of an agent's own conversation (no workspace). */
@@ -297,7 +299,12 @@ export interface LoginProgress {
   /** The sign-in URL once the CLI printed it, for a "browser did not open" fallback. */
   url?: string
   message?: string
+  /** The sign-in could not start because a tool is not installed (Node.js for npx, or the Grok CLI). */
+  missing?: AgentPrereq
 }
+
+/** A tool a vendor agent needs on this Mac before it can start: Node.js (npx) or the Grok CLI. */
+export type AgentPrereq = 'node' | 'grok'
 
 export interface AcpProbe {
   engine: Engine
@@ -310,6 +317,8 @@ export interface AcpProbe {
   /** A session could be created, so the agent is usable as configured. */
   signedIn: boolean
   error?: string
+  /** Set when the agent could not start because its tool is not installed. */
+  missing?: AgentPrereq
 }
 
 export type ProviderKind = 'anthropic' | 'openai' | 'google' | 'deepseek' | 'openai-compatible' | 'ollama' | 'lmstudio'
@@ -452,7 +461,9 @@ export interface Space {
   /** The organisation this space belongs to; absent means personal. */
   orgId?: string
   /** Set when the space is shared inside its organisation and synced from the server. */
-  orgSpace?: { id: string; version: number; syncedAt: string; updatedBy?: string; repos?: SharedRepo[] }
+  orgSpace?: { id: string; version: number; syncedAt: string; updatedBy?: string; repos?: SharedRepo[]; pushError?: string }
+  /** Shared apps that could not be downloaded on this Mac, one entry per app (org-spaces.ts resolve). Never shared. */
+  cloneErrors?: RepoCloneError[]
   /** What guided-mode members of this space get: who reviews, how the assistant should behave, what it may do. */
   guided?: GuidedSpace
   /** Generated views of this space (Home pages, workspace tabs), shared with its team. */
@@ -478,6 +489,11 @@ export interface TeamRules {
   dailySpendUsd?: number
   /** When an admin last saved these rules (the setup checklist's "guardrails reviewed"). */
   reviewedAt?: string
+  /**
+   * "Allow more today" for one member, given by an admin from the Team console. It travels with the rules through the
+   * organisation sync and lifts the spend limit for that person for the rest of their local day in which it was given.
+   */
+  spendAllowances?: { userId: string; login?: string; grantedAt: string }[]
 }
 
 /** The tech lead's setup for guided-mode members of a space. Travels with the shared definition. */
@@ -618,6 +634,8 @@ export interface Workspace {
   port: number
   status: WorkspaceStatus
   error?: string
+  /** The error is an archive that could not finish (after a quit mid-archive): the way out is Finish archiving, never Retry setup. */
+  archiveFailed?: boolean
   createdAt: string
   archivedAt?: string
   /** Claude Code session id, so the chat can be resumed across app restarts. */
@@ -698,6 +716,8 @@ export interface ClaudeAccount {
   configDir: string | null
   loggedIn?: boolean
   detail?: string
+  /** Why the last check could not sign in: the agent's tool is not installed on this Mac. */
+  missing?: AgentPrereq
   checkedAt?: string
 }
 
@@ -1179,10 +1199,12 @@ export interface Note {
   source: 'user' | 'agent'
   createdAt: string
   updatedAt: string
+  /** Put away (e.g. old done todos): hidden from boards, lists and agents unless asked for. */
+  archived?: boolean
 }
 export const noteStatus = (n: Note): NoteStatus => n.status ?? (n.done ? 'done' : 'todo')
 /** Fields the user or an agent may change on a note. */
-export type NotePatch = Partial<Pick<Note, 'text' | 'done' | 'kind' | 'status' | 'priority' | 'due' | 'tags'>>
+export type NotePatch = Partial<Pick<Note, 'text' | 'done' | 'kind' | 'status' | 'priority' | 'due' | 'tags' | 'archived'>>
 
 /** Where a note lives, from inside a workspace: the workspace, its space, or the app (tied to no project). */
 export type NoteScope = 'workspace' | 'space' | 'app'
@@ -1197,6 +1219,8 @@ export interface NotesFilter {
   /** ISO date; notes created at or after it. */
   since?: string
   query?: string
+  /** Exactly these note ids (what the Notes view shows), on top of the other fields. */
+  ids?: string[]
 }
 
 /** A git repository found by scanning a folder, for the setup assistant. */
@@ -1420,6 +1444,8 @@ export interface RepoPr {
   pr: PrInfo | null
   threads: ReviewThread[]
   error?: string
+  /** Why GitHub could not be asked, when that is fixable: gh missing, not signed in, or the app is not on GitHub. */
+  errorKind?: 'gh-missing' | 'gh-auth' | 'not-github'
   fetchedAt: string
 }
 
@@ -1656,6 +1682,10 @@ export interface AuthLink {
   url: string
   /** Who the user approves access on, when the provider alone does not say (cloud: GitHub or Google). */
   label?: string
+  /** cloud: this approval adds an email to the signed-in account instead of signing in (Start again repeats that). */
+  addEmail?: boolean
+  /** Main already opened the link in the default browser; the dialog is the "didn't open? copy it" fallback. */
+  opened?: boolean
 }
 
 // ---- On call ----
@@ -1776,6 +1806,10 @@ export interface OnCallState {
   lastPollAt?: string
   nextPollAt?: string
   lastError?: string
+  /** What kind of problem lastError is, so the view can offer one fitting action (reconnect, open the channel). */
+  lastErrorKind?: 'auth' | 'channel' | 'rate' | 'network' | 'other'
+  /** The channel lastError is about, when it is about one. */
+  lastErrorChannel?: { id: string; name: string; spaceId: string }
   incidents: Incident[]
   triagesThisHour: number
   triaging: string | null
@@ -2018,7 +2052,24 @@ export interface AssistantItem {
   role: 'user' | 'assistant' | 'tool' | 'system'
   text: string
   tool?: { name: string; input: Record<string, unknown>; ok: boolean; ms?: number }
+  /** A system item that is a failed turn, with what the renderer can offer to fix it. */
+  error?: MaestroTurnError
   createdAt: string
+}
+/** Why a Maestro turn failed, in a form the renderer can act on. */
+export interface MaestroTurnError {
+  /** auth: the account is not signed in. limit: usage limit reached. billing: account on hold or out of credit. busy: overloaded or server error. */
+  code: 'auth' | 'limit' | 'billing' | 'busy' | 'other'
+  /** The account the turn ran on. */
+  accountId?: string
+  /** Another signed-in Anthropic account the conversation can continue on. */
+  other?: { id: string; name: string }
+  /** The text to send again for Try again. */
+  retryText?: string
+  /** The raw error, for "Show details". */
+  detail?: string
+  /** Not a failure: a warning before the turn that the account is close to its limit. */
+  preflight?: boolean
 }
 
 export interface GcpSettings {
@@ -2057,6 +2108,8 @@ export interface UpdateInfo {
   installWhenIdle?: boolean
   percent?: number
   error?: string
+  /** Which step failed when state is error: the download, or the restart that installs it. */
+  phase?: 'download' | 'install'
   version: string
   current: string
   /** Direct DMG download when available, else the release page. */
@@ -2130,4 +2183,104 @@ export interface VisualCheck {
   fix?: string
   /** What the page itself reported (errors, addresses): untrusted text, sent to Maestro fenced as data. */
   evidence?: string
+}
+
+// ---- GitHub connection and prerequisites (main: services/prereqs.ts; renderer: lib/github.ts, ConnectGitHub.tsx) ----
+
+/** What this Mac has for talking to GitHub. Checked by `github:connection`. */
+export interface GitHubConnection {
+  /** git itself: ok, missing, or missing because Apple's developer tools are not installed (macOS). */
+  git: 'ok' | 'missing' | 'needs-xcode'
+  /** The GitHub command-line tool: on this Mac (the person's own or the copy Sinfonie downloaded), or not. */
+  gh: 'ok' | 'missing'
+  /** The gh in use is the copy Sinfonie downloaded into its own folder. */
+  ghBundled?: boolean
+  /** Signed in to github.com through gh. */
+  signedIn: boolean
+  /** The GitHub login, when signed in. */
+  login?: string
+  /** Global git identity (user.name / user.email), when set. */
+  identity: { name?: string; email?: string }
+  checkedAt: string
+}
+
+/** Where an in-app "Connect GitHub" stands. Pushed as `github:connectProgress`. */
+export interface GitHubConnectState {
+  phase: 'idle' | 'checking' | 'installing' | 'starting' | 'code' | 'finishing' | 'done' | 'failed' | 'cancelled'
+  /** The one-time code to type on github.com/login/device. */
+  code?: string
+  /** Where to type it. */
+  url?: string
+  /** The GitHub login once connected. */
+  login?: string
+  /** Plain words for a person when it failed. */
+  message?: string
+  /** What is missing when it could not start: Apple's developer tools (git). */
+  missing?: 'xcode'
+}
+
+/** Per app: can Sinfonie send changes to GitHub from here? */
+export interface RepoGitHubAccess {
+  repoId?: string
+  repoName?: string
+  /** origin: on github.com, another host, or none at all. */
+  remote: 'github' | 'other' | 'none'
+  nameWithOwner?: string
+  /** GitHub's viewerPermission for the signed-in account (ADMIN, MAINTAIN, WRITE, TRIAGE, READ), when known. */
+  permission?: string
+  /** True when the account may push; undefined when it could not be checked (not signed in). */
+  canPush?: boolean
+  /** git user.email is set for this app (or globally). */
+  identity: boolean
+}
+
+/**
+ * The first thing in the way of sending a task for review, in the order a person fixes them. Absent: ready.
+ * needs-git: install Apple's developer tools. needs-github: connect GitHub (install gh and/or sign in).
+ * no-remote: the app is not on GitHub yet ("Put this app on GitHub"). not-github: it lives on another host.
+ * no-push: the account may not change the app ("Ask the owner for access" / "Make your own copy").
+ * veto: a team rule says no (the text says why).
+ */
+export type SendBlocker = 'needs-git' | 'needs-github' | 'no-remote' | 'not-github' | 'no-push' | 'veto'
+
+export interface SendPreflight {
+  connection: GitHubConnection
+  repos: (RepoGitHubAccess & { repoId: string; repoName: string; blocker?: SendBlocker })[]
+  /** The first blocker across the task, if any. */
+  blocker?: SendBlocker
+  /** A team rule's refusal, written for a person. */
+  veto?: string
+  /** No team reviewer and not a team space: the person can publish it themselves after a preview. */
+  solo: boolean
+}
+
+/** Why cloning an app failed, so the screen can offer the one action that fixes it. */
+export type CloneFailure = 'needs-github' | 'no-access' | 'not-found' | 'needs-git' | 'folder-exists' | 'offline' | 'cancelled' | 'other'
+
+export type CloneResult = { ok: true; path: string } | { ok: false; kind: CloneFailure; message: string; dest?: string }
+
+export interface CloneProgress {
+  url: string
+  /** 0–100 while receiving, when git reports it. */
+  percent?: number
+  phase: 'starting' | 'receiving' | 'resolving' | 'done'
+}
+
+/** What a folder picked as "my app" is. */
+export type FolderKind =
+  | { kind: 'repo'; path: string }
+  /** Inside an app: `path` is the app's top folder, used instead. */
+  | { kind: 'inside-repo'; path: string }
+  /** A plain folder: offer "Set this folder up for Sinfonie". */
+  | { kind: 'not-repo'; path: string }
+  | { kind: 'needs-git'; path: string }
+  | { kind: 'unsafe'; path: string }
+
+/** A team app that could not be downloaded, recorded per app on its space so the team card can offer a fix. */
+export interface RepoCloneError {
+  remote: string
+  name: string
+  kind: CloneFailure
+  message: string
+  at: string
 }

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { Plus, Trash2, AlertTriangle } from 'lucide-react'
+import { Plus, Trash2, AlertTriangle, FolderPlus } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { Badge, Button, Dialog, IconButton, inputCls } from './ui'
@@ -72,7 +72,7 @@ export function ManageReposDialog({ workspaceId, onClose }: { workspaceId: strin
               </div>
               {confirming === wr.repoId ? (
                 <div className="flex shrink-0 items-center gap-1.5">
-                  <span className={risky ? 'text-[11px] text-warn' : 'text-[11px] text-muted'}>{risky ? 'Unsaved work will be lost.' : 'Remove its worktree?'}</span>
+                  <span className={risky ? 'text-[11px] text-warn' : 'text-[11px] text-muted'}>{risky ? 'Unsaved work will be lost.' : ws.repos.length === 1 ? 'Remove it? The workspace stays, empty.' : 'Remove its worktree?'}</span>
                   <Button size="sm" variant="ghost" onClick={() => setConfirming(null)}>
                     Keep
                   </Button>
@@ -91,8 +91,8 @@ export function ManageReposDialog({ workspaceId, onClose }: { workspaceId: strin
                 </div>
               ) : (
                 <IconButton
-                  label={ws.repos.length === 1 ? 'A workspace needs at least one repository' : risky ? `Remove ${wr.repoName} (uncommitted or unpushed work will be lost)` : `Remove ${wr.repoName} from this workspace`}
-                  disabled={ws.repos.length === 1 || busy !== null}
+                  label={risky ? `Remove ${wr.repoName} (uncommitted or unpushed work will be lost)` : ws.repos.length === 1 ? `Remove ${wr.repoName}; the workspace stays with no repositories until you add one` : `Remove ${wr.repoName} from this workspace`}
+                  disabled={busy !== null}
                   className="p-1 hover:text-danger disabled:opacity-30"
                   onClick={() => setConfirming(wr.repoId)}
                 >
@@ -113,7 +113,7 @@ export function ManageReposDialog({ workspaceId, onClose }: { workspaceId: strin
           )}
         </div>
         {candidates.length === 0 ? (
-          <div className="text-[12px] text-muted">Every registered repository{space && !showAll ? ` in ${space.name}` : ''} is already here.</div>
+          <div className="text-[12px] text-muted">{notIn.length === 0 && repos.length <= ws.repos.length ? 'No other repositories are registered in Sinfonie yet.' : `Every registered repository${space && !showAll ? ` in ${space.name}` : ''} is already here.`} Add one from disk below.</div>
         ) : (
           <div className="flex gap-2">
             <select className={inputCls} value={addId} onChange={(e) => setAddId(e.target.value)}>
@@ -138,6 +138,26 @@ export function ManageReposDialog({ workspaceId, onClose }: { workspaceId: strin
             </Button>
           </div>
         )}
+        <div className="mt-2 flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={busy !== null}
+            title="Pick a folder on this Mac. A folder inside a repository adds that repository; a plain folder can be made one."
+            onClick={() =>
+              void go('pick', async () => {
+                const repo = await api.invoke('repos:pickAndAdd', ws.spaceId)
+                if (!repo) return
+                if (ws.repos.some((x) => x.repoId === repo.id)) throw new Error(`${repo.name} is already in this workspace.`)
+                setShowAll(true)
+                setAddId(repo.id)
+              })
+            }
+          >
+            <FolderPlus size={13} aria-hidden /> Add a repository from disk…
+          </Button>
+          {addId && busy === null && <span className="text-[11px] text-muted">Pick the base branch, then Add.</span>}
+        </div>
       </div>
     </Dialog>
   )

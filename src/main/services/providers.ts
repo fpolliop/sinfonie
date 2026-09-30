@@ -7,7 +7,7 @@ import { createDeepSeek } from '@ai-sdk/deepseek'
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import type { LanguageModel } from 'ai'
 import type { ProviderConfig, ProviderKind } from '@shared/types'
-import { PROVIDER_KINDS, parseModelRef } from '@shared/types'
+import { PROVIDER_KINDS, PLAIN_ERROR_MARK, parseModelRef } from '@shared/types'
 import { getStore } from '../store'
 
 function encrypt(text: string): string {
@@ -130,8 +130,23 @@ export async function fetchModels(id: string): Promise<string[]> {
     url = `${p.baseUrl ?? 'http://localhost:11434/v1'}/models`
     if (apiKey) headers.Authorization = `Bearer ${apiKey}`
   }
-  const res = await fetch(url, { headers })
-  if (!res.ok) throw new Error(`${p.name}: HTTP ${res.status} ${(await res.text().catch(() => '')).slice(0, 200)}`)
+  const local = p.kind === 'ollama' || p.kind === 'lmstudio'
+  let res: Response
+  try {
+    res = await fetch(url, { headers, signal: AbortSignal.timeout(15_000) })
+  } catch (err) {
+    const e = err as { name?: string; cause?: { code?: string } }
+    const base = new URL(url).origin
+    if (e.name === 'TimeoutError') throw new Error(`${PLAIN_ERROR_MARK}${p.name} did not answer within 15 seconds. Check your connection, then try again.`)
+    if (e.cause?.code === 'ECONNREFUSED') throw new Error(`${PLAIN_ERROR_MARK}Nothing is listening at ${base}.${p.kind === 'ollama' ? ' Is Ollama running? Open it (or run `ollama serve`), then try again.' : p.kind === 'lmstudio' ? ' Is LM Studio running with its local server on? Start it, then try again.' : ' Check the address, then try again.'}`)
+    if (e.cause?.code === 'ENOTFOUND' || e.cause?.code === 'EAI_AGAIN') throw new Error(`${PLAIN_ERROR_MARK}Sinfonie could not reach ${base}. Check your connection${local ? '' : ' or the address'}, then try again.`)
+    throw err
+  }
+  if (!res.ok) {
+    const body = (await res.text().catch(() => '')).slice(0, 200)
+    if (res.status === 401 || res.status === 403 || (p.kind === 'google' && res.status === 400 && /key/i.test(body))) throw new Error(`${PLAIN_ERROR_MARK}${p.name} did not accept the key. Paste a new key and save again.`)
+    throw new Error(`${p.name}: HTTP ${res.status} ${body}`)
+  }
   const j = (await res.json()) as { data?: { id: string }[]; models?: { name: string }[] }
   if (p.kind === 'google') models = (j.models ?? []).map((m) => m.name.replace(/^models\//, '')).filter((n) => /gemini/.test(n))
   else models = (j.data ?? []).map((m) => m.id)

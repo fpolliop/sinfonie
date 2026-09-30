@@ -3,7 +3,7 @@ import { X } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { isGuided } from '@/lib/guided'
-import { Button, IconButton } from '../ui'
+import { Button, IconButton, LAYER } from '../ui'
 
 interface Stop {
   anchor: string
@@ -177,7 +177,8 @@ export function Tour({ onClose }: { onClose: () => void }): React.JSX.Element | 
     else pos.top = rect.bottom + PAD + 12
   }
   return (
-    <div className="fixed inset-0 z-[70] no-drag" onMouseDown={(e) => e.target === e.currentTarget && step(1)}>
+    // LAYER.spotlight: above the page, below any dialog that opens during the tour (ui.tsx LAYER).
+    <div className={`fixed inset-0 no-drag ${LAYER.spotlight}`} onMouseDown={(e) => e.target === e.currentTarget && step(1)}>
       <div className="pointer-events-none absolute rounded-lg ring-2 ring-accent/70 transition-all duration-200" style={{ left: rect.left - PAD, top: rect.top - PAD, width: rect.width + PAD * 2, height: rect.height + PAD * 2, boxShadow: '0 0 0 100vmax rgba(0,0,0,.55)' }} />
       <div className="absolute rounded-xl border border-border bg-panel p-4 shadow-2xl transition-all duration-200" style={pos}>
         <div className="flex items-center gap-2">

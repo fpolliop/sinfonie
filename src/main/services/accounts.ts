@@ -5,11 +5,12 @@ import { mkdirSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
 import { nanoid } from 'nanoid'
-import type { ClaudeAccount, Engine, LoginProgress, Settings, Vendor } from '@shared/types'
+import type { AgentPrereq, ClaudeAccount, Engine, LoginProgress, Settings, Vendor } from '@shared/types'
 import { VENDORS } from '@shared/types'
 import { getStore } from '../store'
 import { createTerminal } from './terminal'
 import { probe } from './acp/engine'
+import { whichSync } from './shell-path'
 
 const exec = promisify(execFile)
 
@@ -103,6 +104,7 @@ export async function checkAccount(id: string): Promise<Settings> {
   const vendor = acc.vendor ?? 'anthropic'
   let loggedIn = false
   let detail = ''
+  let missing: AgentPrereq | undefined
   if (vendor === 'anthropic') {
     const env = { ...process.env, ...envForAccount(acc) }
     try {
@@ -123,6 +125,7 @@ export async function checkAccount(id: string): Promise<Settings> {
     const engine = VENDORS.find((v) => v.id === vendor)!.engine
     const p = await probe(engine, acc.id)
     loggedIn = p.signedIn
+    missing = p.missing
     detail = p.signedIn ? [p.agent, p.currentModel ? `model ${p.currentModel}` : ''].filter(Boolean).join(' · ') : p.error ?? (p.installed ? 'not signed in' : 'agent not installed')
   }
   return getStore().update((d) => {
@@ -130,6 +133,8 @@ export async function checkAccount(id: string): Promise<Settings> {
     if (a) {
       a.loggedIn = loggedIn
       a.detail = detail
+      if (missing) a.missing = missing
+      else delete a.missing
       a.checkedAt = new Date().toISOString()
     }
     // Nobody picked an engine yet and this is the first vendor that turns out to be signed in:
@@ -158,9 +163,39 @@ const URL_RE = /https?:\/\/[^\s'"`)]+/
  * the CLI prints it (the CLI opens the browser itself), then success or failure on exit. The pty
  * stays available to the renderer so an interactive prompt can still be answered.
  */
+/** The tool a vendor's sign-in command needs, when it is not installed on this Mac. */
+function loginPrereqMissing(vendor: Vendor): AgentPrereq | undefined {
+  if (vendor === 'openai' && !whichSync('npx')) return 'node'
+  if (vendor === 'xai' && !whichSync('grok')) return 'grok'
+  return undefined
+}
+
+/**
+ * The standard one-step installer for a missing prerequisite, run in a pty so its output shows under Details:
+ * Homebrew for Node.js. Null when there is no safe one-step way (the Grok CLI, whose installer Sinfonie does not
+ * pipe into a shell, or Node.js without Homebrew): the dialog then only links to the download page.
+ */
+export function installCommand(what: AgentPrereq): string | null {
+  if (what === 'grok') return null
+  const brew = whichSync('brew')
+  return brew ? `${JSON.stringify(brew)} install node` : null
+}
+
+export function startInstall(what: AgentPrereq, onData: (tid: string, d: string) => void, onExit: (tid: string, code: number) => void): string | null {
+  const cmd = installCommand(what)
+  if (!cmd) return null
+  return createTerminal(homedir(), { ...process.env, NONINTERACTIVE: '1', HOMEBREW_NO_AUTO_UPDATE: '1' }, onData, onExit, cmd)
+}
+
 export function startLogin(id: string, onData: (tid: string, d: string) => void, onExit: (tid: string, code: number) => void, onProgress: (p: LoginProgress) => void): string {
   const acc = getAccount(id)
   const vendor = acc.vendor ?? 'anthropic'
+  // Codex signs in through npx and Grok through its own CLI: say what is missing instead of failing in a terminal.
+  const missing = loginPrereqMissing(vendor)
+  if (missing) {
+    onProgress({ accountId: acc.id, terminalId: '', phase: 'failed', missing, message: missing === 'node' ? 'Node.js (npx) is not installed.' : 'The Grok CLI is not installed.' })
+    return ''
+  }
   const env = { ...process.env, ...envForAccount(acc), PATH: `${homedir()}/.grok/bin:/opt/homebrew/bin:/usr/local/bin:${process.env.PATH ?? ''}` }
   let url: string | undefined
   let succeeded = false
@@ -193,7 +228,9 @@ export function startLogin(id: string, onData: (tid: string, d: string) => void,
         void checkAccount(acc.id).catch(() => undefined)
       } else {
         const lines = buffer.trim().split('\n').map((l) => l.trim()).filter(Boolean)
-        onProgress({ accountId: acc.id, terminalId: t, phase: 'failed', url, message: lines.find((l) => /error/i.test(l)) ?? lines.at(-1) })
+        const notFound = code === 127 || /command not found|no such file or directory: (npx|grok)/i.test(buffer)
+        const gone: AgentPrereq | undefined = notFound ? (vendor === 'xai' ? 'grok' : vendor === 'openai' ? 'node' : undefined) : undefined
+        onProgress({ accountId: acc.id, terminalId: t, phase: 'failed', url, ...(gone ? { missing: gone } : {}), message: lines.find((l) => /error/i.test(l)) ?? lines.at(-1) })
       }
     },
     LOGIN_COMMANDS[vendor]

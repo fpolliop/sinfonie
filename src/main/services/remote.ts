@@ -138,6 +138,15 @@ function scheduleReconnect(): void {
   }, backoff)
   backoff = Math.min(backoff * 2, 30_000)
 }
+/** "Try again" after a relay error: drop the socket and the backoff, and connect now. */
+export function reconnect(): RemoteStatus {
+  disconnect()
+  backoff = 1000
+  lastError = undefined
+  connect()
+  publish()
+  return status()
+}
 export function connect(): void {
   const k = pairingKey()
   if (!k || ws) return
@@ -223,7 +232,7 @@ export async function pair(): Promise<{ url: string; qrSvg: string }> {
   }
   connect()
   const url = `${PHONE_URL}#k=${k}&relay=${encodeURIComponent(RELAY_URL)}`
-  const qrSvg = await QRCode.toString(url, { type: 'svg', margin: 1, errorCorrectionLevel: 'M', color: { dark: '#e6e8ec', light: '#0000' } })
+  const qrSvg = await QRCode.toString(url, { type: 'svg', margin: 1, errorCorrectionLevel: 'M', color: { dark: '#000000', light: '#ffffff' } })
   return { url, qrSvg }
 }
 /** Forgets the key: the relay drops the room's subscriptions and disconnects phones; a new pairing makes a new room. */

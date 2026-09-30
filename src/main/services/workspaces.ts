@@ -2,7 +2,8 @@ import { existsSync, mkdirSync, rmSync } from 'fs'
 import { createServer } from 'node:net'
 import { join } from 'path'
 import { nanoid } from 'nanoid'
-import type { CreateWorkspaceInput, Repo, RepoSafety, ScriptOutputEvent, Workspace, WorkspaceRepo, WorkspaceStage } from '@shared/types'
+import type { ConductorConfig, CreateWorkspaceInput, Repo, RepoSafety, ScriptOutputEvent, Workspace, WorkspaceRepo, WorkspaceStage } from '@shared/types'
+import { PLAIN_ERROR_MARK } from '@shared/types'
 import * as jira from './jira'
 import * as linear from './linear'
 import { getStore } from '../store'
@@ -72,6 +73,54 @@ export function getWorkspace(workspaceId: string): Workspace {
   return ws
 }
 
+/**
+ * The scripts that apply to a repository inside a workspace: the worktree's own sinfonie.json when it has one (the agent
+ * may have just added or changed it on the workspace branch), else the one read from the repository when it was added.
+ */
+export function configFor(repo: Repo, worktreePath: string): ConductorConfig | null {
+  return (existsSync(worktreePath) ? git.readConductorConfig(worktreePath) : null) ?? repo.config ?? null
+}
+
+const isGuidedMode = (): boolean => getStore().get().settings.mode === 'guided'
+
+/**
+ * An empty repository has nothing to branch from. Guided mode makes the first (empty) commit itself; expert mode
+ * says what is wrong and how to fix it.
+ */
+async function ensureHasCommits(repo: Repo): Promise<void> {
+  if (await git.hasCommits(repo.path)) return
+  if (isGuidedMode()) {
+    await git.createInitialCommit(repo.path)
+    return
+  }
+  throw new Error(`${repo.name} has no commits yet, so there is no branch to start from. Make a first commit in ${repo.path} (for example git commit --allow-empty -m "Initial commit"), then retry setup.`)
+}
+
+async function addWorktree(repo: Repo, wr: WorkspaceRepo): Promise<void> {
+  await ensureHasCommits(repo)
+  try {
+    await git.createWorktree(repo.path, wr.worktreePath, wr.branch, wr.baseBranch)
+  } catch (err) {
+    throw git.explainWorktreeError(err, wr)
+  }
+}
+
+/** Runs the setup script of each given repository (all at once), from the worktree's sinfonie.json when it has one. */
+async function runSetupScripts(ws: Workspace, wrs: WorkspaceRepo[], emit: Emit): Promise<void> {
+  await Promise.all(
+    wrs.map(async (wr) => {
+      let repo: Repo
+      try {
+        repo = getRepo(wr.repoId)
+      } catch {
+        return
+      }
+      const cmd = configFor(repo, wr.worktreePath)?.scripts?.setup
+      if (cmd) await runScript(ws, repo, wr.worktreePath, 'setup', cmd, emit)
+    })
+  )
+}
+
 export function patchWorkspace(id: string, patch: Partial<Workspace>): Workspace {
   let out: Workspace | undefined
   getStore().update((d) => {
@@ -131,19 +180,11 @@ export async function createWorkspace(input: CreateWorkspaceInput, emit: Emit): 
 
   try {
     mkdirSync(rootPath, { recursive: true })
-    for (const wr of wsRepos) {
-      const repo = getRepo(wr.repoId)
-      await git.createWorktree(repo.path, wr.worktreePath, wr.branch, wr.baseBranch)
-    }
+    for (const wr of wsRepos) await addWorktree(getRepo(wr.repoId), wr)
     // Setup scripts run after every worktree exists, so a script in one repo
-    // can reference the sibling worktree via SINFONIE_WORKSPACE_ROOT.
-    await Promise.all(
-      wsRepos.map(async (wr) => {
-        const repo = getRepo(wr.repoId)
-        const cmd = repo.config?.scripts?.setup
-        if (cmd) await runScript(ws, repo, wr.worktreePath, 'setup', cmd, emit)
-      })
-    )
+    // can reference the sibling worktree via SINFONIE_WORKSPACE_ROOT. They stop after a while
+    // (SCRIPT_TIMEOUT_MS), and Skip setup (workspaces:stopScript 'setup') lets the workspace go ready at once.
+    await runSetupScripts(ws, wsRepos, emit)
     return patchWorkspace(ws.id, { status: 'ready' })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
@@ -157,7 +198,7 @@ export async function archiveWorkspace(
   emit: Emit
 ): Promise<Workspace> {
   const ws = getWorkspace(workspaceId)
-  patchWorkspace(ws.id, { status: 'archiving' })
+  patchWorkspace(ws.id, { status: 'archiving', archiveFailed: undefined })
   stopAllScripts(ws.id)
   for (const wr of ws.repos) {
     let repo: Repo | null = null
@@ -167,7 +208,7 @@ export async function archiveWorkspace(
       /* repo was removed from the app; still try to clean the folder */
     }
     if (repo) {
-      const cmd = repo.config?.scripts?.archive
+      const cmd = configFor(repo, wr.worktreePath)?.scripts?.archive
       if (cmd && existsSync(wr.worktreePath)) await runScript(ws, repo, wr.worktreePath, 'archive', cmd, emit)
       try {
         await git.removeWorktree(repo.path, wr.worktreePath, wr.branch, opts.deleteBranches)
@@ -198,24 +239,56 @@ export function assertOnDisk(ws: Workspace): void {
   throw new Error(`The folders of workspace "${ws.name}" are missing on disk: ${list}. Use Repair in the workspace header to recreate the worktrees from their branches, or archive the workspace.`)
 }
 
-/** Recreate every missing worktree from its recorded branch; the branch is kept if it still exists, else made from the base branch. */
-export async function repairWorkspace(workspaceId: string): Promise<Workspace> {
+/**
+ * Recreate every missing worktree from its recorded branch (the branch is kept if it still exists, else made from the
+ * base branch). When setup failed or was interrupted, this is also "Retry setup": the workspace goes back to setting
+ * up, missing worktrees are made, and the setup scripts run again.
+ */
+export async function repairWorkspace(workspaceId: string, emit: Emit = () => undefined): Promise<Workspace> {
   const ws = getWorkspace(workspaceId)
+  // A workspace whose archive failed is on its way out: recreating its worktrees would undo half an archive.
+  if (ws.archiveFailed) throw new Error(PLAIN_ERROR_MARK + 'This was being finished when Sinfonie closed, so it is not set up again. Finish it instead.')
+  const retrySetup = ws.status === 'error' || ws.status === 'creating'
   const missing = missingWorktrees(ws)
   if (!existsSync(ws.rootPath)) mkdirSync(ws.rootPath, { recursive: true })
+  if (retrySetup) patchWorkspace(ws.id, { status: 'creating', error: undefined })
   const errors: string[] = []
+  const recreated: WorkspaceRepo[] = []
   for (const wr of missing) {
-    const repo = getRepo(wr.repoId)
     try {
+      const repo = getRepo(wr.repoId)
       // Git may still register the old path; prune it so the branch can be checked out again.
       await git.git(repo.path).raw(['worktree', 'prune'])
-      await git.createWorktree(repo.path, wr.worktreePath, wr.branch, wr.baseBranch)
+      await addWorktree(repo, wr)
+      recreated.push(wr)
     } catch (err) {
       errors.push(`${wr.repoName}: ${err instanceof Error ? err.message : String(err)}`)
     }
   }
-  if (errors.length) return patchWorkspace(ws.id, { status: 'error', error: `Repair failed: ${errors.join('; ')}` })
+  if (errors.length) return patchWorkspace(ws.id, { status: 'error', error: `${retrySetup ? 'Setup' : 'Repair'} failed: ${errors.join('; ')}` })
+  const toSetUp = retrySetup ? ws.repos : recreated
+  if (toSetUp.length) await runSetupScripts(getWorkspace(ws.id), toSetUp, emit)
   return patchWorkspace(ws.id, { status: 'ready', error: undefined })
+}
+
+/** Why a workspace is in the error state after Sinfonie quit or crashed while it was being set up. */
+export const INTERRUPTED_SETUP = 'Setup was interrupted: Sinfonie closed before it finished. Retry setup to finish it.'
+
+/**
+ * At startup: nothing is setting up or archiving any more (the app quit or crashed mid-way). A workspace left
+ * "creating" becomes an error with a Retry; one left "archiving" finishes archiving in the background.
+ */
+export function reconcileInterrupted(emit: Emit): void {
+  const { workspaces } = getStore().get()
+  for (const w of workspaces) {
+    if (w.status === 'creating') patchWorkspace(w.id, { status: 'error', error: INTERRUPTED_SETUP })
+  }
+  for (const w of workspaces.filter((x) => x.status === 'archiving')) {
+    void archiveWorkspace(w.id, { deleteBranches: false }, emit).catch((err) => {
+      console.warn(`finishing the archive of ${w.id} failed`, err)
+      patchWorkspace(w.id, { status: 'error', archiveFailed: true, error: `Archiving was interrupted and could not finish: ${err instanceof Error ? err.message : String(err)}. Finish archiving to try again.` })
+    })
+  }
 }
 
 export async function safetyReport(workspaceId: string): Promise<RepoSafety[]> {
@@ -270,10 +343,9 @@ export async function addRepoToWorkspace(workspaceId: string, repoId: string, ba
   const branch = ws.repos[0]?.branch ?? ws.slug
   const wr: WorkspaceRepo = { repoId, repoName: repo.name, worktreePath: join(ws.rootPath, repo.name), branch, baseBranch: baseBranch || repo.defaultBranch }
   if (existsSync(wr.worktreePath)) throw new Error(`${wr.worktreePath} already exists`)
-  await git.createWorktree(repo.path, wr.worktreePath, wr.branch, wr.baseBranch)
+  await addWorktree(repo, wr)
   const out = patchWorkspace(ws.id, { repos: [...ws.repos, wr], ...(ws.primaryRepoId ? {} : { primaryRepoId: repoId }) })
-  const cmd = repo.config?.scripts?.setup
-  if (cmd) await runScript(out, repo, wr.worktreePath, 'setup', cmd, emit)
+  await runSetupScripts(out, [wr], emit)
   return out
 }
 
@@ -288,7 +360,7 @@ export async function removeRepoFromWorkspace(workspaceId: string, repoId: strin
     /* removed from the app */
   }
   if (repo) {
-    const cmd = repo.config?.scripts?.archive
+    const cmd = configFor(repo, wr.worktreePath)?.scripts?.archive
     if (cmd && existsSync(wr.worktreePath)) await runScript(ws, repo, wr.worktreePath, 'archive', cmd, emit)
     try {
       await git.removeWorktree(repo.path, wr.worktreePath, wr.branch, opts.deleteBranch)
@@ -356,21 +428,36 @@ export async function renameWorkspaceBranch(workspaceId: string, branch: string)
   return out
 }
 
-export async function runWorkspaceScript(workspaceId: string, kind: 'setup' | 'run', emit: Emit): Promise<void> {
+/**
+ * Starts each repository's setup or run script and returns as soon as they are started (a run script is a server
+ * that never exits; callers go on to open Preview). Scripts come from the worktree's sinfonie.json first, so a script
+ * the agent just added on this branch is used. Sequential mode starts the next script when the previous one exits.
+ * Returns how many scripts were started.
+ */
+export async function runWorkspaceScript(workspaceId: string, kind: 'setup' | 'run', emit: Emit): Promise<{ started: number }> {
   const ws = getWorkspace(workspaceId)
-  const jobs = ws.repos.map(async (wr) => {
-    const repo = getRepo(wr.repoId)
-    const cmd = repo.config?.scripts?.[kind]
+  const jobs: { repo: Repo; wr: WorkspaceRepo; cmd: string }[] = []
+  for (const wr of ws.repos) {
+    let repo: Repo
+    try {
+      repo = getRepo(wr.repoId)
+    } catch {
+      continue
+    }
+    const cmd = configFor(repo, wr.worktreePath)?.scripts?.[kind]
     if (!cmd) {
       emit({ workspaceId: ws.id, repoId: repo.id, kind, data: `[no ${kind} script in sinfonie.json]\r\n`, done: true, exitCode: 0 })
-      return
+      continue
     }
-    await runScript(ws, repo, wr.worktreePath, kind, cmd, emit)
-  })
-  const mode = ws.repos.map((wr) => getRepo(wr.repoId).config?.runScriptMode).find(Boolean) ?? 'concurrent'
-  if (mode === 'sequential') {
-    for (const j of jobs) await j
-  } else {
-    await Promise.all(jobs)
+    jobs.push({ repo, wr, cmd })
   }
+  const mode = jobs.map((j) => configFor(j.repo, j.wr.worktreePath)?.runScriptMode).find(Boolean) ?? 'concurrent'
+  const start = (j: (typeof jobs)[number]): Promise<number | null> => runScript(ws, j.repo, j.wr.worktreePath, kind, j.cmd, emit)
+  if (mode === 'sequential') {
+    // The first starts now; the rest follow in order, in the background.
+    void jobs.reduce<Promise<unknown>>((prev, j) => prev.then(() => start(j)), Promise.resolve())
+  } else {
+    for (const j of jobs) void start(j)
+  }
+  return { started: jobs.length }
 }

@@ -7,6 +7,7 @@ import { useGithub } from '@/stores/github'
 import { useChat } from '@/stores/chat'
 import { Badge, Button } from './ui'
 import { PrDialog } from './ChangesPane'
+import { ConnectGitHubCard } from './ConnectGitHub'
 import { timeAgo } from '@/lib/format'
 import type { PrCheck, RepoPr, ReviewThread, Workspace } from '@shared/types'
 
@@ -57,10 +58,18 @@ export function PrsPane({ workspaceId }: { workspaceId: string }): React.JSX.Ele
           <RefreshCw size={13} className={clsx(state?.loading && 'animate-spin')} /> Refresh
         </Button>
       </div>
-      {state?.error && <div className="border-b border-danger/30 bg-danger/10 px-3 py-2 text-[12px] text-danger">{state.error}</div>}
+      {state?.error && (
+        // The whole fetch failed: per-repository cards would only offer "Open pull request" for unknown state.
+        <div role="alert" className="flex items-center gap-2 border-b border-danger/30 bg-danger/10 px-3 py-2 text-[12px] text-danger">
+          <span className="min-w-0 flex-1 whitespace-pre-wrap">{state.error}</span>
+          <Button size="sm" onClick={() => void refresh(workspaceId)} disabled={state.loading}>
+            <RefreshCw size={12} className={clsx(state.loading && 'animate-spin')} aria-hidden /> Retry
+          </Button>
+        </div>
+      )}
       <div className="flex-1 overflow-auto p-4">
         <div className="mx-auto flex max-w-4xl flex-col gap-4">
-          {ws.repos.map((wr) => {
+          {!state?.error && ws.repos.map((wr) => {
             const r = state?.repos.find((x) => x.repoId === wr.repoId)
             return (
               <RepoCard
@@ -71,6 +80,7 @@ export function PrsPane({ workspaceId }: { workspaceId: string }): React.JSX.Ele
                 loading={Boolean(state?.loading) && !r}
                 onOpenPr={() => setPrDlg(wr.repoId)}
                 onAddress={() => addressRepo(wr.repoId)}
+                onRetry={() => void refresh(workspaceId)}
               />
             )
           })}
@@ -94,7 +104,7 @@ export function PrsPane({ workspaceId }: { workspaceId: string }): React.JSX.Ele
   )
 }
 
-function RepoCard({ repoName, branch, data, loading, onOpenPr, onAddress }: { repoName: string; branch: string; data?: RepoPr; loading: boolean; onOpenPr: () => void; onAddress: () => void }): React.JSX.Element {
+function RepoCard({ repoName, branch, data, loading, onOpenPr, onAddress, onRetry }: { repoName: string; branch: string; data?: RepoPr; loading: boolean; onOpenPr: () => void; onAddress: () => void; onRetry: () => void }): React.JSX.Element {
   const pr = data?.pr
   const unresolved = data?.threads.filter((t) => !t.isResolved) ?? []
   const resolved = data?.threads.filter((t) => t.isResolved) ?? []
@@ -116,13 +126,22 @@ function RepoCard({ repoName, branch, data, loading, onOpenPr, onAddress }: { re
           </>
         ) : loading ? (
           <span className="text-[12px] text-muted">Loading…</span>
-        ) : data?.error ? null : (
+        ) : data?.errorKind ? null : (
           <Button size="sm" variant="primary" onClick={onOpenPr}>
             <GitPullRequest size={12} /> Open pull request
           </Button>
         )}
       </header>
-      {data?.error && <div className="px-4 py-2 text-[12px] text-danger">{data.error}</div>}
+      {/* Fixable gh problems get their fix (Connect GitHub), not a raw error; anything else keeps its text and the Open button. */}
+      {data?.errorKind === 'gh-missing' || data?.errorKind === 'gh-auth' ? (
+        <div className="px-4 py-3">
+          <ConnectGitHubCard reason={data.errorKind === 'gh-missing' ? 'Pull requests need the GitHub tool and your GitHub sign-in. Sinfonie can set both up for you.' : 'Sinfonie is not signed in to GitHub, so it cannot show or open pull requests here.'} onConnected={onRetry} />
+        </div>
+      ) : data?.errorKind === 'not-github' ? (
+        <div className="px-4 py-2 text-[12px] text-muted">This repository has no GitHub remote, so there are no pull requests to show. Push it to GitHub (for example with the Send for review flow's “Put this app on GitHub”) to open one.</div>
+      ) : (
+        data?.error && <div className="px-4 py-2 text-[12px] text-danger">{data.error}</div>
+      )}
       {pr && (
         <div className="px-4 py-3">
           <div className="mb-2 text-[13px] font-medium">{pr.title}</div>
@@ -178,7 +197,7 @@ function RepoCard({ repoName, branch, data, loading, onOpenPr, onAddress }: { re
           )}
         </div>
       )}
-      {!pr && !loading && !data?.error && <div className="px-4 py-3 text-[12px] text-muted">No pull request for this branch yet.</div>}
+      {!pr && !loading && !data?.errorKind && <div className="px-4 py-3 text-[12px] text-muted">No pull request for this branch yet.</div>}
     </section>
   )
 }

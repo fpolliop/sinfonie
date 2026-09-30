@@ -2,6 +2,7 @@ import React, { useEffect } from 'react'
 import clsx from 'clsx'
 import { Square, X } from 'lucide-react'
 import { api } from '@/lib/api'
+import { friendlyError } from '@/lib/errors'
 import { useApp } from '@/stores/app'
 import { useResources, subscribeResources, gb } from '@/stores/resources'
 import { Badge, Button, Field, IconButton, Toggle, inputCls } from './ui'
@@ -24,7 +25,7 @@ export function ResourcesPage(): React.JSX.Element {
   useEffect(() => subscribeResources(), [])
   const r = { ...DEFAULTS, ...(settings.resources ?? {}) }
   const update = (patch: Partial<ResourceSettings>): void => {
-    api.invoke('settings:update', { resources: { ...r, ...patch } }).catch((err) => setError(err instanceof Error ? err.message : String(err)))
+    api.invoke('settings:update', { resources: { ...r, ...patch } }).catch((err) => setError(friendlyError(err)))
   }
   const nameOf = (id: string): string => workspaces.find((w) => w.id === id)?.name ?? 'Unknown workspace'
   const pct = snap ? Math.min(100, (snap.appRss / snap.budget) * 100) : 0
@@ -68,7 +69,7 @@ export function ResourcesPage(): React.JSX.Element {
                     <span className="h-1.5 w-1.5 rounded-full bg-warn" />
                     <span className="truncate">{t.description}</span>
                     <span className="text-[11px]">since {new Date(t.startedAt).toLocaleTimeString()}</span>
-                    <button className="ml-auto inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] hover:bg-panel-2 hover:text-danger" title="Stop this subagent; the orchestrator is told it was stopped" onClick={() => api.invoke('resources:stopTask', s.workspaceId, t.taskId).catch((err) => setError(String(err)))}>
+                    <button className="ml-auto inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] hover:bg-panel-2 hover:text-danger" title="Stop this subagent; the orchestrator is told it was stopped" onClick={() => api.invoke('resources:stopTask', s.workspaceId, t.taskId).catch((err) => setError(friendlyError(err)))}>
                       <Square size={10} /> Stop
                     </button>
                   </div>
@@ -81,7 +82,7 @@ export function ResourcesPage(): React.JSX.Element {
                 {snap.waiting.map((id) => (
                   <span key={id} className="mr-2 inline-flex items-center gap-1">
                     {nameOf(id)}
-                    <IconButton label={`Cancel the waiting message in ${nameOf(id)}`} className="hover:text-danger" onClick={() => void api.invoke('resources:cancelWaiting', id).catch((err) => setError(String(err)))}>
+                    <IconButton label={`Cancel the waiting message in ${nameOf(id)}`} className="hover:text-danger" onClick={() => void api.invoke('resources:cancelWaiting', id).catch((err) => setError(friendlyError(err)))}>
                       <X size={11} />
                     </IconButton>
                   </span>

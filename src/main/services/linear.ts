@@ -4,7 +4,7 @@
  * and the MCP URL + bearer token for agent sessions. One connection per space, or the app default.
  */
 import { safeStorage } from 'electron'
-import { presentAuthLink } from './auth-link'
+import { presentAuthLink, onAuthCancel, AUTH_CANCELLED } from './auth-link'
 import { createServer, type Server } from 'http'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
@@ -185,15 +185,22 @@ function argsFor(conn: Conn, tool: string, wanted: Record<string, unknown>): Rec
 }
 
 // ---------- public API ----------
-let pendingCallback: { server: Server } | null = null
+let pendingCallback: { server: Server; resolve?: (code: string) => void; reject: (e: Error) => void } | null = null
+
+/** Closes the callback server of a sign-in in progress and rejects its promise, so nothing waits on it any more. */
+function cancelPending(err: Error): void {
+  const pc = pendingCallback
+  if (!pc) return
+  pendingCallback = null
+  pc.server.close()
+  pc.reject(err)
+}
+onAuthCancel('linear', () => cancelPending(new Error(AUTH_CANCELLED)))
 
 /** Opens the browser for approval and resolves once tokens are stored. */
 export async function authenticate(connId: string): Promise<void> {
   dropClient(connId)
-  if (pendingCallback) {
-    pendingCallback.server.close()
-    pendingCallback = null
-  }
+  cancelPending(new Error(AUTH_CANCELLED))
   const provider = new StoreOAuthProvider(connId, true)
   provider.invalidateCredentials('tokens')
   const code = await new Promise<string>((resolve, reject) => {
@@ -214,7 +221,7 @@ export async function authenticate(connId: string): Promise<void> {
     })
     server.on('error', (e) => reject(new Error(`Could not listen on port ${CALLBACK_PORT} for the Linear callback: ${e.message}`)))
     server.listen(CALLBACK_PORT, '127.0.0.1', () => {
-      pendingCallback = { server }
+      pendingCallback = { server, reject }
       const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider })
       const probe = new Client({ name: 'sinfonie', version: '0.1.0' })
       probe

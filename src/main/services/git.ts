@@ -1,11 +1,118 @@
 import { simpleGit, type SimpleGit } from 'simple-git'
+import { execFile } from 'child_process'
 import { existsSync, readFileSync, writeFileSync, lstatSync, realpathSync, statSync } from 'fs'
 import { isAbsolute, join, relative, resolve, sep } from 'path'
 import { createHash } from 'crypto'
 import type { ChangeScope, ChangedFileStat, ConductorConfig, GitFileStatus } from '@shared/types'
+import { ensureIdentity, pushRemote } from './prereqs'
 
 export function git(cwd: string): SimpleGit {
   return simpleGit({ baseDir: cwd, maxConcurrentProcesses: 4 })
+}
+
+/** How long a network git call (fetch, push, clone) may run before it is stopped. */
+export const GIT_NETWORK_TIMEOUT_MS = 120_000
+
+/**
+ * The environment for git calls that talk to a remote: never prompt (there is no terminal to answer, so a missing
+ * credential would hang forever), and let the credential manager fail instead of opening a window.
+ */
+export function gitNetworkEnv(): NodeJS.ProcessEnv {
+  return { ...process.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never' }
+}
+
+/**
+ * Runs a git command that talks to a remote: no prompts, stdin closed, stopped after `timeoutMs`. Resolves with
+ * stdout and stderr together (git reports progress and push results on stderr); rejects with a classified
+ * GitNetworkError.
+ */
+export function gitNet(cwd: string, args: string[], timeoutMs = GIT_NETWORK_TIMEOUT_MS): Promise<string> {
+  return new Promise((resolvePromise, reject) => {
+    const child = execFile('git', args, { cwd, env: gitNetworkEnv(), timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024 }, (err, stdout, stderr) => {
+      if (!err) return resolvePromise(`${stdout}${stderr}`)
+      const e = err as NodeJS.ErrnoException & { killed?: boolean; signal?: string }
+      const raw = e.killed || e.signal === 'SIGTERM' ? 'timeout' : e.code === 'ENOENT' ? 'git: command not found' : `${stderr || ''}${stdout || ''}` || e.message
+      reject(new GitNetworkError(raw, args[0] ?? 'git'))
+    })
+    child.stdin?.end()
+  })
+}
+
+export type GitErrorKind = 'no-remote' | 'publickey' | 'host-key' | 'permission' | 'auth' | 'rejected' | 'network' | 'timeout' | 'git-missing' | 'other'
+
+/**
+ * What a failed network git call means, in a sentence that says what to do next. Shared by push, fetch and clone;
+ * guided screens still pass the message through friendlyError(), which maps sign-in and network problems to plain words.
+ */
+export function classifyGitError(raw: string, op = 'push'): { kind: GitErrorKind; message: string } {
+  const again = `then ${op === 'push' ? 'push' : 'try'} again`
+  if (raw === 'timeout' || /block timeout reached/.test(raw)) return { kind: 'timeout', message: `The remote did not answer within ${GIT_NETWORK_TIMEOUT_MS / 1000} seconds, so git was stopped. Check your connection or VPN, ${again}.` }
+  if (/command not found|ENOENT|xcrun: error|invalid active developer path/i.test(raw)) return { kind: 'git-missing', message: 'Git is not installed on this Mac. Install the Xcode command line tools (run xcode-select --install in Terminal), then try again.' }
+  if (/No such remote|does not appear to be a git repository|No configured push destination|no upstream configured and no remote/i.test(raw)) return { kind: 'no-remote', message: `This repository has no remote called origin, so there is nowhere to ${op}. Publish it on GitHub or add one with git remote add origin <url>, ${again}.` }
+  if (/Host key verification failed/i.test(raw)) return { kind: 'host-key', message: `SSH does not trust the server yet (host key verification failed). Run ssh -T git@github.com once in Terminal and accept the key, ${again}.` }
+  if (/Permission denied \(publickey|publickey\)|sign_and_send_pubkey|no such identity/i.test(raw)) return { kind: 'publickey', message: `The remote refused your SSH key (Permission denied, publickey). Add your SSH key to GitHub, or switch origin to HTTPS and connect GitHub, ${again}.` }
+  if (/Repository not found/i.test(raw)) return { kind: 'permission', message: `The remote repository was not found, or your account cannot see it. Check origin's URL and that you have access, ${again}.` }
+  if (/Permission to .* denied|returned error: 403|\b403\b|not allowed to push|protected branch|GH006|insufficient permission/i.test(raw)) return { kind: 'permission', message: `Your account is not allowed to ${op === 'push' ? 'push to' : 'use'} this repository. Ask its owner for write access, or work from a fork.` }
+  if (/Authentication failed|could not read Username|could not read Password|terminal prompts disabled|Invalid username or password|returned error: 401|\b401\b|Missing or invalid credentials|credential/i.test(raw)) return { kind: 'auth', message: `Git has no saved sign-in for this remote. Connect GitHub (or run gh auth setup-git in Terminal), ${again}.` }
+  if (/\[rejected\]|non-fast-forward|fetch first|Updates were rejected/i.test(raw)) return { kind: 'rejected', message: 'The remote branch has commits you do not have yet. Pull or rebase onto it, then push again.' }
+  if (/Could not resolve host|unable to access|Connection timed out|Operation timed out|Network is unreachable|Connection refused|Could not read from remote repository/i.test(raw)) return { kind: 'network', message: `Could not reach the remote. Check your internet connection or VPN, ${again}.` }
+  return { kind: 'other', message: raw.trim() || `git ${op} failed.` }
+}
+
+/** A failed network git call, with its kind and git's own words kept for "Show details". */
+export class GitNetworkError extends Error {
+  kind: GitErrorKind
+  raw: string
+  constructor(raw: string, op: string) {
+    const { kind, message } = classifyGitError(raw, op)
+    const tail = raw
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => l && !/^(hint|To |remote: *$)/.test(l))
+      .slice(-3)
+      .join('\n')
+    super(kind === 'other' || !tail || tail === 'timeout' ? message : `${message}\n\ngit said: ${tail}`)
+    this.kind = kind
+    this.raw = raw
+  }
+}
+
+/** True when the repository has at least one commit (an empty repository has nothing to branch from). */
+export async function hasCommits(repoPath: string): Promise<boolean> {
+  try {
+    await git(repoPath).raw(['rev-parse', '--verify', '--quiet', 'HEAD^{commit}'])
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** An empty first commit, using a stand-in author when git has no name or email configured yet. */
+export async function createInitialCommit(repoPath: string): Promise<void> {
+  const g = git(repoPath)
+  // A real author first (GitHub or the Sinfonie account, for this app only); the stand-in below stays the last resort.
+  await ensureIdentity(repoPath).catch(() => undefined)
+  try {
+    await g.raw(['commit', '--allow-empty', '-m', 'Initial commit'])
+  } catch (err) {
+    if (!/tell me who you are|user\.email|user\.name|empty ident/i.test(String(err))) throw err
+    await g.raw(['-c', 'user.name=Sinfonie', '-c', 'user.email=sinfonie@localhost', 'commit', '--allow-empty', '-m', 'Initial commit'])
+  }
+}
+
+/** Turns git's worktree errors into what happened and what to do. */
+export function explainWorktreeError(err: unknown, ctx: { branch: string; baseBranch: string; worktreePath: string }): Error {
+  const raw = err instanceof Error ? err.message : String(err)
+  const elsewhere = /already checked out at '([^']+)'|is already used by worktree at '([^']+)'|already used by worktree at '([^']+)'/.exec(raw)
+  if (elsewhere || /is already checked out|already used by worktree/.test(raw)) {
+    const where = elsewhere?.slice(1).find(Boolean)
+    return new Error(`Branch ${ctx.branch} is already checked out${where ? ` in ${where}` : ' in another folder'}. Git allows a branch in one folder at a time: switch that folder to another branch (or remove that worktree), then retry setup.`)
+  }
+  if (/invalid reference|not a valid object name|Needed a single revision|unknown revision/i.test(raw)) {
+    return new Error(`The base branch ${ctx.baseBranch} does not exist in this repository (or the repository has no commits yet). Pick another base branch, or make a first commit, then retry setup.`)
+  }
+  if (/already exists/i.test(raw)) return new Error(`The folder ${ctx.worktreePath} already exists. Move or delete it, then retry setup.`)
+  return err instanceof Error ? err : new Error(raw)
 }
 
 export async function isGitRepo(path: string): Promise<boolean> {
@@ -101,7 +208,7 @@ export async function createWorktree(
 ): Promise<void> {
   const g = git(repoPath)
   try {
-    await g.fetch(['origin', baseBranch])
+    await gitNet(repoPath, ['fetch', 'origin', baseBranch], 60_000)
   } catch {
     /* offline or no origin: fall back to local */
   }
@@ -120,7 +227,7 @@ export async function createWorktree(
   // A teammate may have pushed this branch already: start from theirs and track it.
   let remoteBranch = false
   try {
-    await g.fetch(['origin', branch])
+    await gitNet(repoPath, ['fetch', 'origin', branch], 60_000)
     await g.revparse(['--verify', `origin/${branch}`])
     remoteBranch = true
   } catch {
@@ -187,7 +294,7 @@ export async function hasUpstream(worktreePath: string): Promise<boolean> {
 /** After GitHub renamed origin/<old> to origin/<new>, refresh refs and track the new one. */
 export async function retrackAfterRemoteRename(worktreePath: string, oldBranch: string, newBranch: string): Promise<void> {
   const g = git(worktreePath)
-  await g.fetch(['origin', '--prune'])
+  await gitNet(worktreePath, ['fetch', 'origin', '--prune'])
   try {
     await g.raw(['branch', `--set-upstream-to=origin/${newBranch}`, newBranch])
   } catch {
@@ -388,6 +495,8 @@ export function undoRestore(worktreePath: string, path: string, saved: string, h
 
 export async function commitAll(worktreePath: string, message: string): Promise<string> {
   const g = git(worktreePath)
+  // No author set up (a fresh Mac): take one from GitHub or the Sinfonie account, for this app only (prereqs.ts).
+  await ensureIdentity(worktreePath).catch(() => undefined)
   await g.add(['-A'])
   const r = await g.commit(message)
   return r.commit
@@ -398,14 +507,29 @@ export async function checkpoint(worktreePath: string, message: string): Promise
   const g = git(worktreePath)
   const s = await g.status()
   if (s.isClean()) return null
+  await ensureIdentity(worktreePath).catch(() => undefined)
   await g.add(['-A'])
   const r = await g.commit(message)
   return r.commit || null
 }
 
+/**
+ * Pushes the current branch to origin (or to the person's own copy after Make your own copy: prereqs.pushRemote)
+ * and tracks it. Never prompts and gives up after a while; failures are
+ * classified (no origin, SSH key refused, no permission, no saved sign-in, rejected, offline) with what to do next.
+ */
 export async function push(worktreePath: string): Promise<string> {
   const g = git(worktreePath)
   const branch = (await g.revparse(['--abbrev-ref', 'HEAD'])).trim()
-  const r = await g.push(['-u', 'origin', branch])
-  return r.remoteMessages?.all.join('\n') ?? `pushed ${branch}`
+  if (branch === 'HEAD') throw new Error('This worktree is not on a branch (detached HEAD), so there is nothing to push. Check out a branch first.')
+  const remotes = await g.getRemotes().catch(() => [])
+  if (!remotes.some((r) => r.name === 'origin')) throw new GitNetworkError('No such remote origin', 'push')
+  const out = await gitNet(worktreePath, ['push', '-u', await pushRemote(worktreePath), branch])
+  const remote = out
+    .split('\n')
+    .filter((l) => l.startsWith('remote:'))
+    .map((l) => l.replace(/^remote:\s?/, ''))
+    .join('\n')
+    .trim()
+  return remote || `pushed ${branch}`
 }

@@ -30,16 +30,10 @@ export function normalizeGithubLink(input: string): string | null {
   return m ? `https://github.com/${m[1]}/${m[2]}.git` : null
 }
 
-/** Add an app to the personal space, from a folder on this Mac or a GitHub link. Returns the app and its space. */
-export async function addSoloApp(source: { path: string } | { github: string }): Promise<{ repo: Repo; spaceId: string }> {
-  let path: string
-  if ('path' in source) path = source.path
-  else {
-    const url = normalizeGithubLink(source.github)
-    if (!url) throw new Error('That does not look like a GitHub link. Copy the address of the app’s GitHub page and paste it here.')
-    path = await api.invoke('repos:clone', url)
-  }
+/** Add an app already on this Mac (a folder that is an app) to the personal space, with a git author when it has none. */
+export async function addSoloPath(path: string): Promise<{ repo: Repo; spaceId: string }> {
   const spaceId = await ensurePersonalSpace()
   const [repo] = await api.invoke('repos:addPaths', [path], spaceId)
+  await api.invoke('github:ensureIdentity', path).catch(() => undefined)
   return { repo, spaceId }
 }

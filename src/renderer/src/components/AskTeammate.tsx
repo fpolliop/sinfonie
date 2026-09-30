@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
-import { LifeBuoy, CheckCircle2, ExternalLink } from 'lucide-react'
+import { LifeBuoy, CheckCircle2, ExternalLink, Wand2 } from 'lucide-react'
+import { openMaestro, openMaestroDock } from '@/stores/maestro'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { Button, Dialog, IconButton, inputCls } from './ui'
@@ -11,6 +12,9 @@ import { friendlyError, rawMessage } from '@/lib/errors'
  */
 export function AskTeammate({ workspaceId, prefill, trigger }: { workspaceId: string; prefill?: string; trigger: (open: () => void) => React.ReactNode }): React.JSX.Element {
   const [open, setOpen] = useState(false)
+  const ask = useAskChannel(workspaceId)
+  // Nobody to ask (no question channel set for this team): offer Maestro instead, and admins the setting.
+  if (!ask.channel) return <AskMaestroInstead prefill={prefill} admin={ask.admin} spaceId={ask.spaceId} />
   return (
     <>
       {trigger(() => setOpen(true))}
@@ -75,10 +79,42 @@ function AskDialog({ workspaceId, prefill, onClose }: { workspaceId: string; pre
   )
 }
 
-/** The ghost button used in the guided chat composer. */
+/** Where "Ask a teammate" posts for this task's team, and whether the person may set it (a team admin). */
+function useAskChannel(workspaceId: string): { channel?: string; admin: boolean; spaceId?: string } {
+  const spaceId = useApp((s) => s.workspaces.find((w) => w.id === workspaceId)?.spaceId ?? undefined)
+  const space = useApp((s) => s.spaces.find((sp) => sp.id === spaceId))
+  const admin = useApp((s) => Boolean(space?.orgId && s.settings.cloud?.account?.orgs?.some((o) => o.id === space.orgId && o.role === 'admin')))
+  return { channel: space?.guided?.askChannel, admin, spaceId }
+}
+
+/** No channel for questions: Maestro can help right away; a team admin also gets the setting that turns this on. */
+function AskMaestroInstead({ prefill, admin, spaceId }: { prefill?: string; admin: boolean; spaceId?: string }): React.JSX.Element {
+  const openSettings = useApp((s) => s.openSettings)
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <Button size="sm" onClick={() => void openMaestro({ fresh: true, prompt: prefill ? `${prefill}\n\nWhat can I do about this?` : undefined })}>
+        <Wand2 size={12} /> Ask Maestro
+      </Button>
+      {admin && spaceId && (
+        <Button size="sm" variant="ghost" onClick={() => openSettings({ scope: 'space', spaceId, page: 'general' })} title="Pick the Slack channel where teammates' questions go">
+          Set up questions to your team
+        </Button>
+      )}
+    </span>
+  )
+}
+
+/** The ghost button used in the guided chat composer. With nobody to ask, it asks Maestro instead. */
 export function AskTeammateButton({ workspaceId }: { workspaceId: string }): React.JSX.Element | null {
   const guided = useApp((s) => s.settings.mode === 'guided')
+  const ask = useAskChannel(workspaceId)
   if (!guided) return null
+  if (!ask.channel)
+    return (
+      <IconButton label="Ask Maestro" className="px-1.5" onClick={() => void openMaestroDock()}>
+        <Wand2 size={13} />
+      </IconButton>
+    )
   return (
     <AskTeammate
       workspaceId={workspaceId}

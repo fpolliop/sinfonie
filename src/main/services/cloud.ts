@@ -10,8 +10,8 @@
 import { safeStorage, shell } from 'electron'
 import { randomBytes } from 'crypto'
 import { getStore } from '../store'
-import { presentAuthLink, authDone } from './auth-link'
-import { PLAN_LIMITS, PLAN_LABELS, PLAN_FEATURES } from '@shared/types'
+import { presentAuthLink, authDone, onAuthCancel } from './auth-link'
+import { PLAN_LIMITS, PLAN_LABELS, PLAN_FEATURES, PLAIN_ERROR_MARK } from '@shared/types'
 import type { AppMode, BillingPeriod, CloudAccount, CloudOrgDetail, CloudState, DiscoveredOrg, Plan, PlanFeature, PlanLimits, Vendor } from '@shared/types'
 
 export const CLOUD_URL = process.env.SINFONIE_CLOUD_URL ?? 'https://sinfonie.dev'
@@ -61,7 +61,9 @@ function patchState(patch: Partial<CloudState> | null): CloudState {
 class CloudError extends Error {
   constructor(
     message: string,
-    public status: number
+    public status: number,
+    /** The server's error code (`not_found`, `used`, `no_seats`, …), when it sent one. */
+    public code?: string
   ) {
     super(message)
   }
@@ -71,7 +73,7 @@ async function call<T>(path: string, init: RequestInit = {}, token = sessionToke
   if (token) headers.Authorization = `Bearer ${token}`
   const res = await fetch(`${CLOUD_URL}${path}`, { ...init, headers, signal: AbortSignal.timeout(15_000) })
   const body = (await res.json().catch(() => ({}))) as Record<string, unknown>
-  if (!res.ok) throw new CloudError(String(body.error_description ?? body.error ?? `sinfonie.dev answered ${res.status}`), res.status)
+  if (!res.ok) throw new CloudError(String(body.error_description ?? body.error ?? `sinfonie.dev answered ${res.status}`), res.status, typeof body.error === 'string' ? body.error : undefined)
   return body as T
 }
 
@@ -120,30 +122,73 @@ function stopPolling(): void {
   pendingState = null
 }
 export type SignInProvider = 'github' | 'google'
+onAuthCancel('cloud', () => stopPolling())
+
+/**
+ * Polls for the session the sign-in callback parks under `st`. Every way it ends reaches the dialog through
+ * authDone: success, the five-minute timeout, the server saying no, repeated network failures, or a failed
+ * finish. Closing the dialog calls auth:cancel, which stops the polling.
+ */
+function pollForSession(st: string, label: string): void {
+  const until = Date.now() + 5 * 60_000
+  let misses = 0
+  let inFlight = false
+  const fail = (text: string): void => {
+    if (pendingState !== st) return
+    stopPolling()
+    authDone('cloud', '', text)
+  }
+  pollTimer = setInterval(() => {
+    if (pendingState !== st) return stopPolling()
+    if (Date.now() > until) return fail(`The ${label} sign-in was not finished within five minutes. Start again when you are ready.`)
+    if (inFlight) return
+    inFlight = true
+    void fetch(`${CLOUD_URL}/oauth/poll?state=${encodeURIComponent(st)}`, { signal: AbortSignal.timeout(10_000) })
+      .then((r) => r.json() as Promise<{ token?: string; error?: string; error_description?: string }>)
+      .then(async (j) => {
+        misses = 0
+        if (pendingState !== st) return
+        // Waiting answers vary; only a clear refusal ends the wait early.
+        if (j.error && /denied|expired|invalid/i.test(j.error)) return fail(`The ${label} sign-in did not go through (${j.error_description ?? j.error}). Start again.`)
+        if (!j.token) return
+        stopPolling()
+        try {
+          await finishSignIn(j.token)
+        } catch (err) {
+          authDone('cloud', '', `You approved access, but Sinfonie could not finish signing in (${err instanceof Error ? err.message : String(err)}). Start again.`)
+        }
+      })
+      .catch(() => {
+        // One slow answer is fine; half a minute of them means the connection is down.
+        if (++misses >= 15) fail('Sinfonie could not reach sinfonie.dev to finish signing in. Check your connection and start again.')
+      })
+      .finally(() => (inFlight = false))
+  }, 2000)
+}
+
 /** Opens the GitHub or Google sign-in on sinfonie.dev and polls for the session the callback parks under our state. */
 export async function signIn(provider: SignInProvider = 'github'): Promise<void> {
   stopPolling()
   const st = randomBytes(24).toString('base64url')
   pendingState = st
-  const until = Date.now() + 5 * 60_000
-  pollTimer = setInterval(() => {
-    if (Date.now() > until || pendingState !== st) return stopPolling()
-    void fetch(`${CLOUD_URL}/oauth/poll?state=${encodeURIComponent(st)}`, { signal: AbortSignal.timeout(10_000) })
-      .then((r) => r.json() as Promise<{ token?: string; error?: string }>)
-      .then(async (j) => {
-        if (!j.token || pendingState !== st) return
-        stopPolling()
-        await finishSignIn(j.token)
-      })
-      .catch(() => undefined)
-  }, 2000)
-  presentAuthLink('cloud', '', `${CLOUD_URL}/oauth/${provider}/start?state=${encodeURIComponent(st)}`, provider === 'google' ? 'Google' : 'GitHub')
+  const label = provider === 'google' ? 'Google' : 'GitHub'
+  pollForSession(st, label)
+  // Open the browser right away; the dialog (or the setup wizard's inline wait) is the "didn't open? copy it" fallback.
+  const url = `${CLOUD_URL}/oauth/${provider}/start?state=${encodeURIComponent(st)}`
+  const opened = await shell.openExternal(url).then(
+    () => true,
+    () => false
+  )
+  presentAuthLink('cloud', '', url, label, false, opened)
 }
 async function finishSignIn(token: string): Promise<void> {
   const account = await call<CloudAccount>('/api/me', {}, token)
   writeSessionToken(token)
   patchState({ account, checkedAt: new Date().toISOString(), error: undefined })
+  applyOrgDefaultMode(account)
   authDone('cloud', '')
+  // Pull the team's shared apps now, not at the next six-hourly refresh.
+  afterRefresh?.()
 }
 export async function signOut(): Promise<CloudState> {
   stopPolling()
@@ -156,21 +201,25 @@ export async function signOut(): Promise<CloudState> {
 // ---------- billing ----------
 /** Opens Paddle checkout for a plan in the browser. The server builds the transaction so the price ids never ship. */
 export async function checkout(plan: Exclude<Plan, 'free'>, period: BillingPeriod, seats = 1): Promise<void> {
-  if (!sessionToken()) throw new Error('Sign in to Sinfonie first, then choose a plan.')
+  if (!sessionToken()) throw new Error(`${PLAIN_ERROR_MARK}Sign in to Sinfonie first, then choose a plan.`)
   const q = new URLSearchParams({ plan, period, seats: String(seats) })
   const { url } = await call<{ url: string }>(`/api/billing/checkout?${q}`, { method: 'POST' })
   await shell.openExternal(url)
 }
 /** Paddle's customer portal: invoices, payment method, cancel. */
 export async function portal(): Promise<void> {
-  if (!sessionToken()) throw new Error('Sign in to Sinfonie first.')
+  needSession()
   const { url } = await call<{ url: string }>('/api/billing/portal', { method: 'POST' })
   await shell.openExternal(url)
 }
 
 // ---------- teams ----------
+/** The settings page that holds the Sinfonie account and plan, named as the person's lens shows it. */
+function planPageName(): string {
+  return getStore().get().settings.mode === 'guided' ? 'Settings → Account & team' : 'Settings → Plan'
+}
 function needSession(): void {
-  if (!sessionToken()) throw new Error('Sign in to Sinfonie first.')
+  if (!sessionToken()) throw new Error(`${PLAIN_ERROR_MARK}Sign in to Sinfonie first, under ${planPageName()}.`)
 }
 export async function orgs(): Promise<CloudOrgDetail[]> {
   needSession()
@@ -217,8 +266,18 @@ export async function acceptInvite(codeOrUrl: string): Promise<CloudOrgDetail> {
   } catch {
     // a bare token
   }
-  if (!/^[A-Za-z0-9_-]{16,64}$/.test(token)) throw new Error('That does not look like an invite code.')
-  const org = await call<CloudOrgDetail>(`/api/invites/${encodeURIComponent(token)}`, { method: 'POST' })
+  if (!/^[A-Za-z0-9_-]{16,64}$/.test(token)) throw new Error(`${PLAIN_ERROR_MARK}That does not look like an invite link. Copy the whole link your admin sent and paste it again.`)
+  let org: CloudOrgDetail
+  try {
+    org = await call<CloudOrgDetail>(`/api/invites/${encodeURIComponent(token)}`, { method: 'POST' })
+  } catch (err) {
+    // The server answers with a code; say it in words (the invite page on sinfonie.dev uses the same codes).
+    const code = err instanceof CloudError ? err.code : undefined
+    if (code === 'not_found') throw new Error(`${PLAIN_ERROR_MARK}This invite link no longer works: it was cancelled or mistyped. Ask your admin for a new one.`)
+    if (code === 'used' || code === 'expired') throw new Error(`${PLAIN_ERROR_MARK}This invite link was already used or has expired. Ask your admin for a new one.`)
+    if (code === 'no_seats') throw new Error(`${PLAIN_ERROR_MARK}Your team has no free seats left. Ask your admin to add a seat, then try the link again.`)
+    throw err
+  }
   await refresh()
   return org
 }
@@ -245,20 +304,10 @@ export async function addEmail(provider: SignInProvider): Promise<void> {
   const st = randomBytes(24).toString('base64url')
   await call('/api/me/link', jsonInit('POST', { state: st }))
   pendingState = st
-  const until = Date.now() + 5 * 60_000
-  pollTimer = setInterval(() => {
-    if (Date.now() > until || pendingState !== st) return stopPolling()
-    void fetch(`${CLOUD_URL}/oauth/poll?state=${encodeURIComponent(st)}`, { signal: AbortSignal.timeout(10_000) })
-      .then((r) => r.json() as Promise<{ token?: string }>)
-      .then(async (j) => {
-        if (!j.token || pendingState !== st) return
-        stopPolling()
-        // Same account, fresh session: keep it and refresh, so the new email shows up.
-        await finishSignIn(j.token)
-      })
-      .catch(() => undefined)
-  }, 2000)
-  presentAuthLink('cloud', '', `${CLOUD_URL}/oauth/${provider}/start?state=${encodeURIComponent(st)}`, provider === 'google' ? 'Google' : 'GitHub')
+  const label = provider === 'google' ? 'Google' : 'GitHub'
+  // Same account, fresh session once approved: finishSignIn keeps it and refreshes, so the new email shows up.
+  pollForSession(st, label)
+  presentAuthLink('cloud', '', `${CLOUD_URL}/oauth/${provider}/start?state=${encodeURIComponent(st)}`, label, true)
 }
 export async function removeEmail(email: string): Promise<CloudState> {
   needSession()
@@ -296,13 +345,41 @@ export async function removeDomain(orgId: string, domain: string): Promise<Cloud
 }
 export async function discover(): Promise<DiscoveredOrg[]> {
   needSession()
-  return (await call<{ orgs: DiscoveredOrg[] }>('/api/orgs/discover')).orgs
+  const found = (await call<{ orgs: DiscoveredOrg[] }>('/api/orgs/discover')).orgs
+  // A request made earlier (another session) keeps being watched until an admin answers.
+  for (const d of found) if (d.requested && !d.denied) watchJoinRequest(d.id)
+  return found
 }
 export async function joinOrg(orgId: string): Promise<{ joined: boolean; requested?: boolean }> {
   needSession()
   const out = await call<{ joined: boolean; requested?: boolean }>(`/api/orgs/${encodeURIComponent(orgId)}/join`, { method: 'POST' })
   if (out.joined) await refresh()
+  else if (out.requested) watchJoinRequest(orgId)
   return out
+}
+
+/**
+ * "Ask to join" waits on an admin. Re-ask the server every minute (for up to a day) until the membership shows up,
+ * so the team and its apps arrive without the person doing anything; refresh() then syncs the shared apps.
+ */
+const joinWatch = new Map<string, NodeJS.Timeout>()
+export function watchJoinRequest(orgId: string): void {
+  if (joinWatch.has(orgId)) return
+  const until = Date.now() + 24 * 3600_000
+  const t = setInterval(() => {
+    if (Date.now() > until || !sessionToken()) {
+      clearInterval(t)
+      joinWatch.delete(orgId)
+      return
+    }
+    void refresh().then((st) => {
+      if (st.account?.orgs.some((o) => o.id === orgId)) {
+        clearInterval(t)
+        joinWatch.delete(orgId)
+      }
+    })
+  }, 60_000)
+  joinWatch.set(orgId, t)
 }
 export async function decideRequest(orgId: string, userId: string, action: 'approve' | 'deny'): Promise<CloudOrgDetail> {
   needSession()
@@ -340,8 +417,9 @@ export function assertWithin(what: keyof PlanLimits, current: number, vendor?: V
   const max = limits()[what]
   if (max === null || current < max) return
   const p = PLAN_LABELS[plan()]
-  const noun = what === 'spaces' ? `${max} space${max === 1 ? '' : 's'}` : what === 'reposPerSpace' ? `${max} repositories per space` : `${max} ${vendor ?? ''} account${max === 1 ? '' : 's'} per vendor`.replace('  ', ' ')
-  throw new Error(`Plan limit: the ${p} plan allows ${noun}. Upgrade under Settings → Plan to add more.`)
+  const guided = getStore().get().settings.mode === 'guided'
+  const noun = what === 'spaces' ? `${max} ${guided ? 'team' : 'space'}${max === 1 ? '' : 's'}` : what === 'reposPerSpace' ? (guided ? `${max} app${max === 1 ? '' : 's'} per team` : `${max} repositories per space`) : `${max} ${vendor ?? ''} account${max === 1 ? '' : 's'} per vendor`.replace('  ', ' ')
+  throw new Error(`${PLAIN_ERROR_MARK}Plan limit: the ${p} plan allows ${noun}. Upgrade under ${planPageName()} to add more.`)
 }
 
 /** Throws when the current plan lacks a feature; a no-op until limits are enforced. */
@@ -350,7 +428,7 @@ export function assertFeature(feature: PlanFeature): void {
   if (PLAN_FEATURES[plan()].includes(feature)) return
   const need = feature === 'sharedSpaces' ? 'Team' : 'Pro'
   const what = feature === 'sharedSpaces' ? 'Shared spaces' : feature === 'reviewCockpit' ? 'The review cockpit' : feature === 'oncall' ? 'The on-call agent' : feature === 'crew' ? 'The crew' : `${feature[0].toUpperCase()}${feature.slice(1)}`
-  throw new Error(`Plan limit: ${what} needs the ${need} plan. Upgrade under Settings → Plan.`)
+  throw new Error(`${PLAIN_ERROR_MARK}Plan limit: ${what} needs the ${need} plan. Upgrade under ${planPageName()}.`)
 }
 
 let refreshTimer: NodeJS.Timeout | null = null

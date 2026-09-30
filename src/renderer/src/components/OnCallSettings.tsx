@@ -6,6 +6,8 @@ import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { Badge, Button, Field, IconButton, SectionHeader, Toggle, inputCls } from './ui'
 import { CrossLink } from './CrossLink'
+import { ErrorNote } from './ErrorNote'
+import { friendlyError } from '@/lib/errors'
 import { ModelSelect } from './ModelSelect'
 import { AccountPicker } from './AccountPicker'
 import type { OnCallChannel, OnCallSettings as OnCallSettingsT, Space } from '@shared/types'
@@ -28,11 +30,25 @@ export function OnCallSettings({ spaceId = '' }: { spaceId?: string }): React.JS
   const [q, setQ] = useState('')
   const [found, setFound] = useState<{ id: string; name: string; is_private: boolean; is_member: boolean }[] | null>(null)
   const [searching, setSearching] = useState(false)
+  const [searchError, setSearchError] = useState('')
+  // Always stops spinning: a failed search says why under the box instead of leaving the button busy.
+  const search = async (): Promise<void> => {
+    setSearching(true)
+    setSearchError('')
+    try {
+      setFound(await api.invoke('oncall:slackChannels', connId, q))
+    } catch (err) {
+      setFound(null)
+      setSearchError(friendlyError(err, 'Slack channels could not be loaded. Try again in a minute.'))
+    } finally {
+      setSearching(false)
+    }
+  }
   const go = async (fn: () => Promise<unknown>): Promise<void> => {
     try {
       await fn()
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(friendlyError(err))
     }
   }
   // A space stores only what it overrides; the main process fills the rest from the app values, so an
@@ -83,7 +99,7 @@ export function OnCallSettings({ spaceId = '' }: { spaceId?: string }): React.JS
                 const before = oc.channels
                 update({ channels: before.filter((x) => x.id !== c.id) })
                   .then(() => notify({ kind: 'info', text: `Stopped watching #${c.name}.`, undo: () => void go(() => update({ channels: before })) }))
-                  .catch((err) => setError(err instanceof Error ? err.message : String(err)))
+                  .catch((err) => setError(friendlyError(err)))
               }}
             >
               <X size={12} />
@@ -91,11 +107,12 @@ export function OnCallSettings({ spaceId = '' }: { spaceId?: string }): React.JS
           </div>
         ))}
         <div className="mt-2 flex items-center gap-2">
-          <input className={clsx(inputCls, 'max-w-[280px]')} aria-label="Find a Slack channel" placeholder="Find a channel, e.g. on-call" value={q} disabled={!slack.connected} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && void go(async () => (setSearching(true), setFound(await api.invoke('oncall:slackChannels', connId, q)), setSearching(false)))} />
-          <Button size="sm" disabled={!slack.connected || searching} onClick={() => go(async () => (setSearching(true), setFound(await api.invoke('oncall:slackChannels', connId, q)), setSearching(false)))}>
+          <input className={clsx(inputCls, 'max-w-[280px]')} aria-label="Find a Slack channel" placeholder="Find a channel, e.g. on-call" value={q} disabled={!slack.connected} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && !searching && void search()} />
+          <Button size="sm" disabled={!slack.connected || searching} onClick={() => void search()}>
             <RefreshCw size={12} className={searching ? 'animate-spin' : ''} /> Search
           </Button>
         </div>
+        {searchError && <ErrorNote className="mt-2" tone="warn" summary={searchError} />}
         {found && (
           <div className="mt-2 max-h-[180px] overflow-auto rounded-md border border-border">
             {found.length === 0 && <div className="px-2 py-1.5 text-[11px] text-muted">No channels match.</div>}

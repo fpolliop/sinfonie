@@ -15,6 +15,7 @@ import { getStore } from '../store'
 import { accountEnv } from './accounts'
 import { git } from './git'
 import { isReadOnlyCommand } from './readonly'
+import { ghEnv, ghPath } from './prereqs'
 
 const exec = promisify(execFile)
 type Emit = (run: ReviewRun) => void
@@ -62,9 +63,25 @@ export function listRuns(): ReviewRun[] {
 
 // ---------- GitHub listing ----------
 
-async function gh(args: string[], cwd?: string): Promise<string> {
-  const { stdout } = await exec('gh', args, { cwd, env: process.env, maxBuffer: 16 * 1024 * 1024 })
-  return stdout
+/**
+ * gh through the one resolver (prereqs.ts), always with a time limit: a hung GitHub call must never leave the
+ * cockpit or the inbox spinning. A timeout or a missing gh comes back as a message the renderer can classify.
+ */
+async function gh(args: string[], cwd?: string, timeout = 60_000): Promise<string> {
+  try {
+    const { stdout } = await exec(ghPath(), args, { cwd, env: ghEnv(), maxBuffer: 16 * 1024 * 1024, timeout })
+    return stdout
+  } catch (err) {
+    throw ghFailure(err, timeout)
+  }
+}
+/** A gh failure with its stderr as the message, and the two cases stderr does not tell: not installed, and timed out. */
+export function ghFailure(err: unknown, timeout: number): Error {
+  const e = err as { code?: unknown; killed?: boolean; signal?: string; stderr?: string; message?: string }
+  if (e?.code === 'ENOENT') return Object.assign(new Error('gh-missing: The GitHub tool (gh) is not installed on this Mac.'), { code: 'ENOENT' })
+  if (e?.killed || e?.signal === 'SIGTERM') return new Error(`GitHub did not answer within ${Math.round(timeout / 1000)} seconds (timed out).`)
+  const text = (e?.stderr || e?.message || String(err)).trim()
+  return Object.assign(new Error(text), { stderr: e?.stderr })
 }
 
 export async function listOrgs(): Promise<string[]> {
@@ -87,6 +104,41 @@ export async function detectOwners(spaceId: string): Promise<string[]> {
     }
   }
   return Array.from(owners)
+}
+
+/** Reviewer logins that GitHub does not know (gh api users/<login>: 404). Unreachable GitHub checks nothing and says so. */
+export async function checkLogins(logins: string[]): Promise<{ invalid: string[]; unchecked?: string }> {
+  const invalid: string[] = []
+  for (const login of [...new Set(logins.map((l) => l.replace(/^@/, '').trim()).filter(Boolean))]) {
+    if (!/^[a-z\d](?:[a-z\d-]{0,38})$/i.test(login)) {
+      invalid.push(login)
+      continue
+    }
+    try {
+      await gh(['api', `users/${login}`, '--jq', '.login'], undefined, 15_000)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      if (/HTTP 404|Not Found/i.test(msg)) invalid.push(login)
+      else return { invalid, unchecked: /gh-missing|auth|401|not logged/i.test(msg) ? 'GitHub is not connected on this Mac, so the names could not be checked.' : 'GitHub could not be reached, so the names could not be checked.' }
+    }
+  }
+  return { invalid }
+}
+
+/** Hosts of the space's repositories whose origin is not github.com (GitHub Enterprise, GitLab, ...), for the cockpit to say so. */
+export async function otherHosts(spaceId: string): Promise<string[]> {
+  const repos = getStore().get().repos.filter((r) => (spaceId ? r.spaceId === spaceId : !r.spaceId))
+  const out = new Set<string>()
+  for (const r of repos) {
+    try {
+      const url = String((await git(r.path).remote(['get-url', 'origin'])) ?? '').trim()
+      const host = /^[^@/]+@([^:]+):/.exec(url)?.[1] ?? /^[a-z+]+:\/\/(?:[^@/]+@)?([^/:]+)/i.exec(url)?.[1]
+      if (host && !/(^|\.)github\.com$/i.test(host)) out.add(host.toLowerCase())
+    } catch {
+      /* no origin */
+    }
+  }
+  return Array.from(out).sort()
 }
 
 /** The GitHub repositories behind a space's registered repos, as owner/name. */
@@ -205,7 +257,7 @@ async function checkout(pr: ReviewPr, key: string, emit: Emit): Promise<{ dir: s
   } else {
     if (existsSync(dir)) rmSync(dir, { recursive: true, force: true })
     update(key, { phase: 'Cloning repository (shallow)' }, emit)
-    await gh(['repo', 'clone', pr.nameWithOwner, dir, '--', '--depth', '1', '--branch', meta.baseRefName])
+    await gh(['repo', 'clone', pr.nameWithOwner, dir, '--', '--depth', '1', '--branch', meta.baseRefName], undefined, 15 * 60_000)
     const g = git(dir)
     await g.fetch(['origin', `pull/${pr.number}/head`, '--depth', '200'])
     await g.fetch(['origin', meta.baseRefName, '--depth', '200'])
@@ -670,7 +722,12 @@ export async function submitReview(key: string, emit: Emit): Promise<ReviewRun> 
   load()
   const run = runs.get(key)
   if (!run) throw new Error(`No review ${key}`)
-  if (!run.verdict) throw new Error('Set a verdict first')
+  // No verdict (the reviewer returned none): submit as a plain comment rather than leave Submit stuck.
+  if (!run.verdict) {
+    run.verdict = { decision: 'comment', summary: '' }
+    save()
+    emit(run)
+  }
   // GitHub refuses approvals and change requests on your own pull request; say so before it does.
   if (run.verdict.decision !== 'comment') {
     const me = await viewer()
@@ -693,7 +750,7 @@ export async function submitReview(key: string, emit: Emit): Promise<ReviewRun> 
     }
     writeFileSync(tmp, JSON.stringify(payload))
     try {
-      const { stdout } = await exec('gh', ['api', '-X', 'POST', `repos/${run.pr.nameWithOwner}/pulls/${run.pr.number}/reviews`, '--input', tmp], { env: process.env, maxBuffer: 4 * 1024 * 1024 })
+      const { stdout } = await exec(ghPath(), ['api', '-X', 'POST', `repos/${run.pr.nameWithOwner}/pulls/${run.pr.number}/reviews`, '--input', tmp], { env: ghEnv(), maxBuffer: 4 * 1024 * 1024, timeout: 90_000 })
       const j = JSON.parse(stdout) as { html_url?: string; commit_id?: string }
       head = j.commit_id
       return j.html_url ?? run.pr.url

@@ -6,6 +6,7 @@ import { Markdown } from '@/lib/markdown'
 import { useApp } from '@/stores/app'
 import { useChat } from '@/stores/chat'
 import { Button, IconButton, Spinner } from './ui'
+import { friendlyError } from '@/lib/errors'
 import { CodeView } from './CodeView'
 import { DiffView, CommitDialog, PrDialog, PushDialog, type ViewMode } from './ChangesPane'
 import { parseUnifiedDiff, type DiffFile } from '@/lib/diff'
@@ -35,6 +36,8 @@ export function FilesPane({ workspaceId }: { workspaceId: string }): React.JSX.E
   const [focused, setFocused] = useState<string | null>(null)
   const [treeFocus, setTreeFocus] = useState(false)
   const [content, setContent] = useState<{ text: string; truncated: boolean; binary: boolean; size: number; hash: string } | null>(null)
+  /** The selected file could not be read (deleted, moved, no permission): shown in place of the spinner. */
+  const [readError, setReadError] = useState<string | null>(null)
   const [status, setStatus] = useState<Record<string, Record<string, GitFileStatus>>>({})
   const [hidden, setHidden] = useState(false)
   const [filter, setFilter] = useState('')
@@ -107,6 +110,7 @@ export function FilesPane({ workspaceId }: { workspaceId: string }): React.JSX.E
     if (dirtyRef.current && selected && selected !== path && !window.confirm('Discard unsaved changes in the current file?')) return
     setSelected(path)
     setContent(null)
+    setReadError(null)
     setDirty(false)
     setBase(null)
     setDiffFile(null)
@@ -118,7 +122,7 @@ export function FilesPane({ workspaceId }: { workspaceId: string }): React.JSX.E
       const r = rootOf(path)
       if (r && r.id !== 'root' && !c.binary) setBase(await api.invoke('git:show', workspaceId, r.id, relIn(path)).catch(() => null))
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setReadError(friendlyError(err, 'This file could not be opened. It may have been moved or deleted.'))
     }
   }
   const save = async (): Promise<void> => {
@@ -447,7 +451,30 @@ export function FilesPane({ workspaceId }: { workspaceId: string }): React.JSX.E
               </span>
             </div>
             <div className="flex min-h-0 flex-1 flex-col bg-bg">
-              {!content && (
+              {!content && readError && (
+                <div className="flex flex-col items-start gap-2 p-4 text-[12px]">
+                  <span role="alert" className="text-danger">
+                    {readError}
+                  </span>
+                  <div className="flex gap-2">
+                    <Button size="sm" onClick={() => void pick(selected)}>
+                      <RefreshCw size={12} aria-hidden /> Try again
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        setSelected(null)
+                        setReadError(null)
+                        void refresh()
+                      }}
+                    >
+                      Refresh file list
+                    </Button>
+                  </div>
+                </div>
+              )}
+              {!content && !readError && (
                 <div className="p-3 text-[12px] text-muted">
                   <Spinner />
                 </div>

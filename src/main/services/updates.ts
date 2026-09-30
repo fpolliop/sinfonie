@@ -1,5 +1,5 @@
 import { app, BrowserWindow, powerMonitor } from 'electron'
-import { autoUpdater } from 'electron-updater'
+import { autoUpdater, CancellationToken } from 'electron-updater'
 import { getStore } from '../store'
 import type { UpdateInfo } from '@shared/types'
 
@@ -26,6 +26,10 @@ function newer(a: string, b: string): boolean {
 }
 
 let wired = false
+/** The download in flight, so Cancel can stop it. */
+let downloadToken: CancellationToken | null = null
+/** Set while quitAndInstall runs: an updater error then is an install failure, not a download one. */
+let installing = false
 let idleTimer: NodeJS.Timeout | null = null
 let isIdle: () => boolean = () => true
 /** Tell the updater how to know that nothing is running (agents, reviews, on-call); wired from ipc. */
@@ -61,14 +65,22 @@ function wire(): void {
   autoUpdater.on('update-available', (u) => {
     const auto = getStore().get().settings.autoDownloadUpdates !== false
     send({ state: auto ? 'downloading' : 'available', auto, percent: 0, version: u.version, current: app.getVersion(), url: releaseUrl(u.version), releaseUrl: releaseUrl(u.version), notes: typeof u.releaseNotes === 'string' ? u.releaseNotes.slice(0, 2000) : '' })
-    if (auto) autoUpdater.downloadUpdate().catch((err) => console.warn('[updater] auto-download', err))
+    if (auto) startDownload().catch((err) => console.warn('[updater] auto-download', err))
   })
-  autoUpdater.on('download-progress', (p) => latest && send({ ...latest, state: 'downloading', percent: Math.round(p.percent) }))
+  // Progress only while a download is ours and live: a late event after Cancel must not flip the card back.
+  autoUpdater.on('download-progress', (p) => latest && downloadToken && !downloadToken.cancelled && send({ ...latest, state: 'downloading', percent: Math.round(p.percent) }))
   autoUpdater.on('update-downloaded', (u) => send({ state: 'ready', auto: latest?.auto, installWhenIdle: Boolean(idleTimer), version: u.version, current: app.getVersion(), url: releaseUrl(u.version), releaseUrl: releaseUrl(u.version), notes: latest?.notes ?? '' }))
   autoUpdater.on('error', (err) => {
     console.warn('[updater]', err.message)
-    // Only surface errors the user can act on: a failed download of an update they asked for.
-    if (latest && latest.state !== 'available') send({ ...latest, state: 'error', error: err.message })
+    if (!latest) return
+    // A restart that could not swap the app (most often: Sinfonie is not in Applications, or the disk image is still mounted).
+    if (installing) {
+      installing = false
+      send({ ...latest, state: 'error', phase: 'install', error: err.message })
+      return
+    }
+    // Only surface errors the user can act on: a failed download of an update they asked for (a cancel is not one).
+    if (latest.state !== 'available' && !/cancel/i.test(err.message)) send({ ...latest, state: 'error', phase: 'download', error: err.message })
   })
 }
 
@@ -124,13 +136,47 @@ async function runCheck(): Promise<UpdateCheckResult> {
 export async function downloadUpdate(): Promise<void> {
   if (!app.isPackaged) throw new Error('In-app updates only work in the installed app. Download it from the release page.')
   wire()
-  if (latest) send({ ...latest, state: 'downloading', auto: false, percent: 0 })
-  await autoUpdater.downloadUpdate()
+  if (latest) send({ ...latest, state: 'downloading', auto: false, percent: 0, error: undefined, phase: undefined })
+  await startDownload()
+}
+async function startDownload(): Promise<void> {
+  downloadToken?.cancel()
+  const token = new CancellationToken()
+  downloadToken = token
+  try {
+    await autoUpdater.downloadUpdate(token)
+  } catch (err) {
+    // A cancelled download is not a failure: cancelDownload already put the offer back.
+    if (token.cancelled) return
+    throw err
+  } finally {
+    if (downloadToken === token) downloadToken = null
+  }
 }
 
-/** Quit and relaunch into the downloaded version. */
+/** Stop the download in flight and offer the update again. */
+export function cancelDownload(): void {
+  downloadToken?.cancel()
+  downloadToken = null
+  if (latest && latest.state === 'downloading') send({ ...latest, state: 'available', auto: false, percent: 0 })
+}
+
+/** Quit and relaunch into the downloaded version. A failure shows on the update card with a manual download. */
 export function installUpdate(): void {
-  autoUpdater.quitAndInstall(false, true)
+  installing = true
+  try {
+    autoUpdater.quitAndInstall(false, true)
+  } catch (err) {
+    installing = false
+    if (latest) send({ ...latest, state: 'error', phase: 'install', error: errorText(err) })
+    return
+  }
+  // quitAndInstall returns before the app quits; if nothing happened after a while, the swap failed quietly.
+  setTimeout(() => {
+    if (!installing) return
+    installing = false
+    if (latest) send({ ...latest, state: 'error', phase: 'install', error: 'The app did not restart into the update.' })
+  }, 20_000).unref()
 }
 
 export function latestKnownUpdate(): UpdateInfo | null {

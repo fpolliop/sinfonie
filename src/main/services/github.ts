@@ -1,11 +1,13 @@
 import { execFile } from 'child_process'
 import { promisify } from 'util'
+import { ghEnv, ghPath } from './prereqs'
+import { PLAIN_ERROR_MARK } from '@shared/types'
 import type { PrCheck, PrInfo, RepoPr, ReviewThread } from '@shared/types'
 
 const exec = promisify(execFile)
 
 async function gh(args: string[], cwd: string): Promise<string> {
-  const { stdout } = await exec('gh', args, { cwd, env: process.env, maxBuffer: 8 * 1024 * 1024 })
+  const { stdout } = await exec(ghPath(), args, { cwd, env: ghEnv(), maxBuffer: 8 * 1024 * 1024 })
   return stdout
 }
 
@@ -44,7 +46,7 @@ export async function repoPrStatus(repoId: string, worktreePath: string, branch:
   try {
     nameWithOwner = (JSON.parse(await gh(['repo', 'view', '--json', 'nameWithOwner'], worktreePath)) as { nameWithOwner: string }).nameWithOwner
   } catch (err) {
-    return { ...base, error: `gh repo view failed: ${shortErr(err)}` }
+    return { ...base, error: `gh repo view failed: ${shortErr(err)}`, ...ghErrorKind(err) }
   }
   let raw: Record<string, unknown>
   try {
@@ -57,7 +59,7 @@ export async function repoPrStatus(repoId: string, worktreePath: string, branch:
   } catch (err) {
     const msg = shortErr(err)
     if (/no pull requests found/i.test(msg)) return { ...base, nameWithOwner }
-    return { ...base, nameWithOwner, error: `gh pr view failed: ${msg}` }
+    return { ...base, nameWithOwner, error: `gh pr view failed: ${msg}`, ...ghErrorKind(err) }
   }
   const pr: PrInfo = {
     number: raw.number as number,
@@ -119,6 +121,15 @@ export async function renameRemoteBranch(worktreePath: string, oldBranch: string
     if (/404|Branch not found/i.test(msg)) return false
     throw new Error(`GitHub branch rename failed: ${msg}`)
   }
+}
+
+/** A gh failure the person can fix (install and sign in, or put the app on GitHub), for PrsPane's Connect GitHub card. */
+function ghErrorKind(err: unknown): Pick<RepoPr, 'errorKind'> {
+  if ((err as { code?: unknown })?.code === 'ENOENT') return { errorKind: 'gh-missing' }
+  const msg = shortErr(err)
+  if (/gh auth login|not logged in|authentication|HTTP 401|Bad credentials/i.test(msg)) return { errorKind: 'gh-auth' }
+  if (/none of the git remotes|no git remotes|not a git repository|could not determine|unable to determine/i.test(msg)) return { errorKind: 'not-github' }
+  return {}
 }
 
 function shortErr(err: unknown): string {
@@ -219,12 +230,32 @@ export async function prSummary(worktreePath: string, branch: string): Promise<{
   }
 }
 
-/** Merge a PR with gh. */
+/** Merge a PR with gh. A refusal comes back as one plain sentence (PLAIN_ERROR_MARK) saying why and what to do. */
 export async function mergePr(repo: string, number: number, method: 'squash' | 'merge' | 'rebase' = 'squash'): Promise<string> {
   try {
-    const out = await gh(['pr', 'merge', String(number), '--repo', repo, `--${method}`], process.cwd())
-    return out.trim() || `Merged ${repo}#${number}`
+    const { stdout } = await exec(ghPath(), ['pr', 'merge', String(number), '--repo', repo, `--${method}`], { cwd: process.cwd(), env: ghEnv(), maxBuffer: 8 * 1024 * 1024, timeout: 90_000 })
+    return stdout.trim() || `Merged ${repo}#${number}`
   } catch (err) {
-    throw new Error(`Merge failed: ${shortErr(err)}`)
+    throw new Error(PLAIN_ERROR_MARK + mergeFailure(err, method))
   }
+}
+
+/** Why GitHub refused a merge, in words, with the next step. */
+function mergeFailure(err: unknown, method: 'squash' | 'merge' | 'rebase'): string {
+  const e = err as { code?: unknown; killed?: boolean }
+  if (e?.code === 'ENOENT') return 'The merge did not happen: GitHub is not connected on this Mac. Connect GitHub, then try again.'
+  if (e?.killed) return 'GitHub did not answer in time, so the merge may not have happened. Check the pull request on GitHub before trying again.'
+  const m = shortErr(err)
+  const other = method === 'squash' ? 'merge' : 'squash'
+  if (/(squash|merge commits?|rebase)( merges?)? (are|is) not allowed|not allowed.*(squash|merge|rebase)|method.*not allowed/i.test(m)) return `This repository does not allow ${method === 'merge' ? 'merge commits' : `${method} merges`}. Ask Maestro to change the button to "${other}", or merge on GitHub.`
+  if (/at least \d+ approving review|review required|approving review|changes requested|REVIEW_REQUIRED/i.test(m)) return 'GitHub branch protection needs an approving review first. Ask a reviewer to approve it, then merge.'
+  if (/required status check|status checks? (are|is) (failing|expected|pending)|checks? (have|has) not passed/i.test(m)) return 'GitHub branch protection needs the required checks to pass first. Wait for them, or fix what is failing, then merge.'
+  if (/base branch policy|protected branch|branch protection|merge queue/i.test(m)) return 'GitHub branch protection does not allow this merge yet. Open the pull request on GitHub to see what it is waiting for.'
+  if (/must have (write|push|admin)|does not have (the correct )?permission|Resource not accessible|HTTP 403|not permitted|permission to merge/i.test(m)) return 'Your GitHub account cannot merge in this repository. Ask someone with write access to merge it.'
+  if (/draft/i.test(m)) return 'This pull request is still a draft. Mark it ready for review on GitHub first.'
+  if (/conflict|not mergeable|dirty/i.test(m)) return 'The pull request has conflicts with its base branch. Update the branch first, then merge.'
+  if (/already (been )?merged|MERGED/i.test(m)) return 'This pull request was already merged.'
+  if (/auth|HTTP 401|Bad credentials|gh auth login|not logged in/i.test(m)) return 'GitHub sign-in on this Mac has expired. Connect GitHub again, then merge.'
+  if (/could not resolve|ENOTFOUND|timeout|network|connection/i.test(m)) return 'Sinfonie could not reach GitHub. Check your connection and try again.'
+  return `GitHub did not merge it: ${m}`
 }

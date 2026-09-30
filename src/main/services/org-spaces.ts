@@ -6,16 +6,15 @@
  * Accounts, tokens, local paths, workspaces and chats never travel.
  */
 import { nanoid } from 'nanoid'
-import { existsSync, mkdirSync } from 'fs'
 import { dirname, join } from 'path'
-import { simpleGit } from 'simple-git'
 import { getStore } from '../store'
 import * as cloud from './cloud'
 import { logError } from './telemetry'
 import { definitionFor, applySettings, ensureRepo, normalizeRemote, remoteOf } from './shared-space'
-import { SPACE_COLORS } from '@shared/types'
-import type { OrgSpace, SharedRepo, Space, SpaceDefinition, SpaceImportResolution, TeammateWorkspace, Workspace } from '@shared/types'
+import { PLAIN_ERROR_MARK, SPACE_COLORS } from '@shared/types'
+import type { RepoCloneError, OrgSpace, SharedRepo, Space, SpaceDefinition, SpaceImportResolution, TeammateWorkspace, Workspace } from '@shared/types'
 import * as workspaces from './workspaces'
+import { cloneRepo, ensureIdentity, githubNameWithOwner } from './prereqs'
 
 const enc = encodeURIComponent
 
@@ -25,8 +24,44 @@ function space(id: string): Space {
   return s
 }
 
+/**
+ * A sinfonie.dev failure in words for the person (PLAIN_ERROR_MARK, so guided mode shows it as is). `what` completes
+ * "could not …", e.g. "share this space". Messages already written for people pass through.
+ */
+export function plainCloudError(err: unknown, what: string): Error {
+  const msg = err instanceof Error ? err.message : String(err)
+  if (msg.startsWith(PLAIN_ERROR_MARK)) return err instanceof Error ? err : new Error(msg)
+  const status = (err as { status?: number } | null)?.status
+  const why =
+    status === 401
+      ? 'Your Sinfonie sign-in has expired. Sign in again, then try again.'
+      : status === 403
+        ? 'Only an admin of the organisation can do this.'
+        : status === 404
+          ? 'The organisation or the shared copy no longer exists on sinfonie.dev.'
+          : status === 402 || /plan|limit|seat/i.test(msg)
+            ? `${msg.replace(/\.$/, '')}.`
+            : status && status >= 500
+              ? 'sinfonie.dev had a problem on its side. Try again in a minute.'
+              : /fetch failed|ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|timeout|aborted|network/i.test(msg)
+                ? 'Sinfonie could not reach sinfonie.dev. Check your connection and try again.'
+                : /updated this space since/i.test(msg)
+                  ? msg
+                  : `sinfonie.dev said: ${msg}`
+  return new Error(`${PLAIN_ERROR_MARK}Could not ${what}. ${why}`)
+}
+
 /** Share a space in an organisation, or push its current definition when it already is. */
 export async function publish(spaceId: string, orgId: string): Promise<Space> {
+  try {
+    return await publishRaw(spaceId, orgId)
+  } catch (err) {
+    // The stale-version case already explains itself in plain words.
+    if (err instanceof Error && /A teammate updated this space since your last sync/.test(err.message)) throw new Error(PLAIN_ERROR_MARK + err.message)
+    throw Object.assign(plainCloudError(err, 'share this space with the team'), { status: (err as { status?: number }).status, cause: err })
+  }
+}
+async function publishRaw(spaceId: string, orgId: string): Promise<Space> {
   const s = space(spaceId)
   const def = await definitionFor(spaceId)
   def.orgId = orgId
@@ -71,25 +106,81 @@ export async function missing(spaceId: string): Promise<SharedRepo[]> {
 /** Locate (existing checkout) or clone the missing repositories, then attach them to the space. */
 export async function resolve(spaceId: string, resolutions: SpaceImportResolution[]): Promise<Space> {
   const wanted = await missing(spaceId)
+  // Each app on its own: one that cannot be downloaded (private, no access, offline) never stops the others. The
+  // failure is kept per app on the space (cloneErrors), so the team card can say why and offer the one fix.
+  const failures: string[] = []
   for (const res of resolutions) {
     const r = wanted.find((w) => normalizeRemote(w.remote) === normalizeRemote(res.remote))
     if (!r) continue
-    if (res.path) await ensureRepo(res.path, spaceId, r.name, { displayName: r.displayName, description: r.description })
-    else if (res.cloneInto) {
-      const dest = join(res.cloneInto, r.name)
-      if (existsSync(dest)) throw new Error(`${dest} already exists. Pick that folder as the checkout instead of cloning.`)
-      mkdirSync(dirname(dest), { recursive: true })
-      await simpleGit().clone(r.remote, dest)
-      await ensureRepo(dest, spaceId, r.name, { displayName: r.displayName, description: r.description })
+    try {
+      if (res.path) await ensureRepo(res.path, spaceId, r.name, { displayName: r.displayName, description: r.description })
+      else if (res.cloneInto) {
+        let out = await cloneRepo(r.remote, join(res.cloneInto, r.name))
+        // Another app already sits in that folder: use a second name instead of asking.
+        if (!out.ok && out.kind === 'folder-exists') {
+          const owner = githubNameWithOwner(r.remote)?.split('/')[0] ?? 'team'
+          out = await cloneRepo(r.remote, join(res.cloneInto, `${r.name}-${owner}`))
+        }
+        if (!out.ok) {
+          recordCloneError(spaceId, { remote: r.remote, name: r.displayName || r.name, kind: out.kind, message: out.message, at: new Date().toISOString() })
+          failures.push(`${r.name}: ${out.message}`)
+          continue
+        }
+        await ensureIdentity(out.path).catch(() => undefined)
+        await ensureRepo(out.path, spaceId, r.name, { displayName: r.displayName, description: r.description })
+      } else continue
+      recordCloneError(spaceId, null, r.remote)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      // The team card shows this to builders: plain words; the raw text goes to the log.
+      logError('org-spaces.resolve', err, { spaceId, remote: r.remote })
+      recordCloneError(spaceId, { remote: r.remote, name: r.displayName || r.name, kind: 'other', message: 'Sinfonie could not add this app. Try again, or ask a teammate.', at: new Date().toISOString() })
+      failures.push(`${r.name}: ${message}`)
     }
   }
+  if (failures.length) throw new Error(failures.join('\n'))
   return space(spaceId)
+}
+
+/** Keep (or clear, with null) the download failure of one shared app on its space. */
+function recordCloneError(spaceId: string, entry: RepoCloneError | null, remote = entry?.remote ?? ''): void {
+  getStore().update((d) => {
+    const sp = d.spaces.find((x) => x.id === spaceId)
+    if (!sp) return
+    const rest = (sp.cloneErrors ?? []).filter((e) => normalizeRemote(e.remote) !== normalizeRemote(remote))
+    const next = entry ? [...rest, entry] : rest
+    if (next.length) sp.cloneErrors = next
+    else delete sp.cloneErrors
+  })
+}
+
+/**
+ * "Check again" on the team card: re-ask the server (so a new membership or newly shared apps arrive), then try
+ * every shared app that is still missing on this Mac again, each on its own.
+ */
+export async function retryMissing(): Promise<void> {
+  await cloud.refresh()
+  await sync()
+  const into = join(dirname(getStore().get().settings.workspacesRoot), 'repos')
+  for (const sp of getStore().get().spaces.filter((x) => x.orgSpace && x.orgId)) {
+    const gone = await missing(sp.id).catch(() => [])
+    // Apps found on this Mac since the last try: their old failure no longer applies.
+    for (const e of sp.cloneErrors ?? []) if (!gone.some((g) => normalizeRemote(g.remote) === normalizeRemote(e.remote))) recordCloneError(sp.id, null, e.remote)
+    if (!gone.length) continue
+    await resolve(sp.id, gone.map((g) => ({ remote: g.remote, cloneInto: into }))).catch((err) => logError('org-spaces.retry', err, { spaceId: sp.id }))
+  }
 }
 
 /** Stop syncing. The space stays on this Mac and becomes personal; `deleteRemote` also removes the server copy. */
 export async function unshare(spaceId: string, deleteRemote = false): Promise<Space> {
   const s = space(spaceId)
-  if (deleteRemote && s.orgSpace && s.orgId) await cloud.api(`/api/orgs/${enc(s.orgId)}/spaces/${enc(s.orgSpace.id)}`, { method: 'DELETE' }).catch(() => undefined)
+  // Removing for everyone must really remove it: a failed DELETE stops here, before the space is unlinked, so the
+  // person can try again instead of believing teammates lost it while the server copy lives on. Already gone is fine.
+  if (deleteRemote && s.orgSpace && s.orgId)
+    await cloud.api(`/api/orgs/${enc(s.orgId)}/spaces/${enc(s.orgSpace.id)}`, { method: 'DELETE' }).catch((err) => {
+      if ((err as { status?: number }).status === 404) return
+      throw plainCloudError(err, 'remove the space for everyone, so it is still shared')
+    })
   getStore().update((d) => {
     const sp = d.spaces.find((x) => x.id === spaceId)
     if (!sp) return
@@ -111,7 +202,15 @@ export function pushSoon(spaceId: string): void {
     spaceId,
     setTimeout(() => {
       pushTimers.delete(spaceId)
-      void publish(spaceId, s.orgId as string).catch((err) => console.error('[org-spaces] push failed', err instanceof Error ? err.message : err))
+      void publish(spaceId, s.orgId as string).catch((err) => {
+        console.error('[org-spaces] push failed', err instanceof Error ? err.message : err)
+        // Remembered on the space so the app can say "Not shared yet" with a Retry; the next successful publish clears it.
+        const text = (err instanceof Error ? err.message : String(err)).replace(PLAIN_ERROR_MARK, '')
+        getStore().update((d) => {
+          const sp = d.spaces.find((x) => x.id === spaceId)
+          if (sp?.orgSpace) sp.orgSpace.pushError = text
+        })
+      })
     }, 2000)
   )
 }

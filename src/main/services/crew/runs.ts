@@ -79,8 +79,10 @@ function contextOf(spec: AgentSpec, workspaceId: string | null | undefined): Wor
 
 const historyCache = new Map<string, AgentRun[]>()
 const historyFile = (agentId: string): string => join(runsDir(agentId), 'history.json')
+/** History entries whose run is going on in this app run. */
+const liveEntries = new Set<string>()
 
-export function runs(agentId: string): AgentRun[] {
+function history(agentId: string): AgentRun[] {
   const hit = historyCache.get(agentId)
   if (hit) return hit
   let list: AgentRun[] = []
@@ -89,31 +91,55 @@ export function runs(agentId: string): AgentRun[] {
   } catch {
     list = []
   }
+  // Read once per app run, before any run of this app run is recorded: an entry that never ended was cut off when
+  // Sinfonie quit or crashed. Close it so it does not show as running forever.
+  let orphans = false
+  list = list.map((r) => {
+    if (r.endedAt) return r
+    orphans = true
+    return { ...r, endedAt: r.startedAt, error: 'Interrupted (Sinfonie quit)' }
+  })
   historyCache.set(agentId, list)
+  if (orphans) {
+    try {
+      writeFileSync(historyFile(agentId), JSON.stringify(list, null, 2))
+    } catch {
+      /* fixed again next launch */
+    }
+  }
   return list
 }
 
+/** The agent's runs, newest first; `running` says which are going on right now. */
+export function runs(agentId: string): AgentRun[] {
+  return withLive(history(agentId))
+}
+const withLive = (list: AgentRun[]): AgentRun[] => list.map((r) => (liveEntries.has(r.id) ? { ...r, running: true } : r))
+
 function record(agentId: string, run: AgentRun): void {
-  const list = [run, ...runs(agentId).filter((r) => r.id !== run.id)].slice(0, 200)
+  if (run.endedAt) liveEntries.delete(run.id)
+  else liveEntries.add(run.id)
+  const list = [run, ...history(agentId).filter((r) => r.id !== run.id)].slice(0, 200)
   historyCache.set(agentId, list)
   writeFileSync(historyFile(agentId), JSON.stringify(list, null, 2))
-  emitRuns(agentId, list)
+  emitRuns(agentId, withLive(list))
 }
 
 /** The last run that finished, of one trigger kind or any. */
 export function lastRun(agentId: string, trigger?: AgentRun['trigger']): AgentRun | undefined {
-  return runs(agentId).find((r) => r.endedAt && (!trigger || r.trigger === trigger))
+  return history(agentId).find((r) => r.endedAt && (!trigger || r.trigger === trigger))
 }
 
 // ---------- Try it: progress to the editor ----------
 
-export function start(agentId: string, workspaceId: string | null, prompt: string, override?: Partial<AgentSpec>): string {
+/** runId: chosen by the caller so it can listen before the first event (a fast failure is not missed). */
+export function start(agentId: string, workspaceId: string | null, prompt: string, override?: Partial<AgentSpec>, givenRunId?: string): string {
   const base = agents.get(agentId)
   if (!base && !override?.name) throw new Error(`No agent ${agentId}`)
   const spec: AgentSpec = { ...(base ?? { id: agentId || 'draft', name: '', description: '', prompt: '', model: 'sonnet', enabled: true }), ...override }
   if (!spec.name.trim()) throw new Error('Give the agent a name first.')
   const ws = contextOf(spec, workspaceId)
-  const runId = nanoid(8)
+  const runId = givenRunId && !running.has(givenRunId) ? givenRunId : nanoid(8)
   const abort = new AbortController()
   running.set(runId, { abort, workspaceId: ws.id })
   const started = new Date()

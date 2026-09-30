@@ -16,7 +16,7 @@ interface RawMcp {
   args?: string[]
   env?: Record<string, string>
 }
-import { SPACE_COLORS, AGENT_TEMPLATES, isAgentOwner } from '@shared/types'
+import { SPACE_COLORS, AGENT_TEMPLATES, isAgentOwner, PLAIN_ERROR_MARK } from '@shared/types'
 import { getStore } from './store'
 import * as git from './services/git'
 import * as workspaces from './services/workspaces'
@@ -32,13 +32,16 @@ import * as linear from './services/linear'
 import * as cloud from './services/cloud'
 import * as sharedSpace from './services/shared-space'
 import * as orgSpaces from './services/org-spaces'
+import * as prereqs from './services/prereqs'
+import type { SendBlocker, SendPreflight } from '@shared/types'
 import * as remote from './services/remote'
-import { setAuthLinkEmitters, authDone } from './services/auth-link'
+import { setAuthLinkEmitters, authDone, cancelAuth, authFailureText, AUTH_CANCELLED } from './services/auth-link'
 import * as accounts from './services/accounts'
+import * as mcpTest from './services/mcp-test'
 import * as reviews from './services/reviews'
 import * as inbox from './services/inbox'
 import * as sessionsSvc from './services/sessions'
-import { checkForUpdate, latestKnownUpdate, downloadUpdate, installUpdate, installWhenIdle, setIdleProbe } from './services/updates'
+import { checkForUpdate, latestKnownUpdate, downloadUpdate, installUpdate, installWhenIdle, setIdleProbe, cancelDownload } from './services/updates'
 import { clearErrors, listErrors, logsDir, sendFeedback, noteMessage } from './services/telemetry'
 import * as interaction from './services/interaction'
 import * as providers from './services/providers'
@@ -130,6 +133,8 @@ export function registerIpc(): void {
   })
   getStore().subscribe(() => send('store:changed', getStore().public()))
   workspaceTools.setScriptEmitter(emitScript)
+  // The app quit or crashed while a workspace was setting up or archiving: fix those states now.
+  workspaces.reconcileInterrupted(emitScript)
 
   handle('store:get', () => getStore().public())
   handle('settings:update', (patch) => {
@@ -175,7 +180,7 @@ export function registerIpc(): void {
     if (!s?.orgSpace || !s.orgId || !cloud.hasSession()) return s as Space
     // The cloud's own words stay in the log (and in the message for experts); guided mode gets the plain sentence.
     const fail = (err: unknown): Error => {
-      const detail = err instanceof Error ? err.message : String(err)
+      const detail = (err instanceof Error ? err.message : String(err)).replace(PLAIN_ERROR_MARK, '')
       console.warn('[team] sharing guardrails failed', detail)
       const expert = getStore().get().settings.mode !== 'guided'
       return new Error(`Only saved on this Mac: the guardrails could not be shared with the team${expert ? ` (${detail})` : ''}. Try again.`)
@@ -201,6 +206,14 @@ export function registerIpc(): void {
   handle('team:appKeys', (spaceId) => teamRules.appKeys(spaceId))
   handle('team:spend', (spaceId) => teamRules.spendStatus(spaceId))
   handle('team:overrideSpend', (spaceId) => teamRules.overrideSpend(spaceId))
+  handle('team:allowSpendFor', (spaceId, userId, login) => shareRules(spaceId, teamRules.allowSpendFor(spaceId, userId, login)))
+  // A member stopped by the limit pulls the team's rules soon, so an admin's "allow more today" reaches them.
+  let lastSpendSync = 0
+  teamRules.setOnSpendBlocked(() => {
+    if (Date.now() - lastSpendSync < 30_000) return
+    lastSpendSync = Date.now()
+    void orgSpaces.sync().catch(() => undefined)
+  })
   handle('spaces:delete', (id) => {
     for (const a of agentLib.list()) if (a.scope === id) agentLib.remove(a.id)
     notes.deleteAll(notes.spaceOwner(id))
@@ -253,6 +266,7 @@ export function registerIpc(): void {
     return out
   })
 
+  handle('mcp:test', (spec) => mcpTest.testServer(spec))
   handle('mcp:importable', () => {
     // Claude Code keeps user-scope servers at the top level and project-scope ones under projects[path].mcpServers.
     const file = join(homedir(), '.claude.json')
@@ -276,8 +290,13 @@ export function registerIpc(): void {
 
   // ---- repos ----
   const reposInSpace = (spaceId: string): number => getStore().get().repos.filter((r) => r.spaceId === spaceId).length
-  const addRepoAt = async (path: string, spaceId?: string): Promise<Repo> => {
-    if (!(await git.isGitRepo(path))) throw new Error(`${path} is not the root of a git repository`)
+  const addRepoAt = async (pathIn: string, spaceId?: string): Promise<Repo> => {
+    // A folder inside a repository adds the repository itself; a plain folder or a Mac without git says what to do.
+    const found = await prereqs.inspectFolder(pathIn)
+    if (found.kind === 'needs-git') throw new Error('Git is not installed on this Mac. Install the Xcode command line tools (run xcode-select --install in Terminal), then add the folder again.')
+    if (found.kind === 'unsafe') throw new Error(`${basename(found.path) || found.path} holds much more than one repository. Choose the folder of one repository.`)
+    if (found.kind === 'not-repo') throw new Error(`${basename(pathIn)} is not a git repository yet. Make it one (git init in that folder, or "Add a repository from disk" offers to), then add it again.`)
+    const path = found.kind === 'inside-repo' ? found.path : pathIn
     const existing = getStore().get().repos.find((x) => x.path === path)
     if (spaceId && existing?.spaceId !== spaceId) cloud.assertWithin('reposPerSpace', reposInSpace(spaceId))
     if (existing) {
@@ -303,9 +322,39 @@ export function registerIpc(): void {
     return repo
   }
   handle('repos:pickAndAdd', async (spaceId) => {
-    const r = await dialog.showOpenDialog({ properties: ['openDirectory'], title: 'Add a git repository' })
+    const r = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'], title: 'Add a repository from disk', buttonLabel: 'Add' })
     if (r.canceled || r.filePaths.length === 0) return null
-    return addRepoAt(r.filePaths[0], spaceId)
+    const picked = r.filePaths[0]
+    const found = await prereqs.inspectFolder(picked)
+    if (found.kind === 'unsafe') {
+      await dialog.showMessageBox({ type: 'warning', message: `${basename(found.path) || found.path} holds much more than one repository`, detail: 'Choose the folder of one repository instead.', buttons: ['Choose another folder'] })
+      return null
+    }
+    if (found.kind === 'needs-git') {
+      const { response } = await dialog.showMessageBox({
+        type: 'warning',
+        message: 'Git is not installed on this Mac',
+        detail: 'Sinfonie needs git to work with repositories. Apple installs it with the Xcode command line tools; once they are installed, add the folder again.',
+        buttons: ['Install the command line tools', 'Cancel'],
+        defaultId: 0,
+        cancelId: 1
+      })
+      if (response === 0) void prereqs.installXcodeTools()
+      return null
+    }
+    if (found.kind === 'not-repo') {
+      const { response } = await dialog.showMessageBox({
+        type: 'question',
+        message: `${basename(picked)} is not a git repository`,
+        detail: 'Sinfonie works with git repositories. It can make this folder one: git init, a .gitignore that keeps out dependencies, build output and secrets, and a first commit of the files. Nothing is uploaded.',
+        buttons: ['Make it a repository', 'Cancel'],
+        defaultId: 0,
+        cancelId: 1
+      })
+      if (response !== 0) return null
+      await prereqs.initFolder(picked)
+    }
+    return addRepoAt(picked, spaceId)
   })
   handle('repos:addPaths', async (paths, spaceId) => {
     const out: Repo[] = []
@@ -408,7 +457,7 @@ export function registerIpc(): void {
   })
   handle('workspaces:safety', (id) => workspaces.safetyReport(id))
   handle('workspaces:health', (id) => ({ missing: workspaces.missingWorktrees(workspaces.getWorkspace(id)).map((r) => ({ repoName: r.repoName, worktreePath: r.worktreePath, branch: r.branch })) }))
-  handle('workspaces:repair', (id) => workspaces.repairWorkspace(id))
+  handle('workspaces:repair', (id) => workspaces.repairWorkspace(id, emitScript))
   handle('workspaces:setOrder', (ids) => {
     getStore().update((d) => {
       ids.forEach((id, i) => {
@@ -442,12 +491,14 @@ export function registerIpc(): void {
     agent.closeSession(id)
     return workspaces.removeRepoFromWorkspace(id, repoId, opts, emitScript)
   })
-  handle('workspaces:openIn', (id, target) => {
+  handle('workspaces:openIn', async (id, target) => {
     const ws = workspaces.getWorkspace(id)
-    if (target === 'finder') shell.showItemInFolder(ws.rootPath)
-    else if (target === 'vscode') spawn('open', ['-a', 'Visual Studio Code', ws.rootPath], { detached: true }).unref()
-    else if (target === 'cursor') spawn('open', ['-a', 'Cursor', ws.rootPath], { detached: true }).unref()
-    else spawn('open', ['-a', 'Terminal', ws.rootPath], { detached: true }).unref()
+    if (target === 'finder') return shell.showItemInFolder(ws.rootPath)
+    const appName = target === 'vscode' ? 'Visual Studio Code' : target === 'cursor' ? 'Cursor' : 'Terminal'
+    // `open -a` fails silently from here when the app is missing: check first and say so.
+    const installed = await new Promise<boolean>((res) => spawn('open', ['-Ra', appName], { stdio: 'ignore' }).on('close', (code) => res(code === 0)).on('error', () => res(false)))
+    if (!installed) throw new Error(`${appName} is not installed on this Mac (Sinfonie looks for it in Applications). Install it, or use Reveal in Finder or Open in Terminal instead.`)
+    spawn('open', ['-a', appName, ws.rootPath], { detached: true, stdio: 'ignore' }).unref()
   })
   handle('workspaces:runScript', (id, kind) => workspaces.runWorkspaceScript(id, kind, emitScript))
   handle('guided:plan', (spaceId, description) => plan.planTask(spaceId, description))
@@ -468,7 +519,7 @@ export function registerIpc(): void {
     const out: { repoId: string; name: string; ran: boolean; ok: boolean; output: string }[] = []
     for (const wr of ws.repos) {
       const repo = workspaces.getRepo(wr.repoId)
-      const cmd = repo.config?.scripts?.check
+      const cmd = workspaces.configFor(repo, wr.worktreePath)?.scripts?.check
       if (!cmd) {
         out.push({ repoId: repo.id, name: repo.displayName || repo.name, ran: false, ok: true, output: '' })
         continue
@@ -530,6 +581,60 @@ export function registerIpc(): void {
   viewActions.setActionHost({ createPr: (id, repoId, title, body, draft) => createPr(id, repoId, title, body, undefined, draft) })
 
   // ---- github / jira / shell ----
+  // ---- GitHub connection and prerequisites (services/prereqs.ts) ----
+  prereqs.setConnectEmitter((st) => send('github:connectProgress', st))
+  handle('github:connection', (refresh) => prereqs.connection(Boolean(refresh)))
+  handle('github:connect', () => prereqs.connect())
+  handle('github:cancelConnect', () => prereqs.cancelConnect())
+  handle('github:connectState', () => prereqs.connectState())
+  handle('github:installXcodeTools', () => prereqs.installXcodeTools())
+  handle('github:ensureIdentity', (repoPath) => prereqs.ensureIdentity(repoPath))
+  handle('repos:inspectFolder', (path) => prereqs.inspectFolder(path))
+  handle('repos:initFolder', (path) => prereqs.initFolder(path))
+  handle('github:preflight', async (id) => {
+    const ws = workspaces.getWorkspace(id)
+    const space = getStore().get().spaces.find((s) => s.id === ws.spaceId)
+    const reviewers = space?.guided?.reviewers ?? []
+    const connection = await prereqs.connection(true)
+    const veto = teamRules.prVeto(ws, reviewers) ?? undefined
+    const repos: SendPreflight['repos'] = []
+    for (const wr of ws.repos) {
+      const repo = getStore().get().repos.find((r) => r.id === wr.repoId)
+      const access = connection.git === 'ok' ? await prereqs.repoAccess(repo?.path ?? wr.worktreePath) : { remote: 'none' as const, identity: false }
+      const blocker: SendBlocker | undefined =
+        connection.git !== 'ok' ? 'needs-git' : access.remote === 'other' ? 'not-github' : connection.gh !== 'ok' || !connection.signedIn ? 'needs-github' : access.remote === 'none' ? 'no-remote' : access.canPush === false ? 'no-push' : undefined
+      repos.push({ ...access, repoId: wr.repoId, repoName: wr.repoName, ...(blocker ? { blocker } : {}) })
+    }
+    const order: SendBlocker[] = ['needs-git', 'needs-github', 'no-remote', 'not-github', 'no-push']
+    const blocker = veto ? 'veto' : order.find((b) => repos.some((r) => r.blocker === b))
+    // Solo: an app of the person's own (no team behind the space, no reviewer): they may publish it themselves.
+    const solo = !space?.orgId && reviewers.length === 0 && !space?.rules?.requireReview
+    return { connection, repos, ...(blocker ? { blocker } : {}), ...(veto ? { veto } : {}), solo }
+  })
+  handle('github:publishRepo', async (id, repoId) => {
+    const wr = workspaces.getWorkspace(id).repos.find((r) => r.repoId === repoId)
+    const repo = getStore().get().repos.find((r) => r.id === repoId)
+    if (!wr || !repo) throw new Error('Repo not in workspace')
+    return prereqs.publishRepo(repo.path, repo.name)
+  })
+  handle('github:forkRepo', async (id, repoId) => {
+    const wr = workspaces.getWorkspace(id).repos.find((r) => r.repoId === repoId)
+    const repo = getStore().get().repos.find((r) => r.id === repoId)
+    if (!wr || !repo) throw new Error('Repo not in workspace')
+    return prereqs.forkRepo(repo.path)
+  })
+  handle('github:mergePr', async (id, repoId, url) => {
+    const ws = workspaces.getWorkspace(id)
+    const wr = ws.repos.find((r) => r.repoId === repoId)
+    if (!wr) throw new Error('Repo not in workspace')
+    // Only someone working alone publishes from here (the preflight's `solo`): in a team space the change goes
+    // through review, whatever reviewers are set.
+    const space = getStore().get().spaces.find((s) => s.id === ws.spaceId)
+    const solo = !space?.orgId && (space?.guided?.reviewers ?? []).length === 0 && !space?.rules?.requireReview
+    if (!solo) throw new Error(PLAIN_ERROR_MARK + 'Your team requires a review first. Use Send for review so a teammate sees it.')
+    await prereqs.mergePr(wr.worktreePath, url)
+  })
+  handle('orgSpaces:retryMissing', () => orgSpaces.retryMissing())
   handle('github:status', async (id) => {
     const ws = workspaces.getWorkspace(id)
     const result = await Promise.all(ws.repos.map((wr) => repoPrStatus(wr.repoId, wr.worktreePath, wr.branch)))
@@ -541,19 +646,26 @@ export function registerIpc(): void {
     }
     return result
   })
-  handle('jira:authenticate', async (conn) => {
-    await jira.authenticate(conn)
-    authDone('jira', conn)
-  })
+  // Every sign-in ends with ui:authDone, success or not, so its dialog never waits forever.
+  const signInTo = async (provider: 'jira' | 'linear', name: string, conn: string, run: () => Promise<void>): Promise<void> => {
+    try {
+      await run()
+      authDone(provider, conn)
+    } catch (err) {
+      const text = authFailureText(name, err)
+      // Cancelled (from the dialog, the settings page, or a newer attempt): just close the dialog, nothing failed.
+      authDone(provider, conn, text === AUTH_CANCELLED ? undefined : text)
+      throw new Error(PLAIN_ERROR_MARK + text)
+    }
+  }
+  handle('jira:authenticate', (conn) => signInTo('jira', 'Jira', conn, () => jira.authenticate(conn)))
+  handle('auth:cancel', (provider, conn) => cancelAuth(provider, conn))
   handle('jira:disconnect', (conn) => jira.disconnect(conn))
   handle('jira:saveToken', (conn, token) => jira.saveToken(conn, token))
   handle('jira:updateSettings', (conn, patch) => jira.updateJiraSettings(conn, patch))
   handle('jira:search', (conn, q) => jira.search(conn, q))
   handle('jira:issue', (conn, key) => jira.issue(conn, key))
-  handle('linear:authenticate', async (conn) => {
-    await linear.authenticate(conn)
-    authDone('linear', conn)
-  })
+  handle('linear:authenticate', (conn) => signInTo('linear', 'Linear', conn, () => linear.authenticate(conn)))
   handle('linear:disconnect', (conn) => linear.disconnect(conn))
   handle('linear:updateSettings', (conn, patch) => linear.updateLinearSettings(conn, patch))
   handle('linear:search', (conn, q) => linear.search(conn, q))
@@ -563,6 +675,8 @@ export function registerIpc(): void {
   handle('updates:download', () => downloadUpdate())
   handle('updates:install', () => installUpdate())
   handle('updates:installWhenIdle', (on) => installWhenIdle(Boolean(on)))
+  handle('updates:cancel', () => cancelDownload())
+  handle('updates:latest', () => latestKnownUpdate())
   // Idle for the updater: no agent turn, no review run or fix round, no on-call triage or fix PR in flight.
   setIdleProbe(() => {
     const { workspaces: all } = getStore().get()
@@ -593,8 +707,17 @@ export function registerIpc(): void {
   })
   handle('logs:list', () => listErrors())
   handle('logs:clear', () => clearErrors())
+  ipcMain.handle('window:focus', (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender)
+    if (!win || win.isDestroyed()) return
+    if (win.isMinimized()) win.restore()
+    if (!win.isVisible()) win.show()
+    app.focus({ steal: true })
+    win.focus()
+  })
   handle('shell:openExternal', (url) => {
-    if (/^https?:\/\//.test(url)) void shell.openExternal(url)
+    // Web links, plus the one System Settings pane the app points to (Notifications, when macOS blocks them).
+    if (/^https?:\/\//.test(url) || /^x-apple\.systempreferences:com\.apple\.Notifications-Settings\.extension(\?id=[\w.-]+)?$/.test(url)) void shell.openExternal(url)
   })
 
   // ---- claude accounts ----
@@ -660,6 +783,13 @@ export function registerIpc(): void {
       (p) => send('accounts:loginProgress', p)
     )
   )
+  handle('accounts:install', (what) =>
+    accounts.startInstall(
+      what,
+      (terminalId, data) => send('terminal:data', { terminalId, data }),
+      (terminalId, exitCode) => send('terminal:exit', { terminalId, exitCode })
+    )
+  )
 
   // ---- review cockpit ----
   const emitReview = (run: Parameters<typeof send<'review:changed'>>[1]): void => send('review:changed', run)
@@ -667,6 +797,8 @@ export function registerIpc(): void {
   handle('reviews:list', (owners, mode, repos) => reviews.listPrs(owners, mode, repos ?? []))
   handle('reviews:detectOwners', (spaceId) => reviews.detectOwners(spaceId))
   handle('reviews:detectRepos', (spaceId) => reviews.detectRepos(spaceId))
+  handle('reviews:otherHosts', (spaceId) => reviews.otherHosts(spaceId))
+  handle('reviews:checkLogins', (logins) => reviews.checkLogins(logins))
   handle('reviews:runs', () => reviews.listRuns())
   handle('reviews:start', (pr, accountId) => reviews.startReview(pr, accountId, emitReview))
   handle('reviews:cancel', (key) => reviews.cancelReview(key))
@@ -786,6 +918,7 @@ export function registerIpc(): void {
   handle('remote:status', () => remote.status())
   handle('remote:pair', () => remote.pair())
   handle('remote:unpair', () => remote.unpair())
+  handle('remote:reconnect', () => remote.reconnect())
   handle('remote:updateSettings', (patch) => remote.updateSettings(patch))
   handle('remote:seen', (workspaceId) => remote.markSeen(workspaceId))
   usage.setEmitter((s) => send('usage:changed', s))
@@ -887,10 +1020,12 @@ export function registerIpc(): void {
   handle('oncall:restore', (inc) => oncall.restore(inc))
   handle('oncall:bulk', (ids, op) => oncall.bulk(ids, op))
   handle('oncall:openFixPr', (id) => oncall.openFixPr(id))
+  handle('oncall:cancel', (id) => oncall.cancel(id))
   // ---- google cloud ----
   handle('gcp:status', (force) => gcp.status(Boolean(force)))
   handle('gcp:projects', (account, force) => gcp.projects(account || undefined, Boolean(force)))
   handle('gcp:login', (account) => gcp.login(account || undefined))
+  handle('gcp:cancelLogin', () => gcp.cancelLogin())
   handle('gcp:test', (spaceId) => gcp.test(spaceId))
   // ---- databases ----
   db.setHistoryEmitter((connectionId) => send('db:history', { connectionId }))
@@ -946,7 +1081,7 @@ export function registerIpc(): void {
   handle('maestro:conversations', () => assistant.conversations())
   handle('maestro:get', (id) => assistant.get(id))
   handle('maestro:new', (ctx) => assistant.create(ctx))
-  handle('maestro:send', (id, text) => assistant.send(id, text))
+  handle('maestro:send', (id, text, opts) => assistant.send(id, text, opts))
   handle('maestro:stop', (id) => assistant.stop(id))
   handle('maestro:rename', (id, title) => assistant.rename(id, title))
   handle('maestro:pin', (id, pinned) => assistant.pin(id, pinned))
@@ -1053,7 +1188,7 @@ export function registerIpc(): void {
   })
   handle('agents:resetBuiltins', () => agentLib.resetBuiltins())
   handle('agents:draft', (description, spaceId) => crewSuggest.draft(description, spaceId))
-  handle('agents:run', (agentId, workspaceId, prompt, override) => runs.start(agentId, workspaceId, prompt, override))
+  handle('agents:run', (agentId, workspaceId, prompt, override, runId) => runs.start(agentId, workspaceId, prompt, override, runId))
   handle('agents:cancelRun', (runId) => runs.cancel(runId))
   handle('agents:importDir', (dir, spaceId) => agentLib.importDir(dir, spaceId))
   handle('agents:export', (id, dir) => agentLib.exportTo(id, dir))
@@ -1186,6 +1321,29 @@ export function registerIpc(): void {
 }
 
 /** gh pr create for one repo of a workspace, with a footer linking the ticket and the sibling branches. */
+/**
+ * A pull request needs the branch on GitHub with at least one commit past the base: say so when there is nothing
+ * yet, and push first when the branch was never pushed or has commits the remote does not.
+ */
+async function pushBeforePr(wr: { worktreePath: string; baseBranch: string; branch: string; repoName: string }): Promise<void> {
+  const branchCommits = await git
+    .git(wr.worktreePath)
+    .raw(['rev-list', '--count', `origin/${wr.baseBranch}..HEAD`])
+    .catch(() => git.git(wr.worktreePath).raw(['rev-list', '--count', `${wr.baseBranch}..HEAD`]))
+    .then((n) => Number(n.trim()) || 0)
+    .catch(() => null)
+  if (branchCommits === 0) {
+    const dirty = (await git.status(wr.worktreePath).catch(() => null))?.files.length ?? 0
+    throw new Error(
+      dirty
+        ? `No commits yet on ${wr.branch} in ${wr.repoName}: the ${dirty} changed file${dirty === 1 ? ' is' : 's are'} not committed. Commit them first, then open the pull request.`
+        : `No commits yet on ${wr.branch} in ${wr.repoName}, so there is nothing for a pull request to show. Make a change and commit it first.`
+    )
+  }
+  const { count, hasUpstream } = await git.unpushedCount(wr.worktreePath, wr.baseBranch)
+  if (!hasUpstream || count > 0) await git.push(wr.worktreePath)
+}
+
 async function createPr(id: string, repoId: string, title: string, body: string, reviewers?: string[], draft?: boolean): Promise<string> {
   const ws = workspaces.getWorkspace(id)
   // Team guardrail: builders go out through Send for review (with the team's reviewers) when reviews are required.
@@ -1193,6 +1351,7 @@ async function createPr(id: string, repoId: string, title: string, body: string,
   if (reviewVeto) throw new Error(reviewVeto)
   const wr = ws.repos.find((r) => r.repoId === repoId)
   if (!wr) throw new Error('Repo not in workspace')
+  await pushBeforePr(wr)
   const siblings = ws.repos.filter((r) => r.repoId !== repoId).map((r) => `- ${r.repoName} on branch \`${r.branch}\``)
   const footer: string[] = []
   if (ws.jira) footer.push(`Jira: [${ws.jira.key}](${ws.jira.url}) ${ws.jira.summary}`)
@@ -1200,8 +1359,10 @@ async function createPr(id: string, repoId: string, title: string, body: string,
   if (siblings.length) footer.push(`Part of workspace **${ws.name}**. Related branches:\n${siblings.join('\n')}`)
   const fullBody = footer.length ? `${body}\n\n---\n${footer.join('\n\n')}` : body
   const reviewerArgs = (reviewers ?? []).flatMap((r) => ['--reviewer', r])
+  // --head is owner:branch when the changes went to the person's own copy (Make your own copy).
+  const head = await prereqs.prHead(wr.worktreePath, wr.branch).catch(() => wr.branch)
   return new Promise<string>((resolve, reject) => {
-    const child = spawn('gh', ['pr', 'create', '--title', title, '--body', fullBody, '--head', wr.branch, ...reviewerArgs, ...(draft ? ['--draft'] : [])], { cwd: wr.worktreePath, env: process.env })
+    const child = spawn(prereqs.ghPath(), ['pr', 'create', '--title', title, '--body', fullBody, '--head', head, ...reviewerArgs, ...(draft ? ['--draft'] : [])], { cwd: wr.worktreePath, env: prereqs.ghEnv() })
     let out = ''
     child.stdout.on('data', (d) => (out += d))
     child.stderr.on('data', (d) => (out += d))
@@ -1210,8 +1371,22 @@ async function createPr(id: string, repoId: string, title: string, body: string,
         workspaces.advanceStage(id, 'in-review')
         if (!workspaces.getWorkspace(id).reviewRequestedAt) workspaces.patchWorkspace(id, { reviewRequestedAt: new Date().toISOString() })
         resolve(out.trim())
-      } else reject(new Error(out.trim() || `gh exited ${code}`))
+      } else reject(new Error(explainPrError(out.trim()) || `gh exited ${code}`))
     })
     child.on('error', reject)
   })
+}
+
+/** gh's GraphQL refusals, in words that say what to do (sign-in and a missing gh are explained where gh is set up). */
+function explainPrError(raw: string): string {
+  if (/a pull request for branch .* already exists/i.test(raw)) {
+    const url = /https:\/\/\S+/.exec(raw)?.[0]
+    return `A pull request for this branch is already open${url ? `: ${url}` : ''}. Refresh Checks to see it.`
+  }
+  if (/No commits between|Head sha can't be blank|must be a valid ref/i.test(raw)) return 'The branch has no commits the base branch does not already have, so there is nothing for a pull request to show. Commit a change, push, then try again.'
+  if (/Base ref must be a branch|base.*(not found|invalid)|Could not resolve to a Ref/i.test(raw)) return `The base branch was not found on GitHub. Push it, or change the workspace's base branch, then try again.\n\ngh said: ${raw.split('\n').slice(-2).join(' ')}`
+  if (/could not find any reviewers|reviewers? .*(not found|could not be requested)|Could not resolve to a User/i.test(raw)) return `GitHub could not add a reviewer (the name may be wrong, or they have no access to the repository). Open the pull request without them, or fix the name.\n\ngh said: ${raw.split('\n').slice(-2).join(' ')}`
+  if (/must first push the current branch|aborted: you must first push/i.test(raw)) return 'The branch is not on GitHub yet and could not be pushed automatically. Push it first, then open the pull request.'
+  if (/GraphQL|was submitted too quickly|secondary rate limit/i.test(raw) && /rate/i.test(raw)) return 'GitHub is rate-limiting requests right now. Wait a minute, then try again.'
+  return raw
 }

@@ -13,6 +13,7 @@ import { createSdkMcpServer, tool as sdkTool, type Options } from '@anthropic-ai
 import { tool as aiTool, type ToolSet } from 'ai'
 import { getStore } from '../store'
 import type { GcpSettings, GcpStatus } from '@shared/types'
+import { PLAIN_ERROR_MARK } from '@shared/types'
 
 const errText = (err: unknown): string => (err instanceof Error ? err.message : String(err))
 const MAX_OUT = 40_000
@@ -30,9 +31,14 @@ export function gcloudBin(): string | null {
     '/opt/homebrew/share/google-cloud-sdk/bin/gcloud',
     '/usr/local/share/google-cloud-sdk/bin/gcloud'
   ]
-  binCache = candidates.find((p) => p && existsSync(p)) ?? null
-  return binCache
+  // Only a found path is cached: "not installed" is asked again, so installing gcloud and pressing Refresh works.
+  const found = candidates.find((p) => p && existsSync(p)) ?? null
+  if (found) binCache = found
+  return found
 }
+
+/** Where to download the Google Cloud SDK, for the "not installed" card. */
+export const GCLOUD_DOWNLOAD_URL = 'https://cloud.google.com/sdk/docs/install'
 
 /** The space's project, else the app-wide one. Undefined when neither names a project. */
 export function gcpFor(spaceId?: string): GcpSettings | undefined {
@@ -44,7 +50,7 @@ export function gcpFor(spaceId?: string): GcpSettings | undefined {
 
 function run(args: string[], opts: { account?: string; project?: string; timeoutMs?: number; json?: boolean } = {}): Promise<string> {
   const bin = gcloudBin()
-  if (!bin) return Promise.reject(new Error('gcloud is not installed. Install the Google Cloud SDK (brew install --cask google-cloud-sdk) and sign in with `gcloud auth login`.'))
+  if (!bin) return Promise.reject(new Error(`gcloud is not installed. Install the Google Cloud SDK (${GCLOUD_DOWNLOAD_URL}, or brew install --cask google-cloud-sdk) and sign in with \`gcloud auth login\`.`))
   const full = [...args]
   if (opts.json !== false && !full.some((a) => a.startsWith('--format'))) full.push('--format=json')
   if (opts.project) full.push(`--project=${opts.project}`)
@@ -117,24 +123,44 @@ export async function projects(account?: string, force = false): Promise<{ proje
   return value
 }
 
+/** The running `gcloud auth login`, so Cancel can stop it. */
+let loginChild: { child: ReturnType<typeof spawn>; why: 'cancel' | 'timeout' | null } | null = null
+
+/** Stops a sign-in in progress; its login() promise rejects with "Sign-in cancelled." */
+export function cancelLogin(): void {
+  if (!loginChild) return
+  loginChild.why = 'cancel'
+  loginChild.child.kill()
+}
+
 /** `gcloud auth login --brief`: opens the browser, completes on the localhost callback, no terminal needed. */
 export function login(account?: string): Promise<GcpStatus> {
   const bin = gcloudBin()
-  if (!bin) return Promise.reject(new Error('gcloud is not installed. Install the Google Cloud SDK first (brew install --cask google-cloud-sdk).'))
+  if (!bin) return Promise.reject(new Error(`${PLAIN_ERROR_MARK}The Google Cloud SDK is not installed. Download it from ${GCLOUD_DOWNLOAD_URL}, then press Refresh.`))
+  cancelLogin()
   return new Promise((resolve, reject) => {
     const child = spawn(bin, ['auth', 'login', ...(account ? [account] : []), '--brief', '--quiet'], { env: { ...process.env, CLOUDSDK_CORE_DISABLE_PROMPTS: '1' }, stdio: ['ignore', 'pipe', 'pipe'] })
+    const me: NonNullable<typeof loginChild> = { child, why: null }
+    loginChild = me
     let err = ''
-    child.stderr.on('data', (d: Buffer) => (err += d.toString()))
-    const timer = setTimeout(() => child.kill(), 5 * 60_000)
+    child.stderr?.on('data', (d: Buffer) => (err += d.toString()))
+    const timer = setTimeout(() => {
+      me.why = 'timeout'
+      child.kill()
+    }, 5 * 60_000)
     child.on('error', (e) => {
       clearTimeout(timer)
+      if (loginChild === me) loginChild = null
       reject(e)
     })
     child.on('exit', (code) => {
       clearTimeout(timer)
+      if (loginChild === me) loginChild = null
       statusCache = null
       projectsCache.clear()
-      if (code === 0) void status(true).then(resolve, reject)
+      if (me.why === 'cancel') reject(new Error(`${PLAIN_ERROR_MARK}Sign-in cancelled.`))
+      else if (me.why === 'timeout') reject(new Error(`${PLAIN_ERROR_MARK}The Google sign-in was not finished within five minutes. Press Sign in to start again.`))
+      else if (code === 0) void status(true).then(resolve, reject)
       else reject(new Error(err.trim().split('\n').slice(-3).join(' ') || `gcloud auth login exited with ${code}`))
     })
   })

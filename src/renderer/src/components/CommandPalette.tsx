@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { Search } from 'lucide-react'
 import { useApp, type AppPage, type View } from '@/stores/app'
-import { askMaestro, toggleMaestroDock } from '@/stores/maestro'
+import { askMaestro, openMaestroDock } from '@/stores/maestro'
 import { useGuided, words, cap } from '@/lib/guided'
 import { workspaceLabel } from '@/lib/labels'
 import { tabsFor } from './WorkspaceTabs'
@@ -80,7 +80,7 @@ export function CommandPalette({ onClose, onShortcuts }: { onClose: () => void; 
     // The rail's places, in both modes (Review and Agents are expert places for now).
     out.push(
       { id: 'maestro', label: 'Maestro home', group: 'Go to', run: () => view('maestro') },
-      { id: 'dock', label: 'Ask Maestro about this screen', group: 'Go to', hint: '⌘J', run: () => void toggleMaestroDock() },
+      { id: 'dock', label: 'Ask Maestro about this screen', group: 'Go to', hint: '⌘J', run: () => void openMaestroDock() },
       { id: 'pages', label: 'Your pages', group: 'Go to', run: () => view('home') },
       { id: 'notes', label: 'Notes', group: 'Go to', run: () => view('notes') }
     )

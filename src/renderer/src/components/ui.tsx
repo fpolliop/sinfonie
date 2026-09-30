@@ -22,6 +22,13 @@ export function Button({ variant = 'subtle', size = 'md', className, ...rest }: 
 }
 
 /**
+ * The one stacking order, lowest first. Full-screen surfaces (the setup wizard, the tour) sit BELOW dialogs, so a
+ * dialog opened from anywhere while they are up (a sign-in link, Settings, a permission prompt, a menu) is always on
+ * top and owns focus and Escape. Toasts are above everything. Use these instead of new z-index numbers.
+ */
+export const LAYER = { dock: 'z-40', page: 'z-[45]', spotlight: 'z-[46]', modal: 'z-50', toast: 'z-[80]' } as const
+
+/**
  * Modal stack: every open Dialog counts itself so window-level Escape handlers (SettingsWindow, panes) can step
  * aside while one is up. Dialog handles Escape in the capture phase and stops it from reaching anyone else.
  */
@@ -61,7 +68,7 @@ export function Dialog({ title, onClose, children, width = 520, bare = false }: 
   const boxRef = useRef<HTMLDivElement>(null)
   useFocusTrap(boxRef)
   return (
-    <div className={clsx('fixed inset-0 z-50 flex justify-center bg-black/50 no-drag', bare ? 'items-start pt-[14vh]' : 'items-center')} onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div className={clsx('fixed inset-0 flex justify-center bg-black/50 no-drag', LAYER.modal, bare ? 'items-start pt-[14vh]' : 'items-center')} onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div
         ref={boxRef}
         role="dialog"
