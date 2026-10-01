@@ -65,7 +65,8 @@ function run(args: string[], opts: { account?: string; project?: string; timeout
           .slice(-4)
           .join(' ')
         if (/Reauthentication (failed|required)|cannot prompt during non-interactive|invalid_grant|Token has been expired or revoked|do not currently have an active account/i.test(String(stderr || err.message))) {
-          reject(new Error(`Google account ${opts.account ?? '(active)'} needs to sign in again; its organisation requires periodic re-authentication. Press "Re-authenticate" next to it under Settings → Integrations → Google Cloud, then retry.`))
+          // Expected, not a crash: the user's organisation forces periodic sign-in and Settings offers Re-authenticate.
+          reject(Object.assign(new Error(`Google account ${opts.account ?? '(active)'} needs to sign in again; its organisation requires periodic re-authentication. Press "Re-authenticate" next to it under Settings → Integrations → Google Cloud, then retry.`), { expected: true }))
           return
         }
         reject(new Error(tail || 'gcloud failed'))

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { yieldsToEditor } from '@/lib/keys'
 import clsx from 'clsx'
-import { Plus, Settings, Archive, Pencil, Folder, Code2, TerminalSquare, Trash2, Layers, ArrowDownWideNarrow, ArrowUpNarrowWide, Filter, ChevronRight, MessageSquarePlus, Activity, Users2, LayoutDashboard } from 'lucide-react'
+import { Mail, Plus, Settings, Archive, Pencil, Folder, Code2, TerminalSquare, Trash2, Layers, ArrowDownWideNarrow, ArrowUpNarrowWide, Filter, ChevronRight, MessageSquarePlus, Activity, Users2, LayoutDashboard } from 'lucide-react'
 import { ERRORS_SEEN_KEY } from './FeedbackDialog'
 import { useResources, subscribeResources, gb } from '@/stores/resources'
 import { useUsage, subscribeUsage, windowLabel, clock } from '@/stores/usage'
@@ -584,8 +584,12 @@ function WorkspaceRow({ ws, grouped, selected, busy, done, onClick }: { ws: Work
           }
         }
       ]
-  const entries: MenuEntry[] = guided ? [{ label: 'Rename task…', icon: <Pencil size={14} />, onClick: () => setEditing(true) }, { separator: true }, ...finishing] : [
+  // Feedback #72: keep a chat marked unread to come back to it. (Right-click opens the row, which reads it, so
+  // there is no "Mark as read" to offer; opening it again clears the mark.)
+  const unread: MenuEntry = { label: 'Mark as unread', icon: <Mail size={14} />, onClick: () => useChat.getState().markUnread(ws.id), disabled: ws.status === 'archived' }
+  const entries: MenuEntry[] = guided ? [{ label: 'Rename task…', icon: <Pencil size={14} />, onClick: () => setEditing(true) }, unread, { separator: true }, ...finishing] : [
     { label: 'Rename workspace…', icon: <Pencil size={14} />, onClick: () => setEditing(true) },
+    unread,
     { label: 'Move to space…', icon: <Layers size={14} />, onClick: () => window.dispatchEvent(new CustomEvent('sinfonie:moveSpace', { detail: ws.id })) },
     { separator: true },
     { label: 'Reveal in Finder', icon: <Folder size={14} />, onClick: () => run(() => api.invoke('workspaces:openIn', ws.id, 'finder')), disabled: ws.status === 'archived' },
@@ -641,7 +645,7 @@ function WorkspaceRow({ ws, grouped, selected, busy, done, onClick }: { ws: Work
             </span>
           )}
           <span className="ml-auto shrink-0">
-            {busy || ws.status === 'creating' || ws.status === 'archiving' ? <Spinner /> : ws.status === 'error' ? <span className="inline-block h-2 w-2 rounded-full bg-danger" title={guided ? 'Something went wrong; open the task to see' : ws.error} /> : done ? <span className="inline-block h-2 w-2 rounded-full bg-accent" title={guided ? 'Ready to look at' : 'Finished since you last looked'} /> : null}
+            {busy || ws.status === 'creating' || ws.status === 'archiving' ? <Spinner /> : ws.status === 'error' ? <span className="inline-block h-2 w-2 rounded-full bg-danger" title={guided ? 'Something went wrong; open the task to see' : ws.error} /> : done ? <span className="inline-block h-2 w-2 rounded-full bg-accent" title={guided ? 'Ready to look at' : 'Unread: finished since you last looked, or marked unread'} /> : null}
           </span>
         </div>
         <div className="flex items-center gap-1.5 text-[11px] text-muted">

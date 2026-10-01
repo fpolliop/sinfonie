@@ -36,6 +36,8 @@ interface ChatState {
   /** Workspaces whose turn ended while not on screen; cleared when opened. */
   unseenDone: Record<string, true>
   markSeen: (workspaceId: string) => void
+  /** Put the "finished, not looked at" dot back on a workspace, to come back to it later. */
+  markUnread: (workspaceId: string) => void
   answerQuestion: (response: QuestionResponse) => Promise<void>
   ensure: (workspaceId: string) => WorkspaceChat
   load: (workspaceId: string) => Promise<void>
@@ -82,6 +84,7 @@ export const useChat = create<ChatState>((set, get) => ({
   questions: [],
   promptSeenAt: {},
   unseenDone: {},
+  markUnread: (id) => set((s) => (s.unseenDone[id] ? {} : { unseenDone: { ...s.unseenDone, [id]: true as const } })),
   markSeen: (id) =>
     set((s) => {
       if (!s.unseenDone[id]) return {}
