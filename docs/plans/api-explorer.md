@@ -62,8 +62,12 @@ stale rather than deleted.
 
 ## Phases
 
-1. **Endpoints**: OpenAPI detection and the framework scan for the two most common stacks in your
-   repos (Node/Express or Nest, and Python/FastAPI); an endpoint list under the workspace's Data area.
+1. **Endpoints**: OpenAPI first (spec files, and the running app's generated document), then the
+   framework scan for Next.js API routes and NestJS controllers; an endpoint list under the workspace's
+   Data area. (Stacks in the registered repos, 2026-10-01: backend-services and perlapli-api are NestJS
+   with `@nestjs/swagger`, so their running apps already publish an exact OpenAPI document;
+   backend-services also has FastAPI and Fastify parts; lumepic-support is NestJS/Fastify without
+   swagger; astro-market uses Express; seven repos are Next.js with API routes.)
 2. **Requests**: the runner in main, environments (workspace / local), auth, history, curl export,
    safety prompts.
 3. **Agent**: the tools, rescan after route changes, agent-assisted OpenAPI for partial routes.
@@ -72,7 +76,7 @@ stale rather than deleted.
 
 ## Open questions
 
-- Which stacks first? Proposal: look at the repos across your spaces (Lumepic's backend-services,
-  perla-pli-api, …) and start with the frameworks they use.
+- Which stacks first? Answered from the repos (see phase 1): OpenAPI from NestJS swagger, then
+  Next.js API routes and NestJS controllers, then Fastify, Express and FastAPI.
 - Is it a workspace tab (next to Data) or a space-level page? Proposal: a workspace tab bound to the
   workspace's running app, plus the space's collections in Team settings.
