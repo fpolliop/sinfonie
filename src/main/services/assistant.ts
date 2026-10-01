@@ -14,6 +14,7 @@ import { nanoid } from 'nanoid'
 import { z } from 'zod'
 import { query, createSdkMcpServer, tool as sdkTool, type Options, type SDKMessage, type SpawnedProcess, type PermissionResult } from '@anthropic-ai/claude-agent-sdk'
 import { getStore } from '../store'
+import { ghEnv, ghPath } from './prereqs'
 import { claudeExecutableOption } from './claude-cli'
 import { accountEnv, defaultAccountId, addAccount } from './accounts'
 import { askQuestion } from './interaction'
@@ -37,7 +38,7 @@ import { viewTools } from './views/tools'
 import { mcpServersFor } from './agent'
 import { getTranscript } from './transcripts'
 import { agentOwner, isAgentOwner, isStandingNote, type MaestroConversation, type MaestroConversationMeta, type MaestroContext, type MaestroEvent, type MaestroSuggestion, type MaestroAutonomy, type MaestroMemoryCategory, type MaestroMemoryEntry, type CreateWorkspaceInput, type WorkspaceStage, type ReviewPr, type IncidentStatus, type Severity } from '@shared/types'
-import { SPACE_COLORS, type AgentSpec, type AssistantItem, type CostMode, type CostModeScope, type OnCallSettings, type Repo, type Space, type Settings, type NoteKind, type NotesFilter } from '@shared/types'
+import { SPACE_COLORS, type AgentSpec, type AssistantItem, type MaestroTurnError, type CostMode, type CostModeScope, type OnCallSettings, type Repo, type Space, type Settings, type NoteKind, type NotesFilter } from '@shared/types'
 
 export const ASSISTANT_WORKSPACE_ID = 'assistant'
 
@@ -73,6 +74,10 @@ const needHost = (): Host => {
 interface Conversation extends MaestroConversationMeta {
   items: AssistantItem[]
   sessionId?: string
+  /** The Anthropic account this conversation continues on, after "Continue on <account>". */
+  accountId?: string
+  /** The account the Claude session was started on: a session only resumes under the same account. */
+  sessionAccountId?: string
 }
 const convos = new Map<string, Conversation>()
 let loaded = false
@@ -122,9 +127,11 @@ function save(c: Conversation): void {
   }
 }
 function meta(c: Conversation): MaestroConversationMeta {
-  const { items: _i, sessionId: _s, ...m } = c
+  const { items: _i, sessionId: _s, accountId: _a, sessionAccountId: _sa, ...m } = c
   void _i
   void _s
+  void _a
+  void _sa
   return { ...m, busy: running.has(c.id), preview: [...c.items].reverse().find((it) => it.role === 'user' || it.role === 'assistant')?.text.slice(0, 120) }
 }
 const need = (id: string): Conversation => {
@@ -664,7 +671,7 @@ const TOOLS: ToolDef[] = [
       if (p === 'oncall') return pretty((cid ? space?.oncall : settings.oncall) ?? { enabled: false, channels: [] })
       if (p === 'gcp') return pretty({ configured: gcp.gcpFor(cid || undefined) ?? null, gcloud: await gcp.status() })
       return await new Promise<string>((resolve) => {
-        const child = spawn('gh', ['auth', 'status'], { env: process.env })
+        const child = spawn(ghPath(), ['auth', 'status'], { env: ghEnv() })
         let out = ''
         child.stdout.on('data', (d: Buffer) => (out += d.toString()))
         child.stderr.on('data', (d: Buffer) => (out += d.toString()))
@@ -1208,73 +1215,156 @@ async function titleFor(c: Conversation): Promise<void> {
   }
 }
 
-export async function send(id: string, text: string): Promise<void> {
+/** Turn an SDK error code or error text into what the renderer can act on. */
+function classifyError(code: string | undefined, text: string): MaestroTurnError['code'] {
+  if (code === 'authentication_failed' || code === 'oauth_org_not_allowed' || /not logged in|invalid api key|please run \/login|authentication_failed|oauth token (has )?expired|unauthori[sz]ed|401/i.test(text)) return 'auth'
+  if (code === 'rate_limit' || /usage limit|rate[ _]limit|limit reached|429/i.test(text)) return 'limit'
+  if (code === 'billing_error' || code === 'account_on_hold' || /credit balance|billing|account (is )?on hold/i.test(text)) return 'billing'
+  if (code === 'overloaded' || code === 'server_error' || /overloaded|529|internal server error|api error: 5\d\d/i.test(text)) return 'busy'
+  return 'other'
+}
+const ERROR_SAY: Record<MaestroTurnError['code'], string> = {
+  auth: 'Maestro is not signed in to Claude on this account.',
+  limit: 'Maestro has hit the usage limit on this account for now.',
+  billing: 'The Claude account Maestro uses has a billing problem or is on hold.',
+  busy: 'Claude is overloaded right now, so Maestro could not answer.',
+  other: 'Maestro stopped before it could answer.'
+}
+
+const limitWarned = new Set<string>()
+/** Anthropic accounts, signed-in first; an account never checked counts as possibly signed in. */
+function anthropicAccounts(): { id: string; name: string; loggedIn?: boolean }[] {
+  return getStore()
+    .get()
+    .settings.claudeAccounts.filter((a) => (a.vendor ?? 'anthropic') === 'anthropic')
+    .map((a) => ({ id: a.id, name: a.name, loggedIn: a.loggedIn }))
+}
+/** The account for a turn: the conversation's own, else the default, else any signed-in one when the default is signed out. */
+function accountFor(c: Conversation): string {
+  const { settings } = getStore().get()
+  const list = anthropicAccounts()
+  if (c.accountId && list.some((a) => a.id === c.accountId)) return c.accountId
+  const def = settings.defaultClaudeAccountId ?? defaultAccountId('anthropic') ?? 'default'
+  if (list.find((a) => a.id === def)?.loggedIn === false) return list.find((a) => a.loggedIn === true)?.id ?? def
+  return def
+}
+/** Another signed-in Anthropic account to offer, with room left in its limits when one has it. */
+function otherAccount(accountId: string): { id: string; name: string } | undefined {
+  const others = anthropicAccounts().filter((a) => a.id !== accountId && a.loggedIn === true)
+  const pick = others.find((a) => !usage.riskyLimit(a.id)) ?? others[0]
+  return pick ? { id: pick.id, name: pick.name } : undefined
+}
+
+export async function send(id: string, text: string, opts?: { retry?: boolean; accountId?: string }): Promise<void> {
   const c = need(id)
   if (running.has(id)) throw new Error('Maestro is still answering here; wait or stop it.')
-  const { settings, repos } = getStore().get()
-  const first = c.items.length === 0
-  push(c, { role: 'user', text })
-  if (first && !c.titleLocked) {
-    c.title = text.trim().slice(0, 60)
-    save(c)
-    emit({ conversationId: id, type: 'meta', meta: meta(c) })
-  }
+  // Everything from here runs under try/finally, so a failure in the setup never leaves the conversation busy.
   const abort = new AbortController()
   running.set(id, abort)
   emit({ conversationId: id, type: 'status', busy: true })
-  const accountId = settings.defaultClaudeAccountId ?? defaultAccountId('anthropic') ?? 'default'
-  const model = costModeFor(undefined) !== 'standard' ? leanModel(settings.model) : settings.model
-  const root = settings.workspacesRoot.startsWith('~') ? join(homedir(), settings.workspacesRoot.slice(1)) : settings.workspacesRoot
-  if (!existsSync(root)) mkdirSync(root, { recursive: true })
-  const canUseTool: NonNullable<Options['canUseTool']> = async (toolName, toolInput, opts) => {
-    if (toolName === 'AskUserQuestion') {
-      const questions = ((toolInput as { questions?: { question: string; header: string; multiSelect?: boolean; options?: { label: string; description: string }[] }[] }).questions ?? []).map((q) => ({ question: q.question, header: q.header, multiSelect: Boolean(q.multiSelect), options: (q.options ?? []).map((o) => ({ label: o.label, description: o.description })) }))
-      const reply = await askQuestion(`maestro:${id}`, questions, opts.signal)
-      if (reply.cancelled) return { behavior: 'deny', message: 'The user dismissed the questions. Continue in plain text.' }
-      const updatedInput: Record<string, unknown> = { questions: (toolInput as { questions?: unknown }).questions, answers: reply.answers }
-      if (reply.response) updatedInput.response = reply.response
-      return { behavior: 'allow', updatedInput }
-    }
-    const r: PermissionResult = { behavior: 'allow', updatedInput: toolInput }
-    return r
-  }
-  const options: Options = {
-    ...claudeExecutableOption(),
-    cwd: root,
-    additionalDirectories: repos.map((r) => r.path).filter((p) => existsSync(p)).slice(0, 30),
-    permissionMode: 'default',
-    model,
-    thinking: { type: 'adaptive', display: 'summarized' },
-    includePartialMessages: true,
-    abortController: abort,
-    canUseTool,
-    mcpServers: await assistantServers(c),
-    strictMcpConfig: true,
-    settingSources: [],
-    // AskUserQuestion stays out of allowedTools so it reaches canUseTool and shows the card.
-    allowedTools: ['Read', 'Grep', 'Glob', ...TOOLS.map((t) => `mcp__sinfonie__${t.name}`)],
-    disallowedTools: ['Bash', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'Agent', 'Task', 'WebFetch', 'WebSearch', 'EnterPlanMode', 'ExitPlanMode'],
-    systemPrompt: { type: 'preset', preset: 'claude_code', append: systemFor() },
-    maxTurns: 40,
-    env: { ...process.env, ...accountEnv(accountId) },
-    ...(c.sessionId ? { resume: c.sessionId } : {}),
-    stderr: (d) => console.error('[maestro]', d.trimEnd()),
-    spawnClaudeCodeProcess: (o) => {
-      const child = spawn(o.command, o.args, { cwd: o.cwd, env: o.env as NodeJS.ProcessEnv, stdio: ['pipe', 'pipe', 'pipe'], signal: o.signal })
-      resources.registerProcess(child.pid, { kind: 'agent', label: 'Maestro' })
-      child.once('exit', () => resources.unregisterProcess(child.pid))
-      return child as unknown as SpawnedProcess
-    }
-  }
   let current: AssistantItem | null = null
   let streamed = ''
-  const since = first ? [...convos.values()].filter((x) => x.id !== c.id).map((x) => x.updatedAt).sort().pop() ?? '' : ''
-  const prompt = first ? `${contextLine(c)}${digestSince(since)}${text}` : text
+  let failed = false
+  let accountId = ''
+  /** One coded error item per turn: the first cause wins, later echoes of it are dropped. */
+  const fail = (code: string | undefined, raw: string, replace?: AssistantItem): void => {
+    if (failed || abort.signal.aborted) return
+    failed = true
+    const kind = classifyError(code, raw)
+    const other = kind === 'auth' || kind === 'limit' || kind === 'billing' ? otherAccount(accountId) : undefined
+    const detail = raw.trim().slice(0, 800)
+    const item = { role: 'system' as const, text: kind === 'other' && detail ? `${ERROR_SAY.other} ${detail}` : ERROR_SAY[kind], error: { code: kind, accountId, ...(other ? { other } : {}), retryText: text, ...(detail ? { detail } : {}) } }
+    if (!replace) {
+      push(c, item)
+      return
+    }
+    // The error arrived as streamed text: turn that bubble into the error item.
+    Object.assign(replace, item)
+    save(c)
+    emit({ conversationId: id, type: 'item', item: replace })
+  }
   try {
+    const { settings, repos } = getStore().get()
+    const first = c.items.length === 0
+    if (opts?.accountId) c.accountId = opts.accountId
+    if (!opts?.retry) push(c, { role: 'user', text })
+    if (first && !c.titleLocked) {
+      c.title = text.trim().slice(0, 60)
+      save(c)
+      emit({ conversationId: id, type: 'meta', meta: meta(c) })
+    }
+    accountId = accountFor(c)
+    // Close to a usage limit: say so once per conversation and limit window, before the turn starts.
+    const risk = opts?.retry ? null : usage.riskyLimit(accountId)
+    const riskKey = risk ? `${c.id}|${accountId}|${risk.type}|${risk.resetsAt ?? ''}` : ''
+    if (risk && !limitWarned.has(riskKey)) {
+      limitWarned.add(riskKey)
+      const other = otherAccount(accountId)
+      const window = risk.type === 'five_hour' ? '5-hour' : risk.type.startsWith('seven_day') ? 'weekly' : 'usage'
+      push(c, { role: 'system', text: `This account has used ${Math.round(risk.utilization * 100)}% of its ${window} limit, so Maestro may stop partway.`, error: { code: 'limit', accountId, preflight: true, ...(other ? { other } : {}) } })
+    }
+    // A Claude session lives under the account that started it; on another account start a new one with a recap.
+    const resume = c.sessionId && (c.sessionAccountId ?? accountId) === accountId ? c.sessionId : undefined
+    const recap =
+      !resume && c.sessionId
+        ? `Earlier in this conversation (continued on another account):\n${c.items
+            .filter((i) => i.role === 'user' || i.role === 'assistant')
+            .slice(-13, -1)
+            .map((i) => `${i.role === 'user' ? 'User' : 'Maestro'}: ${i.text.slice(0, 600)}`)
+            .join('\n')}\n\n`
+        : ''
+    const model = costModeFor(undefined) !== 'standard' ? leanModel(settings.model) : settings.model
+    const root = settings.workspacesRoot.startsWith('~') ? join(homedir(), settings.workspacesRoot.slice(1)) : settings.workspacesRoot
+    if (!existsSync(root)) mkdirSync(root, { recursive: true })
+    const canUseTool: NonNullable<Options['canUseTool']> = async (toolName, toolInput, o) => {
+      if (toolName === 'AskUserQuestion') {
+        const questions = ((toolInput as { questions?: { question: string; header: string; multiSelect?: boolean; options?: { label: string; description: string }[] }[] }).questions ?? []).map((q) => ({ question: q.question, header: q.header, multiSelect: Boolean(q.multiSelect), options: (q.options ?? []).map((op) => ({ label: op.label, description: op.description })) }))
+        const reply = await askQuestion(`maestro:${id}`, questions, o.signal)
+        if (reply.cancelled) return { behavior: 'deny', message: 'The user dismissed the questions. Continue in plain text.' }
+        const updatedInput: Record<string, unknown> = { questions: (toolInput as { questions?: unknown }).questions, answers: reply.answers }
+        if (reply.response) updatedInput.response = reply.response
+        return { behavior: 'allow', updatedInput }
+      }
+      const r: PermissionResult = { behavior: 'allow', updatedInput: toolInput }
+      return r
+    }
+    const options: Options = {
+      ...claudeExecutableOption(),
+      cwd: root,
+      additionalDirectories: repos.map((r) => r.path).filter((p) => existsSync(p)).slice(0, 30),
+      permissionMode: 'default',
+      model,
+      thinking: { type: 'adaptive', display: 'summarized' },
+      includePartialMessages: true,
+      abortController: abort,
+      canUseTool,
+      mcpServers: await assistantServers(c),
+      strictMcpConfig: true,
+      settingSources: [],
+      // AskUserQuestion stays out of allowedTools so it reaches canUseTool and shows the card.
+      allowedTools: ['Read', 'Grep', 'Glob', ...TOOLS.map((t) => `mcp__sinfonie__${t.name}`)],
+      disallowedTools: ['Bash', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'Agent', 'Task', 'WebFetch', 'WebSearch', 'EnterPlanMode', 'ExitPlanMode'],
+      systemPrompt: { type: 'preset', preset: 'claude_code', append: systemFor() },
+      maxTurns: 40,
+      env: { ...process.env, ...accountEnv(accountId) },
+      ...(resume ? { resume } : {}),
+      stderr: (d) => console.error('[maestro]', d.trimEnd()),
+      spawnClaudeCodeProcess: (o) => {
+        const child = spawn(o.command, o.args, { cwd: o.cwd, env: o.env as NodeJS.ProcessEnv, stdio: ['pipe', 'pipe', 'pipe'], signal: o.signal })
+        resources.registerProcess(child.pid, { kind: 'agent', label: 'Maestro' })
+        child.once('exit', () => resources.unregisterProcess(child.pid))
+        return child as unknown as SpawnedProcess
+      }
+    }
+    const since = first ? [...convos.values()].filter((x) => x.id !== c.id).map((x) => x.updatedAt).sort().pop() ?? '' : ''
+    const prompt = `${recap}${first ? `${contextLine(c)}${digestSince(since)}${text}` : text}`
     for await (const msg of query({ prompt, options }) as AsyncIterable<SDKMessage>) {
       if (msg.type === 'system' && msg.subtype === 'init') {
         c.sessionId = msg.session_id
+        c.sessionAccountId = accountId
         save(c)
+      } else if (msg.type === 'auth_status') {
+        if (msg.error) fail('authentication_failed', msg.error)
       } else if (msg.type === 'stream_event') {
         const ev = msg.event as { type: string; delta?: { type: string; text?: string } }
         if (ev.type === 'content_block_delta' && ev.delta?.type === 'text_delta' && ev.delta.text) {
@@ -1288,7 +1378,11 @@ export async function send(id: string, text: string): Promise<void> {
       } else if (msg.type === 'assistant') {
         const blocks = msg.message.content as { type: string; text?: string; name?: string }[]
         const full = blocks.filter((b) => b.type === 'text').map((b) => b.text ?? '').join('\n')
-        if (current) {
+        if (msg.error) {
+          // The SDK puts the API error text in the message itself ("Invalid API key · Please run /login"): show it as an error, not as Maestro's words.
+          fail(msg.error, full || streamed, current ?? undefined)
+          current = null
+        } else if (current) {
           current.text = full || streamed
           save(c)
           emit({ conversationId: id, type: 'item', item: current })
@@ -1307,15 +1401,16 @@ export async function send(id: string, text: string): Promise<void> {
         } catch {
           /* ledger must not break the assistant */
         }
-        if (msg.subtype !== 'success' && !abort.signal.aborted) push(c, { role: 'system', text: `Maestro stopped: ${msg.subtype.replace(/_/g, ' ')}${'errors' in msg && Array.isArray(msg.errors) ? ` (${(msg.errors as string[]).join('; ')})` : ''}` })
+        if (msg.subtype !== 'success') fail(undefined, `${msg.subtype.replace(/_/g, ' ')}${'errors' in msg && Array.isArray(msg.errors) ? ` (${(msg.errors as string[]).join('; ')})` : ''}`)
+        else if (msg.is_error) fail(undefined, msg.result || 'API error')
       }
     }
   } catch (err) {
-    if (!abort.signal.aborted) push(c, { role: 'system', text: `Maestro error: ${err instanceof Error ? err.message : String(err)}` })
+    fail(undefined, err instanceof Error ? err.message : String(err))
   } finally {
     running.delete(id)
     emit({ conversationId: id, type: 'status', busy: false })
     emit({ conversationId: id, type: 'meta', meta: meta(c) })
-    void titleFor(c)
+    if (!failed) void titleFor(c)
   }
 }

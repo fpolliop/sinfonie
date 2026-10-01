@@ -7,13 +7,16 @@ import { useReviews, keyOf, isRunBusy, STATUS_FILTERS, type StatusFilter } from 
 import { AccountPicker } from './AccountPicker'
 import { Badge, Button, Spinner, inputCls } from './ui'
 import { ErrorNote } from './ErrorNote'
+import { ConnectGitHubCard } from './ConnectGitHub'
 import { timeAgo } from '@/lib/format'
+import { friendlyError } from '@/lib/errors'
+import { classifyGitHubError } from '@/stores/inbox'
 import type { ReviewFinding, ReviewPr, ReviewRun, ReviewSeverity, ReviewVerdict } from '@shared/types'
 import { tokens } from '@/lib/theme'
 
 
 export function ReviewCockpit(): React.JSX.Element {
-  const { owners, repos: spaceRepos, mode, prs, runs, selectedKey, loadingOrgs, loadingPrs, error, init, useSpace, setMode, refreshPrs, select, repoFilter, statusFilter, sortDir, setRepoFilter, setStatusFilter, setSortDir, checked, batchQueue, batchRunning, toggleChecked, setChecked, clearChecked, startReview, startBatch } = useReviews()
+  const { owners, repos: spaceRepos, mode, prs, runs, selectedKey, loadingOrgs, loadingPrs, error, initError, batchError, otherHosts, init, useSpace, setMode, refreshPrs, select, repoFilter, statusFilter, sortDir, setRepoFilter, setStatusFilter, setSortDir, checked, batchQueue, batchRunning, toggleChecked, setChecked, clearChecked, startReview, startBatch } = useReviews()
   const defaultAccount = useApp((s) => s.settings.defaultClaudeAccountId)
   const spaces = useApp((s) => s.spaces)
   const activeSpaceId = useApp((s) => s.activeSpaceId)
@@ -94,9 +97,11 @@ export function ReviewCockpit(): React.JSX.Element {
       await startReview(pr, accountId)
       select(keyOf(pr))
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(friendlyError(err))
     }
   }
+  // Why GitHub failed at the start (kept even after the list re-points), so an empty list is never blamed on the space.
+  const initProblem = initError ? classifyGitHubError(initError) : null
 
   // ---- multi-select for bulk reviews ----
   // Keys in display order (grouped by repository), so Shift+click ranges follow what the eye sees.
@@ -150,7 +155,11 @@ export function ReviewCockpit(): React.JSX.Element {
     <div className="flex h-full flex-col">
       <header className="drag flex h-[52px] shrink-0 items-center gap-3 border-b border-border px-4">
         <h1 className="text-[15px] font-semibold">Review cockpit</h1>
-        <button className="no-drag inline-flex items-center gap-1.5 rounded-full border border-border px-2 py-0.5 text-[11px] hover:bg-panel-2" title="Space settings: pick the GitHub orgs this space reviews" onClick={() => space && setOpenSpaceSettings(true)}>
+        <button
+          className="no-drag inline-flex items-center gap-1.5 rounded-full border border-border px-2 py-0.5 text-[11px] hover:bg-panel-2"
+          title={space ? 'Space settings: pick the GitHub orgs this space reviews' : 'Repositories outside any space. Open Settings to put them in a space and pick the GitHub orgs it reviews.'}
+          onClick={() => (space ? setOpenSpaceSettings(true) : openSettings({ scope: 'app', page: 'spaces' }))}
+        >
           <span className="h-2 w-2 rounded-full" style={{ background: space?.color ?? tokens.muted }} />
           {space?.name ?? 'All'}
           <span className="text-muted">· {spaceRepos.length ? `${spaceRepos.length} repositor${spaceRepos.length === 1 ? 'y' : 'ies'}` : ''}{spaceRepos.length && owners.length ? ' + ' : ''}{owners.length ? `all of ${owners.join(', ')}` : ''}{!spaceRepos.length && !owners.length ? (loadingOrgs ? '…' : 'no repositories') : ''}</span>
@@ -168,9 +177,33 @@ export function ReviewCockpit(): React.JSX.Element {
         <span className="ml-auto" />
         <AccountPicker value={accountId} onChange={setAccountId} className="no-drag" always engine="claude-code" />
       </header>
-      {error && (
-        <div className="border-b border-danger/30 bg-danger/10 px-4 py-2">
-          <ErrorNote summary="Pull requests could not be loaded. Refresh to try again." detail={error} />
+      {initProblem ? (
+        <div className="border-b border-warn/30 bg-warn/10 px-4 py-2 text-[12px]" role="status">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-warn">{initProblem.text}</span>
+            <Button size="sm" variant="ghost" disabled={loadingOrgs} onClick={() => void init()}>
+              <RefreshCw size={12} /> Try again
+            </Button>
+            <details className="w-full text-[11px] text-muted" data-expert-ok="">
+              <summary className="w-fit cursor-pointer select-none hover:text-text">Show details</summary>
+              <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-words font-mono">{initProblem.detail}</pre>
+            </details>
+          </div>
+          {(initProblem.kind === 'gh-missing' || initProblem.kind === 'auth') && <ConnectGitHubCard className="mt-2 max-w-[560px]" reason="so the cockpit can list pull requests." onConnected={() => void init()} />}
+        </div>
+      ) : (
+        error && (
+          <div className="border-b border-danger/30 bg-danger/10 px-4 py-2">
+            <ErrorNote summary="Pull requests could not be loaded. Refresh to try again." detail={error} />
+          </div>
+        )
+      )}
+      {batchError && (
+        <div className="flex items-center gap-2 border-b border-danger/30 bg-danger/10 px-4 py-2">
+          <ErrorNote className="flex-1" summary="A bulk AI review could not start." detail={batchError} />
+          <Button size="sm" variant="ghost" onClick={() => useReviews.setState({ batchError: undefined })}>
+            Dismiss
+          </Button>
         </div>
       )}
       <div className="flex items-center gap-2 border-b border-border px-3 py-1.5">
@@ -257,7 +290,16 @@ export function ReviewCockpit(): React.JSX.Element {
             {loadingPrs && prs.length === 0 && <div className="p-4 text-[12px] text-muted">Loading pull requests…</div>}
             {!loadingPrs && prs.length === 0 && (
               <div className="p-4 text-[12px] text-muted">
-                {spaceRepos.length === 0 && owners.length === 0 ? 'This space has no GitHub repositories yet. Add repositories to it, or pick owners in the space settings.' : mode === 'requested' ? 'No pull requests in this space are waiting for your review. Switch to "All open" to see everything.' : 'No open pull requests in this space.'}
+                {initProblem || error
+                  ? 'Pull requests could not be loaded, so this list may not be empty. See the note above.'
+                  : spaceRepos.length === 0 && owners.length === 0
+                    ? otherHosts.length
+                      ? `This space's repositories are hosted on ${otherHosts.join(', ')}, not github.com. GitHub Enterprise and other hosts are not supported in the cockpit yet.`
+                      : 'This space has no GitHub repositories yet. Add repositories to it, or pick owners in the space settings.'
+                    : mode === 'requested'
+                      ? 'No pull requests in this space are waiting for your review. Switch to "All open" to see everything.'
+                      : 'No open pull requests in this space.'}
+                {!initProblem && !error && spaceRepos.length > 0 && otherHosts.length > 0 && ` Repositories on ${otherHosts.join(', ')} are not listed: GitHub Enterprise and other hosts are not supported yet.`}
               </div>
             )}
             {!loadingPrs && prs.length > 0 && filtered.length === 0 && repos.length === 0 && <div className="p-4 text-[12px] text-muted">Nothing matches the current filters.</div>}
@@ -356,7 +398,7 @@ export function PrDetail({ pr, run, onStart }: { pr: ReviewPr; run?: ReviewRun; 
     try {
       await fn()
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(friendlyError(err))
     }
   }
   const iterating = run?.iteration?.status === 'running'
@@ -383,6 +425,8 @@ export function PrDetail({ pr, run, onStart }: { pr: ReviewPr; run?: ReviewRun; 
     setSubmitting(true)
     await act(async () => {
       if (all && approvedCount < findings.length) await api.invoke('reviews:setAll', run.key, true)
+      // No verdict came back from the reviewer: submit as a comment (main does the same) rather than stay stuck.
+      if (!run.verdict) await api.invoke('reviews:setVerdict', run.key, { decision: 'comment', summary: '' })
       await api.invoke('reviews:submit', run.key)
     })
     setSubmitting(false)
@@ -575,11 +619,11 @@ export function PrDetail({ pr, run, onStart }: { pr: ReviewPr; run?: ReviewRun; 
                 {run.verdict && <span className={clsx('ml-1', d.tone)}>Reviewer says {d.verb}.</span>}
               </span>
               {approvedCount < findings.length && findings.length > 0 && (
-                <Button variant="subtle" disabled={submitting || !run.verdict} onClick={() => submit(true)} title={`Select all ${findings.length} findings and ${d.verb}`}>
+                <Button variant="subtle" disabled={submitting} onClick={() => submit(true)} title={`Select all ${findings.length} findings and ${d.verb}`}>
                   <CheckSquare size={13} /> Comment all {findings.length} and {d.verb}
                 </Button>
               )}
-              <Button variant="primary" disabled={submitting || !run.verdict} onClick={() => submit(false)}>
+              <Button variant="primary" disabled={submitting} onClick={() => submit(false)} title={run.verdict ? undefined : 'The reviewer gave no verdict, so this is posted as a comment. Pick a verdict above to change that.'}>
                 <Send size={13} /> {submitting ? 'Submitting…' : approvedCount === 0 ? `Submit and ${d.verb}` : `Comment ${approvedCount} and ${d.verb}`}
               </Button>
             </div>
@@ -603,7 +647,7 @@ function VerdictEditor({ run, disabled }: { run: ReviewRun; disabled: boolean })
   useEffect(() => setV(run.verdict ?? { decision: 'comment', summary: '' }), [run.key, run.verdict])
   const save = (next: ReviewVerdict): void => {
     setV(next)
-    api.invoke('reviews:setVerdict', run.key, next).catch((err) => setError(err instanceof Error ? err.message : String(err)))
+    api.invoke('reviews:setVerdict', run.key, next).catch((err) => setError(friendlyError(err)))
   }
   const d = DECISION[v.decision]
   return (
@@ -631,7 +675,7 @@ function FindingCard({ runKey, finding: f, readOnly, onFix }: { runKey: string; 
   const [body, setBody] = useState(f.body)
   useEffect(() => setBody(f.body), [f.body])
   const patch = (p: Partial<ReviewFinding>): void => {
-    api.invoke('reviews:updateFinding', runKey, f.id, p).catch((err) => setError(err instanceof Error ? err.message : String(err)))
+    api.invoke('reviews:updateFinding', runKey, f.id, p).catch((err) => setError(friendlyError(err)))
   }
   return (
     <div className={clsx('border-b border-border last:border-b-0', f.approved && 'bg-ok/5')}>

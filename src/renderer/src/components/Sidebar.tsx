@@ -20,7 +20,7 @@ import { ContextMenu, type MenuEntry } from './ContextMenu'
 import { useGuided, stageLabel as guidedStageLabel, words, cap } from '@/lib/guided'
 import { InlineRename } from './InlineRename'
 import { STAGE_DOT } from './StagePicker'
-import type { UpdateInfo, Workspace } from '@shared/types'
+import type { Workspace } from '@shared/types'
 import { tokens } from '@/lib/theme'
 
 const DEFAULT_SIDEBAR_WIDTH = 260
@@ -306,7 +306,6 @@ export function Sidebar(): React.JSX.Element {
         )}
         <Teammates spaceId={currentId} guided={guided} />
       </div>
-      <UpdateBanner />
       <UsageBadge onOpen={() => (guided ? undefined : openSettings({ scope: 'app', page: 'usage' }))} />
       {!guided && <MemoryGauge onOpen={() => openSettings({ scope: 'app', page: 'resources' })} />}
       <SpaceDots ids={ids} currentId={currentId} guided={guided} onPick={setActiveSpace} onAdd={guided ? undefined : () => openSettings({ scope: 'app', page: 'spaces' })} />
@@ -374,111 +373,6 @@ function FeedbackButton(): React.JSX.Element {
       <MessageSquarePlus size={16} />
       {unseen > 0 && <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-danger ring-2 ring-panel" />}
     </IconButton>
-  )
-}
-
-/** Shown when a newer release exists on GitHub. Unsigned builds update by download. */
-/** The update found this launch: Build mounts and unmounts as the person moves around, the check runs once. */
-let knownUpdate: UpdateInfo | null = null
-let updateChecked = false
-
-function UpdateBanner(): React.JSX.Element | null {
-  const [info, setInfoState] = useState<UpdateInfo | null>(knownUpdate)
-  const setInfo = (u: UpdateInfo | null): void => {
-    knownUpdate = u
-    setInfoState(u)
-  }
-  const [dismissed, setDismissed] = useState<string | null>(() => localStorage.getItem('orchestra.dismissedUpdate'))
-  const setError = useApp((s) => s.setError)
-  useEffect(() => api.on('update:available', setInfo), [])
-  useEffect(() => {
-    // Pick up an update found before this component first mounted; once per launch.
-    if (updateChecked) return
-    updateChecked = true
-    api.invoke('updates:check').then((u) => u && setInfo(u)).catch(() => undefined)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-  if (!info) return null
-  if (dismissed === info.version && info.state === 'available') return null
-  const later = (): void => {
-    localStorage.setItem('orchestra.dismissedUpdate', info.version)
-    setDismissed(info.version)
-    if (info.state === 'ready') setInfo(null) // installs on quit anyway
-  }
-  const download = (): void => {
-    api.invoke('updates:download').catch((err) => setError(err instanceof Error ? err.message : String(err)))
-  }
-  return (
-    <div className="mx-2 mb-2 rounded-lg border border-accent/40 bg-accent/10 p-2 text-[12px]">
-      {info.state === 'available' && (
-        <>
-          <div className="mb-1 font-medium">Sinfonie {info.version} is available</div>
-          <div className="mb-2 text-[11px] text-muted">You have {info.current}. The update downloads in the background; you restart when it is ready.</div>
-          <div className="flex gap-2">
-            <button className="rounded-md bg-primary px-2 py-1 text-[11px] text-white hover:bg-primary-hover" onClick={download}>
-              Download and install
-            </button>
-            <button className="text-[11px] text-muted hover:text-text" onClick={() => void api.invoke('shell:openExternal', info.releaseUrl)}>
-              What's new
-            </button>
-            <button className="ml-auto text-[11px] text-muted hover:text-text" onClick={later}>
-              Later
-            </button>
-          </div>
-        </>
-      )}
-      {info.state === 'downloading' && (
-        <>
-          <div className="mb-1 font-medium">{info.auto ? `Getting Sinfonie ${info.version} ready…` : `Downloading Sinfonie ${info.version}…`}</div>
-          <div className="h-1.5 w-full overflow-hidden rounded-full bg-panel-2">
-            <div className="h-full rounded-full bg-accent transition-all duration-300" style={{ width: `${info.percent ?? 0}%` }} />
-          </div>
-          <div className="mt-1 text-[11px] text-muted">{info.percent ?? 0}%</div>
-        </>
-      )}
-      {info.state === 'ready' && (
-        <>
-          <div className="mb-1 font-medium">Sinfonie {info.version} is ready</div>
-          <div className="mb-2 text-[11px] text-muted">
-            {info.installWhenIdle ? 'It restarts by itself once no agent is running and you have stepped away for a minute. Sessions resume from their saved transcripts.' : 'Restart to start using it. Running sessions resume from their saved transcripts.'}
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <button className="rounded-md bg-primary px-2 py-1 text-[11px] text-white hover:bg-primary-hover" onClick={() => void api.invoke('updates:install')}>
-              Restart now
-            </button>
-            {info.installWhenIdle ? (
-              <button className="text-[11px] text-muted hover:text-text" onClick={() => void api.invoke('updates:installWhenIdle', false)}>
-                Cancel automatic restart
-              </button>
-            ) : (
-              <button className="rounded-md border border-border px-2 py-1 text-[11px] hover:bg-panel-2" title="Restarts when no agent is running and you have been away for a minute" onClick={() => void api.invoke('updates:installWhenIdle', true)}>
-                Restart when idle
-              </button>
-            )}
-            <button className="ml-auto text-[11px] text-muted hover:text-text" onClick={later} title="The update installs the next time you quit">
-              On next quit
-            </button>
-          </div>
-        </>
-      )}
-      {info.state === 'error' && (
-        <>
-          <div className="mb-1 font-medium">Could not download {info.version}</div>
-          <div className="mb-2 break-words text-[11px] text-muted">{info.error}</div>
-          <div className="flex gap-2">
-            <button className="rounded-md bg-primary px-2 py-1 text-[11px] text-white hover:bg-primary-hover" onClick={download}>
-              Try again
-            </button>
-            <button className="text-[11px] text-muted hover:text-text" onClick={() => void api.invoke('shell:openExternal', info.releaseUrl)}>
-              Download manually
-            </button>
-            <button className="ml-auto text-[11px] text-muted hover:text-text" onClick={() => setInfo(null)}>
-              Dismiss
-            </button>
-          </div>
-        </>
-      )}
-    </div>
   )
 }
 

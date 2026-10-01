@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { ChevronRight, Database, Play, Square, RefreshCw, History, Copy, Settings as SettingsIcon, Table2, Eye, Key, X, Plus, Link2, Upload, Download, Network, FileSearch, Pencil } from 'lucide-react'
+import { ChevronRight, Database, Play, Square, RefreshCw, History, Copy, Settings as SettingsIcon, Table2, Eye, Key, X, Plus, Link2, Upload, Download, Network, FileSearch, Pencil, Layers } from 'lucide-react'
 import { EditorView, keymap } from '@codemirror/view'
 import { EditorState, Compartment } from '@codemirror/state'
 import { basicSetup } from 'codemirror'
@@ -10,6 +10,7 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { Button, IconButton, Spinner } from './ui'
+import { friendlyError } from '@/lib/errors'
 import { vars } from '@/lib/theme'
 import { themedEditor } from '@/lib/cmTheme'
 import { ErdView } from './ErdView'
@@ -67,6 +68,8 @@ export function DataPane({ workspaceId }: { workspaceId: string }): React.JSX.El
   const conn = connections.find((c) => c.id === connId) ?? connections[0]
   const [schema, setSchema] = useState<DbSchema | null>(null)
   const [schemaBusy, setSchemaBusy] = useState(false)
+  /** The schema could not be read (database down, wrong password, VPN off): shown in the tree with Retry. */
+  const [schemaError, setSchemaError] = useState<string | null>(null)
   const [filter, setFilter] = useState('')
   const [open, setOpen] = useState<Record<string, boolean>>({})
   const [tabs, setTabs] = useState<QueryTab[]>([])
@@ -155,16 +158,18 @@ export function DataPane({ workspaceId }: { workspaceId: string }): React.JSX.El
     (refresh = false) => {
       if (!conn) return
       setSchemaBusy(true)
+      setSchemaError(null)
       api
         .invoke('db:schema', spaceId, conn.id, refresh)
         .then(setSchema)
-        .catch((err) => setError(err instanceof Error ? err.message : String(err)))
+        .catch((err) => setSchemaError(friendlyError(err, 'Sinfonie could not reach this database.')))
         .finally(() => setSchemaBusy(false))
     },
-    [conn, spaceId, setError]
+    [conn, spaceId]
   )
   useEffect(() => {
     setSchema(null)
+    setSchemaError(null)
     loadSchema(false)
     if (conn) api.invoke('db:history', conn.id).then(setHistory).catch(() => undefined)
   }, [conn?.id]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -374,6 +379,17 @@ export function DataPane({ workspaceId }: { workspaceId: string }): React.JSX.El
   }
 
   if (!ws) return <div />
+  // Database connections belong to a space; a workspace outside any space has none to offer.
+  if (!spaceId)
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-[13px] text-muted">
+        <Database size={28} className="text-muted" />
+        <div className="max-w-[48ch]">Databases belong to a space, and this workspace is not in one. Move it to a space to use that space’s connections, or to add one.</div>
+        <Button onClick={() => window.dispatchEvent(new CustomEvent('sinfonie:moveSpace', { detail: workspaceId }))}>
+          <Layers size={13} /> Move to a space…
+        </Button>
+      </div>
+    )
   if (!connections.length)
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-[13px] text-muted">
@@ -409,6 +425,19 @@ export function DataPane({ workspaceId }: { workspaceId: string }): React.JSX.El
         </div>
         <input className="mx-2 my-1.5 rounded-md border border-border bg-bg px-2 py-1 text-[12px] outline-none focus:border-accent" placeholder={isMongo ? 'Filter collections and fields' : 'Filter tables and columns'} value={filter} onChange={(e) => setFilter(e.target.value)} />
         <div className="min-h-0 flex-1 overflow-auto px-1 pb-2">
+          {schemaError && !schemaBusy && (
+            <div role="alert" className="flex flex-col gap-2 px-2 py-2">
+              <span className="text-danger">{schemaError}</span>
+              <div className="flex flex-wrap gap-1.5">
+                <Button size="sm" onClick={() => loadSchema(true)}>
+                  <RefreshCw size={11} aria-hidden /> Retry
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => openSettings({ scope: 'space', spaceId, page: 'databases' })}>
+                  Edit connection
+                </Button>
+              </div>
+            </div>
+          )}
           {schemaBusy && !schema && (
             <div className="flex items-center gap-2 px-2 py-2 text-muted">
               <Spinner /> Reading schema…

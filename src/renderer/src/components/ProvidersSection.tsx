@@ -4,6 +4,8 @@ import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { Badge, Button, Field, IconButton, inputCls } from './ui'
 import { PROVIDER_KINDS, type ProviderKind } from '@shared/types'
+import { friendlyError, isPlainError } from '@/lib/errors'
+import { ErrorNote } from './ErrorNote'
 
 /** Model providers for the native engine: cloud APIs and local servers. */
 export function ProvidersSection(): React.JSX.Element {
@@ -16,12 +18,22 @@ export function ProvidersSection(): React.JSX.Element {
   const [apiKey, setApiKey] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
   const [keyEdit, setKeyEdit] = useState<Record<string, string>>({})
+  /** Why fetching a provider's models failed, shown on its card (a wrong key, nothing listening on a local server). */
+  const [modelErrors, setModelErrors] = useState<Record<string, unknown>>({})
+  const fetchModels = async (id: string): Promise<void> => {
+    try {
+      await api.invoke('providers:models', id)
+      setModelErrors((m) => ({ ...m, [id]: undefined }))
+    } catch (err) {
+      setModelErrors((m) => ({ ...m, [id]: err }))
+    }
+  }
   const go = async (label: string, fn: () => Promise<unknown>): Promise<void> => {
     setBusy(label)
     try {
       await fn()
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(friendlyError(err))
     } finally {
       setBusy(null)
     }
@@ -34,7 +46,7 @@ export function ProvidersSection(): React.JSX.Element {
       setName('')
       setBaseUrl('')
       setApiKey('')
-      await api.invoke('providers:models', p.id).catch(() => undefined)
+      await fetchModels(p.id)
     })
   return (
     <section>
@@ -61,13 +73,14 @@ export function ProvidersSection(): React.JSX.Element {
                   </div>
                   <div className="truncate text-[11px] text-muted">{p.baseUrl ?? 'default endpoint'}</div>
                 </div>
-                <Button size="sm" variant="ghost" disabled={busy === p.id} onClick={() => go(p.id, () => api.invoke('providers:models', p.id))} title="Fetch the model list">
+                <Button size="sm" variant="ghost" disabled={busy === p.id} onClick={() => go(p.id, () => fetchModels(p.id))} title="Fetch the model list">
                   <RefreshCw size={12} className={busy === p.id ? 'animate-spin' : ''} /> Models
                 </Button>
                 <IconButton label={`Remove ${p.name}`} className="hover:text-danger" onClick={() => window.confirm(`Remove provider "${p.name}"? Agents and spaces using ${p.name}/model stop resolving until you pick another.`) && go(p.id, () => api.invoke('providers:remove', p.id))}>
                   <Trash2 size={13} />
                 </IconButton>
               </div>
+              {modelErrors[p.id] !== undefined && busy !== p.id && <ErrorNote className="mt-1.5" summary={friendlyError(modelErrors[p.id], `Sinfonie could not fetch ${p.name}'s models.`, true)} detail={isPlainError(modelErrors[p.id]) ? undefined : modelErrors[p.id]} />}
               {info?.needsKey && (
                 <div className="mt-2 flex items-center gap-2">
                   <KeyRound size={12} className="text-muted" />
@@ -75,7 +88,7 @@ export function ProvidersSection(): React.JSX.Element {
                   <Button size="sm" disabled={!keyEdit[p.id]?.trim()} onClick={() => go(p.id, async () => {
                     await api.invoke('providers:update', p.id, { apiKey: keyEdit[p.id] })
                     setKeyEdit({ ...keyEdit, [p.id]: '' })
-                    await api.invoke('providers:models', p.id).catch(() => undefined)
+                    await fetchModels(p.id)
                   })}>
                     Save key
                   </Button>

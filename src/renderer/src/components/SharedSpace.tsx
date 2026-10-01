@@ -138,6 +138,14 @@ function OrgShareCard({ space }: { space: Space }): React.JSX.Element {
             version {space.orgSpace.version}
             {space.orgSpace.updatedBy ? ` · by ${space.orgSpace.updatedBy}` : ''} · synced {new Date(space.orgSpace.syncedAt).toLocaleString()}
           </span>
+          {space.orgSpace.pushError && (
+            <span className="flex items-center gap-1">
+              <Badge tone="warn">Not shared yet</Badge>
+              <Button size="sm" variant="ghost" disabled={busy === 'push'} onClick={() => void run('push', () => api.invoke('orgSpaces:publish', space.id, org.id))} title={`Your latest changes did not reach the team: ${space.orgSpace.pushError}`}>
+                Retry
+              </Button>
+            </span>
+          )}
           <span className="ml-auto flex items-center gap-1">
             <Button size="sm" disabled={busy === 'sync'} onClick={() => void run('sync', () => api.invoke('orgSpaces:sync').then(loadMissing))} title="Pull the latest from the organisation">
               <RefreshCw size={12} />

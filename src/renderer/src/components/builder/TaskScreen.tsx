@@ -72,7 +72,8 @@ function PreviewTools({ workspaceId, device }: { workspaceId: string; device: De
   // A dialog hides the preview; stop waiting for a click that cannot come.
   useEffect(() => () => void (useBuilder.getState().picking[workspaceId] && useBuilder.getState().cancelPick(workspaceId)), [workspaceId])
   return (
-    <div className="flex shrink-0 items-center gap-2 pr-1">
+    // data-tour="tab-browser": the guided tour's Preview stop points here on the builder task screen.
+    <div data-tour="tab-browser" className="flex shrink-0 items-center gap-2 pr-1">
       <div role="radiogroup" aria-label="Preview width" className="inline-flex rounded-md border border-border bg-bg p-0.5">
         {(
           [

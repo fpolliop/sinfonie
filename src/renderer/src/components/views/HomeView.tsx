@@ -5,12 +5,13 @@
  */
 import React, { useEffect, useMemo, useState } from 'react'
 import clsx from 'clsx'
-import { LayoutDashboard, MoreHorizontal, Plus, Undo2, Users, User, Wand2 } from 'lucide-react'
+import { Check, LayoutDashboard, MoreHorizontal, Plus, Undo2, Users, User, Wand2 } from 'lucide-react'
 import type { ScopedView } from '@shared/types'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { openMaestro } from '@/stores/maestro'
-import { useGuided } from '@/lib/guided'
+import { useGuided, useWords, cap } from '@/lib/guided'
+import { friendlyError } from '@/lib/errors'
 import { useCurrentSpaceId, visibleViews } from '@/lib/views'
 import { Button, Dialog } from '@/components/ui'
 import { ContextMenu, type MenuEntry } from '@/components/ContextMenu'
@@ -18,8 +19,6 @@ import { ViewHost } from './ViewHost'
 import { ViewIcon } from './registry'
 
 type TemplateMeta = Awaited<ReturnType<typeof window.sinfonie.invoke<'views:templates'>>>[number]
-
-const errText = (err: unknown): string => (err instanceof Error ? err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(err))
 
 export function HomeView(): React.JSX.Element {
   const settings = useApp((s) => s.settings)
@@ -84,10 +83,10 @@ export function HomeView(): React.JSX.Element {
   )
 }
 
-export function ViewHeader({ view, guided, spaceName, onDeleted, onError, compact }: { view: ScopedView; guided: boolean; spaceName?: string; onDeleted?: () => void; onError: (e: string) => void; compact?: boolean }): React.JSX.Element {
+export function ViewHeader({ view, guided, spaceName, onDeleted, onError, compact }: { view: ScopedView; guided: boolean; spaceName?: string; onDeleted?: () => void; onError: (e: unknown) => void; compact?: boolean }): React.JSX.Element {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
-  const act = (p: Promise<unknown>): void => void p.catch((err) => onError(errText(err)))
+  const act = (p: Promise<unknown>): void => void p.catch((err) => onError(err))
   const byMaestro = view.updatedBy === 'maestro' && Boolean(view.history?.length)
   const entries: MenuEntry[] = [
     ...(view.history?.length ? [{ label: 'Undo last change', icon: <Undo2 size={13} />, onClick: () => act(api.invoke('views:undo', view.id)) }] : []),
@@ -153,18 +152,55 @@ export function ViewHeader({ view, guided, spaceName, onDeleted, onError, compac
   )
 }
 
-function Gallery({ spaceId, spaceName, guided, onInstalled, onError }: { spaceId?: string; spaceName?: string; guided: boolean; onInstalled: (v: ScopedView) => void; onError: (e: string) => void }): React.JSX.Element {
+function Gallery({ spaceId, spaceName, guided, onInstalled, onError }: { spaceId?: string; spaceName?: string; guided: boolean; onInstalled: (v: ScopedView) => void; onError: (e: unknown) => void }): React.JSX.Element {
+  const t = useWords()
   const [templates, setTemplates] = useState<TemplateMeta[]>([])
+  const [loadError, setLoadError] = useState<unknown>(null)
+  const [attempt, setAttempt] = useState(0)
+  const [installing, setInstalling] = useState<string | null>(null)
+  const myViews = useApp((s) => s.settings.views)
+  const teamViews = useApp((s) => s.spaces.find((x) => x.id === spaceId)?.views)
   useEffect(() => {
-    void api.invoke('views:templates').then(setTemplates).catch(() => undefined)
-  }, [])
-  const install = (id: string, team: boolean): void => {
+    setLoadError(null)
     void api
-      .invoke('views:installTemplate', id, team && spaceId ? { kind: 'space', spaceId } : { kind: 'user' })
+      .invoke('views:templates')
+      .then(setTemplates)
+      .catch((err) => setLoadError(err ?? 'error'))
+  }, [attempt])
+  /** Where a template is already added: for me, for the team, or neither. A second copy is never made. */
+  const mine = (id: string): boolean => Boolean(myViews?.some((v) => v.template === id))
+  const team = (id: string): boolean => Boolean(teamViews?.some((v) => v.template === id))
+  const install = (tpl: TemplateMeta, forTeam: boolean): void => {
+    if (installing || (forTeam ? team(tpl.id) : mine(tpl.id))) return
+    setInstalling(tpl.id)
+    void api
+      .invoke('views:installTemplate', tpl.id, forTeam && spaceId ? { kind: 'space', spaceId } : { kind: 'user' })
       .then((v) => {
-        if (v.slot === 'home') onInstalled(v)
+        if (v.slot === 'home') {
+          onInstalled(v)
+          return
+        }
+        // A workspace tab has nothing to show here: say where it went, and take the person there.
+        const app = useApp.getState()
+        const ws = app.workspaces.find((w) => w.id === app.selectedId && w.status !== 'archived') ?? app.workspaces.find((w) => w.status !== 'archived' && (!spaceId || w.spaceId === spaceId))
+        app.notify({
+          kind: 'success',
+          text: `Added “${v.title}”. It shows as a tab in every ${t.workspace}.`,
+          ...(ws
+            ? {
+                action: {
+                  label: `Open a ${t.workspace}`,
+                  run: () => {
+                    useApp.getState().select(ws.id)
+                    useApp.getState().setTab(`view:${v.id}`)
+                  }
+                }
+              }
+            : {})
+        })
       })
-      .catch((err) => onError(errText(err)))
+      .catch((err) => onError(err))
+      .finally(() => setInstalling(null))
   }
   const list = templates.filter((t) => !guided || t.guided)
   return (
@@ -175,6 +211,14 @@ function Gallery({ spaceId, spaceName, guided, onInstalled, onError }: { spaceId
           Start from a view below{guided ? '' : ', or describe what you want to see and Maestro builds it'}. Views show live data from your workspaces, GitHub and tickets, and their buttons act on it.
         </p>
       </div>
+      {loadError != null && (
+        <div className="flex items-center gap-3 rounded-lg border border-danger/40 bg-danger/5 px-3 py-2 text-[12px]" role="status">
+          <span className="min-w-0 flex-1">{friendlyError(loadError, 'The list of views could not be loaded.')}</span>
+          <Button size="sm" onClick={() => setAttempt((n) => n + 1)}>
+            Try again
+          </Button>
+        </div>
+      )}
       <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}>
         {!guided && (
           <button
@@ -188,33 +232,33 @@ function Gallery({ spaceId, spaceName, guided, onInstalled, onError }: { spaceId
             <span className="text-[12px] text-muted">Tell Maestro what you want on screen: "my PRs waiting on CI", "a board of this sprint", "what my agents are doing".</span>
           </button>
         )}
-        {list.map((t) => (
-          <div key={t.id} className="flex flex-col gap-2 rounded-lg border border-border bg-panel p-4">
+        {list.map((tpl) => (
+          <div key={tpl.id} className="flex flex-col gap-2 rounded-lg border border-border bg-panel p-4">
             <div className="flex items-center gap-2">
               <span className="flex h-7 w-7 items-center justify-center rounded-full bg-panel-2 text-accent">
-                <ViewIcon name={t.icon} size={14} />
+                <ViewIcon name={tpl.icon} size={14} />
               </span>
-              <span className="text-[13px] font-semibold">{t.title}</span>
-              <span className="ml-auto rounded-full bg-panel-2 px-2 py-px text-[11px] text-muted">{t.slot === 'home' ? 'Home page' : 'Workspace tab'}</span>
+              <span className="text-[13px] font-semibold">{tpl.title}</span>
+              <span className="ml-auto rounded-full bg-panel-2 px-2 py-px text-[11px] text-muted">{tpl.slot === 'home' ? 'Home page' : `${cap(t.workspace)} tab`}</span>
             </div>
-            <p className="flex-1 text-[12px] text-muted">{t.description}</p>
-            <div className="flex flex-wrap gap-2">
-              {t.scope === 'space' && spaceId ? (
+            <p className="flex-1 text-[12px] text-muted">{tpl.description}</p>
+            <div className="flex flex-wrap items-center gap-2">
+              {tpl.scope === 'space' && spaceId ? (
                 <>
-                  <Button size="sm" variant="primary" onClick={() => install(t.id, true)}>
-                    <Users size={12} /> Add for {spaceName ?? 'the team'}
+                  <Button size="sm" variant="primary" disabled={team(tpl.id) || installing === tpl.id} onClick={() => install(tpl, true)}>
+                    {team(tpl.id) ? <Check size={12} /> : <Users size={12} />} {team(tpl.id) ? `Added for ${spaceName ?? 'the team'}` : `Add for ${spaceName ?? 'the team'}`}
                   </Button>
-                  <Button size="sm" onClick={() => install(t.id, false)}>
-                    Just for me
+                  <Button size="sm" disabled={mine(tpl.id) || installing === tpl.id} onClick={() => install(tpl, false)}>
+                    {mine(tpl.id) ? 'Added for you' : 'Just for me'}
                   </Button>
                 </>
               ) : (
-                <Button size="sm" variant="primary" onClick={() => install(t.id, false)}>
-                  <Plus size={12} /> Add
+                <Button size="sm" variant="primary" disabled={mine(tpl.id) || installing === tpl.id} onClick={() => install(tpl, false)}>
+                  {mine(tpl.id) ? <Check size={12} /> : <Plus size={12} />} {mine(tpl.id) ? 'Added' : 'Add'}
                 </Button>
               )}
             </div>
-            {t.slot === 'workspace-tab' && <p className="text-[11px] text-muted">Shows as a tab in every workspace.</p>}
+            {tpl.slot === 'workspace-tab' && <p className="text-[11px] text-muted">Shows as a tab in every {t.workspace}.</p>}
           </div>
         ))}
       </div>

@@ -5,6 +5,7 @@ import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { useChat } from '@/stores/chat'
 import { Badge, Button, Dialog } from './ui'
+import { ErrorNote } from './ErrorNote'
 import { shortPath, timeAgo } from '@/lib/format'
 import type { SessionSummary } from '@shared/types'
 
@@ -19,22 +20,26 @@ export function ResumeDialog({ workspaceId, onClose }: { workspaceId: string; on
   const [busy, setBusy] = useState<string | null>(null)
   /** Clicking a row only selects it; Resume (or a double-click / Enter) does the switch. */
   const [chosen, setChosen] = useState<SessionSummary | null>(null)
+  /** The list could not be read: shown in place of "No sessions", with Try again. */
+  const [listError, setListError] = useState<unknown>(null)
+  const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
     let cancelled = false
     setLoading(true)
+    setListError(null)
     const t = window.setTimeout(() => {
       api
         .invoke('sessions:list', workspaceId, scope, query)
         .then((l) => !cancelled && setList(l))
-        .catch((err) => setError(err instanceof Error ? err.message : String(err)))
+        .catch((err) => !cancelled && setListError(err ?? 'error'))
         .finally(() => !cancelled && setLoading(false))
     }, query ? 250 : 0)
     return () => {
       cancelled = true
       window.clearTimeout(t)
     }
-  }, [workspaceId, scope, query, setError])
+  }, [workspaceId, scope, query, attempt])
 
   const resume = async (s: SessionSummary): Promise<void> => {
     setBusy(s.sessionId)
@@ -43,7 +48,7 @@ export function ResumeDialog({ workspaceId, onClose }: { workspaceId: string; on
       await reload(workspaceId)
       onClose()
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(err)
     } finally {
       setBusy(null)
     }
@@ -66,8 +71,16 @@ export function ResumeDialog({ workspaceId, onClose }: { workspaceId: string; on
       </div>
       <p className="mb-2 text-[11px] text-muted">Pick a session, then Resume. Its history replaces what this chat shows and your next message continues it, with this workspace's worktrees in scope. The current conversation is not deleted: it stays on disk and listed here, so you can switch back.</p>
       <div className="max-h-[52vh] overflow-auto rounded-lg border border-border">
-        {loading && list.length === 0 && <div className="p-4 text-[12px] text-muted">Loading sessions…</div>}
-        {!loading && list.length === 0 && <div className="p-4 text-[12px] text-muted">{scope === 'workspace' ? 'No sessions recorded in this workspace yet. Try "All projects".' : 'No sessions match.'}</div>}
+        {listError != null && (
+          <div className="flex items-center gap-2 border-b border-border p-3">
+            <ErrorNote className="min-w-0 flex-1" summary="Sessions could not be listed." detail={listError} />
+            <Button size="sm" onClick={() => setAttempt((n) => n + 1)}>
+              Try again
+            </Button>
+          </div>
+        )}
+        {loading && list.length === 0 && listError == null && <div className="p-4 text-[12px] text-muted">Loading sessions…</div>}
+        {!loading && list.length === 0 && listError == null && <div className="p-4 text-[12px] text-muted">{scope === 'workspace' ? 'No sessions recorded in this workspace yet. Try "All projects".' : 'No sessions match.'}</div>}
         {list.map((s) => (
           <button
             key={s.sessionId}

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import clsx from 'clsx'
-import { Check, ExternalLink, LogOut, RefreshCw } from 'lucide-react'
+import { Check, ExternalLink, Loader2, LogOut, RefreshCw } from 'lucide-react'
 
 /** Google's "G"; lucide dropped brand icons. */
 function GoogleMark({ size = 13 }: { size?: number }): React.JSX.Element {
@@ -108,6 +108,26 @@ export function PlanPage({ hideTeam = false }: { hideTeam?: boolean } = {}): Rea
   const [seats, setSeats] = useState(3)
   const account = cloud?.account
   const plan: Plan = account?.plan ?? 'free'
+  const notify = useApp((s) => s.notify)
+  /** After checkout opens in the browser: the plan we wait for, until when, and whether the wait ran out. */
+  const [paying, setPaying] = useState<{ plan: Plan; until: number; expired: boolean } | null>(null)
+  const checkPayment = async (target: Plan): Promise<boolean> => {
+    const st = await api.invoke('cloud:refresh').catch(() => null)
+    if (st?.account?.plan !== target) return false
+    setPaying(null)
+    notify({ kind: 'success', text: `You are on the ${PLAN_LABELS[target]} plan now. Thank you.` })
+    return true
+  }
+  // Poll every five seconds for up to ten minutes, so the page flips to the new plan once the payment lands.
+  useEffect(() => {
+    if (!paying || paying.expired) return
+    const t = setInterval(() => {
+      if (Date.now() > paying.until) return setPaying((p) => (p ? { ...p, expired: true } : p))
+      void checkPayment(paying.plan)
+    }, 5000)
+    return () => clearInterval(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paying])
   const run = async (key: string, fn: () => Promise<unknown>): Promise<void> => {
     setBusy(key)
     try {
@@ -231,16 +251,39 @@ export function PlanPage({ hideTeam = false }: { hideTeam?: boolean } = {}): Rea
                     size="sm"
                     disabled={busy === `buy:${p}` || (account ? !account.billing : false)}
                     title={account && !account.billing ? 'Checkout is not open yet' : undefined}
-                    onClick={() => void run(`buy:${p}`, () => (account ? api.invoke('cloud:checkout', p, period, p === 'team' ? seats : 1) : api.invoke('cloud:signIn', 'github')))}
+                    onClick={() =>
+                      void run(`buy:${p}`, async () => {
+                        if (!account) return api.invoke('cloud:signIn', 'github')
+                        await api.invoke('cloud:checkout', p, period, p === 'team' ? seats : 1)
+                        setPaying({ plan: p, until: Date.now() + 10 * 60_000, expired: false })
+                      })
+                    }
                   >
                     {account ? (plan === 'free' ? `Upgrade to ${PLAN_LABELS[p]}` : `Switch to ${PLAN_LABELS[p]}`) : 'Sign in to upgrade'}
                   </Button>
                 </div>
               )}
+              {p !== 'free' && !current && account && !account.billing && <p className="mt-1.5 text-[11px] text-muted">Checkout is not open yet. You keep everything you have today; this button turns on once paid plans launch.</p>}
             </div>
           )
         })}
       </div>
+      {paying && (
+        <div className="mt-3 flex items-center gap-3 rounded-lg border border-accent/40 px-3 py-2 text-[12px]" role="status">
+          {paying.expired ? <RefreshCw size={14} className="shrink-0 text-muted" /> : <Loader2 size={14} className="shrink-0 animate-spin text-accent" />}
+          <span className="flex-1">
+            {paying.expired
+              ? `Sinfonie has not seen the payment for ${PLAN_LABELS[paying.plan]} yet. If you finished paying, check again; it can take a minute to arrive.`
+              : `Finish paying in your browser. This page switches to ${PLAN_LABELS[paying.plan]} by itself once the payment goes through.`}
+          </span>
+          <Button size="sm" disabled={busy === 'paycheck'} onClick={() => void run('paycheck', async () => (await checkPayment(paying.plan)) || setPaying({ ...paying, until: Date.now() + 10 * 60_000, expired: false }))}>
+            Check again
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setPaying(null)}>
+            Stop waiting
+          </Button>
+        </div>
+      )}
       <CouponBox signedIn={Boolean(account)} />
       <p className="mt-3 text-[11px] text-muted">
         Your plan: {limitText(PLAN_LIMITS[plan], guided)}. You have {spaces.length} {words(guided).space}{spaces.length === 1 ? '' : 's'}.

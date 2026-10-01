@@ -3,16 +3,17 @@ import clsx from 'clsx'
 import { AlertCircle, ArrowLeft, Database, GitPullRequest, ArrowRight, Check, CheckCircle2, FolderOpen, GitBranch, Globe, Loader2, LogIn, RefreshCw, Sparkles, Users, Palette, X } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
-import { Button, Badge, IconButton, inputCls } from '../ui'
+import { Button, Badge, IconButton, LAYER, hasOpenDialog, inputCls } from '../ui'
 import { LoginDialog } from '../LoginDialog'
 import { ImportLogins } from '../ImportLogins'
 import { shortPath } from '@/lib/format'
 import logo from '../../assets/logo.svg'
-import { SPACE_COLORS, VENDORS, type AppMode, type DiscoveredOrg, type ScannedRepo, type Vendor } from '@shared/types'
+import { SPACE_COLORS, VENDORS, type AppMode, type ScannedRepo, type Vendor } from '@shared/types'
 import { useGuided } from '@/lib/guided'
 import { friendlyError } from '@/lib/errors'
 import { GUIDED_VENDORS, guidedVendorHint, repoLabel, vendorLabel } from '@/lib/labels'
-import { addSoloApp, pickAppFolder } from '@/lib/soloApp'
+import { SoloApp } from './SoloApp'
+import { JoinTeam } from './JoinTeam'
 
 const EXPERT_STEPS = ['Welcome', 'Sign in', 'First space', 'Ready'] as const
 const GUIDED_STEPS = ['Welcome', 'Sign in', 'Your app', 'Ready'] as const
@@ -59,7 +60,7 @@ export function SetupWizard({ onClose }: { onClose: () => void }): React.JSX.Ele
   finishRef.current = finish
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key !== 'Escape' || modalRef.current) return
+      if (e.key !== 'Escape' || modalRef.current || hasOpenDialog()) return
       e.preventDefault()
       void finishRef.current()
     }
@@ -71,7 +72,8 @@ export function SetupWizard({ onClose }: { onClose: () => void }): React.JSX.Ele
   // A step passed without doing it shows amber in the stepper, not green: Sign in with nobody signed in, the app/space step with no app.
   const skipped = (i: number): boolean => (i === 1 && !anySignedIn) || (i === 2 && !hasApps)
   return (
-    <div className="fixed inset-0 z-[60] flex flex-col bg-bg text-text">
+    // LAYER.page: below every dialog, so a sign-in link or Settings opened from here shows on top (ui.tsx LAYER).
+    <div className={clsx('fixed inset-0 flex flex-col bg-bg text-text', LAYER.page)}>
       <div className="drag flex h-[52px] shrink-0 items-center justify-between pl-[88px] pr-4">
         <div className="flex items-center gap-2">
           {STEPS.map((s, i) => (
@@ -451,7 +453,7 @@ function SignIn({ onModal }: { onModal?: (open: boolean) => void }): React.JSX.E
       <h2 className="text-[24px] font-semibold tracking-tight">{guided ? 'Sign in so Maestro can work' : 'Sign in to the agents you use'}</h2>
       <p className="mt-1 text-[13px] text-muted">
         {guided
-          ? 'Maestro works through an AI account you already have. One is enough: sign in with your Claude account, or ChatGPT or Grok if that is what your team uses. A browser window opens and brings you back here.'
+          ? 'Maestro works through your Claude account (Pro or Max), so sign in with Claude first. ChatGPT or Grok can also work on your tasks if your team uses them, but Maestro itself needs Claude. A browser window opens and brings you back here.'
           : 'Claude Code, Codex, Gemini CLI or Grok Build: one is enough to start, and the first one you sign in to becomes the default engine for chats. Each uses the vendor’s own login, so your subscription applies. You can add more accounts per vendor later under Settings → Accounts, and change the engine under Settings → General.'}
       </p>
       <div className="mt-5 flex flex-col gap-2">
@@ -460,6 +462,8 @@ function SignIn({ onModal }: { onModal?: (open: boolean) => void }): React.JSX.E
           const acc = settings.claudeAccounts.find((a) => a.id === idFor(v.id)) ?? settings.claudeAccounts.find((a) => (a.vendor ?? 'anthropic') === v.id)
           const ok = acc?.loggedIn === true
           const name = guided ? vendorLabel(v.id, true) : v.label
+          // Guided: ChatGPT and Grok sign in through a program that may not be on this Mac; say so instead of failing.
+          const blocked = guided && !ok && acc?.missing ? (acc.missing === 'node' ? `Signing in with ${name} needs an extra program that is not on this Mac. Use Claude, or ask a teammate to set it up.` : `Signing in with ${name} needs the Grok app on this Mac. Use Claude, or ask a teammate to set it up.`) : null
           return (
             <div key={v.id} className={clsx('rounded-xl border px-4 py-3', ok ? 'border-ok/40 bg-ok/5' : 'border-border bg-panel/40')}>
               <div className="flex items-center gap-3">
@@ -474,19 +478,20 @@ function SignIn({ onModal }: { onModal?: (open: boolean) => void }): React.JSX.E
                     )}
                   </div>
                   {/* The check's own words once it has run (signed in as…, or why not: CLI missing, not logged in); the vendor hint before that. */}
-                  <div className="text-[11px] text-muted">{guided ? (ok ? 'Ready to use.' : guidedVendorHint(v.id)) : acc?.detail && acc.loggedIn !== undefined ? acc.detail : v.hint}</div>
+                  <div className="text-[11px] text-muted">{guided ? (ok ? 'Ready to use.' : blocked ?? guidedVendorHint(v.id)) : acc?.detail && acc.loggedIn !== undefined ? acc.detail : v.hint}</div>
+                  {v.id === 'anthropic' && !ok && <ClaudePlanLink onCheck={() => (acc ? void check(acc.id) : void signInNew(v.id, name))} />}
                 </div>
                 {acc && (
                   <IconButton label={guided ? 'Check again' : 'Ask the CLI whether this account is signed in'} className="h-7 w-7" onClick={() => void check(acc.id)} disabled={checking === acc.id}>
                     <RefreshCw size={12} className={checking === acc.id ? 'animate-spin' : ''} />
                   </IconButton>
                 )}
-                {!acc && v.id !== 'google' && (
+                {!acc && v.id !== 'google' && !blocked && (
                   <Button size="sm" variant="primary" onClick={() => void signInNew(v.id, name)}>
                     <LogIn size={12} /> Sign in
                   </Button>
                 )}
-                {acc && v.id !== 'google' && (
+                {acc && v.id !== 'google' && !blocked && (
                   <Button size="sm" variant={ok ? 'subtle' : 'primary'} onClick={() => setLogin({ id: acc.id, name: acc.name, vendor: name })}>
                     <LogIn size={12} /> {ok ? 'Sign in again' : 'Sign in'}
                   </Button>
@@ -504,7 +509,7 @@ function SignIn({ onModal }: { onModal?: (open: boolean) => void }): React.JSX.E
           )
         })}
       </div>
-      <p className="mt-3 text-[12px] text-muted">{signedIn === 0 ? (guided ? 'Not signed in yet. You can do it later from Settings → Accounts, but Maestro cannot work until you do.' : 'Nothing signed in yet. You can continue and sign in later, but chats will not run until you do.') : guided ? 'Signed in. Continue to add your app.' : `${signedIn} account${signedIn === 1 ? '' : 's'} ready.`}</p>
+      <p className="mt-3 text-[12px] text-muted">{signedIn === 0 ? (guided ? 'Not signed in yet. You can do it later from Settings → Accounts, but Maestro cannot work until you sign in with Claude.' : 'Nothing signed in yet. You can continue and sign in later, but chats will not run until you do.') : guided ? 'Signed in. Continue to add your app.' : `${signedIn} account${signedIn === 1 ? '' : 's'} ready.`}</p>
       {login && (
         <LoginDialog
           accountId={login.id}
@@ -515,6 +520,30 @@ function SignIn({ onModal }: { onModal?: (open: boolean) => void }): React.JSX.E
             void check(login.id)
           }}
         />
+      )}
+    </div>
+  )
+}
+
+/** No Claude plan yet: where to get one, then "I've subscribed, check again". */
+function ClaudePlanLink({ onCheck }: { onCheck: () => void }): React.JSX.Element {
+  const [opened, setOpened] = useState(false)
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px]">
+      <button
+        type="button"
+        className="text-accent hover:underline"
+        onClick={() => {
+          setOpened(true)
+          void api.invoke('shell:openExternal', 'https://claude.com/pricing')
+        }}
+      >
+        Don’t have a Claude plan? See plans
+      </button>
+      {opened && (
+        <Button size="sm" variant="ghost" onClick={onCheck}>
+          I’ve subscribed, check again
+        </Button>
       )}
     </div>
   )
@@ -736,7 +765,7 @@ function GuidedAppStep({ onSpace }: { onSpace: (id: string) => void }): React.JS
   const options: { id: AppSource; title: string; text: string; icon: React.ReactNode }[] = [
     { id: 'github', title: 'It’s on GitHub', text: 'Paste the link to your app and Sinfonie downloads it.', icon: <Globe size={16} /> },
     { id: 'mac', title: 'It’s on this Mac', text: 'Choose the folder your app is in.', icon: <FolderOpen size={16} /> },
-    { id: 'team', title: 'My team already uses Sinfonie', text: 'Sign in with your work email and get your team’s apps.', icon: <Users size={16} /> }
+    { id: 'team', title: 'My team already uses Sinfonie', text: 'Sign in with the Google or GitHub account your team uses.', icon: <Users size={16} /> }
   ]
   return (
     <div>
@@ -767,190 +796,8 @@ function GuidedAppStep({ onSpace }: { onSpace: (id: string) => void }): React.JS
   )
 }
 
-/** Adds one app on its own: a folder on this Mac, or a GitHub link. Lists the solo apps already added. */
-export function SoloApp({ source, onSpace, onAdded }: { source: 'mac' | 'github'; onSpace: (id: string) => void; onAdded?: () => void }): React.JSX.Element {
-  const repos = useApp((s) => s.repos)
-  const spaces = useApp((s) => s.spaces)
-  const [link, setLink] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [err, setErr] = useState<string | null>(null)
-  const [added, setAdded] = useState<string[]>([])
-  const mine = repos.filter((r) => added.includes(r.id))
-  const personal = spaces.find((s) => !s.orgId && repos.some((r) => r.spaceId === s.id && added.includes(r.id)))
-  const add = async (src: { path: string } | { github: string }): Promise<void> => {
-    setBusy(true)
-    setErr(null)
-    try {
-      const { repo, spaceId } = await addSoloApp(src)
-      setAdded((a) => (a.includes(repo.id) ? a : [...a, repo.id]))
-      onSpace(spaceId)
-      setLink('')
-      onAdded?.()
-    } catch (e) {
-      setErr(
-        friendlyError(
-          e,
-          'github' in src
-            ? 'Sinfonie could not download that app. Check the link, and that your GitHub account can open it.'
-            : 'That folder is not an app Sinfonie can work with. Choose the folder that holds your whole app, or ask a teammate which one it is.'
-        )
-      )
-    } finally {
-      setBusy(false)
-    }
-  }
-  const pick = async (): Promise<void> => {
-    const path = await pickAppFolder()
-    if (path) await add({ path })
-  }
-  return (
-    <div className="rounded-xl border border-border bg-panel/40 px-4 py-3">
-      {source === 'mac' ? (
-        <div className="flex items-center gap-3">
-          <div className="min-w-0 flex-1 text-[12px] text-muted">Choose the top folder of your app, the one that holds all of its files.</div>
-          <Button variant="primary" disabled={busy} onClick={() => void pick()}>
-            {busy ? <Loader2 size={13} className="animate-spin" /> : <FolderOpen size={13} />} {busy ? 'Adding…' : mine.length ? 'Add another app…' : 'Choose folder…'}
-          </Button>
-        </div>
-      ) : (
-        <form
-          className="flex items-center gap-2"
-          onSubmit={(e) => {
-            e.preventDefault()
-            if (link.trim()) void add({ github: link })
-          }}
-        >
-          <input className={inputCls} aria-label="Link to your app on GitHub" placeholder="https://github.com/your-team/your-app" value={link} autoFocus onChange={(e) => setLink(e.target.value)} />
-          <Button type="submit" variant="primary" disabled={busy || !link.trim()}>
-            {busy ? <Loader2 size={13} className="animate-spin" /> : null} {busy ? 'Downloading…' : 'Add app'}
-          </Button>
-        </form>
-      )}
-      {busy && source === 'github' && <p className="mt-2 text-[11px] text-muted">Downloading your app. Large apps can take a minute.</p>}
-      {err && (
-        <p role="alert" className="mt-2 text-[12px] text-danger">
-          {err}
-        </p>
-      )}
-      {mine.length > 0 && (
-        <div className="mt-3 flex flex-col gap-1">
-          {mine.map((r) => (
-            <div key={r.id} className="flex items-center gap-2 text-[13px]">
-              <CheckCircle2 size={14} className="shrink-0 text-ok" /> {repoLabel(r)} is ready{personal ? ` in ${personal.name}` : ''}.
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-
-/**
- * Sinfonie sign-in with the work email, then the organisation that claimed that domain: join it, and its
- * shared spaces (the team's apps) arrive on this Mac by themselves.
- */
-function JoinTeam({ onSpace }: { onSpace: (id: string) => void }): React.JSX.Element {
-  const cloud = useApp((s) => s.settings.cloud)
-  const spaces = useApp((s) => s.spaces)
-  const setError = useApp((s) => s.setError)
-  const [busy, setBusy] = useState<string | null>(null)
-  const [discovered, setDiscovered] = useState<DiscoveredOrg[] | null>(null)
-  const [shared, setShared] = useState<Record<string, number>>({})
-  const account = cloud?.account
-  const orgs = useMemo(() => account?.orgs ?? [], [account])
-  const teamSpaces = useMemo(() => spaces.filter((sp) => sp.orgId && orgs.some((o) => o.id === sp.orgId)), [spaces, orgs])
-  const run = async (key: string, fn: () => Promise<unknown>): Promise<void> => {
-    setBusy(key)
-    try {
-      await fn()
-    } catch (err) {
-      setError(friendlyError(err))
-    } finally {
-      setBusy(null)
-    }
-  }
-  useEffect(() => {
-    if (!account) return
-    api.invoke('cloud:discover').then(setDiscovered).catch(() => setDiscovered([]))
-    api
-      .invoke('cloud:orgs')
-      .then((list) => setShared(Object.fromEntries(list.map((o) => [o.id, o.sharedSpaces]))))
-      .catch(() => undefined)
-  }, [account])
-  useEffect(() => {
-    if (teamSpaces[0]) onSpace(teamSpaces[0].id)
-  }, [teamSpaces, onSpace])
-  const countOf = (orgId: string): number => teamSpaces.filter((sp) => sp.orgId === orgId).length
-  return (
-    <div>
-      <p className="text-[13px] text-muted">Sign in with your work email. Your team's apps are set up for you once you are in.</p>
-      {!account ? (
-        <div className="mt-3 flex flex-col gap-2">
-          <div className="rounded-xl border border-border bg-panel/40 px-4 py-3">
-            <div className="text-[13px] font-semibold">Sign in to Sinfonie</div>
-            <div className="mt-1 text-[11px] text-muted">Use the account that has your work email. A browser window opens and comes back here.</div>
-            <div className="mt-3 flex gap-2">
-              <Button variant="primary" disabled={busy !== null} onClick={() => void run('gh', () => api.invoke('cloud:signIn', 'github'))}>
-                <LogIn size={12} /> Sign in with GitHub
-              </Button>
-              <Button variant="primary" disabled={busy !== null} onClick={() => void run('google', () => api.invoke('cloud:signIn', 'google'))}>
-                <LogIn size={12} /> Sign in with Google
-              </Button>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="mt-3 flex flex-col gap-2">
-          <div className="rounded-xl border border-ok/40 bg-ok/5 px-4 py-3 text-[13px]">
-            <CheckCircle2 size={14} className="mr-1 inline text-ok" /> Signed in as {account.user.name || account.user.login}
-            {account.emails?.length ? <span className="text-muted"> · {account.emails.map((e) => e.email).join(', ')}</span> : null}
-          </div>
-          {orgs.map((o) => (
-            <div key={o.id} className="rounded-xl border border-ok/40 bg-ok/5 px-4 py-3">
-              <div className="flex items-center gap-2 text-[13px] font-semibold">
-                <Users size={14} className="text-ok" /> {o.name}
-                <Badge tone="ok">joined</Badge>
-              </div>
-              <div className="mt-1 text-[11px] text-muted">
-                {countOf(o.id)
-                  ? `${countOf(o.id)} team${countOf(o.id) === 1 ? '' : 's'} ready: ${teamSpaces
-                      .filter((sp) => sp.orgId === o.id)
-                      .map((sp) => sp.name)
-                      .join(', ')}`
-                  : shared[o.id] === 0
-                    ? 'This team has not shared its apps yet. Ask whoever set up Sinfonie for your team to share them with you.'
-                    : 'Setting up the team’s apps… this can take a minute the first time.'}
-              </div>
-            </div>
-          ))}
-          {(discovered ?? [])
-            .filter((d) => !orgs.some((o) => o.id === d.id))
-            .map((d) => (
-              <div key={d.id} className="flex items-center gap-3 rounded-xl border border-border bg-panel/40 px-4 py-3">
-                <div className="min-w-0 flex-1">
-                  <div className="text-[13px] font-semibold">{d.name}</div>
-                  <div className="text-[11px] text-muted">Your {d.domain} email matches this team.</div>
-                </div>
-                {d.requested ? (
-                  <Badge tone="warn">waiting for an admin</Badge>
-                ) : d.domainJoin === 'off' ? (
-                  <span className="text-[11px] text-muted">Ask an admin for an invite link</span>
-                ) : (
-                  <Button size="sm" variant="primary" disabled={busy !== null} onClick={() => void run(`join:${d.id}`, () => api.invoke('cloud:joinOrg', d.id))}>
-                    {d.domainJoin === 'open' ? 'Join' : 'Ask to join'}
-                  </Button>
-                )}
-              </div>
-            ))}
-          {discovered && discovered.length === 0 && orgs.length === 0 && (
-            <p className="text-[12px] text-muted">No team has claimed your email's domain yet. Ask whoever set up Sinfonie for your team for an invite link, then paste it under Settings → Account & team.</p>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
+// SoloApp lives in its own file; NewTaskDialog imports it from here.
+export { SoloApp }
 
 function GuidedReady({ spaceId, onWorkspace, onTour, onGoto, onDone }: { spaceId: string | null; onWorkspace: (spaceId: string | null) => void; onTour: () => void; onGoto: (step: number) => void; onDone: () => void }): React.JSX.Element {
   const { settings, spaces, repos } = useApp()
@@ -960,11 +807,13 @@ function GuidedReady({ spaceId, onWorkspace, onTour, onGoto, onDone }: { spaceId
   const apps = repos.filter((r) => r.spaceId && (r.spaceId === spaceId || teamSpaces.some((sp) => sp.id === r.spaceId)))
   const startSpace = spaceId && repos.some((r) => r.spaceId === spaceId) ? spaceId : apps[0]?.spaceId ?? null
   const signedIn = settings.claudeAccounts.filter((a) => a.loggedIn)
+  // Maestro itself runs on Claude: ChatGPT or Grok alone can work on tasks, but not answer as Maestro.
+  const claude = signedIn.some((a) => (a.vendor ?? 'anthropic') === 'anthropic')
   const rows: { ok: boolean; text: string; fix?: { label: string; step: number } }[] = [
     {
-      ok: signedIn.length > 0,
-      text: signedIn.length ? `Signed in with ${[...new Set(signedIn.map((a) => vendorLabel(a.vendor, true)))].join(', ')}` : 'Not signed in yet, so Maestro cannot work',
-      fix: { label: 'Sign in', step: 1 }
+      ok: claude,
+      text: claude ? `Signed in with ${[...new Set(signedIn.map((a) => vendorLabel(a.vendor, true)))].join(', ')}` : signedIn.length ? 'Maestro needs your Claude account. Sign in with Claude so it can work.' : 'Not signed in yet, so Maestro cannot work',
+      fix: { label: 'Sign in with Claude', step: 1 }
     },
     ...(orgs.length ? [{ ok: true, text: `In the team: ${orgs.map((o) => o.name).join(', ')}` }] : []),
     {

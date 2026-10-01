@@ -12,6 +12,8 @@ export interface MenuEntry {
   hint?: string
   /** Marks the entry that is already in effect (the current space). */
   current?: boolean
+  /** A tooltip; for a disabled entry, why it is disabled. */
+  title?: string
 }
 
 /**
@@ -78,6 +80,7 @@ export function ContextMenu({ x, y, entries, onClose, label }: { x: number; y: n
             type="button"
             role="menuitem"
             disabled={m.disabled}
+            title={m.title}
             aria-current={m.current ? 'true' : undefined}
             onClick={() => {
               onClose()

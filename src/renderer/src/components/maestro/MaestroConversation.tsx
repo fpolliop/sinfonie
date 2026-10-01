@@ -8,6 +8,8 @@ import { Markdown } from '@/lib/markdown'
 import { isGuided, useGuided } from '@/lib/guided'
 import { friendlyError } from '@/lib/errors'
 import { QuestionCard } from '../QuestionCard'
+import { ClaudeSignInCard, CLAUDE_SIGNED_OUT_RE, useClaudeSignedIn } from './ClaudeSignIn'
+import { TurnError } from './MaestroParts'
 import { Button, Spinner } from '../ui'
 import type { AssistantItem, MaestroSuggestion } from '@shared/types'
 
@@ -51,14 +53,23 @@ export function MaestroConversation({ id, compact }: { id: string; compact?: boo
   const submit = (text: string): void => {
     if (!text.trim() || busy) return
     setAtBottom(true)
-    send(id, text).catch((err) => setError(err instanceof Error ? err.message : String(err)))
+    send(id, text).catch((err) => setError(err))
   }
   const grouped = useMemo(() => groupActivity(items), [items])
+  const claudeSignedIn = useClaudeSignedIn()
+  /** Actions on a failed turn only show while it is the latest thing: after the last message the person sent. */
+  const lastUserIdx = useMemo(() => items.map((i) => i.role).lastIndexOf('user'), [items])
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div ref={scroller} onScroll={onScroll} className={clsx('flex-1 overflow-auto', compact ? 'px-3 py-3' : 'px-6 py-4')}>
         <div className={clsx('mx-auto flex flex-col gap-3 text-[13px]', compact ? '' : 'max-w-3xl')}>
-          {items.length === 0 && !busy && (
+          {/* Maestro runs on Claude: with no Claude account signed in, the empty state is the sign-in itself. */}
+          {items.length === 0 && !busy && claudeSignedIn === false && (
+            <div className="mt-6">
+              <ClaudeSignInCard />
+            </div>
+          )}
+          {items.length === 0 && !busy && claudeSignedIn !== false && (
             <div className="mt-6">
               <div className="mb-1 flex items-center gap-2 text-[15px] font-semibold">
                 <Wand2 size={16} className="text-maestro" /> Maestro
@@ -86,7 +97,7 @@ export function MaestroConversation({ id, compact }: { id: string; compact?: boo
                 <Activity key={g.key} items={g.items} />
               )
             ) : (
-              <Item key={g.item.id} item={g.item} streaming={deltas[g.item.id]} />
+              <Item key={g.item.id} item={g.item} streaming={deltas[g.item.id]} conversationId={id} latest={items.indexOf(g.item) > lastUserIdx} />
             )
           )}
           {questions.map((q) => (
@@ -103,6 +114,7 @@ export function MaestroConversation({ id, compact }: { id: string; compact?: boo
         <div className={clsx('mx-auto flex flex-col rounded-xl border border-border bg-bg focus-within:border-accent', compact ? '' : 'max-w-3xl')}>
           <textarea
             ref={ta}
+            data-maestro-composer=""
             rows={compact ? 2 : 3}
             className="block w-full resize-none bg-transparent px-3 pt-2.5 text-[13px] outline-none placeholder:text-muted"
             placeholder={busy ? 'Answer above, or wait…' : 'Ask Maestro anything… (Enter to send, Shift+Enter for a new line)'}
@@ -148,8 +160,11 @@ function groupActivity(items: AssistantItem[]): Group[] {
   return out
 }
 
-function Item({ item, streaming }: { item: AssistantItem; streaming?: string }): React.JSX.Element | null {
+function Item({ item, streaming, conversationId, latest }: { item: AssistantItem; streaming?: string; conversationId: string; latest: boolean }): React.JSX.Element | null {
   if (item.role === 'user') return <div className="ml-auto max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-accent/15 px-3.5 py-2">{item.text}</div>
+  if (item.role === 'system' && item.error) return <TurnError conversationId={conversationId} item={item as AssistantItem & { error: NonNullable<AssistantItem['error']> }} latest={latest} />
+  // Older turns without a structured error: a Claude sign-in problem still offers the sign-in, not raw text.
+  if (item.role === 'system' && CLAUDE_SIGNED_OUT_RE.test(item.text)) return <ClaudeSignInCard compact reason="Maestro could not answer: your Claude account is not signed in. Sign in, then send your message again." />
   if (item.role === 'system') return <div className="rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-[12px]">{isGuided() ? friendlyError(item.text) : item.text}</div>
   const text = streaming ?? item.text
   if (!text) return null

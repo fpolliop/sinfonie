@@ -3,11 +3,14 @@ import { UserCircle2 } from 'lucide-react'
 import { useApp } from '@/stores/app'
 import clsx from 'clsx'
 import { VENDORS, type Engine } from '@shared/types'
+import { useGuided } from '@/lib/guided'
+import { accountDisplayName } from './AccountsPage'
 
 /** Select among the accounts of the vendor behind an engine. Renders nothing when that vendor has one account, unless `always`. */
 export function AccountPicker({ value, onChange, className, always, engine }: { value: string; onChange: (id: string) => void; className?: string; always?: boolean; engine?: Engine }): React.JSX.Element | null {
   const all = useApp((s) => s.settings.claudeAccounts)
   const defaultEngine = useApp((s) => s.settings.engine ?? 'claude-code')
+  const guided = useGuided()
   const vendor = VENDORS.find((v) => v.engine === (engine ?? defaultEngine))?.id
   if (!vendor) return null
   const accounts = all.filter((a) => (a.vendor ?? 'anthropic') === vendor)
@@ -19,7 +22,7 @@ export function AccountPicker({ value, onChange, className, always, engine }: { 
         {!accounts.some((a) => a.id === value) && <option value="">Vendor default</option>}
         {accounts.map((a) => (
           <option key={a.id} value={a.id}>
-            {a.name}
+            {accountDisplayName(a, guided)}
             {a.loggedIn === false ? ' (not signed in)' : ''}
           </option>
         ))}

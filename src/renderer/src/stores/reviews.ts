@@ -51,6 +51,12 @@ interface ReviewsState {
   loadingOrgs: boolean
   loadingPrs: boolean
   error?: string
+  /** Why the first GitHub call (who am I, which orgs) failed; kept until a later init succeeds, unlike `error`. */
+  initError?: string
+  /** A bulk review that could not start; separate from `error`, which is about loading the list. */
+  batchError?: string
+  /** Hosts of the space's repositories that are not github.com, so an empty list can say why. */
+  otherHosts: string[]
   init: () => Promise<void>
   /** Point the cockpit at a space: owners come from its settings or its repos. */
   useSpace: (spaceId: string, configured: string[] | undefined) => Promise<void>
@@ -107,19 +113,30 @@ export const useReviews = create<ReviewsState>((set, get) => ({
   unseen: {},
   loadingOrgs: false,
   loadingPrs: false,
+  otherHosts: [],
 
   init: async () => {
     get().subscribe()
     set({ loadingOrgs: true, error: undefined })
+    // Earlier reviews load on their own, so a GitHub failure never hides them.
+    api
+      .invoke('reviews:runs')
+      .then((runs) => set((s) => ({ runs: { ...Object.fromEntries(runs.map((r) => [r.key, r])), ...s.runs } })))
+      .catch(() => undefined)
     try {
-      const [orgs, runs] = await Promise.all([api.invoke('reviews:orgs'), api.invoke('reviews:runs')])
-      set({ orgs, runs: Object.fromEntries(runs.map((r) => [r.key, r])), loadingOrgs: false })
+      const orgs = await api.invoke('reviews:orgs')
+      set({ orgs, loadingOrgs: false, initError: undefined })
     } catch (err) {
-      set({ loadingOrgs: false, error: err instanceof Error ? err.message : String(err) })
+      const msg = err instanceof Error ? err.message : String(err)
+      set({ loadingOrgs: false, error: msg, initError: msg })
     }
   },
   useSpace: async (spaceId, configured) => {
     set({ spaceId, error: undefined })
+    api
+      .invoke('reviews:otherHosts', spaceId)
+      .then((otherHosts) => set({ otherHosts }))
+      .catch(() => set({ otherHosts: [] }))
     let repos: string[] = []
     try {
       repos = await api.invoke('reviews:detectRepos', spaceId)
@@ -204,7 +221,7 @@ export const useReviews = create<ReviewsState>((set, get) => ({
         queued.add(k)
         return true
       })
-      return { batchQueue: [...s.batchQueue, ...fresh], batchAccountId: accountId, error: undefined }
+      return { batchQueue: [...s.batchQueue, ...fresh], batchAccountId: accountId, batchError: undefined }
     })
     get().pumpBatch()
   },
@@ -228,7 +245,7 @@ export const useReviews = create<ReviewsState>((set, get) => ({
     set({ batchQueue: queue, batchRunning: running })
     for (const pr of starts) {
       void s.startReview(pr, s.batchAccountId).catch((err) => {
-        set((st) => ({ batchRunning: st.batchRunning.filter((k) => k !== keyOf(pr)), error: err instanceof Error ? err.message : String(err) }))
+        set((st) => ({ batchRunning: st.batchRunning.filter((k) => k !== keyOf(pr)), batchError: `${pr.nameWithOwner}#${pr.number}: ${err instanceof Error ? err.message : String(err)}` }))
         get().pumpBatch()
       })
     }

@@ -51,11 +51,14 @@ export async function sendFeedback(p: FeedbackPayload): Promise<{ ok: boolean; e
     const res = await fetch(ENDPOINT, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...p, source: 'app', appVersion: app.getVersion(), os: osLabel() })
+      body: JSON.stringify({ ...p, source: 'app', appVersion: app.getVersion(), os: osLabel() }),
+      signal: AbortSignal.timeout(15_000)
     })
-    if (!res.ok) return { ok: false, error: `HTTP ${res.status}` }
+    if (res.status === 413) return { ok: false, error: 'The screenshots are too large to send. Remove one or two, then send again.' }
+    if (!res.ok) return { ok: false, error: `The feedback server answered ${res.status}. Try again in a moment.` }
     return { ok: true }
   } catch (err) {
+    if ((err as { name?: string }).name === 'TimeoutError') return { ok: false, error: 'Sending took too long. Check your connection, or remove large screenshots, then send again.' }
     return { ok: false, error: err instanceof Error ? err.message : String(err) }
   }
 }

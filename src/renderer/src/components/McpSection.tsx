@@ -1,9 +1,10 @@
 import React, { useState } from 'react'
-import { Plus, Trash2, Download, Plug, Pencil } from 'lucide-react'
+import { Plus, Trash2, Download, Plug, Pencil, PlugZap } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { Badge, Button, Field, IconButton, inputCls } from './ui'
 import type { McpServerSpec } from '@shared/types'
+import { friendlyError } from '@/lib/errors'
 
 function parseKv(text: string): Record<string, string> | undefined {
   const out: Record<string, string> = {}
@@ -32,9 +33,41 @@ export function McpSection({ servers, onChange, intro, jira, linear, strict }: {
   const [argsText, setArgsText] = useState('')
   const [importable, setImportable] = useState<McpServerSpec[] | null>(null)
 
+  const [test, setTest] = useState<{ state: 'running' } | { state: 'ok'; tools: string[] } | { state: 'failed'; text: string } | null>(null)
+  /** What is still missing before Save can work, shown next to the disabled button instead of a silent no-op. */
+  const missing = ((): string | null => {
+    if (!draft.name.trim()) return 'Give the server a name.'
+    if (servers.some((s) => s.id !== draft.id && s.name === draft.name.trim().replace(/\s+/g, '-'))) return 'Another server already has this name.'
+    if (draft.transport === 'stdio') return draft.command?.trim() ? null : 'Enter the command that starts the server.'
+    if (!draft.url?.trim()) return 'Enter the server’s URL.'
+    try {
+      const u = new URL(draft.url.trim())
+      return /^https?:$/.test(u.protocol) ? null : 'The URL should start with https:// (or http:// for a local server).'
+    } catch {
+      return 'That URL is not valid. It should look like https://mcp.example.com/mcp.'
+    }
+  })()
+  const build = (): McpServerSpec => ({
+    id: draft.id || crypto.randomUUID().slice(0, 8),
+    name: draft.name.trim().replace(/\s+/g, '-'),
+    transport: draft.transport,
+    enabled: true,
+    ...(draft.transport === 'stdio'
+      ? { command: draft.command?.trim(), args: argsText.trim() ? argsText.trim().split(/\s+/) : undefined, env: parseKv(envText) }
+      : { url: draft.url?.trim(), headers: parseKv(headersText) })
+  })
+  const runTest = async (): Promise<void> => {
+    setTest({ state: 'running' })
+    try {
+      setTest({ state: 'ok', tools: await api.invoke('mcp:test', build()) })
+    } catch (err) {
+      setTest({ state: 'failed', text: friendlyError(err, 'The server could not be reached. Check the settings above and try again.') })
+    }
+  }
   const save = (): void => {
     const name = draft.name.trim().replace(/\s+/g, '-')
-    if (!name) return
+    if (!name || missing) return
+    setTest(null)
     const spec: McpServerSpec = {
       id: draft.id || crypto.randomUUID().slice(0, 8),
       name,
@@ -57,7 +90,7 @@ export function McpSection({ servers, onChange, intro, jira, linear, strict }: {
       const list = await api.invoke('mcp:importable')
       setImportable(list.filter((s) => !servers.some((x) => x.name === s.name)))
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(friendlyError(err))
     }
   }
 
@@ -197,11 +230,33 @@ export function McpSection({ servers, onChange, intro, jira, linear, strict }: {
               </Field>
             </>
           )}
-          <div className="flex justify-end gap-2">
-            <Button size="sm" onClick={() => setAdding(false)}>
+          {test && (
+            <div className="mb-2 text-[12px]" role="status">
+              {test.state === 'running' && <span className="text-muted">Connecting…</span>}
+              {test.state === 'ok' && (
+                <span className="text-ok">
+                  Connected. {test.tools.length === 0 ? 'The server offers no tools.' : `${test.tools.length} tool${test.tools.length === 1 ? '' : 's'}: `}
+                  {test.tools.length > 0 && <span className="font-mono text-[11px] text-muted">{test.tools.join(', ')}</span>}
+                </span>
+              )}
+              {test.state === 'failed' && <span className="text-danger">{test.text}</span>}
+            </div>
+          )}
+          <div className="flex items-center justify-end gap-2">
+            {missing && <span className="mr-auto text-[12px] text-muted">{missing}</span>}
+            <Button
+              size="sm"
+              onClick={() => {
+                setAdding(false)
+                setTest(null)
+              }}
+            >
               Cancel
             </Button>
-            <Button size="sm" variant="primary" onClick={save}>
+            <Button size="sm" variant="ghost" disabled={Boolean(missing) || test?.state === 'running'} onClick={() => void runTest()} title="Connect and list the server’s tools">
+              <PlugZap size={12} /> {test?.state === 'running' ? 'Testing…' : 'Test'}
+            </Button>
+            <Button size="sm" variant="primary" disabled={Boolean(missing)} onClick={save}>
               Save server
             </Button>
           </div>

@@ -1,5 +1,5 @@
 import { safeStorage } from 'electron'
-import { presentAuthLink } from './auth-link'
+import { presentAuthLink, onAuthCancel, AUTH_CANCELLED } from './auth-link'
 import { createServer, type Server } from 'http'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
@@ -218,13 +218,20 @@ async function ensureCloudId(connId: string): Promise<string> {
 
 let pendingCallback: { server: Server; resolve: (code: string) => void; reject: (e: Error) => void } | null = null
 
+/** Closes the callback server of a sign-in in progress and rejects its promise, so nothing waits on it any more. */
+function cancelPending(err: Error): void {
+  const pc = pendingCallback
+  if (!pc) return
+  pendingCallback = null
+  pc.server.close()
+  pc.reject(err)
+}
+onAuthCancel('jira', () => cancelPending(new Error(AUTH_CANCELLED)))
+
 /** Opens the browser for approval and resolves once tokens are stored. */
 export async function authenticate(connId: string): Promise<void> {
   dropClient(connId)
-  if (pendingCallback) {
-    pendingCallback.server.close()
-    pendingCallback = null
-  }
+  cancelPending(new Error(AUTH_CANCELLED))
   const provider = new StoreOAuthProvider(connId, true)
   provider.invalidateCredentials('tokens')
 
@@ -282,8 +289,14 @@ export async function authenticate(connId: string): Promise<void> {
     const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider })
     await transport.finishAuth(code)
   }
+  // Only a connection that can see a Jira site counts as connected; otherwise the page would say "Connected" to nothing.
+  try {
+    await ensureCloudId(connId)
+  } catch (err) {
+    dropClient(connId)
+    throw err
+  }
   updateJiraSettings(connId, { connected: true, connectedAt: new Date().toISOString() })
-  await ensureCloudId(connId)
 }
 
 /** A currently valid Atlassian access token for this connection (connecting refreshes it when needed). */

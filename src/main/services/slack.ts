@@ -9,7 +9,7 @@ import { app, safeStorage } from 'electron'
 import { presentAuthLink } from './auth-link'
 import { createHash, randomBytes } from 'crypto'
 import { getStore } from '../store'
-import type { SlackConnection } from '@shared/types'
+import { PLAIN_ERROR_MARK, type SlackConnection } from '@shared/types'
 
 export const SLACK_MCP_URL = 'https://mcp.slack.com/mcp'
 export const REDIRECT_URL = 'https://sinfonie.dev/oauth/slack/callback'
@@ -291,7 +291,7 @@ export async function api<T>(connId: string, method: string, params: Record<stri
   const token = await accessToken(connId)
   const body = new URLSearchParams()
   for (const [key, v] of Object.entries(params)) if (v !== undefined) body.set(key, String(v))
-  const res = await fetch(`https://slack.com/api/${method}`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/x-www-form-urlencoded' }, body })
+  const res = await fetch(`https://slack.com/api/${method}`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/x-www-form-urlencoded' }, body, signal: AbortSignal.timeout(30_000) })
   if (res.status === 429) {
     const after = Math.max(5, Number(res.headers.get('retry-after') ?? '60') || 60)
     rateLimitedUntil.set(method, Date.now() + after * 1000)
@@ -308,10 +308,64 @@ export async function api<T>(connId: string, method: string, params: Record<stri
       await accessToken(connId, true)
       return api<T>(connId, method, params, true)
     }
-    if (json.error === 'token_revoked' || json.error === 'invalid_auth' || json.error === 'account_inactive') patchConnection(connId, { connected: false })
-    throw new Error(`Slack ${method}: ${json.error ?? 'failed'}`)
+    if (json.error === 'token_revoked' || json.error === 'invalid_auth' || json.error === 'account_inactive' || json.error === 'not_authed') patchConnection(connId, { connected: false })
+    throw new SlackApiError(method, json.error ?? 'failed')
   }
   return json
+}
+
+/** What went wrong, in groups the UI can offer one action for: reconnect, open the channel, wait, or retry. */
+export type SlackErrorKind = 'auth' | 'channel' | 'rate' | 'network' | 'other'
+const SLACK_ERRORS: Record<string, [SlackErrorKind, string]> = {
+  not_in_channel: ['channel', 'You are not a member of that channel. Join it in Slack, then try again.'],
+  channel_not_found: ['channel', 'Slack could not find that channel. It may be private, renamed or deleted. Check it in Slack, or remove it from on call.'],
+  is_archived: ['channel', 'That channel is archived in Slack. Unarchive it, or remove it from on call.'],
+  thread_not_found: ['channel', 'The Slack thread is gone. It may have been deleted.'],
+  message_not_found: ['channel', 'The Slack message is gone. It may have been deleted.'],
+  restricted_action: ['channel', 'Your Slack workspace does not allow posting there. Ask a Slack admin, or post from Slack.'],
+  restricted_action_read_only_channel: ['channel', 'That channel is read-only for you in Slack.'],
+  restricted_action_thread_only_channel: ['channel', 'That channel only allows replies in threads.'],
+  cant_reply_to_message: ['channel', 'Slack does not allow replies to that message.'],
+  msg_too_long: ['other', 'The message is too long for Slack. Shorten it and try again.'],
+  no_text: ['other', 'The message is empty.'],
+  rate_limited: ['rate', 'Slack is asking Sinfonie to slow down. It tries again in a minute.'],
+  ratelimited: ['rate', 'Slack is asking Sinfonie to slow down. It tries again in a minute.'],
+  token_revoked: ['auth', 'The Slack sign-in was revoked. Reconnect Slack to keep watching.'],
+  token_expired: ['auth', 'The Slack sign-in expired. Reconnect Slack to keep watching.'],
+  invalid_auth: ['auth', 'Slack no longer accepts this sign-in. Reconnect Slack to keep watching.'],
+  not_authed: ['auth', 'Slack is not signed in. Reconnect Slack to keep watching.'],
+  account_inactive: ['auth', 'That Slack account is deactivated. Reconnect with an active account.'],
+  missing_scope: ['auth', 'The Slack sign-in is missing a permission Sinfonie needs. Reconnect Slack to grant it.'],
+  no_permission: ['auth', 'Slack did not give this sign-in permission for that. Reconnect Slack, or ask a Slack admin.'],
+  team_access_not_granted: ['auth', 'This Slack workspace has not approved Sinfonie. Ask a Slack admin, then reconnect.'],
+  ekm_access_denied: ['auth', 'Your Slack workspace blocks this access. Ask a Slack admin.'],
+  fatal_error: ['network', 'Slack had a problem on its side. Try again in a minute.'],
+  internal_error: ['network', 'Slack had a problem on its side. Try again in a minute.'],
+  service_unavailable: ['network', 'Slack is unavailable right now. Try again in a minute.'],
+  request_timeout: ['network', 'Slack took too long to answer. Try again in a minute.']
+}
+/** A Slack Web API refusal with its code kept for the UI and a sentence a person can act on as the message. */
+export class SlackApiError extends Error {
+  readonly kind: SlackErrorKind
+  readonly plain: string
+  constructor(
+    public readonly method: string,
+    public readonly code: string
+  ) {
+    const [kind, plain] = SLACK_ERRORS[code] ?? ['other', `Slack refused the request (${code}).`]
+    super(PLAIN_ERROR_MARK + plain)
+    this.kind = kind
+    this.plain = plain
+  }
+}
+/** Any error from talking to Slack, as a kind and a plain sentence (network failures, rate limits and refusals). */
+export function describeError(err: unknown): { kind: SlackErrorKind; text: string; code?: string } {
+  if (err instanceof SlackApiError) return { kind: err.kind, text: err.plain, code: err.code }
+  if (err instanceof SlackRateLimited) return { kind: 'rate', text: `Slack allows one read per minute here; the next check is in ${err.retryAfter}s.` }
+  const msg = err instanceof Error ? err.message : String(err)
+  if (/not connected|login expired|could not be refreshed|Reconnect/i.test(msg)) return { kind: 'auth', text: 'Slack is not connected. Reconnect Slack to keep watching.' }
+  if (/fetch failed|ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|timeout|aborted|network/i.test(msg)) return { kind: 'network', text: 'Sinfonie could not reach Slack. Check your connection; it tries again on the next check.' }
+  return { kind: 'other', text: msg.startsWith(PLAIN_ERROR_MARK) ? msg.slice(PLAIN_ERROR_MARK.length) : msg }
 }
 
 export interface SlackMessage {

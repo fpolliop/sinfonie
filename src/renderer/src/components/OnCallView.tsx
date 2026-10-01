@@ -8,8 +8,11 @@ import { Badge, Button, IconButton, Spinner, inputCls } from './ui'
 import { ErrorNote } from './ErrorNote'
 import { Markdown } from '@/lib/markdown'
 import { timeAgo } from '@/lib/format'
+import { friendlyError } from '@/lib/errors'
 import { incidentBrief } from '@shared/oncall-brief'
-import type { Incident, IncidentStatus, OnCallBulkOp, Severity } from '@shared/types'
+import type { Incident, IncidentStatus, OnCallBulkOp, OnCallSettings, Severity, Space } from '@shared/types'
+
+const ONCALL_DEFAULTS: OnCallSettings = { enabled: false, channels: [], pollSeconds: 60, maxTriagesPerHour: 12, context: '' }
 
 const SEV: Record<Severity, { tone: 'muted' | 'ok' | 'warn' | 'danger' | 'accent'; label: string }> = {
   low: { tone: 'muted', label: 'low' },
@@ -76,7 +79,21 @@ export function OnCallView(): React.JSX.Element {
   const selected = all.find((i) => i.id === selectedId) ?? null
   const spaces = useApp((s) => s.spaces)
   const activeSpace = spaces.find((sp) => sp.id === activeSpaceId)
-  const configured = activeSpaceId ? (activeSpace?.oncall?.channels?.length ?? 0) > 0 || state?.activeSpaces.includes(activeSpaceId) === true : Boolean(settings.slack?.connected && (settings.oncall?.channels?.length ?? 0) > 0) || state?.activeSpaces.includes('') === true
+  // The same page the gear opens: this space's on-call settings, or the application's.
+  const settingsTarget = activeSpaceId ? ({ scope: 'space', spaceId: activeSpaceId, page: 'oncall' } as const) : ({ scope: 'app', page: 'oncall' } as const)
+  const oc = activeSpaceId ? activeSpace?.oncall : settings.oncall
+  const watching = state?.activeSpaces.includes(activeSpaceId) === true
+  const configured = (oc?.channels?.length ?? 0) > 0 || watching
+  // Why nothing is being watched, when channels are picked: the main process only watches enabled configs with a live Slack sign-in.
+  const slackConnected = activeSpaceId ? Boolean(activeSpace?.slack?.connected || settings.slack?.connected) : Boolean(settings.slack?.connected)
+  const notWatching: { text: string; action: string; run: () => void } | null =
+    !configured || watching
+      ? null
+      : !oc?.enabled
+        ? { text: 'Watching is off, so new messages in these channels are not picked up.', action: 'Turn on watching', run: () => void go(() => (activeSpaceId ? api.invoke('spaces:update', activeSpaceId, { oncall: { ...(activeSpace?.oncall ?? {}), enabled: true } as NonNullable<Space['oncall']> }) : api.invoke('settings:update', { oncall: { ...ONCALL_DEFAULTS, ...(settings.oncall ?? {}), enabled: true } }))) }
+        : !slackConnected
+          ? { text: 'Slack isn\u2019t connected, so nothing is being watched. The sign-in may have expired or been revoked.', action: 'Reconnect Slack', run: () => openSettings(settingsTarget) }
+          : null
   const spaceOf = (id: string): { name: string; color: string } | null => {
     const sp = spaces.find((x) => x.id === id)
     return sp ? { name: sp.name, color: sp.color } : null
@@ -85,7 +102,7 @@ export function OnCallView(): React.JSX.Element {
     try {
       await fn()
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(friendlyError(err))
     }
   }
   const removeIncident = (inc: Incident): void => {
@@ -116,7 +133,7 @@ export function OnCallView(): React.JSX.Element {
       setChecked([])
     }).finally(() => setBulkBusy(false))
   }
-  const statusText = checking ? 'Checking Slack…' : state?.lastError ? state.lastError : state?.lastPollAt ? `Checked ${timeAgo(state.lastPollAt)}${state.nextPollAt ? `, next in ${Math.max(0, Math.round((new Date(state.nextPollAt).getTime() - Date.now()) / 1000))}s` : ''}` : state?.running ? 'Waiting for the first check…' : ''
+  const statusText = checking ? 'Checking Slack…' : !configured ? '' : !watching ? 'Not watching' : state?.lastError ? state.lastError : state?.lastPollAt ? `Checked ${timeAgo(state.lastPollAt)}${state.nextPollAt ? `, next in ${Math.max(0, Math.round((new Date(state.nextPollAt).getTime() - Date.now()) / 1000))}s` : ''}` : state?.running ? 'Waiting for the first check…' : ''
 
   return (
     <div className="flex h-full">
@@ -134,7 +151,7 @@ export function OnCallView(): React.JSX.Element {
             <IconButton label="Check Slack now" className="disabled:opacity-40" onClick={checkNow} disabled={!configured || checking}>
               <RefreshCw size={13} className={clsx(checking && 'animate-spin')} />
             </IconButton>
-            <IconButton label="On call settings" onClick={() => openSettings(activeSpaceId ? { scope: 'space', spaceId: activeSpaceId, page: 'oncall' } : { scope: 'app', page: 'oncall' })}>
+            <IconButton label="On call settings" onClick={() => openSettings(settingsTarget)}>
               <SettingsIcon size={13} />
             </IconButton>
           </div>
@@ -228,17 +245,50 @@ export function OnCallView(): React.JSX.Element {
           </div>
         )}
         <div className="flex-1 overflow-auto">
+          {configured && !checking && !notWatching && state?.lastError && state.lastErrorKind && state.lastErrorKind !== 'rate' && (
+            <div className="m-2 rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-[12px]" role="status">
+              <p className="mb-1.5">{state.lastError}</p>
+              <div className="flex flex-wrap gap-1.5">
+                {state.lastErrorKind === 'auth' && (
+                  <Button size="sm" variant="primary" onClick={() => openSettings(settingsTarget)}>
+                    Reconnect Slack
+                  </Button>
+                )}
+                {state.lastErrorKind === 'channel' && state.lastErrorChannel && (
+                  <Button size="sm" onClick={() => void api.invoke('shell:openExternal', `https://slack.com/app_redirect?channel=${encodeURIComponent(state.lastErrorChannel!.id)}`)}>
+                    <ExternalLink size={12} /> Open #{state.lastErrorChannel.name} in Slack
+                  </Button>
+                )}
+                {state.lastErrorKind === 'channel' && (
+                  <Button size="sm" variant="ghost" onClick={() => openSettings(settingsTarget)}>
+                    Change channels
+                  </Button>
+                )}
+                <Button size="sm" variant="ghost" onClick={checkNow}>
+                  Try again
+                </Button>
+              </div>
+            </div>
+          )}
           {!configured && (
             <div className="p-4 text-[12px] text-muted">
               <p className="mb-2">The on-call agent watches Slack channels, turns requests and alerts into incidents, triages each one with the code at hand, and drafts replies you approve.</p>
-              <Button size="sm" variant="primary" onClick={() => openSettings({ scope: 'app', page: 'oncall' })}>
+              <Button size="sm" variant="primary" onClick={() => openSettings(settingsTarget)}>
                 Set up on call
+              </Button>
+            </div>
+          )}
+          {notWatching && (
+            <div className="m-2 rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-[12px]" role="status">
+              <p className="mb-1.5">{notWatching.text}</p>
+              <Button size="sm" variant="primary" onClick={notWatching.run}>
+                {notWatching.action}
               </Button>
             </div>
           )}
           {configured && incidents.length === 0 && (
             <div className="p-4 text-[12px] text-muted">
-              {all.length === 0 ? 'No incidents yet. New messages in the watched channels appear here within a minute.' : filters.q || narrowed ? 'Nothing matches these filters.' : filters.view === 'open' ? 'Nothing open.' : 'Nothing here.'}
+              {all.length === 0 ? (watching ? 'No incidents yet. New messages in the watched channels appear here within a minute or two.' : 'No incidents yet.') : filters.q || narrowed ? 'Nothing matches these filters.' : filters.view === 'open' ? 'Nothing open.' : 'Nothing here.'}
             </div>
           )}
           {incidents.map((i) => {
@@ -302,6 +352,14 @@ export function IncidentDetail({ inc, go, onRemove }: { inc: Incident; go: (fn: 
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [asking, setAsking] = useState(false)
   const [newReply, setNewReply] = useState('')
+  // Proposal ids being posted: the button waits for Slack, so one click is one message.
+  const [sending, setSending] = useState<string[]>([])
+  const send = (pid: string, text: string): void => {
+    if (sending.includes(pid)) return
+    setSending((s) => [...s, pid])
+    void go(() => api.invoke('oncall:approve', inc.id, pid, text)).finally(() => setSending((s) => s.filter((x) => x !== pid)))
+  }
+  const cancel = (): void => void go(() => api.invoke('oncall:cancel', inc.id))
   const r = inc.report
   return (
     <div className="flex h-full flex-col">
@@ -357,6 +415,9 @@ export function IncidentDetail({ inc, go, onRemove }: { inc: Incident; go: (fn: 
         {inc.status === 'triaging' && (
           <div className="flex items-center gap-2 text-muted">
             <Spinner /> Investigating…
+            <Button size="sm" variant="ghost" onClick={cancel} title="Stop this triage; the incident goes back to Open">
+              Stop
+            </Button>
           </div>
         )}
         {r && (
@@ -414,6 +475,9 @@ export function IncidentDetail({ inc, go, onRemove }: { inc: Incident; go: (fn: 
               <div className="flex items-center gap-2 text-[12px] text-muted">
                 <Spinner /> {inc.fix.phase ?? 'Working…'}
                 {inc.fix.branch && <span className="font-mono">{inc.fix.branch}</span>}
+                <Button size="sm" variant="ghost" onClick={cancel} title="Stop the draft PR run">
+                  Stop
+                </Button>
               </div>
             ) : (
               <div className="flex flex-wrap items-center gap-2">
@@ -447,10 +511,10 @@ export function IncidentDetail({ inc, go, onRemove }: { inc: Incident; go: (fn: 
                     <>
                       <textarea className={clsx(inputCls, 'mb-2 min-h-[72px]')} value={drafts[p.id] ?? p.text} onChange={(e) => setDrafts({ ...drafts, [p.id]: e.target.value })} />
                       <div className="flex gap-2">
-                        <Button size="sm" variant="primary" onClick={() => go(() => api.invoke('oncall:approve', inc.id, p.id, drafts[p.id] ?? p.text))}>
-                          <Send size={12} /> Send in thread as you
+                        <Button size="sm" variant="primary" disabled={sending.includes(p.id) || !(drafts[p.id] ?? p.text).trim()} onClick={() => send(p.id, drafts[p.id] ?? p.text)}>
+                          {sending.includes(p.id) ? <Spinner /> : <Send size={12} />} {sending.includes(p.id) ? 'Sending…' : 'Send in thread as you'}
                         </Button>
-                        <Button size="sm" variant="ghost" onClick={() => go(() => api.invoke('oncall:dismissProposal', inc.id, p.id))}>
+                        <Button size="sm" variant="ghost" disabled={sending.includes(p.id)} onClick={() => go(() => api.invoke('oncall:dismissProposal', inc.id, p.id))}>
                           Dismiss
                         </Button>
                       </div>

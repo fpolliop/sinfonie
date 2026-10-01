@@ -13,6 +13,7 @@ import type { MaestroMemoryCategory, MaestroMemoryEntry, MaestroConversation, Ma
   RepoPr,
   PermissionMode,
   AcpProbe,
+  AgentPrereq,
   Engine,
   Vendor,
   ProviderConfig,
@@ -51,11 +52,15 @@ export interface SinfonieInvoke {
   'spaces:update': (id: string, patch: Partial<Pick<Space, 'name' | 'color' | 'claudeAccountId' | 'model' | 'permissionMode' | 'workspacesRoot' | 'browserSensitiveOrigins' | 'githubOwners' | 'exposeLinearMcp' | 'oncall' | 'budgetMode' | 'leanMode' | 'gcp' | 'exposeGcpMcp' | 'mcpServers' | 'exposeJiraMcp' | 'strictMcp' | 'agents' | 'useCrew' | 'crewDisabled' | 'crewModels' | 'engine' | 'agentMode' | 'guided'>>) => Space
   /** MCP servers found in Claude Code's own config (~/.claude.json), for importing. */
   'mcp:importable': () => McpServerSpec[]
+  /** Connects to a server the way a session would and lists its tool names. Rejects with plain words when it cannot. */
+  'mcp:test': (spec: McpServerSpec) => string[]
   'spaces:delete': (id: string) => void
   /** Team → Guardrails: replace a space's team rules (admins only). */
   'team:setRules': (spaceId: string, rules: import('./types').TeamRules) => Space
   /** Lift today's daily spend limit for a space on this Mac (admins only). */
   'team:overrideSpend': (spaceId: string) => Space
+  /** Lifts today's spend limit for one organisation member; shared with the team through the organisation sync. */
+  'team:allowSpendFor': (spaceId: string, userId: string, login?: string) => Space
   /** Team → Apps: whether builders may change one app (admins only). Keyed by the app's remote. */
   'team:setAppLookOnly': (spaceId: string, repoId: string, lookOnly: boolean) => Space
   /** The key each app of a space has in `rules.builderReadOnly`: its normalised remote, else its name. */
@@ -74,7 +79,31 @@ export interface SinfonieInvoke {
   'repos:scan': (root: string) => ScannedRepo[]
   'repos:addPaths': (paths: string[], spaceId?: string) => Repo[]
   /** Clone a GitHub repository into ~/Sinfonie/<name> (reusing an existing checkout there) and return its local path. */
-  'repos:clone': (url: string) => string
+  /** The same clone, answering with a failure kind instead of throwing; `folderName` when the default folder holds another app. */
+  'repos:cloneApp': (url: string, folderName?: string) => import('./types').CloneResult
+  'repos:cancelClone': (url: string) => void
+  /** What a picked folder is: an app, inside one (its top is used), a plain folder, or git is missing. */
+  'repos:inspectFolder': (path: string) => import('./types').FolderKind
+  /** "Set this folder up for Sinfonie": git init on main and a first saved version. Returns the folder. */
+  'repos:initFolder': (path: string) => string
+  // ---- GitHub connection and prerequisites (main/services/prereqs.ts; renderer lib/github.ts) ----
+  'github:connection': (refresh?: boolean) => import('./types').GitHubConnection
+  /** Connect GitHub in-app (downloads gh if needed, gh auth login --web, gh auth setup-git). Progress: github:connectProgress. */
+  'github:connect': () => void
+  'github:cancelConnect': () => void
+  'github:connectState': () => import('./types').GitHubConnectState
+  /** Opens Apple's installer for the developer tools (git). */
+  'github:installXcodeTools': () => void
+  /** Everything Send for review needs, checked before anything is saved or sent. */
+  'github:preflight': (workspaceId: string) => import('./types').SendPreflight
+  /** Put an app that is not on GitHub yet on the signed-in account, private. Returns owner/name. */
+  'github:publishRepo': (workspaceId: string, repoId: string) => string
+  /** Make the person's own copy (fork) of an app they may not change, and send from it. Returns owner/name. */
+  'github:forkRepo': (workspaceId: string, repoId: string) => string
+  /** Merge a pull request of the person's own app (solo Publish, after they confirmed). */
+  'github:mergePr': (workspaceId: string, repoId: string, url: string) => void
+  /** Give an app a git author (from GitHub or the Sinfonie account) when it has none. */
+  'github:ensureIdentity': (repoPath: string) => void
   'dialog:pickFolder': (title: string, defaultPath?: string) => string | null
   'repos:remove': (repoId: string) => void
   'repos:branches': (repoId: string) => string[]
@@ -92,8 +121,9 @@ export interface SinfonieInvoke {
   'workspaces:delete': (workspaceId: string) => void
   'workspaces:rename': (workspaceId: string, name: string, opts: { renameBranches: boolean }) => Workspace
   'workspaces:openIn': (workspaceId: string, app: 'finder' | 'vscode' | 'cursor' | 'terminal') => void
-  'workspaces:runScript': (workspaceId: string, kind: 'setup' | 'run') => void
-  'workspaces:stopScript': (workspaceId: string, kind: 'setup' | 'run') => void
+  /** Starts the scripts and returns once they are started (not when they exit), with how many started. */
+  'workspaces:runScript': (workspaceId: string, kind: 'setup' | 'run') => { started: number }
+  'workspaces:stopScript': (workspaceId: string, kind: 'setup' | 'run' | 'archive') => void
   'workspaces:renameBranch': (workspaceId: string, branch: string) => Workspace
   'workspaces:addRepo': (workspaceId: string, repoId: string, baseBranch: string) => Workspace
   'workspaces:removeRepo': (workspaceId: string, repoId: string, opts: { deleteBranch: boolean }) => Workspace
@@ -188,6 +218,8 @@ export interface SinfonieInvoke {
   'orgSpaces:sync': () => { created: string[]; updated: string[]; missingRepos: { spaceId: string; remotes: string[] }[] }
   /** Repositories of a shared space that are not on this Mac yet. */
   'orgSpaces:missing': (spaceId: string) => SharedRepo[]
+  /** "Check again": refresh the account, sync, and try every missing shared app again (failures land in space.cloneErrors). */
+  'orgSpaces:retryMissing': () => void
   /** Locate or clone missing repositories of a shared space. */
   'orgSpaces:resolve': (spaceId: string, resolutions: SpaceImportResolution[]) => Space
   /** What teammates are working on in this shared space. */
@@ -198,6 +230,8 @@ export interface SinfonieInvoke {
   'remote:status': () => RemoteStatus
   'remote:pair': () => { url: string; qrSvg: string }
   'remote:unpair': () => RemoteStatus
+  /** Reconnects to the relay now (after an error), instead of waiting for the backoff. */
+  'remote:reconnect': () => RemoteStatus
   'remote:updateSettings': (patch: Partial<RemoteSettings>) => RemoteSettings
   'remote:seen': (workspaceId: string) => void
   // ---- shared spaces (sinfonie.space.json) ----
@@ -211,22 +245,34 @@ export interface SinfonieInvoke {
   'shared:unlink': (spaceId: string) => Space
 
   'shell:openExternal': (url: string) => void
+  /** Bring the calling window to the front: restore it if minimised, show it if hidden, focus it (a notification click). */
+  'window:focus': () => void
   'updates:check': () => UpdateInfo | null
   'updates:download': () => void
   'updates:install': () => void
   /** Arm or disarm the idle restart for a downloaded update. */
   'updates:installWhenIdle': (on: boolean) => void
+  /** Stop the download in flight; the update is offered again. */
+  'updates:cancel': () => void
+  /** The update this app run already knows about, without checking again. */
+  'updates:latest': () => UpdateInfo | null
   'feedback:send': (payload: { kind: 'feedback' | 'feature' | 'bug'; message: string; email?: string; includeLogs?: boolean; attachments?: { name: string; mime: string; data: string }[] }) => { ok: boolean; error?: string }
   'logs:open': () => void
   'logs:list': () => ErrorEntry[]
   'logs:clear': () => void
   'app:version': () => string
+  /** The renderer's listeners are mounted: replay deep links that arrived before (main/index.ts). */
+  'ui:takePendingLinks': () => void
 
   'accounts:add': (name: string, vendor?: Vendor) => Settings
   'accounts:remove': (id: string) => Settings
   'accounts:setDefault': (id: string) => Settings
   'accounts:check': (id: string) => Settings
   'accounts:login': (id: string) => string
+  /** Installs a missing agent prerequisite in a pty (its output streams as terminal:data); null when there is no safe one-step installer. */
+  'accounts:install': (what: AgentPrereq) => string | null
+  /** Stops a pending Jira, Linear or Sinfonie sign-in; its dialog gets ui:authDone with an error. */
+  'auth:cancel': (provider: AuthLink['provider'], connId: string) => void
 
   'reviews:orgs': () => string[]
   /** PRs from the given repositories (owner/name) plus, when owners are given, every repository of those owners. */
@@ -235,6 +281,10 @@ export interface SinfonieInvoke {
   'reviews:detectOwners': (spaceId: string) => string[]
   /** GitHub repositories (owner/name) behind a space's registered repos. */
   'reviews:detectRepos': (spaceId: string) => string[]
+  /** Hosts of the space's repositories that are not github.com (GitHub Enterprise and others are not supported yet). */
+  'reviews:otherHosts': (spaceId: string) => string[]
+  /** Which GitHub logins do not exist. `unchecked` says why nothing could be checked (GitHub not reachable). */
+  'reviews:checkLogins': (logins: string[]) => { invalid: string[]; unchecked?: string }
   'reviews:runs': () => ReviewRun[]
   'reviews:start': (pr: ReviewPr, accountId: string) => ReviewRun
   'reviews:cancel': (key: string) => void
@@ -300,7 +350,7 @@ export interface SinfonieInvoke {
   /** Draft a whole agent from a one-line description, model picked from the inventory. */
   'agents:draft': (description: string, spaceId?: string) => AgentDraft
   /** Run an agent once from the editor, in a workspace or (null) in its own context; progress arrives on agents:run. Returns the run id. */
-  'agents:run': (agentId: string, workspaceId: string | null, prompt: string, override?: Partial<AgentSpec>) => string
+  'agents:run': (agentId: string, workspaceId: string | null, prompt: string, override?: Partial<AgentSpec>, runId?: string) => string
   /** Run history of an agent, newest first. */
   'agents:runs': (agentId: string) => AgentRun[]
   /** Start the agent's standing task now, as a scheduled run would. */
@@ -346,7 +396,8 @@ export interface SinfonieInvoke {
   'maestro:conversations': () => MaestroConversationMeta[]
   'maestro:get': (id: string) => MaestroConversation
   'maestro:new': (context?: MaestroContext) => MaestroConversation
-  'maestro:send': (id: string, text: string) => void
+  /** retry: send the text again without adding it as a new message. accountId: continue this conversation on that account. */
+  'maestro:send': (id: string, text: string, opts?: { retry?: boolean; accountId?: string }) => void
   'maestro:stop': (id: string) => void
   'maestro:rename': (id: string, title: string) => void
   'maestro:pin': (id: string, pinned: boolean) => void
@@ -371,7 +422,8 @@ export interface SinfonieInvoke {
   /** Every owner with notes: workspace ids, "space:<id>" and "app", with a display label. */
   'notes:all': () => { owner: string; label: string; notes: Note[] }[]
   /** A Claude summary of the filtered notes, or an answer to a question about them. */
-  'notes:summarize': (filter: NotesFilter, question?: string) => string
+  /** A failure comes back as a coded error (not thrown), so the dialog can offer the fix: sign in, another account, retry. */
+  'notes:summarize': (filter: NotesFilter, question?: string) => { text: string } | { error: { code: import('./types').MaestroTurnError['code']; message: string; detail?: string } }
 
   /** A shell in the repo's worktree, or at the workspace root when repoId is null. */
   'terminal:create': (workspaceId: string, repoId: string | null, cols?: number, rows?: number, agent?: Engine) => string
@@ -424,10 +476,14 @@ export interface SinfonieInvoke {
   'oncall:bulk': (incidentIds: string[], op: OnCallBulkOp) => number
   /** Draft a PR with the triage's proposed fix: branch from the default branch, agent edits, push, `gh pr create --draft`. */
   'oncall:openFixPr': (incidentId: string) => Incident
+  /** Stops a queued or running triage, question or draft PR run for the incident. */
+  'oncall:cancel': (incidentId: string) => Incident
   'gcp:status': (force?: boolean) => GcpStatus
   'gcp:projects': (account?: string, force?: boolean) => { projectId: string; name: string }[]
   /** `gcloud auth login [account]`: opens the browser; pass the account to re-authenticate an expired one. */
   'gcp:login': (account?: string) => GcpStatus
+  /** Stops a running gcloud sign-in; the pending gcp:login rejects with a plain message. */
+  'gcp:cancelLogin': () => void
   /** Runs one small read in the space's (or app's) project and describes the result. */
   'gcp:test': (spaceId: string) => string
   // ---- builder: the guided task screen's preview ----
@@ -524,9 +580,14 @@ export interface SinfonieEvents {
   /** A sign-in link to show the user (Open in browser / Copy link). */
   'ui:authLink': AuthLink
   /** That sign-in finished; close the dialog. */
-  'ui:authDone': { provider: AuthLink['provider']; connId: string }
+  /** A sign-in finished; `error` (plain words) when it failed, timed out or was cancelled. */
+  'ui:authDone': { provider: AuthLink['provider']; connId: string; error?: string }
   /** A sinfonie://join or sinfonie://redeem link arrived: the Plan page should act on it. */
   'cloud:invite': { token: string; kind: 'join' | 'redeem' }
+  /** Any other sinfonie:// link opened from outside (a browser, another app): the renderer's openSinfonieLink handles it. */
+  'ui:openLink': { href: string }
+  /** The Slack sign-in coming back through sinfonie://oauth/slack failed; `message` is plain words for the Slack card. */
+  'slack:authFailed': { connId?: string; message: string }
   'remote:status': RemoteStatus
   /** Open the review cockpit on this PR (notification click). */
   'ui:openReview': { key: string }
@@ -540,6 +601,10 @@ export interface SinfonieEvents {
   'ui:openView': { viewId: string; workspaceId?: string }
   /** An agent started using the browser of this workspace; the renderer brings the pane forward. */
   'browser:agentActive': { workspaceId: string }
+  /** Connect GitHub progress (code to enter, done, failed). */
+  'github:connectProgress': import('./types').GitHubConnectState
+  /** An app download's progress. */
+  'repos:cloneProgress': import('./types').CloneProgress
 }
 
 export type InvokeChannel = keyof SinfonieInvoke

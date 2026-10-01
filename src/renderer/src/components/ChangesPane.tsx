@@ -7,7 +7,8 @@ import clsx from 'clsx'
 import { api } from '@/lib/api'
 import { changedNewLines, toSplitRows, type DiffFile, type DiffLine } from '@/lib/diff'
 import { Button, Dialog, Field, inputCls } from './ui'
-import { friendlyError } from '@/lib/errors'
+import { friendlyError, needsGitHub } from '@/lib/errors'
+import { ConnectGitHubCard } from './ConnectGitHub'
 
 export type ViewMode = 'unified' | 'split' | 'file'
 
@@ -166,6 +167,22 @@ function FileView({ file, workspaceId, worktreePath }: { file: DiffFile; workspa
   )
 }
 
+/** A push or pull request failed because git or gh has no GitHub sign-in (see classifyGitError in main/services/git.ts). */
+export const needsGitHubSignIn = (error: string | null): boolean => Boolean(error && (needsGitHub(error) || /Connect GitHub|no saved sign-in|refused your SSH key/i.test(error)))
+
+/** The error under a push or pull request dialog, with Connect GitHub (which retries once connected) when that fixes it. */
+function DialogError({ error, onRetry }: { error: string | null; onRetry: () => void }): React.JSX.Element | null {
+  if (!error) return null
+  return (
+    <div className="mb-3 flex flex-col gap-2">
+      <div role="alert" className="whitespace-pre-wrap rounded-md border border-danger/30 bg-danger/10 px-2.5 py-1.5 text-[12px] text-danger">
+        {error}
+      </div>
+      {needsGitHubSignIn(error) && <ConnectGitHubCard reason="Connect GitHub so Sinfonie can push this branch and open pull requests." onConnected={onRetry} />}
+    </div>
+  )
+}
+
 /** Runs a dialog's submit, keeping the dialog open with the error shown when it fails. */
 function useSubmit(fn: () => Promise<void>, onClose: () => void): { busy: boolean; error: string | null; submit: () => Promise<void> } {
   const [busy, setBusy] = useState(false)
@@ -225,7 +242,11 @@ export function CommitDialog({ onClose, onSubmit, repoName }: { onClose: () => v
   )
 }
 
-export function PrDialog({ onClose, onSubmit, defaultTitle = '', hint = 'Links to the sibling branches in this workspace are appended automatically.' }: { onClose: () => void; onSubmit: (title: string, body: string) => Promise<void>; defaultTitle?: string; hint?: string }): React.JSX.Element {
+/**
+ * Opens a pull request. Main pushes the branch first when it was never pushed or is ahead, and explains "no commits
+ * yet" and GitHub's refusals; a missing GitHub sign-in shows Connect GitHub, which retries once connected.
+ */
+export function PrDialog({ onClose, onSubmit, defaultTitle = '', hint = 'The branch is pushed first if needed. Links to the sibling branches in this workspace are appended automatically.' }: { onClose: () => void; onSubmit: (title: string, body: string) => Promise<void>; defaultTitle?: string; hint?: string }): React.JSX.Element {
   const [title, setTitle] = useState(defaultTitle)
   const [body, setBody] = useState('')
   const { busy, error, submit } = useSubmit(() => onSubmit(title, body), onClose)
@@ -243,7 +264,7 @@ export function PrDialog({ onClose, onSubmit, defaultTitle = '', hint = 'Links t
         <Field label="Body" hint={hint}>
           <textarea rows={6} className={inputCls} value={body} onChange={(e) => setBody(e.target.value)} />
         </Field>
-        {error && <div role="alert" className="mb-3 whitespace-pre-wrap rounded-md border border-danger/30 bg-danger/10 px-2.5 py-1.5 text-[12px] text-danger">{error}</div>}
+        <DialogError error={error} onRetry={() => void submit()} />
         <div className="flex justify-end gap-2">
           <Button type="button" onClick={onClose}>
             Cancel
@@ -266,7 +287,7 @@ export function PushDialog({ repoName, branch, ahead, hasUpstream, onClose, onCo
       <p className="mb-3 text-[13px]">
         Push {what} on <code className="rounded bg-panel-2 px-1 font-mono text-[12px]">{branch || 'the current branch'}</code> to the remote{hasUpstream === false ? ', creating the branch there' : ''}.
       </p>
-      {error && <div role="alert" className="mb-3 whitespace-pre-wrap rounded-md border border-danger/30 bg-danger/10 px-2.5 py-1.5 text-[12px] text-danger">{error}</div>}
+      <DialogError error={error} onRetry={() => void submit()} />
       <div className="flex justify-end gap-2">
         <Button type="button" onClick={onClose}>
           Cancel

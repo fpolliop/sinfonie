@@ -134,6 +134,8 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
     ...(ws.jira ? [{ label: `Refresh ${ws.jira.key} status`, icon: <RefreshCw size={14} />, onClick: () => void run(() => api.invoke('workspaces:refreshJira', ws.id)) }] : []),
     ...(ws.linear ? [{ label: `Refresh ${ws.linear.identifier} state`, icon: <RefreshCw size={14} />, onClick: () => void run(() => api.invoke('workspaces:refreshLinear', ws.id)) }] : [])
   ]
+  // Disabled entries say why in their tooltip.
+  const notReady = ws.status === 'ready' ? undefined : `Available once the workspace is ready (it is ${ws.status === 'creating' ? 'still setting up' : ws.status === 'error' ? 'not set up: retry setup first' : ws.status})`
   const menuEntries: MenuEntry[] = guided
     ? [{ label: 'Rename task…', icon: <Pencil size={14} />, onClick: () => setEditingTitle(true) }, ...(tickets.length ? [{ separator: true }, ...tickets] : []), { separator: true }, ...finishing]
     : [
@@ -145,15 +147,16 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
           label: 'Claude Code CLI in Terminal tab',
           icon: <TerminalSquare size={14} />,
           disabled: ws.status !== 'ready',
+          title: notReady,
           onClick: () => {
             useApp.getState().setPendingShell({ workspaceId: ws.id, repoId: ws.primaryRepoId, agent: 'claude-code' })
             setTab('terminal')
           }
         },
         { separator: true },
-        { label: 'Manage repositories…', icon: <Folder size={14} />, disabled: ws.status !== 'ready', onClick: () => setReposDlg(true) },
+        { label: 'Manage repositories…', icon: <Folder size={14} />, disabled: ws.status !== 'ready', title: notReady, onClick: () => setReposDlg(true) },
         { label: 'Rename workspace…', icon: <Pencil size={14} />, onClick: () => setEditingTitle(true) },
-        { label: 'Rename branch only (all repos)…', icon: <GitBranch size={14} />, disabled: ws.status !== 'ready', onClick: () => setRenameDlg('branch') },
+        { label: 'Rename branch only (all repos)…', icon: <GitBranch size={14} />, disabled: ws.status !== 'ready', title: notReady, onClick: () => setRenameDlg('branch') },
         { label: 'Move to space…', icon: <Layers size={14} />, onClick: () => setMoveDlg(true) },
         ...(tickets.length ? [{ separator: true }, ...tickets] : []),
         { separator: true },
@@ -287,12 +290,8 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }): React.J
         </div>
       </header>
 
-      {ws.status === 'error' && (
-        <div role="alert" className="border-b border-danger/30 bg-danger/10 px-4 py-2 text-[12px] text-danger">
-          {guided ? friendlyError(ws.error ?? '', 'This task could not be set up. Try starting it again, or ask a teammate.', true) : ws.error}
-        </div>
-      )}
-      <HealthBanner workspaceId={ws.id} />
+      <SetupBanner ws={ws} guided={guided} onArchive={() => setArchiveDlg('archive')} />
+      {ws.status === 'ready' && <HealthBanner workspaceId={ws.id} />}
 
       {guided ? (
         // Guided: the builder's task screen, preview first (components/builder/TaskScreen).
@@ -406,11 +405,12 @@ function RunButton({ ws }: { ws: Workspace }): React.JSX.Element {
   }
   const start = async (): Promise<void> => {
     try {
-      if (!hasScript) {
+      // The worktree's own sinfonie.json counts too (the agent may have just added one), so ask main, not the store.
+      const { started } = await api.invoke('workspaces:runScript', ws.id, 'run')
+      if (!started) {
         setTab('run')
         return
       }
-      await api.invoke('workspaces:runScript', ws.id, 'run')
       setTab('browser')
       // Give the server a moment to bind before the first load; Preview has a reload button.
       window.setTimeout(() => void showPreview().catch(() => undefined), 1500)
@@ -433,7 +433,14 @@ function RunButton({ ws }: { ws: Workspace }): React.JSX.Element {
     )
   }
   return (
-    <Button size="sm" variant="ghost" disabled={!ready} onClick={() => void start()} aria-label={`Run on port ${ws.port}`} title={hasScript ? `Run: start the run script of every repository on port ${ws.port} and open Preview` : 'Run: no run script yet, see how to add one'}>
+    <Button
+      size="sm"
+      variant="ghost"
+      disabled={!ready}
+      onClick={() => void start()}
+      aria-label={`Run on port ${ws.port}`}
+      title={!ready ? `Run is available once the workspace is ready (it is ${ws.status === 'creating' ? 'still setting up' : ws.status})` : hasScript ? `Run: start the run script of every repository on port ${ws.port} and open Preview` : 'Run: no run script found yet; starts one if this branch has it, else shows how to add one'}
+    >
       <Play size={12} aria-hidden /> <span className="@max-[860px]:hidden">Run · :{ws.port}</span>
     </Button>
   )
@@ -471,7 +478,7 @@ function PrButton({ ws }: { ws: Workspace }): React.JSX.Element | null {
           disabled={ws.status !== 'ready'}
           onClick={() => (n === 1 ? setDlg(true) : setTab('prs'))}
           aria-label={label}
-          title={n === 1 ? `${label}: a pull request for ${missing[0].repoName}` : `${label}: one per repository, in Checks`}
+          title={ws.status !== 'ready' ? `${label} is available once the workspace is ready` : n === 1 ? `${label}: pushes the branch if needed, then opens a pull request for ${missing[0].repoName}` : `${label}: one per repository, in Checks`}
         >
           <GitPullRequest size={12} aria-hidden /> <span className="@max-[860px]:hidden">{label}</span>
         </Button>
@@ -479,7 +486,7 @@ function PrButton({ ws }: { ws: Workspace }): React.JSX.Element | null {
           <PrDialog
             onClose={() => setDlg(false)}
             defaultTitle={ws.jira ? `${ws.jira.key}: ${ws.jira.summary}` : ws.linear ? `${ws.linear.identifier}: ${ws.linear.title}` : ws.name}
-            hint="The ticket link and the sibling branches of this workspace are appended automatically."
+            hint="The branch is pushed first if needed. The ticket link and the sibling branches of this workspace are appended automatically."
             onSubmit={async (t, b) => {
               const out = await api.invoke('git:createPr', ws.id, missing[0].repoId, t, b)
               const url = /https?:\/\/\S+/.exec(out ?? '')?.[0]
@@ -640,26 +647,36 @@ function BranchDialog({ initial, onClose, onSubmit }: { initial: string; onClose
 function HealthBanner({ workspaceId }: { workspaceId: string }): React.JSX.Element | null {
   const guided = useGuided()
   const [missing, setMissing] = useState<{ repoName: string; worktreePath: string; branch: string }[]>([])
+  // The check itself failed: say so and keep Repair on screen instead of hiding the banner.
+  const [checkFailed, setCheckFailed] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const setError = useApp((s) => s.setError)
   const status = useApp((s) => s.workspaces.find((w) => w.id === workspaceId)?.status)
+  const check = async (): Promise<void> => {
+    try {
+      const h = await api.invoke('workspaces:health', workspaceId)
+      setMissing(h.missing)
+      setCheckFailed(null)
+    } catch (err) {
+      setCheckFailed(friendlyError(err, 'Sinfonie could not check this task.'))
+    }
+  }
   useEffect(() => {
     let alive = true
     api
       .invoke('workspaces:health', workspaceId)
-      .then((h) => alive && setMissing(h.missing))
-      .catch(() => undefined)
+      .then((h) => alive && (setMissing(h.missing), setCheckFailed(null)))
+      .catch((err) => alive && setCheckFailed(friendlyError(err, 'Sinfonie could not check this task.')))
     return () => {
       alive = false
     }
   }, [workspaceId, status])
-  if (missing.length === 0) return null
+  if (missing.length === 0 && !checkFailed) return null
   const repair = async (): Promise<void> => {
     setBusy(true)
     try {
       await api.invoke('workspaces:repair', workspaceId)
-      const h = await api.invoke('workspaces:health', workspaceId)
-      setMissing(h.missing)
+      await check()
     } catch (err) {
       setError(friendlyError(err, 'The fix did not work. Try again, or ask a teammate.'))
     } finally {
@@ -667,22 +684,143 @@ function HealthBanner({ workspaceId }: { workspaceId: string }): React.JSX.Eleme
     }
   }
   return (
-    <div className="flex items-center gap-3 border-b border-warn/40 bg-warn/10 px-4 py-2 text-[12px]">
+    <div role="alert" className="flex items-center gap-3 border-b border-warn/40 bg-warn/10 px-4 py-2 text-[12px]">
       <AlertTriangle size={14} className="shrink-0 text-warn" />
       <span className="min-w-0 flex-1">
         {guided ? (
           'This task needs a quick fix before it can continue.'
-        ) : (
+        ) : missing.length ? (
           <>
             {missing.length === 1 ? 'A worktree is' : `${missing.length} worktrees are`} missing on disk: {missing.map((m) => `${m.repoName} (${m.branch})`).join(', ')}. The agent cannot run here until they are back.
           </>
+        ) : (
+          <>Could not check this workspace's worktrees: {checkFailed}. Repair recreates any that are missing.</>
         )}
       </span>
+      {checkFailed && !missing.length && (
+        <Button size="sm" variant="ghost" disabled={busy} onClick={() => void check()}>
+          Check again
+        </Button>
+      )}
       <Button size="sm" variant="primary" disabled={busy} onClick={() => void repair()} title={guided ? undefined : 'Recreate the missing worktrees from their branches'}>
         <RefreshCw size={12} className={clsx(busy && 'animate-spin')} /> {busy ? (guided ? 'Fixing…' : 'Repairing…') : guided ? 'Fix it' : 'Repair'}
       </Button>
     </div>
   )
+}
+
+/**
+ * Setting up, archiving, or setup failed: say what is happening and give the way out. Setup failed (or was
+ * interrupted by a quit) offers Retry setup and Archive; a long setup or archive can be skipped (its scripts are
+ * stopped; the worktrees are already there), and expert mode can open the scripts' output.
+ */
+function SetupBanner({ ws, guided, onArchive }: { ws: Workspace; guided: boolean; onArchive: () => void }): React.JSX.Element | null {
+  const setTab = useApp((s) => s.setTab)
+  const setError = useApp((s) => s.setError)
+  const [busy, setBusy] = useState(false)
+  const [details, setDetails] = useState(false)
+  const [slow, setSlow] = useState(false)
+  const status = ws.status
+  useEffect(() => {
+    setSlow(false)
+    if (status !== 'creating' && status !== 'archiving') return
+    const t = window.setTimeout(() => setSlow(true), 60_000)
+    return () => window.clearTimeout(t)
+  }, [status, ws.id])
+  const retry = async (): Promise<void> => {
+    setBusy(true)
+    try {
+      await api.invoke('workspaces:repair', ws.id)
+    } catch (err) {
+      setError(friendlyError(err, 'It did not work this time. Try again later, or ask a teammate.'))
+    } finally {
+      setBusy(false)
+    }
+  }
+  const skip = (kind: 'setup' | 'archive'): void => void api.invoke('workspaces:stopScript', ws.id, kind).catch((err) => setError(friendlyError(err)))
+  const showOutput = (): void => setTab('run')
+  if (status === 'error') {
+    return (
+      <div role="alert" className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-danger/30 bg-danger/10 px-4 py-2 text-[12px]">
+        <AlertTriangle size={14} className="shrink-0 text-danger" aria-hidden />
+        <span className="min-w-0 flex-1 text-danger">
+          {guided ? (ws.archiveFailed ? 'Finishing this task was interrupted when Sinfonie closed. Use Finish task to try again.' : friendlyError(ws.error ?? '', 'This task could not be set up.', true)) : ws.error || 'Setup failed.'}
+          {guided && ws.error && (
+            <button type="button" className="ml-2 text-[11px] text-muted underline" onClick={() => setDetails((v) => !v)} aria-expanded={details}>
+              {details ? 'Hide details' : 'Show details'}
+            </button>
+          )}
+          {guided && details && ws.error && (
+            <span data-expert-ok className="mt-1 block whitespace-pre-wrap font-mono text-[11px] text-muted">
+              {ws.error}
+            </span>
+          )}
+        </span>
+        {!guided && (
+          <Button size="sm" variant="ghost" onClick={showOutput} title="The setup scripts' output, in Run › Setup">
+            Setup output
+          </Button>
+        )}
+        {ws.archiveFailed ? (
+          // An archive that could not finish: only finishing it is offered (Retry setup would recreate the worktrees).
+          <Button size="sm" variant="primary" onClick={onArchive} title={guided ? undefined : 'Archive this workspace again'}>
+            {guided ? 'Finish task' : 'Finish archiving…'}
+          </Button>
+        ) : (
+          <>
+            <Button size="sm" variant="ghost" onClick={onArchive} title={guided ? undefined : 'Remove the worktrees and put this workspace away'}>
+              {guided ? 'Finish task' : 'Archive…'}
+            </Button>
+            <Button size="sm" variant="primary" disabled={busy} onClick={() => void retry()} title={guided ? undefined : 'Recreate any missing worktrees and run the setup scripts again'}>
+              <RefreshCw size={12} className={clsx(busy && 'animate-spin')} aria-hidden /> {busy ? (guided ? 'Trying…' : 'Retrying…') : guided ? 'Try again' : 'Retry setup'}
+            </Button>
+          </>
+        )}
+      </div>
+    )
+  }
+  if (status === 'creating') {
+    if (guided && !slow) return null
+    return (
+      <div role="status" className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border bg-panel/60 px-4 py-2 text-[12px]">
+        <span aria-hidden className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-accent" />
+        <span className="min-w-0 flex-1 text-muted">
+          {guided
+            ? 'Getting ready is taking longer than usual. You can start without waiting, or set it up again.'
+            : slow
+              ? 'Setup is taking a while: the setup scripts are still running. Skip them to start working now (you can run them later from Run › Setup).'
+              : 'Setting up: creating the worktrees and running each repository’s setup script.'}
+        </span>
+        {!guided && (
+          <Button size="sm" variant="ghost" onClick={showOutput}>
+            Setup output
+          </Button>
+        )}
+        {guided && (
+          <Button size="sm" variant="ghost" disabled={busy} onClick={() => (skip('setup'), void retry())}>
+            Try setting it up again
+          </Button>
+        )}
+        <Button size="sm" variant={slow ? 'primary' : 'ghost'} onClick={() => skip('setup')} title={guided ? undefined : 'Stop the setup scripts; the workspace becomes ready without them'}>
+          {guided ? 'Start without waiting' : 'Skip setup'}
+        </Button>
+      </div>
+    )
+  }
+  if (status === 'archiving' && (slow || !guided)) {
+    return (
+      <div role="status" className="flex items-center gap-3 border-b border-border bg-panel/60 px-4 py-2 text-[12px]">
+        <span aria-hidden className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-muted" />
+        <span className="min-w-0 flex-1 text-muted">{guided ? 'Finishing is taking longer than usual.' : slow ? 'Archiving is taking a while: an archive script is still running.' : 'Archiving: running archive scripts and removing the worktrees.'}</span>
+        {(slow || !guided) && (
+          <Button size="sm" variant={slow ? 'primary' : 'ghost'} onClick={() => skip('archive')} title={guided ? undefined : 'Stop the archive scripts and finish archiving'}>
+            {guided ? 'Finish now' : 'Skip archive script'}
+          </Button>
+        )}
+      </div>
+    )
+  }
+  return null
 }
 
 /** The selected workspace is gone (deleted elsewhere, or a stale selection): say so and offer a way back. */

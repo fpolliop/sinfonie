@@ -8,6 +8,7 @@ import { useBrowser, subscribeBrowser, loadBrowserState } from '@/stores/browser
 import { useScripts } from '@/stores/scripts'
 import { useChat } from '@/stores/chat'
 import { Button, IconButton } from './ui'
+import { friendlyError } from '@/lib/errors'
 import { ImportLogins } from './ImportLogins'
 import type { PermissionRequest } from '@shared/types'
 
@@ -52,16 +53,16 @@ export function BrowserPane({ workspaceId, visible, frame = 'desktop', leading }
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [guided, visible, ws?.status, workspaceId])
-  /** The end of the failed run's output, for Maestro to read when asked to fix it. */
-  const failedOutput = (): string =>
+  /** The end of the run output (the failed runs', or every run's while it is still starting), for Maestro to read. */
+  const failedOutput = (includeRunning = false): string =>
     Object.entries(runs)
-      .filter(([k, r]) => k.startsWith(`${workspaceId}:`) && k.endsWith(':run') && (r.exitCode ?? 0) !== 0)
+      .filter(([k, r]) => k.startsWith(`${workspaceId}:`) && k.endsWith(':run') && ((r.exitCode ?? 0) !== 0 || (includeRunning && r.running)))
       .map(([, r]) => r.output.trim().slice(-2000))
       .filter(Boolean)
       .join('\n\n')
   const askToFix = (): void => {
-    const out = failedOutput()
-    const ask = 'The app did not start in the preview. Please find out why and fix it, then start it again.'
+    const out = failedOutput(slowStart)
+    const ask = slowStart ? 'The app has been starting for a long time and the preview still shows nothing. Please find out why and fix it, then start it again.' : 'The app did not start in the preview. Please find out why and fix it, then start it again.'
     const text = `${ask}${out ? `\n\nWhat it printed:\n\n\`\`\`\n${out}\n\`\`\`` : ''}`
     // The conversation sits beside the preview, so the request shows up there at once. If it is refused, only the
     // plain ask goes back into the composer, never the app's output.
@@ -88,10 +89,16 @@ export function BrowserPane({ workspaceId, visible, frame = 'desktop', leading }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scriptRunning])
   const tryAgain = (): void => {
-    if (hasRunScript && !scriptRunning) void api.invoke('workspaces:runScript', workspaceId, 'run').catch(() => undefined)
-    window.setTimeout(() => void api.invoke(state?.tabs.length ? 'browser:tabAction' : 'browser:open', workspaceId, state?.tabs.length ? 'reload' : previewUrl).catch(() => undefined), hasRunScript && !scriptRunning ? 1500 : 0)
+    const reload = (): void => void api.invoke(state?.tabs.length ? 'browser:tabAction' : 'browser:open', workspaceId, state?.tabs.length ? 'reload' : previewUrl).catch(() => undefined)
+    if (scriptRunning) return reload()
+    // Main reads the task's own copy of the scripts too, so ask it even when the store knows of no run script.
+    void api
+      .invoke('workspaces:runScript', workspaceId, 'run')
+      .then(({ started }) => window.setTimeout(reload, started ? 1500 : 0))
+      .catch(reload)
   }
   const askToSetUp = (): void => {
+    awaitingSetup.current = true
     const port = ws?.port
     const ask = "The preview can't show my app because Sinfonie doesn't know how to start it yet. Please set up how this app starts, then start it so I can see it in the preview."
     void useChat
@@ -101,6 +108,63 @@ export function BrowserPane({ workspaceId, visible, frame = 'desktop', leading }
         `${ask}\n\n\`\`\`\nNo run script is configured. Add scripts.run to the app's sinfonie.json so it serves the app on $PORT (this task's port is ${port}), and set "preview" if the page is not at the root. Then start it.\n\`\`\``,
         ask
       )
+  }
+  // Maestro was asked to set up how the app starts: when its turn ends, start the app (the scripts are read from this
+  // task's own copy, where Maestro wrote them) and load the preview.
+  const awaitingSetup = useRef(false)
+  const agentBusy = useChat((s) => s.chats[workspaceId]?.busy ?? false)
+  const wasBusy = useRef(agentBusy)
+  useEffect(() => {
+    const ended = wasBusy.current && !agentBusy
+    wasBusy.current = agentBusy
+    if (!ended || !awaitingSetup.current) return
+    awaitingSetup.current = false
+    void api
+      .invoke('workspaces:runScript', workspaceId, 'run')
+      .then(({ started }) => {
+        if (!started) return
+        window.setTimeout(() => void api.invoke(state?.tabs.length ? 'browser:tabAction' : 'browser:open', workspaceId, state?.tabs.length ? 'reload' : previewUrl || localUrl).catch(() => undefined), 1500)
+      })
+      .catch(() => undefined)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agentBusy])
+  // The app has been "starting" for a long time with no page: say so and offer a way out (see slowStart below).
+  const [startingSince, setStartingSince] = useState<number | null>(null)
+  const [now, setNow] = useState(() => Date.now())
+  const pageUpNow = Boolean(active?.url && !active.loading && !active.failed)
+  useEffect(() => {
+    if (scriptRunning && !pageUpNow) setStartingSince((t) => t ?? Date.now())
+    else setStartingSince(null)
+  }, [scriptRunning, pageUpNow])
+  useEffect(() => {
+    if (startingSince === null) return
+    const t = setInterval(() => setNow(Date.now()), 5000)
+    return () => clearInterval(t)
+  }, [startingSince])
+  const slowStart = startingSince !== null && now - startingSince > 45_000
+  const stopAndRetry = (): void => {
+    setStartingSince(null)
+    void api
+      .invoke('workspaces:stopScript', workspaceId, 'run')
+      .then(() => new Promise((r) => setTimeout(r, 800)))
+      .then(() => api.invoke('workspaces:runScript', workspaceId, 'run'))
+      .then(() => window.setTimeout(() => void api.invoke(state?.tabs.length ? 'browser:tabAction' : 'browser:open', workspaceId, state?.tabs.length ? 'reload' : previewUrl || localUrl).catch(() => undefined), 1500))
+      .catch(() => undefined)
+  }
+  // Expert: the page is this workspace's localhost and nothing answered. Say so instead of Chromium's error page.
+  const localPort = ((): number | null => {
+    const m = /^https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::(\d+))?/.exec(active?.url ?? '')
+    return m ? Number(m[1] ?? 80) : null
+  })()
+  const nothingListening = !guided && localPort !== null && Boolean(active?.failed && !active.loading)
+  const startRunScript = (): void => {
+    void api
+      .invoke('workspaces:runScript', workspaceId, 'run')
+      .then(({ started }) => {
+        if (!started) return useApp.getState().setTab('run')
+        window.setTimeout(() => act('reload'), 2000)
+      })
+      .catch((err) => useApp.getState().setError(friendlyError(err)))
   }
   const runState = ((): 'starting' | 'running' | 'failed' | null => {
     if (!guided || !ws) return null
@@ -116,7 +180,7 @@ export function BrowserPane({ workspaceId, visible, frame = 'desktop', leading }
   useLayoutEffect(() => {
     const el = host.current
     // A page that failed to load is taken off screen, so the plain explanation below shows instead of an error page.
-    if (!visible || !el || pageDown) {
+    if (!visible || !el || pageDown || nothingListening) {
       void api.invoke('browser:setBounds', workspaceId, null)
       return
     }
@@ -133,7 +197,7 @@ export function BrowserPane({ workspaceId, visible, frame = 'desktop', leading }
       window.removeEventListener('resize', report)
       void api.invoke('browser:setBounds', workspaceId, null)
     }
-  }, [visible, workspaceId, state?.tabs.length === 0, frame, pageDown])
+  }, [visible, workspaceId, state?.tabs.length === 0, frame, pageDown, nothingListening])
 
   // Sensitive-origin approvals for browser tools land here, since the chat pane is hidden behind the page.
   useEffect(
@@ -289,6 +353,16 @@ export function BrowserPane({ workspaceId, visible, frame = 'desktop', leading }
                 Ask Maestro to fix it
               </Button>
             </>
+          ) : runState === 'starting' && slowStart ? (
+            <>
+              <span className="min-w-0 flex-1">This is taking longer than usual.</span>
+              <Button size="sm" variant="ghost" onClick={stopAndRetry}>
+                Stop and try again
+              </Button>
+              <Button size="sm" variant="primary" onClick={askToFix}>
+                Ask Maestro to fix it
+              </Button>
+            </>
           ) : runState === 'starting' ? (
             <>
               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" /> Starting the app…
@@ -331,23 +405,56 @@ export function BrowserPane({ workspaceId, visible, frame = 'desktop', leading }
         {pageDown && (
           <div role="status" className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-panel-2 p-6 text-center">
             <Globe size={28} className="text-muted" aria-hidden />
-            <h2 className="text-[18px] font-semibold">{scriptRunning ? 'Your app is starting' : hasRunScript ? 'Your app is not running' : 'Your app isn’t running yet'}</h2>
+            <h2 className="text-[18px] font-semibold">{scriptRunning ? (slowStart ? 'This is taking longer than usual' : 'Your app is starting') : hasRunScript ? 'Your app is not running' : 'Your app isn’t running yet'}</h2>
             <p className="max-w-[440px] text-[15px] text-muted">
               {scriptRunning
-                ? 'It can take a moment. The preview opens by itself as soon as the app is ready.'
+                ? slowStart
+                  ? 'Your app has been starting for a while without showing a page. Maestro can look at what it printed and fix it, or you can stop it and try again.'
+                  : 'It can take a moment. The preview opens by itself as soon as the app is ready.'
                 : hasRunScript
                   ? 'It stopped, or it has not started. Try again, or ask Maestro to find out why and fix it.'
                   : 'Sinfonie doesn’t know how to start this app yet. Maestro can set that up for you, once.'}
             </p>
             <div className="flex flex-wrap justify-center gap-2">
               {!scriptRunning && (
-                <Button variant="primary" onClick={hasRunScript ? askToFix : askToSetUp}>
-                  {hasRunScript ? 'Ask Maestro to fix it' : 'Ask Maestro to set it up'}
+                <Button variant="primary" disabled={agentBusy} onClick={hasRunScript ? askToFix : askToSetUp} title={agentBusy ? 'Maestro is working on it' : undefined}>
+                  {agentBusy && awaitingSetup.current ? 'Maestro is setting it up…' : hasRunScript ? 'Ask Maestro to fix it' : 'Ask Maestro to set it up'}
                 </Button>
               )}
-              <Button onClick={tryAgain}>{scriptRunning ? 'Check again' : 'Try again'}</Button>
+              {scriptRunning && slowStart && (
+                <Button variant="primary" onClick={askToFix}>
+                  Ask Maestro to fix it
+                </Button>
+              )}
+              {scriptRunning && slowStart ? <Button onClick={stopAndRetry}>Stop and try again</Button> : <Button onClick={tryAgain}>{scriptRunning ? 'Check again' : 'Try again'}</Button>}
             </div>
             <p className="text-[13px] text-muted">Sinfonie checks again every few seconds.</p>
+          </div>
+        )}
+        {nothingListening && (
+          <div role="status" className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-panel-2 p-6 text-center">
+            <Globe size={28} className="text-muted" aria-hidden />
+            <h2 className="text-[15px] font-semibold">Nothing is listening on :{localPort}</h2>
+            <p className="max-w-[460px] text-[13px] text-muted">
+              {scriptRunning
+                ? 'The run script is running but has not opened this port yet. It may still be starting, or it may serve on another port (it gets SINFONIE_PORT).'
+                : localPort !== null && ws && (localPort < ws.port || localPort > ws.port + 9)
+                  ? `This workspace's apps run on ports ${ws.port}–${ws.port + 9}. Start the run script, or check the address.`
+                  : 'The app is not running. Start the run script, or open the scripts to see its output or add one.'}
+            </p>
+            <div className="flex flex-wrap justify-center gap-2">
+              {!scriptRunning && (
+                <Button size="sm" variant="primary" onClick={startRunScript}>
+                  <Play size={12} aria-hidden /> Start run script
+                </Button>
+              )}
+              <Button size="sm" onClick={() => useApp.getState().setTab('run')}>
+                Open scripts
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => act('reload')}>
+                <RotateCw size={12} aria-hidden /> Reload
+              </Button>
+            </div>
           </div>
         )}
         {(!state || state.tabs.length === 0) && (

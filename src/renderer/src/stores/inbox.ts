@@ -17,6 +17,16 @@ import { useGithub } from './github'
 
 export type InboxFilter = 'all' | 'reviews' | 'incidents' | 'mine'
 
+/** Why GitHub did not answer, by what fixes it: install/connect GitHub, sign in again, the network, or waiting. */
+export type GitHubProblem = { kind: 'gh-missing' | 'auth' | 'network' | 'rate' | 'other'; text: string; detail: string }
+export function classifyGitHubError(detail: string): GitHubProblem {
+  if (/gh-missing|ENOENT|command not found|not installed/i.test(detail)) return { kind: 'gh-missing', text: 'GitHub is not connected on this Mac yet, so no pull requests are listed.', detail }
+  if (/rate limit|secondary rate|abuse detection|HTTP 429/i.test(detail)) return { kind: 'rate', text: 'GitHub is limiting how often Sinfonie can ask. Pull requests show again in a few minutes.', detail }
+  if (/gh auth login|not logged in|authentication|HTTP 401|Bad credentials|token.*(expired|invalid)|re-authenticate/i.test(detail)) return { kind: 'auth', text: 'The GitHub sign-in on this Mac has expired, so no pull requests are listed.', detail }
+  if (/timed out|could not resolve|ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|network|connection|dial tcp|i\/o timeout|HTTP 5\d\d/i.test(detail)) return { kind: 'network', text: 'Sinfonie could not reach GitHub, so no pull requests are listed. Check your connection.', detail }
+  return { kind: 'other', text: 'GitHub did not answer, so no pull requests are listed.', detail }
+}
+
 export interface ChangeItem {
   kind: 'change'
   key: string
@@ -61,8 +71,10 @@ interface InboxState {
   selectedKey: string | null
   /** Unsent notes, per item, so a refresh or switching items never loses them. */
   drafts: Record<string, string>
-  /** A plain problem with the inbox itself (GitHub not reachable). */
-  error: string | null
+  /** A problem with the inbox itself (GitHub not reachable), classified so the banner can offer the fitting action. */
+  error: GitHubProblem | null
+  /** Parts that failed to load on the last boot (marks, teammates, …); the inbox still works without them. */
+  partial: string[]
   setFilter: (f: InboxFilter) => void
   select: (key: string | null) => void
   setDraft: (key: string, text: string) => void
@@ -123,6 +135,7 @@ export const useInbox = create<InboxState>((set, get) => ({
   selectedKey: null,
   drafts: {},
   error: null,
+  partial: [],
   setFilter: (filter) => {
     localStorage.setItem('sinfonie.inbox.filter', filter)
     set({ filter, override: null })
@@ -151,14 +164,21 @@ export const useInbox = create<InboxState>((set, get) => ({
     bootedAt = Date.now()
     if (hard) staleBefore = Date.now()
     if (spaceChanged) set({ requested: null, teammates: [] })
-    void api.invoke('inbox:marks').then((marks) => set({ marks })).catch(() => undefined)
-    void api.invoke('inbox:repoRemotes').then((remotes) => set({ remotes })).catch(() => undefined)
+    // Side loads never block the list; what fails is collected into one quiet "partly loaded" note with Retry.
+    const failed = new Set<string>()
+    const note = (what: string) => (): void => {
+      failed.add(what)
+      set({ partial: [...failed] })
+    }
+    set({ partial: [] })
+    void api.invoke('inbox:marks').then((marks) => set({ marks })).catch(note('your notes and approvals'))
+    void api.invoke('inbox:repoRemotes').then((remotes) => set({ remotes })).catch(note('which repositories are on this Mac'))
     // The PR list comes from the reviews store. A failed first `gh` call is retried on the next boot.
     if (!orgsLoaded || hard) orgsLoaded = useReviews.getState().init()
     await orgsLoaded
     if (useReviews.getState().orgs.length === 0) {
       orgsLoaded = null
-      set({ error: 'GitHub did not answer, so no pull requests are listed. Check that the GitHub CLI is signed in (run gh auth status in a terminal), then refresh.' })
+      set({ error: classifyGitHubError(useReviews.getState().initError ?? useReviews.getState().error ?? '') })
     } else set({ error: null })
     // A new space re-points the list (and clears it); the same space only re-lists, keeping selection and ticks.
     if (spaceChanged || useReviews.getState().spaceId !== spaceId) await useReviews.getState().useSpace(spaceId, space?.githubOwners)
@@ -170,7 +190,7 @@ export const useInbox = create<InboxState>((set, get) => ({
       api
         .invoke('reviews:list', owners, 'requested', repos)
         .then((prs) => set({ requested: new Set(prs.map(keyOf)) }))
-        .catch(() => undefined)
+        .catch(note('which reviews are requested of you'))
     }
     // Local hand-offs: their PR status tells which listed PR they are.
     for (const w of useApp.getState().workspaces) if (w.stage === 'in-review' && w.status === 'ready') void useGithub.getState().refresh(w.id)
@@ -178,7 +198,7 @@ export const useInbox = create<InboxState>((set, get) => ({
       api
         .invoke('orgSpaces:teammates', spaceId)
         .then((teammates) => set({ teammates }))
-        .catch(() => undefined)
+        .catch(note('teammates’ hand-offs'))
     }
   },
   preread: (pr, force) => {
@@ -189,7 +209,8 @@ export const useInbox = create<InboxState>((set, get) => ({
     inflight.add(k)
     // Keep showing the previous pre-read while a newer one loads.
     if (!isPreRead(cur)) set((s) => ({ prereads: { ...s.prereads, [k]: 'loading' } }))
-    queue.push(async () => {
+    // What the person is looking at (or asked for again) goes first, so Approve never waits behind the whole list.
+    queue[force || get().selectedKey === k ? 'unshift' : 'push'](async () => {
       try {
         const pre = await api.invoke('inbox:preread', pr, force)
         set((s) => ({ prereads: { ...s.prereads, [k]: pre } }))
@@ -209,7 +230,7 @@ export const useInbox = create<InboxState>((set, get) => ({
     if ((!force && !stale) || inflight.has(k)) return
     inflight.add(k)
     if (!isPreRead(cur)) set((s) => ({ prereads: { ...s.prereads, [k]: 'loading' } }))
-    queue.push(async () => {
+    queue[force || get().selectedKey === k ? 'unshift' : 'push'](async () => {
       try {
         const pre = await api.invoke('inbox:prereadWorkspace', id, force)
         set((s) => ({ prereads: { ...s.prereads, [k]: pre } }))

@@ -19,6 +19,7 @@ import { shell } from 'electron'
 import { existsSync, realpathSync } from 'fs'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
 import { getStore } from '../store'
+import { ghEnv, ghPath } from './prereqs'
 import * as cloud from './cloud'
 import * as usage from './usage'
 import { isReadOnlyCommand } from './readonly'
@@ -338,12 +339,12 @@ export async function restorePath(ws: WsLike, filePath: string, cwd?: string): P
 
 // ---------- the review gate ----------
 
-function run(bin: string, args: string[], cwd?: string, timeoutMs = 20_000): Promise<{ ok: boolean; text: string }> {
+function run(bin: string, args: string[], cwd?: string, timeoutMs = 20_000, env: NodeJS.ProcessEnv = process.env): Promise<{ ok: boolean; text: string }> {
   return new Promise((done) => {
-    execFile(bin, args, { cwd, env: process.env, timeout: timeoutMs }, (err, stdout) => done({ ok: !err, text: String(stdout ?? '').trim() }))
+    execFile(bin, args, { cwd, env, timeout: timeoutMs }, (err, stdout) => done({ ok: !err, text: String(stdout ?? '').trim() }))
   })
 }
-const gh = (args: string[], cwd?: string): Promise<{ ok: boolean; text: string }> => run('gh', args, cwd)
+const gh = (args: string[], cwd?: string): Promise<{ ok: boolean; text: string }> => run(ghPath(), args, cwd, 20_000, ghEnv())
 
 /** Builders open a PR only through Send for review (with the team's reviewers), when the team requires reviews. */
 export function prVeto(ws: WsLike, reviewers?: string[]): string | null {
@@ -408,9 +409,24 @@ export async function mergeVeto(repo: string, number: number): Promise<string | 
 function spentToday(spaceId: string): number {
   return usage.spentSince(spaceId, localMidnight())
 }
+/** An admin's "allow more today" for this person, synced through the organisation, counts for their local day. */
+function allowedToday(space: Space): boolean {
+  const me = cloud.state().account?.user.id
+  if (!me) return false
+  return (space.rules?.spendAllowances ?? []).some((a) => a.userId === me && localDay(new Date(a.grantedAt)) === localDay())
+}
+/** Lifted on this Mac (the admin's own override) or for this person by an admin from the Team console. */
+function spendLifted(space: Space | undefined): boolean {
+  return Boolean(space && (space.rulesOverride?.spendDay === localDay() || allowedToday(space)))
+}
+/** Called when a message is stopped by the limit, so a fresh "allow more" from an admin is pulled soon. Set by ipc. */
+let onSpendBlocked: ((spaceId: string) => void) | null = null
+export function setOnSpendBlocked(fn: (spaceId: string) => void): void {
+  onSpendBlocked = fn
+}
 export function spendStatus(spaceId: string): { spent: number; limit?: number; lifted: boolean; day: string } {
   const space = spaceOf(spaceId)
-  return { spent: spentToday(spaceId), limit: space?.rules?.dailySpendUsd, lifted: space?.rulesOverride?.spendDay === localDay(), day: localDay() }
+  return { spent: spentToday(spaceId), limit: space?.rules?.dailySpendUsd, lifted: spendLifted(space), day: localDay() }
 }
 
 /** The plain message that stops a new turn when the space's daily limit is reached, or null. */
@@ -418,13 +434,15 @@ export function spendBlock(ws: Pick<WsLike, 'spaceId'>): string | null {
   const space = spaceOf(ws.spaceId)
   const limit = space?.rules?.dailySpendUsd
   if (!space || !limit || limit <= 0) return null
-  if (space.rulesOverride?.spendDay === localDay()) return null
+  if (spendLifted(space)) return null
   const spent = spentToday(space.id)
   if (spent < limit) return null
   const amounts = `$${spent.toFixed(2)} of $${limit.toFixed(2)}`
-  return isAdminOf(space)
-    ? `Today's spending limit for ${space.name} is reached (${amounts}), so this message was not sent. You're an admin: allow more for today in Team, Guardrails, then send it again.`
-    : `Today's spending limit for ${space.name} is reached (${amounts}), so this message was not sent. Ask your team admin to allow more for today, or try again tomorrow.`
+  if (isAdminOf(space)) return `Today's spending limit for ${space.name} is reached (${amounts}), so this message was not sent. You're an admin: allow more for today in Team, Guardrails, then send it again.`
+  onSpendBlocked?.(space.id)
+  return space.orgSpace
+    ? `Today's spending limit for ${space.name} is reached (${amounts}), so this message was not sent. Ask your team admin to allow more for you today (Team, Guardrails); a minute after they do, send it again. Or try again tomorrow.`
+    : `Today's spending limit for ${space.name} is reached (${amounts}), so this message was not sent. Try again tomorrow.`
 }
 
 // ---------- editing ----------
@@ -439,7 +457,12 @@ function clean(r: TeamRules): TeamRules {
     protectedPaths: list(r.protectedPaths),
     requireReview: r.requireReview || undefined,
     dailySpendUsd: r.dailySpendUsd && r.dailySpendUsd > 0 ? Math.round(r.dailySpendUsd * 100) / 100 : undefined,
-    reviewedAt: r.reviewedAt
+    reviewedAt: r.reviewedAt,
+    // An allowance is for one local day; after two days it can no longer apply anywhere, so it is dropped.
+    spendAllowances: (() => {
+      const live = (r.spendAllowances ?? []).filter((a) => a.userId && Date.now() - Date.parse(a.grantedAt) < 48 * 3600_000)
+      return live.length ? live : undefined
+    })()
   }
   for (const k of Object.keys(out) as (keyof TeamRules)[]) if (out[k] === undefined) delete out[k]
   return out
@@ -464,7 +487,7 @@ export function setRules(spaceId: string, rules: TeamRules): Space {
   }
   getStore().update((d) => {
     const s = d.spaces.find((x) => x.id === spaceId)
-    if (s) s.rules = clean({ ...rules, builderReadOnly: s.rules?.builderReadOnly, reviewedAt: new Date().toISOString() })
+    if (s) s.rules = clean({ ...rules, builderReadOnly: s.rules?.builderReadOnly, spendAllowances: s.rules?.spendAllowances, reviewedAt: new Date().toISOString() })
   })
   return spaceOf(spaceId)!
 }
@@ -495,6 +518,18 @@ export function overrideSpend(spaceId: string): Space {
     if (s) s.rulesOverride = { ...(s.rulesOverride ?? {}), spendDay: localDay() }
   })
   return spaceOf(spaceId)!
+}
+
+/** Lift today's spend limit for one member, everywhere they work: saved in the rules, which the organisation sync carries. Admins only. */
+export function allowSpendFor(spaceId: string, userId: string, login?: string): () => void {
+  needAdmin(spaceId, 'allow more spending today')
+  return () =>
+    getStore().update((d) => {
+      const s = d.spaces.find((x) => x.id === spaceId)
+      if (!s) return
+      const rest = (s.rules?.spendAllowances ?? []).filter((a) => a.userId !== userId)
+      s.rules = clean({ ...(s.rules ?? {}), spendAllowances: [...rest, { userId, login, grantedAt: new Date().toISOString() }] })
+    })
 }
 
 // ---------- prompts ----------

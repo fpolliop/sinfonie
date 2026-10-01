@@ -1,11 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { Search, X, ExternalLink, ChevronRight } from 'lucide-react'
+import { Search, X, ExternalLink, ChevronRight, FolderPlus } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { useChat } from '@/stores/chat'
 import { Badge, Button, Dialog, Field, IconButton, inputCls } from './ui'
-import { rawMessage } from '@/lib/errors'
+import { friendlyError, rawMessage } from '@/lib/errors'
 import { AccountPicker } from './AccountPicker'
 import { SpacePicker } from './SpacePicker'
 import { shortPath } from '@/lib/format'
@@ -86,6 +86,26 @@ export function NewWorkspaceDialog({ onClose }: { onClose: () => void }): React.
     setPrimary((cur) => cur || repoId)
   }
 
+  // A repository added from disk here is ticked once the store has it.
+  const [pendingPick, setPendingPick] = useState<string | null>(null)
+  useEffect(() => {
+    if (pendingPick && repos.some((r) => r.id === pendingPick)) {
+      setPendingPick(null)
+      void toggle(pendingPick, true)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingPick, repos])
+  const addFromDisk = async (): Promise<void> => {
+    try {
+      const repo = await api.invoke('repos:pickAndAdd', spaceId || undefined)
+      if (!repo) return
+      if (spaceId && repo.spaceId !== spaceId) setShowAllRepos(true)
+      setPendingPick(repo.id)
+    } catch (err) {
+      setError(friendlyError(err))
+    }
+  }
+
   const selected = Object.values(picks)
   // Everything past name and repositories lives under "More options"; it opens by itself when any of it is not
   // at its default, so a ticket or a changed space is never hidden.
@@ -132,7 +152,7 @@ export function NewWorkspaceDialog({ onClose }: { onClose: () => void }): React.
         }
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(friendlyError(err))
     } finally {
       setBusy(false)
     }
@@ -145,12 +165,11 @@ export function NewWorkspaceDialog({ onClose }: { onClose: () => void }): React.
       </Field>
       <div className="mb-1 text-[12px] font-medium text-muted">Repositories{space && !showAllRepos && spaceRepos.length > 0 ? ` in ${space.name}` : ''}</div>
       {repos.length === 0 && (
-        <div className="mb-3 rounded-md border border-border p-3 text-muted">
-          No repositories added yet.{' '}
-          <button className="text-accent" onClick={() => (onClose(), openSettings({ scope: 'app', page: 'repos' }))}>
-            Add one in Settings
-          </button>
-          .
+        <div className="mb-3 flex items-center gap-2 rounded-md border border-border p-3 text-muted">
+          <span className="min-w-0 flex-1">No repositories added yet.</span>
+          <Button size="sm" variant="primary" onClick={() => void addFromDisk()}>
+            <FolderPlus size={12} aria-hidden /> Add a repository from disk…
+          </Button>
         </div>
       )}
       <div className="mb-4 flex flex-col gap-1.5">
@@ -184,6 +203,11 @@ export function NewWorkspaceDialog({ onClose }: { onClose: () => void }): React.
           )
         })}
       </div>
+      {repos.length > 0 && (
+        <button type="button" className="mb-2 inline-flex items-center gap-1 text-[12px] text-accent hover:underline" onClick={() => void addFromDisk()}>
+          <FolderPlus size={12} aria-hidden /> Add a repository from disk…
+        </button>
+      )}
       <p className="mb-3 text-[11px] text-muted">{selected.length ? "The primary repo is the agent's working directory; the others are added as extra directories. Setup scripts run in every repo after all worktrees exist." : 'No repositories selected: the workspace starts empty, and the agent asks you to attach a repository when the task needs one.'}</p>
       <button type="button" aria-expanded={showMore} className="mb-2 flex items-center gap-1 text-[12px] font-medium text-muted hover:text-text disabled:cursor-default" disabled={nonDefault} onClick={() => setMore((v) => !v)}>
         <ChevronRight size={12} className={clsx('transition-transform', showMore && 'rotate-90')} /> More options

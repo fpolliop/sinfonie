@@ -20,9 +20,11 @@ import { logError } from '../telemetry'
 import * as gcp from '../gcp'
 import * as dbTools from '../db/tools'
 import { git } from '../git'
+import { ghEnv, ghPath } from '../prereqs'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { costModeFor, leanModel } from '../cost-mode'
+import { PLAIN_ERROR_MARK } from '@shared/types'
 import type { Incident, IncidentStatus, OnCallBulkOp, OnCallSettings, OnCallState, Proposal, Severity, TriageReport } from '@shared/types'
 
 const exec = promisify(execFile)
@@ -46,6 +48,12 @@ let timer: NodeJS.Timeout | null = null
 let polling = false
 let lastPollAt: string | undefined
 let lastError: string | undefined
+let lastErrorKind: OnCallState['lastErrorKind']
+let lastErrorChannel: OnCallState['lastErrorChannel']
+/** Running agent calls (triage, questions, fix runs) by incident, so Cancel and the timeout can stop them. */
+const running = new Map<string, AbortController>()
+const TRIAGE_TIMEOUT_MS = 15 * 60_000
+const FIX_TIMEOUT_MS = 45 * 60_000
 const triageTimes: number[] = []
 const triageQueue: string[] = []
 let triaging: string | null = null
@@ -62,6 +70,16 @@ function load(): void {
     if (existsSync(file())) data = JSON.parse(readFileSync(file(), 'utf8')) as Persisted
     // Titles saved before emoji shortcodes and Slack markdown were stripped.
     for (const i of data.incidents) i.title = titleOf(i.title)
+    // Nothing runs across a restart: a triage or fix that was in flight when the app quit will never finish.
+    const now = new Date().toISOString()
+    for (const i of data.incidents) {
+      if (i.status === 'triaging') {
+        i.status = 'open'
+        i.error = 'Interrupted by app restart. Re-triage to run it again.'
+        i.updatedAt = now
+      }
+      if (i.fix?.status === 'running') Object.assign(i.fix, { status: 'failed', phase: undefined, error: 'Interrupted by app restart. Retry to start it again.', finishedAt: now })
+    }
   } catch (err) {
     logError('oncall:load', err)
   }
@@ -105,7 +123,7 @@ let active: string[] = []
 export function state(): OnCallState {
   load()
   const hourAgo = Date.now() - 3600_000
-  return { running: Boolean(timer), activeSpaces: active, lastPollAt, nextPollAt: nextPollAt ? new Date(nextPollAt).toISOString() : undefined, lastError, incidents: data.incidents, triagesThisHour: triageTimes.filter((t) => t > hourAgo).length, triaging }
+  return { running: Boolean(timer), activeSpaces: active, lastPollAt, nextPollAt: nextPollAt ? new Date(nextPollAt).toISOString() : undefined, lastError, lastErrorKind, lastErrorChannel, incidents: data.incidents, triagesThisHour: triageTimes.filter((t) => t > hourAgo).length, triaging }
 }
 function publish(): void {
   save()
@@ -194,25 +212,41 @@ export async function pollOnce(): Promise<void> {
     const waitHistory = slack.rateLimitWait('conversations.history')
     const waitReplies = slack.rateLimitWait('conversations.replies')
     if (item.kind === 'channel' && waitHistory > 0) {
-      lastError = `Slack allows one channel read per minute; next check in ${waitHistory}s.`
+      setPollError(`Slack allows one channel read per minute; next check in ${waitHistory}s.`, 'rate')
       return
     }
     if (item.kind === 'thread' && waitReplies > 0) {
-      lastError = `Slack allows one thread read per minute; next check in ${waitReplies}s.`
+      setPollError(`Slack allows one thread read per minute; next check in ${waitReplies}s.`, 'rate')
       return
     }
-    if (item.kind === 'channel') await readChannel(item)
-    else await readThread(item.inc)
+    try {
+      if (item.kind === 'channel') await readChannel(item)
+      else await readThread(item.inc)
+    } catch (err) {
+      const d = slack.describeError(err)
+      const ch = item.kind === 'channel' ? { id: item.ch.id, name: item.ch.name, spaceId: item.spaceId } : { id: item.inc.channelId, name: item.inc.channelName, spaceId: item.inc.spaceId }
+      setPollError(d.kind === 'channel' ? `#${ch.name}: ${d.text}` : d.text, d.kind, d.kind === 'channel' ? ch : undefined)
+      // A revoked or expired sign-in marks the connection disconnected: re-plan so the view stops claiming to watch.
+      if (d.kind === 'auth') setTimeout(() => reconcile(), 0)
+      if (!(err instanceof slack.SlackRateLimited) && d.kind !== 'auth') logError('oncall:poll', err)
+      return
+    }
     if (data.incidents.length > 500) data.incidents.length = 500
     lastPollAt = new Date().toISOString()
-    lastError = undefined
+    setPollError(undefined)
   } catch (err) {
-    lastError = err instanceof Error ? err.message : String(err)
-    if (!(err instanceof slack.SlackRateLimited)) logError('oncall:poll', err)
+    setPollError(slack.describeError(err).text, 'other')
+    logError('oncall:poll', err)
   } finally {
     polling = false
     publish()
   }
+}
+
+function setPollError(text: string | undefined, kind?: OnCallState['lastErrorKind'], channel?: OnCallState['lastErrorChannel']): void {
+  lastError = text
+  lastErrorKind = text ? kind : undefined
+  lastErrorChannel = text ? channel : undefined
 }
 
 async function readChannel(w: Extract<Work, { kind: 'channel' }>): Promise<void> {
@@ -359,7 +393,7 @@ async function drain(): Promise<void> {
   while (triageQueue.length) {
     const hourAgo = Date.now() - 3600_000
     if (triageTimes.filter((t) => t > hourAgo).length >= s.maxTriagesPerHour) {
-      lastError = `Triage paused: ${s.maxTriagesPerHour} runs in the last hour (limit under Application, On call).`
+      setPollError(`Triage paused: ${s.maxTriagesPerHour} runs in the last hour (limit under Application, On call).`, 'other')
       publish()
       setTimeout(() => void drain(), 5 * 60_000)
       return
@@ -374,9 +408,10 @@ async function drain(): Promise<void> {
     try {
       await triage(inc)
     } catch (err) {
-      inc.error = err instanceof Error ? err.message : String(err)
       inc.status = 'open'
-      logError('oncall:triage', err, { incident: inc.id })
+      if (err instanceof AgentStopped && err.cancelled) inc.notes.push({ at: new Date().toISOString(), role: 'system', text: err.message })
+      else inc.error = err instanceof Error ? err.message : String(err)
+      if (!(err instanceof AgentStopped)) logError('oncall:triage', err, { incident: inc.id })
     } finally {
       triaging = null
       inc.updatedAt = new Date().toISOString()
@@ -401,7 +436,47 @@ function threadText(inc: Incident): string {
   return inc.messages.map((m) => `[${new Date(Number(m.ts) * 1000).toISOString()}] ${m.userName ?? m.user}: ${m.text}`).join('\n')
 }
 
-async function runAgent(spaceId: string, prompt: string, opts: { schema?: Record<string, unknown>; maxTurns: number }): Promise<{ text: string; structured?: unknown; costUsd: number }> {
+/** A run stopped by Cancel or by its time limit; the message says which, in plain words. */
+class AgentStopped extends Error {
+  constructor(
+    message: string,
+    public readonly cancelled: boolean
+  ) {
+    super(message)
+  }
+}
+
+/** One abortable agent call per incident: Cancel aborts it, and so does the time limit. */
+function startRun(incidentId: string, timeoutMs: number, what: string): { ctrl: AbortController; done: () => void; stopped: () => AgentStopped | null } {
+  running.get(incidentId)?.abort()
+  const ctrl = new AbortController()
+  running.set(incidentId, ctrl)
+  let timedOut = false
+  const t = setTimeout(() => {
+    timedOut = true
+    ctrl.abort()
+  }, timeoutMs)
+  return {
+    ctrl,
+    done: () => {
+      clearTimeout(t)
+      if (running.get(incidentId) === ctrl) running.delete(incidentId)
+    },
+    stopped: () => (ctrl.signal.aborted ? new AgentStopped(timedOut ? `The ${what} took longer than ${Math.round(timeoutMs / 60_000)} minutes and was stopped. Try again, or ask a narrower question.` : `You cancelled the ${what}.`, !timedOut) : null)
+  }
+}
+
+async function runAgent(spaceId: string, prompt: string, opts: { schema?: Record<string, unknown>; maxTurns: number; incidentId: string; timeoutMs?: number; what?: string }): Promise<{ text: string; structured?: unknown; costUsd: number }> {
+  const run = startRun(opts.incidentId, opts.timeoutMs ?? TRIAGE_TIMEOUT_MS, opts.what ?? 'triage')
+  try {
+    return await runAgentInner(spaceId, prompt, opts, run.ctrl)
+  } catch (err) {
+    throw run.stopped() ?? err
+  } finally {
+    run.done()
+  }
+}
+async function runAgentInner(spaceId: string, prompt: string, opts: { schema?: Record<string, unknown>; maxTurns: number }, abortController: AbortController): Promise<{ text: string; structured?: unknown; costUsd: number }> {
   const s = settingsFor(spaceId)
   const dirs = contextDirs(spaceId)
   let mcpServers: Options['mcpServers'] = {}
@@ -418,6 +493,7 @@ async function runAgent(spaceId: string, prompt: string, opts: { schema?: Record
   const options: Options = {
     ...claudeExecutableOption(),
     cwd: workDir(),
+    abortController,
     additionalDirectories: dirs,
     permissionMode: 'plan',
     maxTurns: opts.maxTurns,
@@ -482,7 +558,7 @@ async function triage(inc: Incident): Promise<void> {
     'When you are confident (high) that the root cause is in the code and you can name the change, fill proposedFix: the repository (top folder of the source directories), a one-paragraph plan, the concrete edits per file, and the risks. Leave proposedFix out otherwise; the user can ask Sinfonie to open a draft PR from it.',
     'Return the structured result.'
   ].join('\n')
-  const r = await runAgent(inc.spaceId, prompt, { schema: TRIAGE_SCHEMA, maxTurns: 30 })
+  const r = await runAgent(inc.spaceId, prompt, { schema: TRIAGE_SCHEMA, maxTurns: 30, incidentId: inc.id })
   const report = (r.structured ?? tryParse(r.text)) as TriageReport | undefined
   inc.costUsd += r.costUsd
   inc.triagedAt = new Date().toISOString()
@@ -538,8 +614,17 @@ export async function approve(id: string, proposalId: string, text?: string): Pr
   const body = (text ?? p.text).trim()
   if (!body) throw new Error('Nothing to send')
   p.text = body
+  if (sending.has(proposalId)) throw new Error(PLAIN_ERROR_MARK + 'This reply is already being sent.')
+  if (p.status === 'sent') return inc
   const connId = slack.connectionForSpace(inc.spaceId)
-  await slack.post(connId, p.channelId, body, p.threadTs)
+  sending.add(proposalId)
+  try {
+    await slack.post(connId, p.channelId, body, p.threadTs)
+  } catch (err) {
+    throw new Error(PLAIN_ERROR_MARK + `The reply was not sent. ${slack.describeError(err).text}`)
+  } finally {
+    sending.delete(proposalId)
+  }
   p.status = 'sent'
   p.sentAt = new Date().toISOString()
   inc.messages.push({ ts: String(Date.now() / 1000), user: slack.connection(connId).userId ?? 'me', userName: slack.connection(connId).userName ?? 'you', text: body })
@@ -548,6 +633,7 @@ export async function approve(id: string, proposalId: string, text?: string): Pr
   publish()
   return inc
 }
+const sending = new Set<string>()
 export function dismissProposal(id: string, proposalId: string): Incident {
   const inc = find(id)
   const p = inc.proposals.find((x) => x.id === proposalId)
@@ -572,7 +658,7 @@ export async function ask(id: string, question: string): Promise<Incident> {
     'Answer concisely in markdown. If you propose a Slack reply, put it in a fenced block labelled reply.'
   ].join('\n')
   try {
-    const r = await runAgent(inc.spaceId, prompt, { maxTurns: 25 })
+    const r = await runAgent(inc.spaceId, prompt, { maxTurns: 25, incidentId: inc.id, what: 'question' })
     inc.costUsd += r.costUsd
     inc.notes.push({ at: new Date().toISOString(), role: 'agent', text: r.text || '(no answer)' })
     const reply = /```reply\n([\s\S]*?)```/.exec(r.text)?.[1]?.trim()
@@ -644,6 +730,7 @@ export async function openFixPr(id: string): Promise<Incident> {
       inc.updatedAt = new Date().toISOString()
       publish()
     }
+    const run = startRun(`fix:${inc.id}`, FIX_TIMEOUT_MS, 'draft PR run')
     const g = git(repo.path)
     const branch = `sinfonie/oncall-${inc.id.slice(0, 6)}-${slug(inc.title) || 'fix'}`
     const dir = join(workDir(), `fix-${inc.id}`)
@@ -676,6 +763,7 @@ export async function openFixPr(id: string): Promise<Incident> {
       const options: Options = {
         ...claudeExecutableOption(),
         cwd: dir,
+        abortController: run.ctrl,
         permissionMode: 'acceptEdits',
         allowedTools: ['Read', 'Grep', 'Glob', 'LS', 'Edit', 'Write', 'MultiEdit', 'Bash'],
         disallowedTools: ['Agent', 'Task', 'WebFetch', 'WebSearch', 'NotebookEdit'],
@@ -712,6 +800,7 @@ export async function openFixPr(id: string): Promise<Incident> {
           if (msg.subtype !== 'success') throw new Error(`Fix run ended with ${msg.subtype.replace(/_/g, ' ')}`)
         }
       }
+      if (run.ctrl.signal.aborted) throw run.stopped()!
       set({ phase: 'Committing and pushing' })
       const gw = git(dir)
       const status = await gw.status()
@@ -735,23 +824,42 @@ export async function openFixPr(id: string): Promise<Incident> {
         '',
         `🤖 Drafted by Sinfonie on-call from incident ${inc.id}. Review before merging.`
       ].join('\n')
-      const { stdout } = await exec('gh', ['pr', 'create', '--draft', '--head', branch, '--base', repo.defaultBranch, '--title', out.prTitle?.trim() || subject, '--body', body], { cwd: dir, env: process.env, maxBuffer: 4 * 1024 * 1024 })
+      const { stdout } = await exec(ghPath(), ['pr', 'create', '--draft', '--head', branch, '--base', repo.defaultBranch, '--title', out.prTitle?.trim() || subject, '--body', body], { cwd: dir, env: ghEnv(), maxBuffer: 4 * 1024 * 1024, timeout: 60_000 })
       const prUrl = stdout.trim().split('\n').find((l) => /^https?:\/\//.test(l.trim()))?.trim()
       set({ status: 'done', prUrl, phase: 'Draft PR opened', finishedAt: new Date().toISOString() })
       inc.notes.push({ at: new Date().toISOString(), role: 'agent', text: `Draft PR opened${prUrl ? `: ${prUrl}` : ''} (branch ${branch}). ${out.summary ?? ''}`.trim() })
       if (prUrl) inc.proposals.push({ id: nanoid(8), kind: 'slack_reply', channelId: inc.channelId, threadTs: inc.threadTs, text: `Draft PR with a proposed fix: ${prUrl}`, status: 'proposed', createdAt: new Date().toISOString() })
       notify(`Draft PR ready: ${inc.title}`, prUrl ?? branch, inc.id)
       await g.raw(['worktree', 'remove', '--force', dir]).catch(() => undefined)
-    } catch (err) {
+    } catch (e) {
+      const err = run.stopped() ?? e
       const message = err instanceof Error ? err.message : String(err)
       set({ status: 'failed', error: message, phase: undefined, finishedAt: new Date().toISOString() })
-      logError('oncall:fix', err, { incident: inc.id })
+      if (!(err instanceof AgentStopped)) logError('oncall:fix', err, { incident: inc.id })
       await g.raw(['worktree', 'remove', '--force', dir]).catch(() => undefined)
     } finally {
+      run.done()
       save()
       publish()
     }
   })()
+  return inc
+}
+
+/** Stops whatever is running for this incident: a queued or running triage, a question, or a draft PR run. */
+export function cancel(id: string): Incident {
+  const inc = find(id)
+  const q = triageQueue.indexOf(id)
+  if (q >= 0) triageQueue.splice(q, 1)
+  running.get(id)?.abort()
+  running.get(`fix:${id}`)?.abort()
+  // Queued but not started, or stuck with nothing running behind it: put it back to open right away.
+  if (inc.status === 'triaging' && triaging !== id) {
+    inc.status = 'open'
+    inc.updatedAt = new Date().toISOString()
+  }
+  if (inc.fix?.status === 'running' && !running.has(`fix:${id}`)) Object.assign(inc.fix, { status: 'failed', phase: undefined, error: 'You cancelled the draft PR run.', finishedAt: new Date().toISOString() })
+  publish()
   return inc
 }
 
@@ -785,13 +893,16 @@ export function bulk(ids: string[], op: OnCallBulkOp): number {
       if (!set.has(inc.id)) continue
       n++
       if (op.action === 'setStatus') {
-        if (inc.status === 'triaging') continue
+        // Only a triage that is actually running holds the status; a stale 'triaging' does not block anything.
+        if (triaging === inc.id) continue
+        const q = triageQueue.indexOf(inc.id)
+        if (q >= 0) triageQueue.splice(q, 1)
         inc.status = op.status
         inc.updatedAt = now
       } else if (op.action === 'setSeverity') {
         inc.severity = op.severity
       } else if (op.action === 'triage') {
-        if (inc.status !== 'triaging' && !triageQueue.includes(inc.id)) triageQueue.push(inc.id)
+        if (triaging !== inc.id && !triageQueue.includes(inc.id)) triageQueue.push(inc.id)
       }
     }
   }

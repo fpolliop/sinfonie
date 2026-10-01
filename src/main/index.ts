@@ -1,8 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
-import { cpSync, existsSync, mkdirSync, readdirSync } from 'fs'
+import { cpSync, existsSync, readdirSync } from 'fs'
 import { dirname, join } from 'path'
 import { homedir } from 'os'
-import { simpleGit } from 'simple-git'
 import { getStore } from './store'
 import { registerIpc } from './ipc'
 import { startUpdateChecks } from './services/updates'
@@ -10,6 +9,9 @@ import * as browser from './services/browser/service'
 import * as images from './services/images'
 import * as slack from './services/slack'
 import { adoptShellPath } from './services/shell-path'
+import * as prereqs from './services/prereqs'
+import type { CloneResult } from '@shared/types'
+import type { SinfonieEvents } from '@shared/ipc'
 import * as cloud from './services/cloud'
 import * as orgSpaces from './services/org-spaces'
 import * as remote from './services/remote'
@@ -111,39 +113,37 @@ function watchModeForMenu(): void {
 }
 
 /**
- * Guided mode's "It's on GitHub": clone into ~/Sinfonie/<name> and hand the path back for repos:addPaths. An
- * existing checkout of the same name there is reused instead of cloned twice.
+ * Guided mode's "It's on GitHub": clone into ~/Sinfonie/<name> (or a folder name the person picked when that
+ * one holds another app) and hand the path back for repos:addPaths. An existing checkout of the same app there is
+ * reused. `repos:cloneApp` answers with a failure kind the screen turns into one action (Connect GitHub, pick
+ * another folder name, install the developer tools). Progress goes out as
+ * `repos:cloneProgress`, and `repos:cancelClone` stops it.
  */
 /** Clones in flight, by destination, so a double submit waits for the first clone instead of racing it. */
-const cloning = new Map<string, Promise<string>>()
+const cloning = new Map<string, Promise<CloneResult>>()
+
+function cloneApp(url: string, folderName?: string): Promise<CloneResult> {
+  const m = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+?)(?:\.git)?$/i.exec(String(url))
+  if (!m || [m[1], m[2]].some((part) => part === '.' || part === '..')) return Promise.resolve({ ok: false, kind: 'not-found', message: 'That does not look like a GitHub link. Copy the address of the app’s GitHub page and paste it here.' })
+  const name = folderName?.trim().replace(/[^\w.-]+/g, '-').replace(/^[-.]+/, '')
+  // The app's own name (it becomes the name the person sees). Another app already there (a/app vs b/app) comes back
+  // as folder-exists, and the person picks another folder name; the same app there is reused.
+  const dest = join(homedir(), 'Sinfonie', name || m[2])
+  const running = cloning.get(dest)
+  if (running) return running
+  const job = prereqs.cloneRepo(url, dest, (p) => {
+    for (const win of BrowserWindow.getAllWindows()) win.webContents.send('repos:cloneProgress', p)
+  })
+  cloning.set(dest, job)
+  return job.then(async (r) => {
+    if (r.ok) await prereqs.ensureIdentity(r.path).catch(() => undefined)
+    return r
+  }).finally(() => cloning.delete(dest))
+}
 
 function registerCloneHandler(): void {
-  ipcMain.handle('repos:clone', async (_e, url: string) => {
-    const m = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+?)(?:\.git)?$/i.exec(String(url))
-    if (!m || [m[1], m[2]].some((part) => part === '.' || part === '..')) throw new Error('Not a GitHub repository link.')
-    // owner-name, so two repos that share a name (a/app, b/app) never land in the same folder.
-    const dest = join(homedir(), 'Sinfonie', `${m[1]}-${m[2]}`)
-    const running = cloning.get(dest)
-    if (running) return running
-    const job = (async (): Promise<string> => {
-      if (existsSync(join(dest, '.git'))) {
-        const origin = (await simpleGit(dest).remote(['get-url', 'origin']).catch(() => ''))?.trim().replace(/\.git$/i, '').toLowerCase()
-        if (origin === `https://github.com/${m[1]}/${m[2]}`.toLowerCase()) return dest
-        throw new Error(`${dest} already holds a different repository.`)
-      }
-      if (existsSync(dest)) throw new Error(`${dest} already exists and is not a git repository.`)
-      mkdirSync(dirname(dest), { recursive: true })
-      // No terminal to answer a password prompt: fail fast instead of hanging when git has no login for a private repo.
-      await simpleGit().env({ ...process.env, GIT_TERMINAL_PROMPT: '0' }).clone(url, dest)
-      return dest
-    })()
-    cloning.set(dest, job)
-    try {
-      return await job
-    } finally {
-      cloning.delete(dest)
-    }
-  })
+  ipcMain.handle('repos:cloneApp', (_e, url: string, folderName?: string) => cloneApp(url, folderName))
+  ipcMain.handle('repos:cancelClone', (_e, url: string) => prereqs.cancelClone(url))
 }
 
 /** The app used to be called Orchestra; move its data folder over on first launch. */
@@ -169,6 +169,7 @@ function windowBackground(): string {
 }
 
 function createWindow(): void {
+  rendererReady = false
   const win = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -190,6 +191,8 @@ function createWindow(): void {
 
   browser.setWindow(win)
   win.on('ready-to-show', () => win.show())
+  // A reload drops the page's listeners: queue links again until the new page asks for them (ui:takePendingLinks).
+  win.webContents.on('did-start-loading', () => (rendererReady = false))
   // Renderer problems land in the terminal log, so a black window can be diagnosed.
   win.webContents.on('console-message', (_e, level, message, line, sourceId) => {
     if (level >= 2) {
@@ -219,7 +222,26 @@ images.registerScheme()
 // sinfonie:// links: the Slack OAuth callback on sinfonie.dev bounces the code back through one.
 // Only the installed app claims the scheme: a dev instance registering it sends links to a bare Electron.
 if (app.isPackaged && !app.isDefaultProtocolClient('sinfonie')) app.setAsDefaultProtocolClient('sinfonie')
+/**
+ * Links that arrive before the renderer listens (a cold start from a link, or a reload) wait here. The renderer pulls
+ * them with `ui:takePendingLinks` once its listeners are mounted (App.tsx), rather than on did-finish-load, which
+ * fires before React has subscribed.
+ */
+let rendererReady = false
+const pendingLinks: string[] = []
+function flushDeepLinks(): void {
+  rendererReady = true
+  for (const raw of pendingLinks.splice(0)) handleDeepLink(raw)
+}
+ipcMain.handle('ui:takePendingLinks', () => flushDeepLinks())
+const sendToRenderer = <C extends keyof SinfonieEvents>(channel: C, payload: SinfonieEvents[C]): void => {
+  for (const win of BrowserWindow.getAllWindows()) win.webContents.send(channel, payload)
+}
 function handleDeepLink(raw: string): void {
+  if (!rendererReady || !app.isReady()) {
+    pendingLinks.push(raw)
+    return
+  }
   try {
     const u = new URL(raw)
     const focus = (): void => {
@@ -232,13 +254,25 @@ function handleDeepLink(raw: string): void {
     if (u.host === 'oauth' && u.pathname === '/slack') {
       const code = u.searchParams.get('code')
       const err = u.searchParams.get('error')
-      if (err) logError('slack:oauth', new Error(err))
-      if (code) void slack.finishAuth(code).catch((e) => logError('slack:oauth', e))
+      // Either way the Slack card hears about a failure, in plain words, instead of waiting for a sign-in that never lands.
+      if (err) {
+        logError('slack:oauth', new Error(err))
+        sendToRenderer('slack:authFailed', { message: err === 'access_denied' ? 'Slack sign-in was cancelled. Try again when you are ready.' : 'Slack did not finish the sign-in. Try again.' })
+      } else if (code) {
+        void slack.finishAuth(code).catch((e) => {
+          logError('slack:oauth', e)
+          sendToRenderer('slack:authFailed', { message: e instanceof Error && /start the slack sign-in again/i.test(e.message) ? e.message : 'Slack sign-in could not be finished. Try again.' })
+        })
+      } else sendToRenderer('slack:authFailed', { message: 'Slack did not send back a sign-in code. Try again.' })
       focus()
     } else if (u.host === 'join' || u.host === 'redeem') {
       // An invite or coupon link: hand it to the Plan page, which acts on it (after sign-in if needed).
       const token = u.searchParams.get('token') || u.searchParams.get('code')
       if (token) for (const win of BrowserWindow.getAllWindows()) win.webContents.send('cloud:invite', { token, kind: u.host as 'join' | 'redeem' })
+      focus()
+    } else {
+      // workspace/…, agent/…, settings/…, notes and the rest: the renderer knows where they go.
+      sendToRenderer('ui:openLink', { href: raw })
       focus()
     }
   } catch (e) {
@@ -255,6 +289,8 @@ if (process.env.SINFONIE_CDP_PORT && !app.isPackaged) app.commandLine.appendSwit
 
 app.whenReady().then(async () => {
   await adoptShellPath()
+  // The GitHub tool Sinfonie downloaded (if any) is found by every spawn, after the person's own (prereqs.ts).
+  prereqs.ensureToolsOnPath()
   images.registerProtocol()
   if (!process.env.SINFONIE_USER_DATA) migrateLegacyUserData()
   if (!app.isPackaged && process.platform === 'darwin') {

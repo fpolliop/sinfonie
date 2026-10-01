@@ -21,7 +21,7 @@ export function AgentChat({ agent }: { agent: AgentSpec }): React.JSX.Element {
   const busy = chat?.busy ?? false
   const draft = chat?.draft ?? ''
   useEffect(() => {
-    void load(owner).catch((e) => setError(e instanceof Error ? e.message : String(e)))
+    void load(owner).catch((e) => setError(e))
   }, [owner, load, setError])
   useEffect(() => {
     const el = scrollRef.current

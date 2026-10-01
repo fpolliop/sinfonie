@@ -26,7 +26,7 @@ export function AgentRuns({ agent }: { agent: AgentSpec }): React.JSX.Element {
   const [open, setOpen] = useState<string | null>(null)
   const [starting, setStarting] = useState(false)
   const schedule: AgentSchedule = agent.schedule ?? { enabled: false, kind: 'interval', everyMinutes: 60, at: '09:00' }
-  const fail = (err: unknown): void => setError(err instanceof Error ? err.message : String(err))
+  const fail = (err: unknown): void => setError(err)
   useEffect(() => {
     api.invoke('agents:runs', agent.id).then(setRuns).catch(fail)
     return api.on('agents:runsChanged', (e) => e.agentId === agent.id && setRuns(e.runs))
@@ -45,7 +45,7 @@ export function AgentRuns({ agent }: { agent: AgentSpec }): React.JSX.Element {
       setStarting(false)
     }
   }
-  const running = runs.some((r) => !r.endedAt)
+  const running = runs.some((r) => r.running)
   const next = nextRunLabel(schedule, runs)
   return (
     <div className="flex h-full min-h-0 flex-col overflow-auto px-6 py-4">
@@ -105,7 +105,7 @@ export function AgentRuns({ agent }: { agent: AgentSpec }): React.JSX.Element {
               <div key={r.id} className="rounded-lg border border-border">
                 <button className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12px]" onClick={() => setOpen(isOpen ? null : r.id)}>
                   {isOpen ? <ChevronDown size={12} className="shrink-0" /> : <ChevronRight size={12} className="shrink-0" />}
-                  {!r.endedAt ? <Loader2 size={12} className="shrink-0 animate-spin text-warn" /> : r.error ? <XCircle size={12} className="shrink-0 text-danger" /> : <CheckCircle2 size={12} className="shrink-0 text-ok" />}
+                  {r.running ? <Loader2 size={12} className="shrink-0 animate-spin text-warn" /> : r.error ? <XCircle size={12} className="shrink-0 text-danger" /> : <CheckCircle2 size={12} className="shrink-0 text-ok" />}
                   <span className="w-20 shrink-0 text-muted">{TRIGGER_LABEL[r.trigger]}</span>
                   <span className="min-w-0 flex-1 truncate">{r.error ?? firstLine(r.report) ?? r.prompt}</span>
                   {ws && <span className="shrink-0 text-[11px] text-muted">{ws.name}</span>}

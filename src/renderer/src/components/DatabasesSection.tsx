@@ -5,6 +5,7 @@ import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { Badge, Button, Dialog, Field, IconButton, inputCls } from './ui'
 import type { DbConnection, DbSecrets } from '@shared/types'
+import { friendlyError, rawMessage } from '@/lib/errors'
 
 /** A test or validation result, kept structured so its colour never depends on parsing the text. */
 type DbStatus = { tone: 'ok' | 'error' | 'pending'; text: string }
@@ -21,12 +22,12 @@ export function DatabasesSection({ spaceId }: { spaceId: string }): React.JSX.El
   const [removing, setRemoving] = useState<string | null>(null)
   const [testing, setTesting] = useState<Record<string, DbStatus>>({})
   const load = (): void => {
-    api.invoke('db:list', spaceId).then(setList).catch((err) => setError(String(err)))
+    api.invoke('db:list', spaceId).then(setList).catch((err) => setError(friendlyError(err)))
   }
   useEffect(load, [spaceId])
   const test = async (c: DbConnection): Promise<void> => {
     setTesting((t) => ({ ...t, [c.id]: { tone: 'pending', text: 'Testing…' } }))
-    const r = await api.invoke('db:test', spaceId, c).catch((err) => ({ ok: false, message: String(err), ms: 0 }))
+    const r = await api.invoke('db:test', spaceId, c).catch((err) => ({ ok: false, message: friendlyError(err), ms: 0 }))
     setTesting((t) => ({ ...t, [c.id]: testStatus(r) }))
   }
   return (
@@ -69,7 +70,7 @@ export function DatabasesSection({ spaceId }: { spaceId: string }): React.JSX.El
                 </IconButton>
                 {removing === c.id ? (
                   <>
-                    <Button size="sm" variant="danger" onClick={() => api.invoke('db:remove', spaceId, c.id).then(load).catch((err) => setError(String(err)))}>
+                    <Button size="sm" variant="danger" onClick={() => api.invoke('db:remove', spaceId, c.id).then(load).catch((err) => setError(friendlyError(err)))}>
                       Remove
                     </Button>
                     <Button size="sm" variant="ghost" onClick={() => setRemoving(null)}>
@@ -111,6 +112,8 @@ function ConnectionForm({ spaceId, initial, onClose, onSaved }: { spaceId: strin
   const [secrets, setSecrets] = useState<DbSecrets>({})
   const [instances, setInstances] = useState<{ connectionName: string; name: string; engine: string; region: string }[] | null>(null)
   const [status, setStatus] = useState<DbStatus | null>(null)
+  const [instancesError, setInstancesError] = useState<string | null>(null)
+  const [reauthing, setReauthing] = useState(false)
   const [busy, setBusy] = useState<'test' | 'save' | null>(null)
   const tunnel = c.tunnel ?? { kind: 'none' as const }
   const set = (patch: Partial<DbConnection>): void => setC((x) => ({ ...x, ...patch }))
@@ -119,16 +122,31 @@ function ConnectionForm({ spaceId, initial, onClose, onSaved }: { spaceId: strin
     if (tunnel.kind !== 'cloudsql' || instances) return
     api
       .invoke('db:cloudSqlInstances', spaceId)
-      .then(setInstances)
+      .then((list) => {
+        setInstancesError(null)
+        setInstances(list)
+      })
       .catch((err) => {
         setInstances([])
-        setStatus({ tone: 'error', text: `Could not list Cloud SQL instances: ${err instanceof Error ? err.message : String(err)}` })
+        setInstancesError(rawMessage(err))
       })
   }, [tunnel.kind, instances, spaceId])
+  /** Signs the Google account in again (the usual reason the list is empty), then asks for the instances again. */
+  const reauth = async (): Promise<void> => {
+    setReauthing(true)
+    try {
+      await api.invoke('gcp:login', tunnel.account)
+      setInstances(null)
+    } catch (err) {
+      if (rawMessage(err) !== 'Sign-in cancelled.') setInstancesError(rawMessage(err))
+    } finally {
+      setReauthing(false)
+    }
+  }
   const test = async (): Promise<void> => {
     setBusy('test')
     setStatus({ tone: 'pending', text: 'Connecting…' })
-    const r = await api.invoke('db:test', spaceId, c, secrets).catch((err) => ({ ok: false, message: String(err), ms: 0 }))
+    const r = await api.invoke('db:test', spaceId, c, secrets).catch((err) => ({ ok: false, message: friendlyError(err), ms: 0 }))
     setStatus(testStatus(r))
     setBusy(null)
   }
@@ -140,7 +158,7 @@ function ConnectionForm({ spaceId, initial, onClose, onSaved }: { spaceId: strin
       await api.invoke('db:save', spaceId, { ...c, name: c.name.trim() || c.database || c.path?.split('/').pop() || c.projectId || c.kind }, secrets)
       onSaved()
     } catch (err) {
-      setError(String(err))
+      setError(friendlyError(err))
     } finally {
       setBusy(null)
     }
@@ -168,7 +186,7 @@ function ConnectionForm({ spaceId, initial, onClose, onSaved }: { spaceId: strin
             <Field label="Database file" hint="Opened read-only unless writes are allowed below; with writes on, a missing file is created.">
               <div className="flex gap-2">
                 <input className={inputCls} placeholder="~/data/app.db" value={c.path ?? ''} onChange={(e) => set({ path: e.target.value })} />
-                <Button variant="ghost" onClick={() => api.invoke('db:pickSqlite').then((p) => p && set({ path: p })).catch((err) => setError(String(err)))}>
+                <Button variant="ghost" onClick={() => api.invoke('db:pickSqlite').then((p) => p && set({ path: p })).catch((err) => setError(friendlyError(err)))}>
                   Choose…
                 </Button>
               </div>
@@ -214,8 +232,34 @@ function ConnectionForm({ spaceId, initial, onClose, onSaved }: { spaceId: strin
         {tunnel.kind === 'cloudsql' && (
           <>
             <div className="col-span-2">
-              <Field label="Instance" hint={instances === null ? 'Loading instances from gcloud…' : instances.length ? 'From the space’s Google Cloud project. Type project:region:instance for another project.' : 'Type project:region:instance.'}>
+              <Field
+                label="Instance"
+                hint={
+                  instances === null
+                    ? 'Loading instances from gcloud…'
+                    : instances.length
+                      ? 'From the space’s Google Cloud project. Type project:region:instance for another project.'
+                      : instancesError
+                        ? 'Type project:region:instance, or fix the problem below to pick from a list.'
+                        : 'The space’s Google Cloud project has no Cloud SQL instances this account can see (or no project is set under Google Cloud). Type project:region:instance.'
+                }
+              >
                 <input className={inputCls} list="cloudsql-instances" placeholder="project:region:instance" value={tunnel.instance ?? ''} onChange={(e) => setTunnel({ instance: e.target.value })} />
+                {instancesError && (
+                  <div className="mt-1 flex items-start gap-2 text-[12px]">
+                    <span className="flex-1 text-danger">
+                      {/sign in again|re-authenticat|no project|not installed/i.test(instancesError) ? instancesError : `Could not list Cloud SQL instances: ${instancesError}`}
+                    </span>
+                    {!/not installed/i.test(instancesError) && (
+                      <Button size="sm" disabled={reauthing} onClick={() => void reauth()}>
+                        {reauthing ? 'Waiting for the browser…' : 'Re-authenticate'}
+                      </Button>
+                    )}
+                    <Button size="sm" variant="ghost" onClick={() => setInstances(null)}>
+                      Try again
+                    </Button>
+                  </div>
+                )}
                 <datalist id="cloudsql-instances">
                   {(instances ?? []).map((i) => (
                     <option key={i.connectionName} value={i.connectionName}>

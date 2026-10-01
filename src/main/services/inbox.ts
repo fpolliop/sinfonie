@@ -16,13 +16,20 @@ import type { InboxMark, PreRead, RiskLevel } from '@shared/inbox'
 import { getStore } from '../store'
 import * as gitSvc from './git'
 import * as workspaces from './workspaces'
-import { listRuns } from './reviews'
+import { ghFailure, listRuns } from './reviews'
+import { ghEnv, ghPath } from './prereqs'
+import { PLAIN_ERROR_MARK } from '@shared/types'
 import { remoteOf } from './shared-space'
 
 const exec = promisify(execFile)
-async function gh(args: string[]): Promise<string> {
-  const { stdout } = await exec('gh', args, { env: process.env, maxBuffer: 16 * 1024 * 1024 })
-  return stdout
+/** gh through the one resolver, always with a time limit, so a pre-read can never hold the queue (or Approve) forever. */
+async function gh(args: string[], timeout = 45_000): Promise<string> {
+  try {
+    const { stdout } = await exec(ghPath(), args, { env: ghEnv(), maxBuffer: 16 * 1024 * 1024, timeout })
+    return stdout
+  } catch (err) {
+    throw ghFailure(err, timeout)
+  }
 }
 
 // ---------- persistence ----------
@@ -366,7 +373,12 @@ export async function takeOverPr(pr: ReviewPr, emit: Parameters<typeof workspace
   const store = getStore().get()
   const remotes = await repoRemotes()
   const repo = store.repos.find((r) => remotes[r.id] === pr.nameWithOwner.toLowerCase())
-  if (!repo) throw new Error(`${pr.nameWithOwner} is not on this Mac yet. Add the repository in Settings, then take the change over again.`)
+  // The renderer recognises "is not on this Mac yet" and offers a button to the space's Repositories page.
+  // Plain words in both lenses (the mark shows it as is): guided says app and team, never repository or space.
+  if (!repo) {
+    const guided = store.settings.mode === 'guided'
+    throw new Error(`${PLAIN_ERROR_MARK}${guided ? pr.nameWithOwner.split('/')[1] : pr.nameWithOwner} is not on this Mac yet. ${guided ? 'Add the app to this team' : 'Add the repository to this space'}, then take the change over again.`)
+  }
   const g = gitSvc.git(repo.path)
   try {
     await g.fetch(['origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`])

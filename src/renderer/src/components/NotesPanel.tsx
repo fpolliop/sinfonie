@@ -70,10 +70,10 @@ export function NotesPanel({ workspaceId, onClose }: { workspaceId: string; onCl
   const [showDone, setShowDone] = useState(false)
   useEffect(() => {
     subscribe()
-    void load(workspaceId)
-  }, [workspaceId, load, subscribe])
+    void load(workspaceId).catch((e) => setError(e))
+  }, [workspaceId, load, subscribe, setError])
   const go = (fn: () => Promise<void>): void => {
-    fn().catch((e) => setError(e instanceof Error ? e.message : String(e)))
+    fn().catch((e) => setError(e))
   }
   // Delete waits for the Undo window: the note is hidden at once and removed for real when the toast closes.
   const notify = useApp((s) => s.notify)
@@ -94,7 +94,7 @@ export function NotesPanel({ workspaceId, onClose }: { workspaceId: string; onCl
       }
     })
   }
-  const visible = useMemo(() => notes.filter((n) => !hiding.has(n.id)), [notes, hiding])
+  const visible = useMemo(() => notes.filter((n) => !hiding.has(n.id) && !n.archived), [notes, hiding])
   const open = useMemo(() => visible.filter((n) => n.kind === 'todo' && !n.done), [visible])
   const plain = useMemo(() => visible.filter((n) => n.kind === 'note'), [visible])
   // Rules first, then decisions, newest first.
@@ -105,8 +105,10 @@ export function NotesPanel({ workspaceId, onClose }: { workspaceId: string; onCl
     if (!t) return
     const parsed = parseNoteInput(t, kind)
     if (!parsed.text.trim()) return
-    go(() => add(workspaceId, parsed.text, parsed.kind))
-    setText('')
+    // The text stays in the box until the note is saved, so a failed add loses nothing.
+    add(workspaceId, parsed.text, parsed.kind)
+      .then(() => setText((cur) => (cur.trim() === t ? '' : cur)))
+      .catch((e) => setError(e))
   }
   return (
     <aside className="flex w-[380px] max-w-[55%] shrink-0 flex-col border-l border-border bg-panel">

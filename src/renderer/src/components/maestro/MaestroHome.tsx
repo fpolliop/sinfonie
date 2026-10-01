@@ -9,6 +9,7 @@ import { useApp } from '@/stores/app'
 import { useChat } from '@/stores/chat'
 import { useReviews } from '@/stores/reviews'
 import { useOnCall, subscribeOnCall } from '@/stores/oncall'
+import { useUsage, subscribeUsage, windowLabel, clock } from '@/stores/usage'
 import { useGuided, useWords, cap } from '@/lib/guided'
 import { workspaceLabel } from '@/lib/labels'
 import { MaestroView } from './MaestroView'
@@ -79,6 +80,8 @@ function Brief(): React.JSX.Element | null {
   // Select the stable state object, then derive: a fresh [] from a selector would re-render forever.
   const onCall = useOnCall((s) => s.state)
   const incidents = onCall?.incidents ?? []
+  const usage = useUsage((s) => s.snapshot)
+  const openSettings = useApp((s) => s.openSettings)
   const [open, setOpen] = useState(() => {
     try {
       return localStorage.getItem(BRIEF_KEY) !== '0'
@@ -87,6 +90,7 @@ function Brief(): React.JSX.Element | null {
     }
   })
   useEffect(() => subscribeOnCall(), [])
+  useEffect(() => subscribeUsage(), [])
   const toggle = (): void => {
     setOpen(!open)
     try {
@@ -131,6 +135,22 @@ function Brief(): React.JSX.Element | null {
   }
   if (!guided && unseenReviews) {
     rows.push({ key: 'reviews', tone: 'idle', pill: 'Reviews', text: `${unseenReviews} review${unseenReviews === 1 ? '' : 's'} finished since you last looked.`, action: 'Open', run: () => setView('reviews') })
+  }
+  // A Claude account close to its limit: Maestro and every agent on it may stop partway, so it shows here too.
+  const fullest = (usage?.accounts ?? [])
+    .flatMap((a) => a.limits.filter((l) => !l.resetsAt || new Date(l.resetsAt).getTime() > Date.now()).map((l) => ({ ...l, account: a.name })))
+    .sort((a, b) => b.utilization - a.utilization)[0]
+  if (fullest && fullest.utilization >= 0.8) {
+    const pct = Math.round(fullest.utilization * 100)
+    const resets = fullest.resetsAt ? ` It resets at ${clock(fullest.resetsAt)}.` : ''
+    rows.push({
+      key: 'usage',
+      tone: fullest.utilization >= 0.95 ? 'danger' : 'attn',
+      pill: 'Usage',
+      text: guided ? `Maestro has used ${pct}% of its limit for now.${resets}` : `${fullest.account} has used ${pct}% of its ${windowLabel(fullest.type)} limit.${resets}`,
+      action: guided ? 'Sign-in settings' : 'See usage',
+      run: () => openSettings({ scope: 'app', page: guided ? 'accounts' : 'usage' })
+    })
   }
   if (rows.length === 0) return null
 

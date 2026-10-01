@@ -11,7 +11,7 @@ import { useGuided, useWords } from '@/lib/guided'
 import { friendlyError } from '@/lib/errors'
 import { Badge, Button, Field, SectionHeader, Toggle, inputCls } from '../ui'
 import { isLookOnly, useAppKeys, useSpend } from './useTeamData'
-import type { Space } from '@shared/types'
+import type { CloudOrgDetail, Space } from '@shared/types'
 
 const money = (n: number): string => `$${n.toFixed(2)}`
 /** "$25", "25", "25.50" → 25.5; empty → undefined; anything else → NaN. */
@@ -22,7 +22,7 @@ const list = (v: string): string[] =>
     .map((x) => x.replace(/^@/, '').trim())
     .filter(Boolean)
 
-export function GuardrailsSection({ space, admin, onOpenApps }: { space: Space; admin: boolean; onOpenApps: () => void }): React.JSX.Element {
+export function GuardrailsSection({ space, admin, org, onOpenApps }: { space: Space; admin: boolean; org?: CloudOrgDetail; onOpenApps: () => void }): React.JSX.Element {
   const guided = useGuided()
   const t = useWords()
   const repos = useApp((s) => s.repos)
@@ -37,6 +37,12 @@ export function GuardrailsSection({ space, admin, onOpenApps }: { space: Space; 
   const [spendText, setSpendText] = useState(saved.spend)
   const [reviewers, setReviewers] = useState(saved.reviewers)
   const [busy, setBusy] = useState(false)
+  // Reviewer names GitHub does not know, from the last save; cleared as soon as the list is edited.
+  const [badReviewers, setBadReviewers] = useState<string[]>([])
+  const [reviewerNote, setReviewerNote] = useState('')
+  const me = useApp((s) => s.settings.cloud?.account?.user.id)
+  const [allowFor, setAllowFor] = useState('')
+  const [allowing, setAllowing] = useState(false)
 
   const reviewerList = list(reviewers)
   const dirty = paths.trim() !== saved.paths.trim() || requireReview !== saved.review || parseMoney(spendText) !== (rules.dailySpendUsd || undefined) || reviewerList.join(',') !== list(saved.reviewers).join(',')
@@ -61,7 +67,17 @@ export function GuardrailsSection({ space, admin, onOpenApps }: { space: Space; 
     if (n !== undefined && (!Number.isFinite(n) || n < 0)) return setError('The daily limit must be an amount in dollars, like 25.')
     setBusy(true)
     try {
-      if (reviewerList.join(',') !== list(saved.reviewers).join(',')) await api.invoke('spaces:update', space.id, { guided: { ...(space.guided ?? {}), reviewers: reviewerList } })
+      if (reviewerList.join(',') !== list(saved.reviewers).join(',')) {
+        // A typo here means every Send for review asks nobody: check each name with GitHub before saving.
+        const check = await api.invoke('reviews:checkLogins', reviewerList).catch(() => ({ invalid: [] as string[], unchecked: 'GitHub could not be reached, so the names could not be checked.' }))
+        setBadReviewers(check.invalid)
+        setReviewerNote(check.unchecked ?? '')
+        if (check.invalid.length) {
+          setBusy(false)
+          return
+        }
+        await api.invoke('spaces:update', space.id, { guided: { ...(space.guided ?? {}), reviewers: reviewerList } })
+      }
       await api.invoke('team:setRules', space.id, { ...rules, protectedPaths: paths.split('\n'), requireReview, dailySpendUsd: n })
       notify({ kind: 'success', text: space.orgSpace ? 'Guardrails saved and shared with the team. Agents follow them from their next step.' : 'Guardrails saved. Agents follow them from their next step.' })
     } catch (err) {
@@ -80,6 +96,24 @@ export function GuardrailsSection({ space, admin, onOpenApps }: { space: Space; 
   }
   const limit = rules.dailySpendUsd ?? 0
   const spent = spend?.spent ?? 0
+  // "Allow more today" for one person travels with the rules through the organisation sync (team-rules.ts).
+  const today = new Date().toDateString()
+  const allowedToday = (rules.spendAllowances ?? []).filter((a) => new Date(a.grantedAt).toDateString() === today)
+  const others = (org?.members ?? []).filter((m) => m.id !== me)
+  const allowMember = async (): Promise<void> => {
+    const m = others.find((x) => x.id === allowFor)
+    if (!m) return
+    setAllowing(true)
+    try {
+      await api.invoke('team:allowSpendFor', space.id, m.id, m.login)
+      notify({ kind: 'success', text: `${m.name || m.login} can spend more in ${space.name} for the rest of today. It reaches them within a minute of their next message.` })
+      setAllowFor('')
+    } catch (err) {
+      setError(friendlyError(err))
+    } finally {
+      setAllowing(false)
+    }
+  }
 
   return (
     <div className="max-w-[720px]">
@@ -132,13 +166,26 @@ export function GuardrailsSection({ space, admin, onOpenApps }: { space: Space; 
       />
       <div className="mt-3">
         <Field label={guided ? 'Who reviews (GitHub usernames)' : 'Reviewers requested on every Send for review (GitHub logins)'}>
-          <input className={inputCls} value={reviewers} disabled={!admin} onChange={(e) => setReviewers(e.target.value)} placeholder="marta, jonas" />
+          <input
+            className={inputCls}
+            value={reviewers}
+            disabled={!admin}
+            aria-invalid={badReviewers.length > 0}
+            onChange={(e) => {
+              setReviewers(e.target.value)
+              setBadReviewers([])
+              setReviewerNote('')
+            }}
+            placeholder="marta, jonas"
+          />
         </Field>
+        {badReviewers.length > 0 && <p className="-mt-2 mb-2 text-[12px] text-danger">GitHub has no user named {badReviewers.join(', ')}. Check the spelling; nothing was saved.</p>}
+        {reviewerNote && <p className="-mt-2 mb-2 text-[12px] text-muted">{reviewerNote} They were saved as typed.</p>}
         {requireReview && reviewerList.length === 0 && <p className="-mt-2 mb-2 text-[12px] text-warn">Builders can’t send anything for review until you add at least one reviewer.</p>}
       </div>
 
       <SectionHeader>Spend</SectionHeader>
-      <Field label="Daily limit per person, in dollars" hint={`Leave empty for no limit. When someone reaches it, their new messages in this ${t.space} stop with a plain note until tomorrow (their local day), or until an admin on their Mac allows more.`}>
+      <Field label="Daily limit per person, in dollars" hint={`Leave empty for no limit. When someone reaches it, their new messages in this ${t.space} stop with a plain note until tomorrow (their local day), or until an admin allows more for them here.`}>
         <input className={inputCls + ' max-w-[160px]'} inputMode="decimal" value={spendText} disabled={!admin} onChange={(e) => setSpendText(e.target.value)} placeholder="25" />
       </Field>
       <div className="flex items-center gap-2 text-[12px] text-muted">
@@ -152,6 +199,23 @@ export function GuardrailsSection({ space, admin, onOpenApps }: { space: Space; 
           </Button>
         )}
       </div>
+      {admin && limit > 0 && space.orgSpace && others.length > 0 && (
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px]">
+          <select className={inputCls + ' max-w-[220px]'} aria-label="Who may spend more today" value={allowFor} onChange={(e) => setAllowFor(e.target.value)}>
+            <option value="">Choose a person…</option>
+            {others.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name || m.login}
+              </option>
+            ))}
+          </select>
+          <Button size="sm" disabled={!allowFor || allowing} onClick={() => void allowMember()}>
+            {allowing ? 'Allowing…' : `Allow more today${allowFor ? ` for ${others.find((m) => m.id === allowFor)?.name || others.find((m) => m.id === allowFor)?.login}` : ''}`}
+          </Button>
+          {allowedToday.length > 0 && <span className="text-muted">Allowed more today: {allowedToday.map((a) => a.login ?? a.userId).join(', ')}</span>}
+        </div>
+      )}
+      {admin && limit > 0 && !space.orgSpace && space.orgId && <p className="mt-2 text-[12px] text-muted">Share this {t.space} with the team to allow more for someone else from here.</p>}
 
       {admin ? (
         <div className="mt-5 flex items-center gap-2">

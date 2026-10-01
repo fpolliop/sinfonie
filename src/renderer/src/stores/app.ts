@@ -4,6 +4,7 @@ import type { AgentSpec, Engine, Label, Repo, Settings, Space, StoreData, Worksp
 
 export type View = 'workspace' | 'reviews' | 'oncall' | 'agents' | 'notes' | 'maestro' | 'home' | 'team'
 import { api } from '@/lib/api'
+import { friendlyError, rawMessage } from '@/lib/errors'
 
 export interface Notice {
   kind: 'success' | 'info'
@@ -14,6 +15,8 @@ export interface Notice {
   id?: string
   /** A button that opens a web page (e.g. the pull request just opened). */
   link?: { label: string; url: string }
+  /** A button that goes somewhere in the app (e.g. "Open a workspace"); the notice closes after it runs. */
+  action?: { label: string; run: () => void }
 }
 /**
  * The workspace's side panel (the inspector beside the conversation): changes, files, preview, checks, terminal,
@@ -122,7 +125,11 @@ interface AppState {
   /** Kept for older call sites: opens Application → General. */
   setShowSettings: (v: boolean) => void
   setShowArchived: (v: boolean) => void
-  setError: (e: string | null) => void
+  /**
+   * Show an error toast. A thrown value goes through friendlyError (plain words in guided mode, the cleaned raw
+   * message in expert mode); a string is taken as already written for a person. null clears it.
+   */
+  setError: (e: unknown) => void
   setBranchPrompt: (p: AppState['branchPrompt']) => void
 }
 
@@ -333,7 +340,7 @@ export const useApp = create<AppState>((set, get) => ({
   },
   setShowSettings: (v) => set({ settingsTarget: v ? { scope: 'app', page: 'general' } : null }),
   setShowArchived: (v) => set({ showArchived: v }),
-  setError: (error) => set({ error }),
+  setError: (e) => set({ error: e == null ? null : typeof e === 'string' ? rawMessage(e) : friendlyError(e) }),
   setBranchPrompt: (branchPrompt) => set({ branchPrompt })
 }))
 

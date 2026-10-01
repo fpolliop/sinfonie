@@ -4,6 +4,7 @@ import { MaestroMemory } from './MaestroMemory'
 import { useMaestro } from '@/stores/maestro'
 import { useApp } from '@/stores/app'
 import { MaestroConversation } from './MaestroConversation'
+import { ListError, NoConversation } from './MaestroParts'
 
 /** Maestro docked at the right edge, over whatever the main pane shows. Resizable; expands to full screen. */
 export function MaestroSide(): React.JSX.Element | null {
@@ -14,7 +15,7 @@ export function MaestroSide(): React.JSX.Element | null {
   const [memory, setMemory] = useState(false)
   useEffect(() => {
     subscribe()
-    if (!listLoaded) void loadList()
+    if (!listLoaded) void loadList().catch(() => undefined)
   }, [subscribe, loadList, listLoaded])
   useEffect(() => {
     if (!open || !listLoaded) return
@@ -83,7 +84,8 @@ export function MaestroSide(): React.JSX.Element | null {
           <Minus size={15} />
         </button>
       </div>
-      <div className="min-h-0 flex-1">{activeId ? <MaestroConversation id={activeId} compact /> : null}</div>
+      <ListError />
+      <div className="min-h-0 flex-1">{activeId ? <MaestroConversation id={activeId} compact /> : listLoaded ? <NoConversation /> : null}</div>
       {memory && <MaestroMemory onClose={() => setMemory(false)} />}
     </aside>
   )

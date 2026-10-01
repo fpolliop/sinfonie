@@ -94,7 +94,7 @@ export function sdkServer(connId: string): NonNullable<Options['mcpServers']>[st
     try {
       return text(await fn())
     } catch (err) {
-      return { content: [{ type: 'text' as const, text: `Slack error: ${err instanceof Error ? err.message : String(err)}` }], isError: true }
+      return { content: [{ type: 'text' as const, text: `Slack error: ${slack.describeError(err).text}` }], isError: true }
     }
   }
   return createSdkMcpServer({
@@ -117,7 +117,7 @@ export function aiTools(connId: string): ToolSet {
     try {
       return await fn()
     } catch (err) {
-      return `Slack error: ${err instanceof Error ? err.message : String(err)}`
+      return `Slack error: ${slack.describeError(err).text}`
     }
   }
   return {

@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
 import { Badge, Button, Field, inputCls } from './ui'
+import { friendlyError, rawMessage } from '@/lib/errors'
 
 export function JiraSection({ connId, intro }: { connId: string; intro?: string }): React.JSX.Element {
   const { settings, spaces, setError } = useApp()
@@ -15,7 +16,7 @@ export function JiraSection({ connId, intro }: { connId: string; intro?: string 
     try {
       await api.invoke('jira:updateSettings', connId, patch)
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(friendlyError(err))
     }
   }
   const authenticate = async (): Promise<void> => {
@@ -25,7 +26,7 @@ export function JiraSection({ connId, intro }: { connId: string; intro?: string 
       await api.invoke('jira:authenticate', connId)
       setTesting('Connected.')
     } catch (err) {
-      setTesting(`Could not connect: ${err instanceof Error ? err.message : String(err)}`)
+      setTesting(rawMessage(err) === 'Sign-in cancelled.' ? null : friendlyError(err))
     } finally {
       setAuthing(false)
     }
@@ -36,7 +37,7 @@ export function JiraSection({ connId, intro }: { connId: string; intro?: string 
       await api.invoke('jira:disconnect', connId)
       setTesting(null)
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(friendlyError(err))
     }
   }
   const saveToken = async (): Promise<void> => {
@@ -44,7 +45,7 @@ export function JiraSection({ connId, intro }: { connId: string; intro?: string 
       await api.invoke('jira:saveToken', connId, token)
       setToken('')
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(friendlyError(err))
     }
   }
   const test = async (): Promise<void> => {
@@ -53,7 +54,7 @@ export function JiraSection({ connId, intro }: { connId: string; intro?: string 
       const issues = await api.invoke('jira:search', connId, '')
       setTesting(`Connected. ${issues.length} ticket${issues.length === 1 ? '' : 's'} match the default query.`)
     } catch (err) {
-      setTesting(`The test search failed: ${err instanceof Error ? err.message : String(err)}`)
+      setTesting(`The test search failed: ${friendlyError(err)}`)
     }
   }
   const tokenReady = Boolean(jira.siteUrl && jira.email && jira.hasToken)
@@ -84,9 +85,16 @@ export function JiraSection({ connId, intro }: { connId: string; intro?: string 
             Disconnect
           </Button>
         ) : (
-          <Button size="sm" variant="primary" onClick={authenticate} disabled={authing}>
-            {authing ? 'Waiting…' : 'Authenticate with Jira'}
-          </Button>
+          <div className="flex items-center gap-1.5">
+            <Button size="sm" variant="primary" onClick={authenticate} disabled={authing}>
+              {authing ? 'Waiting…' : 'Authenticate with Jira'}
+            </Button>
+            {authing && (
+              <Button size="sm" variant="ghost" onClick={() => void api.invoke('auth:cancel', 'jira', connId)}>
+                Cancel
+              </Button>
+            )}
+          </div>
         )}
       </div>
       <Field label="Default ticket list (JQL)" hint="Shown when the ticket search box is empty. JQL is Jira’s query language, e.g. assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC">

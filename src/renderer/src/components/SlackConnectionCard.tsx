@@ -2,7 +2,8 @@ import React, { useEffect, useState } from 'react'
 import clsx from 'clsx'
 import { api } from '@/lib/api'
 import { useApp } from '@/stores/app'
-import { Badge, Button, inputCls } from './ui'
+import { Badge, Button, Spinner, inputCls } from './ui'
+import { friendlyError } from '@/lib/errors'
 import type { SlackConnection } from '@shared/types'
 
 /** The Slack sign-in card, shared by Integrations → Slack and the On call page. */
@@ -22,12 +23,44 @@ export function SlackConnectionCard({ connId = '', intro }: { connId?: string; i
   const [secret, setSecret] = useState('')
   const [code, setCode] = useState('')
   useEffect(() => setClientId(slack.clientId ?? ''), [slack.clientId])
+  // Sign-in waits on the browser. Main listens for 5 minutes; after that the card says so instead of waiting forever.
+  const [pending, setPending] = useState<'waiting' | 'expired' | null>(null)
+  // Main says in plain words when the browser round trip failed (cancelled, no code, exchange refused).
+  const [failed, setFailed] = useState<string | null>(null)
+  useEffect(() => {
+    if (slack.connected) {
+      setPending(null)
+      setFailed(null)
+    }
+  }, [slack.connected])
+  useEffect(
+    () =>
+      api.on('slack:authFailed', (e) => {
+        if (e.connId !== undefined && e.connId !== connId) return
+        setPending(null)
+        setFailed(e.message)
+      }),
+    [connId]
+  )
+  useEffect(() => {
+    if (pending !== 'waiting') return
+    const t = setTimeout(() => setPending('expired'), 5 * 60_000)
+    return () => clearTimeout(t)
+  }, [pending])
   const go = async (fn: () => Promise<unknown>): Promise<void> => {
     try {
       await fn()
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(friendlyError(err))
     }
+  }
+  const signIn = (): void => {
+    setFailed(null)
+    setPending('waiting')
+    api.invoke('oncall:slackConnect', connId).catch((err) => {
+      setPending(null)
+      setError(friendlyError(err))
+    })
   }
   return (
     <section className="mb-4 rounded-lg border border-border p-3">
@@ -39,11 +72,31 @@ export function SlackConnectionCard({ connId = '', intro }: { connId?: string; i
           <>
             <p className="mb-2 text-[11px] text-muted">{intro ?? 'Sinfonie talks to Slack through Slack\u2019s own MCP server. Sign in approves access for your Slack user in the browser; there is nothing to create or install.'} Replies the agent drafts are sent as you, only after you approve them.</p>
             <div className="flex flex-wrap items-center gap-2">
-              <Button size="sm" variant="primary" disabled={!slack.vendorClient && !slack.hasClient} onClick={() => go(() => api.invoke('oncall:slackConnect', connId))}>
-                Sign in with Slack
+              <Button size="sm" variant="primary" disabled={!slack.vendorClient && !slack.hasClient} title={!slack.vendorClient && !slack.hasClient ? 'Sign in is not available in this copy of Sinfonie yet' : undefined} onClick={signIn}>
+                {pending === 'waiting' ? 'Sign in again' : 'Sign in with Slack'}
               </Button>
-              <span className="text-[11px] text-muted">{slack.vendorClient || slack.hasClient ? 'Approve in the browser; Sinfonie reopens by itself.' : 'This build has no Slack client registered yet; see Advanced.'}</span>
+              <span className="text-[11px] text-muted">
+                {!slack.vendorClient && !slack.hasClient
+                  ? 'Sign in with Slack is not available in this copy of Sinfonie yet. You can still connect by adding your own Slack app under Advanced below.'
+                  : pending === 'waiting'
+                    ? (
+                        <span className="inline-flex items-center gap-1.5">
+                          <Spinner /> Waiting for you to approve in the browser. Sinfonie picks it up by itself.
+                        </span>
+                      )
+                    : pending === 'expired'
+                      ? <span className="text-warn">The sign-in did not come back. Sign in again, or paste the code the browser showed below.</span>
+                      : 'Approve in the browser; Sinfonie reopens by itself.'}
+              </span>
             </div>
+            {failed && (
+              <div className="mt-2 flex items-center gap-2 text-[12px]" role="status">
+                <span className="text-warn">{failed}</span>
+                <Button size="sm" onClick={signIn}>
+                  Try again
+                </Button>
+              </div>
+            )}
             <div className="mt-2 flex items-center gap-2">
               <input className={clsx(inputCls, 'max-w-[360px]')} aria-label="Code from the browser" placeholder="If it did not come back: paste the code shown in the browser" value={code} onChange={(e) => setCode(e.target.value)} />
               <Button size="sm" disabled={!code.trim()} onClick={() => go(async () => (await api.invoke('oncall:slackFinish', code.trim(), connId), setCode('')))}>

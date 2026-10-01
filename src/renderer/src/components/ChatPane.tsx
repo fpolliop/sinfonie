@@ -166,6 +166,13 @@ function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Elem
   }
   const queue = chat?.queue ?? []
   const disabled = ws?.status !== 'ready'
+  // The turn ended on an error (the last thing in the conversation): offer what fixes it, and Try again.
+  const lastItem = items[items.length - 1]
+  const lastTurnError = lastItem?.role === 'system' && lastItem.level === 'error' ? lastItem.blocks.map((b) => (b.type === 'text' ? b.text : '')).join('') : null
+  const lastUserText = useMemo(() => {
+    for (let i = items.length - 1; i >= 0; i--) if (items[i].role === 'user') return items[i].blocks.map((b) => (b.type === 'text' ? b.text : '')).join('').trim()
+    return ''
+  }, [items])
   const notReady = notReadyText(ws, guided)
   const canSend = !disabled && (Boolean(draft.trim()) || pendingImages.length > 0)
   const settingsModel = useApp((s) => s.settings.model)
@@ -388,14 +395,23 @@ function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Elem
           ))}
           {chat?.error && (
             guided ? (
-              <div role="alert" className="flex items-center gap-2 rounded-md border border-warn/30 bg-warn/10 px-3 py-2 text-[12px]">
+              <div role="alert" className="flex flex-wrap items-center gap-2 rounded-md border border-warn/30 bg-warn/10 px-3 py-2 text-[12px]">
                 <span className="min-w-0 flex-1">{friendlyError(chat.error, 'Something went wrong. Try asking again in different words, or ask a teammate.')}</span>
+                {draft.trim() && !disabled && (
+                  <Button size="sm" onClick={() => void useChat.getState().send(workspaceId, draft)}>
+                    Try again
+                  </Button>
+                )}
                 <AskTeammate workspaceId={workspaceId} prefill={`I hit a problem on this task: ${rawMessage(chat.error).slice(0, 300)}`} trigger={(open) => <Button size="sm" onClick={open}>Ask a teammate</Button>} />
               </div>
             ) : (
-              <div role="alert" className="whitespace-pre-wrap rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-[12px] text-danger">{rawMessage(chat.error)}</div>
+              <div role="alert" className="flex flex-col gap-2 rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-[12px] text-danger">
+                <span className="whitespace-pre-wrap">{rawMessage(chat.error)}</span>
+                <ErrorActions text={rawMessage(chat.error)} spaceId={ws?.spaceId} onRetry={draft.trim() && !disabled ? () => void useChat.getState().send(workspaceId, draft) : undefined} retryTitle="Send the message in the composer again" />
+              </div>
             )
           )}
+          {!busy && !chat?.error && lastTurnError && <ErrorActions text={lastTurnError} spaceId={ws?.spaceId} onRetry={!disabled && lastUserText ? () => void useChat.getState().send(workspaceId, lastUserText) : undefined} retryTitle="Send your last message again" />}
         </div>
       </div>
       <div className="relative border-t border-border px-4 py-3">
@@ -593,8 +609,45 @@ function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Elem
   )
 }
 
+/**
+ * The buttons under an agent error: what fixes it (sign in, change the model, check billing) and Try again. Guided
+ * mode says the fix in its own words through friendlyError(), so it only gets Try again here.
+ */
+function ErrorActions({ text, spaceId, onRetry, retryTitle }: { text: string; spaceId?: string; onRetry?: () => void; retryTitle: string }): React.JSX.Element | null {
+  const guided = useGuided()
+  const openSettings = useApp((s) => s.openSettings)
+  const signIn = !guided && /not logged in|log in|logged out|authentication|oauth|invalid api key|401|credential|sign in/i.test(text)
+  const model = !guided && /model.*not found|model_not_found|check the model|unknown model|does not support/i.test(text)
+  const billing = !guided && /billing|on hold|credit balance|payment/i.test(text)
+  if (!signIn && !model && !billing && !onRetry) return null
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {signIn && (
+        <Button size="sm" variant="primary" onClick={() => openSettings({ scope: 'app', page: 'accounts' })} title="Open Settings › Accounts to sign in">
+          Sign in
+        </Button>
+      )}
+      {model && (
+        <Button size="sm" variant={signIn ? 'subtle' : 'primary'} onClick={() => openSettings(spaceId ? { scope: 'space', spaceId, page: 'general' } : { scope: 'app', page: 'general' })} title="Pick another model in Settings">
+          Change model
+        </Button>
+      )}
+      {billing && (
+        <Button size="sm" onClick={() => openSettings({ scope: 'app', page: 'accounts' })} title="Open Settings › Accounts">
+          Check the account
+        </Button>
+      )}
+      {onRetry && (
+        <Button size="sm" onClick={onRetry} title={retryTitle}>
+          <RotateCcw size={12} aria-hidden /> Try again
+        </Button>
+      )}
+    </div>
+  )
+}
+
 /** Why the composer is off, in the mode's words; null when the workspace is ready. */
-function notReadyText(ws: { status: string; error?: string } | undefined, guided: boolean): string | null {
+export function notReadyText(ws: { status: string; error?: string; archiveFailed?: boolean } | undefined, guided: boolean): string | null {
   if (!ws) return guided ? 'This task is no longer available.' : 'This workspace no longer exists.'
   switch (ws.status) {
     case 'ready':
@@ -602,7 +655,8 @@ function notReadyText(ws: { status: string; error?: string } | undefined, guided
     case 'creating':
       return guided ? 'The task is getting ready…' : 'Setting up the workspace: creating worktrees and running setup…'
     case 'error':
-      return guided ? 'This task could not be set up. Ask a teammate for help.' : `Workspace setup failed${ws.error ? `: ${rawMessage(ws.error)}` : '.'}`
+      if (ws.archiveFailed) return guided ? 'Finishing this task was interrupted. Use Finish task above.' : `Archiving did not finish${ws.error ? `: ${rawMessage(ws.error)}` : '.'} Finish archiving is in the banner above.`
+      return guided ? 'This task could not be set up. Use Try again above, or ask a teammate for help.' : `Workspace setup failed${ws.error ? `: ${rawMessage(ws.error)}` : '.'} Retry setup is in the banner above.`
     case 'archiving':
       return guided ? 'Finishing this task…' : 'Archiving this workspace…'
     case 'archived':

@@ -8,7 +8,7 @@ import { ReviewInbox } from './components/ReviewInbox'
 import { AgentsView } from './components/agents/AgentsView'
 import { NotesView } from './components/NotesView'
 import { TeamView } from './components/team/TeamView'
-import { AuthLinkDialog } from './components/AuthLinkDialog'
+import { AuthLinkDialog, isInlineCloudSignIn } from './components/AuthLinkDialog'
 import type { AuthLink } from '@shared/types'
 import { useOnCall } from './stores/oncall'
 import { useReviews } from './stores/reviews'
@@ -28,7 +28,7 @@ import { MissionControl, useHasMissionControl, useListsFirstPrompt } from './com
 import { BuilderHome } from './components/builder/BuilderHome'
 import { useThemeSync } from '@/lib/useTheme'
 import { findView } from '@/lib/views'
-import { useMaestro, openMaestro, toggleMaestroDock } from './stores/maestro'
+import { useMaestro, openMaestro, toggleMaestroDock, openMaestroDock } from './stores/maestro'
 import { SetupWizard } from './components/onboarding/SetupWizard'
 import { Tour } from './components/onboarding/Tour'
 import { GettingStarted } from './components/onboarding/GettingStarted'
@@ -36,6 +36,7 @@ import { api } from '@/lib/api'
 import logo from './assets/logo.svg'
 import { Button, hasOpenDialog } from './components/ui'
 import { CommandPalette, ShortcutSheet } from './components/CommandPalette'
+import { openSinfonieLink } from './lib/links'
 
 export default function App(): React.JSX.Element {
   const { loaded, load, selectedId, view, showNewWorkspace, settingsTarget, closeSettings, setShowNewWorkspace, setShowSettings, error, setError, stepSpace, setActiveSpace, feedbackDialog, setFeedbackDialog, onboarding, setOnboarding, assistantOpen, setAssistantOpen, openSettings } = useApp()
@@ -64,14 +65,33 @@ export default function App(): React.JSX.Element {
       }),
     []
   )
-  useEffect(() => api.on('ui:authDone', (d) => setAuthLink((cur) => (cur && cur.provider === d.provider ? null : cur))), [])
+  /** A failed sign-in keeps its dialog open with the reason and Start again; a finished one closes it. */
+  const [authFailure, setAuthFailure] = useState<string | null>(null)
+  useEffect(
+    () =>
+      api.on('ui:authDone', (d) =>
+        setAuthLink((cur) => {
+          if (!cur || cur.provider !== d.provider) return cur
+          // The setup wizard shows its own sign-in inline (and its failure); nothing to keep here.
+          if (d.error && !(d.provider === 'cloud' && isInlineCloudSignIn())) {
+            setAuthFailure(d.error)
+            return cur
+          }
+          setAuthFailure(null)
+          return null
+        })
+      ),
+    []
+  )
+  useEffect(() => api.on('ui:authLink', () => setAuthFailure(null)), [])
   useEffect(() => api.on('ui:openFeedback', ({ tab }) => setFeedbackDialog(tab)), [setFeedbackDialog])
   useEffect(() => api.on('ui:openSettings', (t) => openSettings(t as Parameters<typeof openSettings>[0])), [openSettings])
   useEffect(() => api.on('ui:openOnboarding', ({ kind }) => setOnboarding(kind)), [setOnboarding])
   useEffect(() => api.on('ui:openWorkspace', ({ workspaceId }) => useApp.getState().select(workspaceId)), [])
+  useEffect(() => api.on('ui:openLink', ({ href }) => openSinfonieLink(href)), [])
   useEffect(
     () =>
-      api.on('ui:openMaestro', () => void toggleMaestroDock()),
+      api.on('ui:openMaestro', () => void openMaestroDock()),
     []
   )
   useEffect(
@@ -118,6 +138,9 @@ export default function App(): React.JSX.Element {
       }),
     []
   )
+  // Last of the listeners above: now links that arrived before this page could hear them (a cold start from a
+  // link, a reload) may be replayed. Taking twice (StrictMode) is harmless: the second take finds none.
+  useEffect(() => void api.invoke('ui:takePendingLinks').catch(() => undefined), [])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -142,7 +165,8 @@ export default function App(): React.JSX.Element {
       if ((e.metaKey || e.ctrlKey) && !e.altKey && ((!e.shiftKey && e.key.toLowerCase() === 'j') || (e.shiftKey && e.key.toLowerCase() === 'a'))) {
         if (yieldsToEditor(e)) return
         e.preventDefault()
-        void toggleMaestroDock()
+        // ⌘J toggles the dock; ⇧⌘A (also the menu item) only opens it.
+        void (e.shiftKey ? openMaestroDock() : toggleMaestroDock())
       }
       if ((e.metaKey || e.ctrlKey) && ((e.shiftKey && e.key.toLowerCase() === 'n') || (!e.shiftKey && !e.altKey && e.key.toLowerCase() === 't'))) {
         e.preventDefault()
@@ -205,11 +229,34 @@ export default function App(): React.JSX.Element {
       {!(missionControl && !guided && inlinePrompt) && <PermissionPrompt />}
       <BranchRenamePrompt />
       {onboarding === 'setup' && <SetupWizard onClose={() => setOnboarding(null)} />}
-      {authLink && <AuthLinkDialog link={authLink} onClose={() => setAuthLink(null)} />}
+      {authLink && !(authLink.provider === 'cloud' && isInlineCloudSignIn()) && (
+        <AuthLinkDialog
+          link={authLink}
+          failure={authFailure}
+          onClose={() => {
+            // Closing while it still waits stops the sign-in, so nothing keeps polling or listening in the background.
+            if (!authFailure) void api.invoke('auth:cancel', authLink.provider, authLink.connId).catch(() => undefined)
+            setAuthFailure(null)
+            setAuthLink(null)
+          }}
+        />
+      )}
       {onboarding === 'tour' && <Tour onClose={() => setOnboarding(null)} />}
       {error && (
         <div role="alert" className="fixed bottom-4 left-1/2 z-[80] flex max-w-[640px] -translate-x-1/2 items-center gap-3 rounded-lg border border-danger/40 bg-panel px-4 py-2 text-[12px] shadow-xl">
           <span className="text-danger">{error}</span>
+          {/* Plan limits and the Sinfonie sign-in are settled on the plan page, never on the AI sign-in page. */}
+          {/Plan limit|Sign in to Sinfonie first/.test(error) && (
+            <Button
+              size="sm"
+              onClick={() => {
+                setError(null)
+                openSettings({ scope: 'app', page: 'plan' })
+              }}
+            >
+              {guided ? 'Open Account & team' : 'Open Plan'}
+            </Button>
+          )}
           <Button size="sm" variant="ghost" onClick={() => setError(null)}>
             Dismiss
           </Button>
@@ -238,6 +285,17 @@ function NoticeToast(): React.JSX.Element | null {
       {notice.link && (
         <Button size="sm" onClick={() => void window.sinfonie.invoke('shell:openExternal', notice.link!.url)}>
           {notice.link.label}
+        </Button>
+      )}
+      {notice.action && (
+        <Button
+          size="sm"
+          onClick={() => {
+            notice.action?.run()
+            notify(null)
+          }}
+        >
+          {notice.action.label}
         </Button>
       )}
       {notice.undo && (
