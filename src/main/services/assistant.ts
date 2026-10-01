@@ -37,7 +37,7 @@ import * as teamRules from './team-rules'
 import { viewTools } from './views/tools'
 import { mcpServersFor } from './agent'
 import { getTranscript } from './transcripts'
-import { agentOwner, isAgentOwner, isStandingNote, type MaestroConversation, type MaestroConversationMeta, type MaestroContext, type MaestroEvent, type MaestroSuggestion, type MaestroAutonomy, type MaestroMemoryCategory, type MaestroMemoryEntry, type CreateWorkspaceInput, type WorkspaceStage, type ReviewPr, type IncidentStatus, type Severity } from '@shared/types'
+import { agentOwner, isAgentOwner, isStandingNote, type MaestroConversation, type MaestroConversationMeta, type MaestroContext, type MaestroEvent, type MaestroSuggestion, type MaestroAutonomy, type MaestroMemoryCategory, type MaestroMemoryEntry, type CreateWorkspaceInput, type WorkspaceStage, type BuiltinStage, workspaceStages, statusesFor, type ReviewPr, type IncidentStatus, type Severity } from '@shared/types'
 import { SPACE_COLORS, type AgentSpec, type AssistantItem, type MaestroTurnError, type CostMode, type CostModeScope, type OnCallSettings, type Repo, type Space, type Settings, type NoteKind, type NotesFilter } from '@shared/types'
 
 export const ASSISTANT_WORKSPACE_ID = 'assistant'
@@ -985,12 +985,44 @@ const TOOLS: ToolDef[] = [
   },
   {
     name: 'set_stage',
-    description: 'Move a workspace to a stage: todo, in-progress, on-hold, in-review, done.',
-    shape: { workspaceId: z.string(), stage: z.enum(['todo', 'in-progress', 'on-hold', 'in-review', 'done']) },
+    description: "Move a workspace to a status: a built-in stage (todo, in-progress, on-hold, in-review, done) or one of its space's own statuses, by id or by name (e.g. \"In verification\"). list_workspace_statuses shows them.",
+    shape: { workspaceId: z.string(), stage: z.string() },
     run: async (i) => {
-      if (i.stage === 'done') await teamRules.ensureReviewKnown(workspaces.getWorkspace(String(i.workspaceId)))
-      const ws = workspaces.setStage(String(i.workspaceId), i.stage as WorkspaceStage)
-      return `"${ws.name}" is now ${ws.stage}.`
+      const before = workspaces.getWorkspace(String(i.workspaceId))
+      const wanted = String(i.stage).trim()
+      const stages = workspaceStages(workspaces.statusesOf(before))
+      const hit = stages.find((s) => s.id === wanted || s.label.toLowerCase() === wanted.toLowerCase())
+      if (!hit) throw new Error(`No status "${wanted}" here. Statuses: ${stages.map((s) => s.label).join(', ')}.`)
+      if (hit.id === 'done') await teamRules.ensureReviewKnown(before)
+      const ws = workspaces.setStage(before.id, hit.id as WorkspaceStage)
+      return `"${ws.name}" is now ${hit.label}.`
+    }
+  },
+  {
+    name: 'list_workspace_statuses',
+    description: "The statuses workspaces can be in for a scope, in board order: the built-in stages and the user's own (each placed after a built-in). scope: a space id or name, or \"app\" for workspaces outside a space.",
+    shape: { scope: z.string() },
+    run: async (i) => {
+      const scope = String(i.scope)
+      const spaceId = scope === 'app' ? undefined : spaceOrThrow(scope).id
+      const custom = statusesFor(spaceId, getStore().get())
+      return workspaceStages(custom)
+        .map((s) => `- ${s.label} (${s.id}${s.builtin ? ', built in' : `, after ${s.anchor}`})`)
+        .join('\n')
+    }
+  },
+  {
+    name: 'set_workspace_statuses',
+    description: "Replace the user's own workspace statuses for a scope (a space id or name, shared with that space's team; or \"app\" for workspaces outside a space). Each: label, after (the built-in stage it follows: todo, in-progress, on-hold, in-review, done), optional tone (text-accent, text-warn, text-ok, text-danger, text-muted), and id to keep an existing one. Statuses left out are removed; their workspaces move to the stage they sat after. Confirm with the user first.",
+    shape: {
+      scope: z.string(),
+      statuses: z.array(z.object({ id: z.string().optional(), label: z.string(), after: z.enum(['todo', 'in-progress', 'on-hold', 'in-review', 'done']), tone: z.string().optional() })).max(12)
+    },
+    run: async (i) => {
+      const scope = String(i.scope)
+      const spaceId = scope === 'app' ? null : spaceOrThrow(scope).id
+      const saved = workspaces.setStatuses(spaceId, i.statuses as { id?: string; label: string; after: BuiltinStage; tone?: string }[])
+      return saved.length ? `Statuses for ${scope === 'app' ? 'workspaces outside a space' : spaceOrThrow(scope).name}: ${saved.map((s) => `${s.label} (after ${s.after})`).join(', ')}.` : 'No custom statuses now; the built-in stages remain.'
     }
   },
   {

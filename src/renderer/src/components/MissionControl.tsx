@@ -18,7 +18,7 @@ import { timeAgo } from '@/lib/format'
 import { yieldsToEditor } from '@/lib/keys'
 import { tokens } from '@/lib/theme'
 import { Button, hasOpenDialog } from './ui'
-import { STAGE_DOT } from './StagePicker'
+import { stageDot } from '@/lib/stages'
 
 type Tone = 'attn' | 'run' | 'ok' | 'idle'
 
@@ -320,7 +320,7 @@ function RowView({ row, guided, now, open, answer, showSpace }: RowProps): React
     >
       <span className="flex min-w-0 items-center gap-2">
         {row.kind === 'running' && <span aria-hidden className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-accent" />}
-        {row.kind === 'idle' && <span aria-hidden className={clsx('h-1.5 w-1.5 shrink-0 rounded-full', STAGE_DOT[ws.stage])} />}
+        {row.kind === 'idle' && <span aria-hidden className={clsx('h-1.5 w-1.5 shrink-0 rounded-full', stageDot(ws.stage))} />}
         <span className={clsx('truncate font-semibold', guided ? 'text-[15px]' : 'text-[13px]')}>{name}</span>
         {showSpace && <SpaceChip spaceId={ws.spaceId} />}
         {!guided && (ws.jira || ws.linear) && <span className={clsx(chip, 'text-accent')}>{ws.jira?.key ?? ws.linear?.identifier}</span>}

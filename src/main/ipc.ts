@@ -471,6 +471,7 @@ export function registerIpc(): void {
     if (stage === 'done') await teamRules.ensureReviewKnown(workspaces.getWorkspace(id))
     return workspaces.setStage(id, stage)
   })
+  handle('workspaces:setStatuses', (spaceId, defs) => workspaces.setStatuses(spaceId, defs))
   handle('workspaces:refreshJira', (id) => workspaces.refreshJiraStatus(id))
   handle('workspaces:delete', (id) => {
     browser.closeWorkspace(id)

@@ -5,7 +5,7 @@ import { Plus, Settings, Archive, Pencil, Folder, Code2, TerminalSquare, Trash2,
 import { ERRORS_SEEN_KEY } from './FeedbackDialog'
 import { useResources, subscribeResources, gb } from '@/stores/resources'
 import { useUsage, subscribeUsage, windowLabel, clock } from '@/stores/usage'
-import { WORKSPACE_STAGES, type TeammateWorkspace } from '@shared/types'
+import { type TeammateWorkspace } from '@shared/types'
 import { LabelChip, labelsFor } from './LabelPicker'
 import { useApp, spaceOrder } from '@/stores/app'
 import { useChat } from '@/stores/chat'
@@ -19,7 +19,8 @@ import { IconButton, Segmented, Spinner } from './ui'
 import { ContextMenu, type MenuEntry } from './ContextMenu'
 import { useGuided, stageLabel as guidedStageLabel, words, cap } from '@/lib/guided'
 import { InlineRename } from './InlineRename'
-import { STAGE_DOT } from './StagePicker'
+import { anchorOf } from '@shared/types'
+import { stageDot, useStages } from '@/lib/stages'
 import type { Workspace } from '@shared/types'
 import { tokens } from '@/lib/theme'
 
@@ -121,7 +122,10 @@ export function Sidebar(): React.JSX.Element {
     fn().catch((err) => setError(friendlyError(err)))
   }
   // ⌥⌘↑ / ⌥⌘↓: previous / next workspace in the order the sidebar shows them (stage groups first in Status view).
-  const displayed = sidebarView === 'status' || guided ? WORKSPACE_STAGES.flatMap((st) => items.filter((w) => w.stage === st.id)) : items
+  const stageList = useStages(currentId || undefined)
+  // A status this space does not have (a workspace moved in from another space) shows under the stage it sat after.
+  const groupOf = (w: Workspace): string => (stageList.some((st) => st.id === w.stage) ? w.stage : anchorOf(w.stage, stageList.filter((st) => !st.builtin).map((st) => ({ id: st.id as `custom:${string}`, label: st.label, after: st.anchor }))))
+  const displayed = sidebarView === 'status' || guided ? stageList.flatMap((st) => items.filter((w) => groupOf(w) === st.id)) : items
   const displayedRef = useRef(displayed)
   displayedRef.current = displayed
   useEffect(() => {
@@ -262,14 +266,14 @@ export function Sidebar(): React.JSX.Element {
           </div>
         )}
         {sidebarView === 'status' || guided
-          ? WORKSPACE_STAGES.filter((st) => items.some((w) => w.stage === st.id)).map((st) => {
-              const group = items.filter((w) => w.stage === st.id)
+          ? stageList.filter((st) => items.some((w) => groupOf(w) === st.id)).map((st) => {
+              const group = items.filter((w) => groupOf(w) === st.id)
               const collapsed = Boolean(collapsedStages[st.id])
               return (
                 <div key={st.id} className="mb-2">
                   <button onClick={() => toggleStage(st.id)} className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted hover:text-text">
                     <ChevronRight size={11} className={clsx('shrink-0 transition-transform', !collapsed && 'rotate-90')} />
-                    <span className={clsx('h-1.5 w-1.5 shrink-0 rounded-full', STAGE_DOT[st.id])} />
+                    <span className={clsx('h-1.5 w-1.5 shrink-0 rounded-full', stageDot(st.id))} />
                     {guidedStageLabel(st.id, guided)}
                     <span className="normal-case text-muted">{group.length}</span>
                   </button>
@@ -625,7 +629,7 @@ function WorkspaceRow({ ws, grouped, selected, busy, done, onClick }: { ws: Work
         className={clsx('group/row mb-0.5 flex w-full cursor-default flex-col gap-0.5 rounded-md px-2 py-1.5 text-left transition-colors', selected ? 'bg-panel-2' : 'hover:bg-panel-2/60', ws.status === 'archived' && 'opacity-60')}
       >
         <div className="flex items-center gap-2">
-          {!grouped && <span className={clsx('h-1.5 w-1.5 shrink-0 rounded-full', STAGE_DOT[ws.stage])} title={guidedStageLabel(ws.stage, guided)} />}
+          {!grouped && <span className={clsx('h-1.5 w-1.5 shrink-0 rounded-full', stageDot(ws.stage))} title={guidedStageLabel(ws.stage, guided)} />}
           {editing ? (
             <InlineRename
               value={ws.name}

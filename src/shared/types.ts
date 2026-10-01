@@ -468,6 +468,8 @@ export interface Space {
   guided?: GuidedSpace
   /** Generated views of this space (Home pages, workspace tabs), shared with its team. */
   views?: ViewDef[]
+  /** This space's own workspace statuses, on top of the built-in stages. Shared with its team. */
+  workspaceStatuses?: WorkspaceStatusDef[]
   /** Team guardrails every agent (and Maestro) in this space follows. Travels with the shared definition. */
   rules?: TeamRules
   /** An admin lifted the daily spend limit on this Mac for one day (YYYY-MM-DD, UTC). Never shared. */
@@ -542,7 +544,7 @@ export interface SharedRepo {
   description?: string
 }
 /** The keys of a Space that are shared; everything about accounts, secrets and local paths stays personal. */
-export type SharedSpaceSettings = Pick<Space, 'engine' | 'model' | 'permissionMode' | 'useCrew' | 'agents' | 'budgetMode' | 'leanMode' | 'strictMcp' | 'githubOwners' | 'browserSensitiveOrigins' | 'exposeGcpMcp' | 'exposeJiraMcp' | 'exposeLinearMcp' | 'guided' | 'views' | 'rules'> & {
+export type SharedSpaceSettings = Pick<Space, 'engine' | 'model' | 'permissionMode' | 'useCrew' | 'agents' | 'budgetMode' | 'leanMode' | 'strictMcp' | 'githubOwners' | 'browserSensitiveOrigins' | 'exposeGcpMcp' | 'exposeJiraMcp' | 'exposeLinearMcp' | 'guided' | 'views' | 'rules' | 'workspaceStatuses'> & {
   mcpServers?: McpServerSpec[]
   jira?: Pick<JiraSettings, 'siteUrl' | 'defaultJql'>
   linear?: Pick<LinearSettings, 'defaultQuery'>
@@ -604,15 +606,69 @@ export interface WorkspaceRepo {
 export type WorkspaceStatus = 'creating' | 'ready' | 'error' | 'archiving' | 'archived'
 
 /** Where the work is, as the user sees it. Distinct from `status`, which is the app's own lifecycle. */
-export type WorkspaceStage = 'todo' | 'in-progress' | 'on-hold' | 'in-review' | 'done'
+/** The stages Sinfonie itself moves workspaces through (a PR opens: in review; it merges: done). */
+export type BuiltinStage = 'todo' | 'in-progress' | 'on-hold' | 'in-review' | 'done'
+/** A built-in stage, or one of the user's own statuses ("custom:<slug>"). */
+export type WorkspaceStage = BuiltinStage | `custom:${string}`
 
-export const WORKSPACE_STAGES: { id: WorkspaceStage; label: string }[] = [
+export const WORKSPACE_STAGES: { id: BuiltinStage; label: string }[] = [
   { id: 'todo', label: 'To do' },
   { id: 'in-progress', label: 'In progress' },
   { id: 'on-hold', label: 'On hold' },
   { id: 'in-review', label: 'In review' },
   { id: 'done', label: 'Done' }
 ]
+
+/**
+ * A status the user added (feedback #62: "In verification"). It sits right after a built-in stage,
+ * on the board and in pickers, and ranks just after it, so automation never pulls a workspace back
+ * past it (a PR opening does not move "In verification" back to "In review").
+ */
+export interface WorkspaceStatusDef {
+  id: `custom:${string}`
+  label: string
+  /** Tailwind text class: text-accent, text-warn, text-ok, text-danger, text-muted. */
+  tone?: string
+  after: BuiltinStage
+}
+export interface StageInfo {
+  id: WorkspaceStage
+  label: string
+  tone?: string
+  builtin: boolean
+  /** The built-in stage it belongs to (itself for a built-in). */
+  anchor: BuiltinStage
+}
+export const isCustomStage = (s: string | undefined): s is `custom:${string}` => typeof s === 'string' && s.startsWith('custom:')
+export const isBuiltinStage = (s: string | undefined): s is BuiltinStage => WORKSPACE_STAGES.some((b) => b.id === s)
+
+/** Every stage in board order: each built-in followed by the user's statuses placed after it. */
+export function workspaceStages(custom: WorkspaceStatusDef[] | undefined): StageInfo[] {
+  const out: StageInfo[] = []
+  for (const b of WORKSPACE_STAGES) {
+    out.push({ id: b.id, label: b.label, builtin: true, anchor: b.id })
+    for (const c of custom ?? []) if (c.after === b.id) out.push({ id: c.id, label: c.label, tone: c.tone, builtin: false, anchor: b.id })
+  }
+  return out
+}
+
+/** The user's statuses for a space (its own, shared with the team), or the app-wide ones outside a space. */
+export function statusesFor(spaceId: string | undefined, data: { settings: Pick<Settings, 'workspaceStatuses'>; spaces: Pick<Space, 'id' | 'workspaceStatuses'>[] }): WorkspaceStatusDef[] {
+  const space = spaceId ? data.spaces.find((s) => s.id === spaceId) : undefined
+  return (space ? space.workspaceStatuses : data.settings.workspaceStatuses) ?? []
+}
+
+/** The built-in a stage belongs to. A custom status that no longer exists falls back to In progress. */
+export function anchorOf(stage: WorkspaceStage | undefined, custom: WorkspaceStatusDef[] | undefined): BuiltinStage {
+  if (isBuiltinStage(stage)) return stage
+  return custom?.find((c) => c.id === stage)?.after ?? 'in-progress'
+}
+
+const STAGE_RANK: Record<BuiltinStage, number> = { todo: 0, 'on-hold': 1, 'in-progress': 2, 'in-review': 3, done: 4 }
+/** How far along a stage is, for automatic moves that must only go forward. Custom statuses rank just after their anchor. */
+export function stageRank(stage: WorkspaceStage | undefined, custom: WorkspaceStatusDef[] | undefined): number {
+  return isBuiltinStage(stage) ? STAGE_RANK[stage] : STAGE_RANK[anchorOf(stage, custom)] + 0.5
+}
 
 /** Pre-flight for archive/delete: what would be lost. */
 export interface RepoSafety {
@@ -846,6 +902,8 @@ export interface Settings {
   remote?: RemoteSettings
   /** The user's own generated views (Home pages, workspace tabs), for every space. */
   views?: ViewDef[]
+  /** Workspace statuses for workspaces outside a space (each space keeps its own). */
+  workspaceStatuses?: WorkspaceStatusDef[]
   /** Space views this user replaced with a personal copy or hid: space view id -> 'hidden' or the personal view id. */
   viewOverrides?: Record<string, string>
 }
@@ -891,7 +949,10 @@ export interface RemoteWorkspace {
   id: string
   name: string
   space?: { name: string; color: string }
-  stage: WorkspaceStage
+  /** A built-in stage: a custom status travels as the stage it sits after (the phone knows only these). */
+  stage: BuiltinStage
+  /** The custom status's own name, when the workspace is in one. */
+  stageLabel?: string
   status: WorkspaceStatus
   busy: boolean
   needsInput: boolean
