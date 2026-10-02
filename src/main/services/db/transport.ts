@@ -16,8 +16,15 @@ export class GcloudAuth extends OAuth2Client {
   constructor(private readonly account?: string) {
     super()
   }
+  // The Cloud SQL connector also calls this from background refreshes nobody awaits, so a failure here
+  // (sign-in expired, offline) surfaces as an unhandled rejection. It is the environment, not a bug:
+  // the connection itself reports it when used, so keep it out of the crash reports.
   private async token(): Promise<string> {
-    return gcp.accessToken(this.account)
+    try {
+      return await gcp.accessToken(this.account)
+    } catch (err) {
+      throw Object.assign(err instanceof Error ? err : new Error(String(err)), { expected: true })
+    }
   }
   override async getAccessToken(): Promise<{ token?: string | null; res?: null }> {
     return { token: await this.token(), res: null }
