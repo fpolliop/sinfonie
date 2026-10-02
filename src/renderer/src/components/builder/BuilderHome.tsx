@@ -10,6 +10,7 @@ import { repoLabel, workspaceLabel } from '@/lib/labels'
 import { timeAgo } from '@/lib/format'
 import { stageLabel } from '@/lib/guided'
 import { Button } from '../ui'
+import { anchorStage } from '@/lib/stages'
 
 type Tone = 'attn' | 'run' | 'ok' | 'danger' | 'idle'
 interface Status {
@@ -61,8 +62,9 @@ export function BuilderHome(): React.JSX.Element {
     if (c?.busy) return { tone: 'run', text: 'Working', next: 'Watch it work', rank: 1 }
     if (c && !c.busy && (c.error || c.lastResult?.isError)) return { tone: 'danger', text: 'Hit a problem', next: 'See what happened', rank: 0 }
     // Otherwise the task's stage, in the same words as the task's header and the sidebar (lib/guided stageLabel).
-    const stage = ws.stage ?? 'todo'
-    const text = stageLabel(stage, true)
+    // A team's own status behaves like the stage it sits after, but shows its own name.
+    const stage = anchorStage(ws.stage ?? 'todo', ws.spaceId)
+    const text = stageLabel(ws.stage ?? 'todo', true)
     if (stage === 'done') return { tone: 'ok', text, next: 'See it', rank: 5 }
     if (stage === 'in-review') {
       if (reviewed.some((p) => p.pr!.reviewDecision === 'APPROVED')) return { tone: 'ok', text: 'Approved', next: 'Open', rank: 4 }

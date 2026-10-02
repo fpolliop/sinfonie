@@ -18,6 +18,7 @@ function hostname(): string {
 }
 import QRCode from 'qrcode'
 import { getStore } from '../store'
+import { anchorOf, statusesFor, workspaceStages } from '@shared/types'
 import { getTranscript } from './transcripts'
 import * as agent from './agent'
 import type { AgentEvent, ChatItem, Incident, IncidentStatus, OnCallState, PermissionRequest, PermissionResponse, QuestionRequest, QuestionResponse, RemoteDevice, RemoteFromPhone, RemoteIncident, RemotePrompt, RemoteReviewPr, RemoteSettings, RemoteStatus, RemoteSpace, RemoteToPhone, RemoteWorkspace, Severity } from '@shared/types'
@@ -324,7 +325,9 @@ function workspaceList(): RemoteWorkspace[] {
         id: w.id,
         name: w.name,
         space: sp ? { name: sp.name, color: sp.color } : undefined,
-        stage: w.stage,
+        // The phone app knows the built-in stages only: a custom status travels as the stage it sits after, plus its name.
+        stage: anchorOf(w.stage, statusesFor(w.spaceId, getStore().get())),
+        stageLabel: workspaceStages(statusesFor(w.spaceId, getStore().get())).find((st) => st.id === w.stage)?.label,
         status: w.status,
         busy,
         needsInput,

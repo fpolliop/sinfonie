@@ -35,13 +35,14 @@ export const SOURCES = {
   workspaces: {
     description: 'Workspaces (not archived), most recently active first.',
     where: 'renderer',
-    params: z.object({ spaceId: z.string().optional(), stage: z.enum(['todo', 'in-progress', 'on-hold', 'in-review', 'done']).optional(), limit: z.number().optional() }),
+    params: z.object({ spaceId: z.string().optional(), stage: z.string().optional().describe('A built-in stage or a custom status id (custom:...)'), limit: z.number().optional() }),
     fields: {
       id: 'workspace id',
       name: 'name',
       space: 'space name',
       spaceId: 'space id',
-      stage: 'todo | in-progress | on-hold | in-review | done',
+      stage: 'todo | in-progress | on-hold | in-review | done, or a custom status id (custom:...)',
+      stageLabel: 'the status name as shown, including custom statuses',
       status: 'running | waiting | none (agent state, for a Status dot)',
       branch: 'branch name',
       repos: 'repo names joined with ", "',

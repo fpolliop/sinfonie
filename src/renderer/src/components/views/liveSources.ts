@@ -4,6 +4,7 @@
  */
 import type { Incident, PermissionRequest, QuestionRequest, Space, UsageSnapshot, Workspace } from '@shared/types'
 import { windowLabel } from '@/stores/usage'
+import { stageLabel } from '@/lib/guided'
 
 export interface LiveState {
   workspaces: Workspace[]
@@ -74,6 +75,7 @@ export function liveRows(source: string, params: Record<string, unknown>, live: 
         space: spaceName(w.spaceId),
         spaceId: w.spaceId ?? '',
         stage: w.stage,
+        stageLabel: stageLabel(w.stage, false),
         status: agentState(live, w.id),
         branch: w.repos[0]?.branch ?? '',
         repos: w.repos.map((r) => r.repoName).join(', '),

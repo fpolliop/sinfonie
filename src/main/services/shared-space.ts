@@ -15,7 +15,7 @@ import * as cloud from './cloud'
 import { SPACE_FILE, SPACE_COLORS } from '@shared/types'
 import type { Repo, SharedRepo, SharedSpaceSettings, Space, SpaceDefinition, SpaceImportPreview, SpaceImportResolution } from '@shared/types'
 
-const SHARED_KEYS = ['engine', 'model', 'permissionMode', 'useCrew', 'agents', 'budgetMode', 'leanMode', 'strictMcp', 'githubOwners', 'browserSensitiveOrigins', 'exposeGcpMcp', 'exposeJiraMcp', 'exposeLinearMcp', 'guided', 'views', 'rules'] as const
+const SHARED_KEYS = ['engine', 'model', 'permissionMode', 'useCrew', 'agents', 'budgetMode', 'leanMode', 'strictMcp', 'githubOwners', 'browserSensitiveOrigins', 'exposeGcpMcp', 'exposeJiraMcp', 'exposeLinearMcp', 'guided', 'views', 'rules', 'workspaceStatuses'] as const
 
 /** github.com/org/repo, however the remote was written (https, ssh, with or without .git). */
 export function normalizeRemote(remote: string): string {

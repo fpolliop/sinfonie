@@ -1,29 +1,17 @@
-import React from 'react'
+import React, { useState } from 'react'
 import clsx from 'clsx'
 import { ChevronDown } from 'lucide-react'
-import { WORKSPACE_STAGES, type WorkspaceStage } from '@shared/types'
+import { type WorkspaceStage } from '@shared/types'
 import { chipCls } from './ui'
-import { useGuided, stageLabel as label, stages } from '@/lib/guided'
+import { useGuided, stageLabel as label } from '@/lib/guided'
 import { useApp, useSelectedWorkspace } from '@/stores/app'
+import { stageDot, stagePill, useStages } from '@/lib/stages'
+import { WorkspaceStatusesDialog } from './WorkspaceStatusesDialog'
 
-export const STAGE_TONE: Record<WorkspaceStage, string> = {
-  todo: 'text-muted bg-panel-2',
-  'in-progress': 'text-accent bg-accent/15',
-  'on-hold': 'text-muted bg-warn/10',
-  'in-review': 'text-warn bg-warn/15',
-  done: 'text-ok bg-ok/15'
-}
-
-export const STAGE_DOT: Record<WorkspaceStage, string> = {
-  todo: 'bg-muted',
-  'in-progress': 'bg-accent',
-  'on-hold': 'bg-warn/50',
-  'in-review': 'bg-warn',
-  done: 'bg-ok'
-}
+const EDIT = '__edit_statuses__'
 
 export function stageLabel(stage: WorkspaceStage): string {
-  return WORKSPACE_STAGES.find((s) => s.id === stage)?.label ?? stage
+  return label(stage, false)
 }
 
 /** Coloured pill with a native select underneath, so it works with keyboard and screen readers. */
@@ -33,20 +21,23 @@ export function StagePicker({ stage, onChange, disabled }: { stage: WorkspaceSta
   const ws = useSelectedWorkspace()
   const requireReview = useApp((s) => Boolean(s.spaces.find((sp) => sp.id === ws?.spaceId)?.rules?.requireReview))
   const unreviewed = !guided && requireReview && !ws?.reviewRequestedAt
+  const options = useStages(ws?.spaceId)
+  const [editing, setEditing] = useState(false)
   return (
     <>
-      <label className={clsx(chipCls, 'no-drag relative shrink-0 cursor-pointer', STAGE_TONE[stage], disabled && 'opacity-60')} title={guided ? 'Where this task is' : 'Workspace stage'}>
-        <span className={clsx('h-1.5 w-1.5 rounded-full', STAGE_DOT[stage])} />
+      <label className={clsx(chipCls, 'no-drag relative shrink-0 cursor-pointer', stagePill(stage), disabled && 'opacity-60')} title={guided ? 'Where this task is' : 'Workspace status'}>
+        <span className={clsx('h-1.5 w-1.5 rounded-full', stageDot(stage))} />
         {label(stage, guided)}
         <ChevronDown size={11} className="-mr-0.5 opacity-60" />
-        <select className="absolute inset-0 cursor-pointer opacity-0" value={stage} disabled={disabled} onChange={(e) => onChange(e.target.value as WorkspaceStage)}>
+        <select className="absolute inset-0 cursor-pointer opacity-0" value={stage} disabled={disabled} onChange={(e) => (e.target.value === EDIT ? setEditing(true) : onChange(e.target.value as WorkspaceStage))}>
           {/* Guided: "Live" is set by the app once the change is out; it cannot be picked by hand. */}
-          {stages(guided).map((s) => (
+          {options.map((s) => (
             <option key={s.id} value={s.id} disabled={guided && s.id === 'done' && stage !== 'done'}>
-              {s.label}
+              {s.builtin ? label(s.id, guided) : s.label}
               {guided && s.id === 'done' && stage !== 'done' ? ' (set automatically)' : ''}
             </option>
           ))}
+          {!guided && <option value={EDIT}>Edit statuses…</option>}
         </select>
       </label>
       {unreviewed && stage === 'done' && (
@@ -54,6 +45,7 @@ export function StagePicker({ stage, onChange, disabled }: { stage: WorkspaceSta
           Not reviewed
         </span>
       )}
+      {editing && <WorkspaceStatusesDialog spaceId={ws?.spaceId} onClose={() => setEditing(false)} />}
     </>
   )
 }

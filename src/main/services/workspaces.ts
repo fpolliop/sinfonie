@@ -2,8 +2,8 @@ import { existsSync, mkdirSync, rmSync } from 'fs'
 import { createServer } from 'node:net'
 import { join } from 'path'
 import { nanoid } from 'nanoid'
-import type { ConductorConfig, CreateWorkspaceInput, Repo, RepoSafety, ScriptOutputEvent, Workspace, WorkspaceRepo, WorkspaceStage } from '@shared/types'
-import { PLAIN_ERROR_MARK } from '@shared/types'
+import type { BuiltinStage, ConductorConfig, CreateWorkspaceInput, Repo, RepoSafety, ScriptOutputEvent, Workspace, WorkspaceRepo, WorkspaceStage, WorkspaceStatusDef } from '@shared/types'
+import { PLAIN_ERROR_MARK, WORKSPACE_STAGES, anchorOf, isBuiltinStage, isCustomStage, stageRank, statusesFor, workspaceStages } from '@shared/types'
 import * as jira from './jira'
 import * as linear from './linear'
 import { getStore } from '../store'
@@ -306,18 +306,63 @@ export async function safetyReport(workspaceId: string): Promise<RepoSafety[]> {
   )
 }
 
+/** The statuses a workspace can be in: the built-ins plus its space's own (or the app-wide ones). */
+export function statusesOf(ws: Pick<Workspace, 'spaceId'>): WorkspaceStatusDef[] {
+  return statusesFor(ws.spaceId, getStore().get())
+}
+
 export function setStage(workspaceId: string, stage: WorkspaceStage): Workspace {
+  const ws = getWorkspace(workspaceId)
+  if (!isBuiltinStage(stage) && !statusesOf(ws).some((c) => c.id === stage)) {
+    const names = workspaceStages(statusesOf(ws)).map((s) => s.label)
+    throw new Error(`"${stage}" is not a status of this workspace's space. Statuses: ${names.join(', ')}.`)
+  }
   // Team guardrail: builders send for review before a task is done (renderer and Maestro both land here).
-  const veto = stageVeto(getWorkspace(workspaceId), stage)
+  const veto = stageVeto(ws, stage)
   if (veto) throw new Error(veto)
   return patchWorkspace(workspaceId, { stage })
 }
 
-/** Only ever moves forward, so a manual choice is not undone by a refresh. */
+/** Only ever moves forward, so a manual choice is not undone by a refresh. A custom status ranks just after its anchor. */
 export function advanceStage(workspaceId: string, stage: WorkspaceStage): void {
-  const order: WorkspaceStage[] = ['todo', 'on-hold', 'in-progress', 'in-review', 'done']
   const ws = getWorkspace(workspaceId)
-  if (order.indexOf(stage) > order.indexOf(ws.stage)) patchWorkspace(workspaceId, { stage })
+  const custom = statusesOf(ws)
+  if (stageRank(stage, custom) > stageRank(ws.stage, custom)) patchWorkspace(workspaceId, { stage })
+}
+
+/**
+ * Replace the statuses of a space (or, with null, the app-wide ones). Labels must be unique among the
+ * built-ins and each other; new ones get an id. Workspaces in a status that went away move to the
+ * built-in stage it sat after, so none disappears from the board.
+ */
+export function setStatuses(spaceId: string | null, defs: { id?: string; label: string; tone?: string; after: BuiltinStage }[]): WorkspaceStatusDef[] {
+  const seen = new Set(WORKSPACE_STAGES.map((b) => b.label.toLowerCase()))
+  const clean: WorkspaceStatusDef[] = []
+  for (const d of defs) {
+    const label = d.label.trim().slice(0, 40)
+    if (!label) throw new Error('A status needs a name.')
+    if (seen.has(label.toLowerCase())) throw new Error(`There is already a status called "${label}".`)
+    if (!isBuiltinStage(d.after)) throw new Error(`"${String(d.after)}" is not a built-in stage to place "${label}" after.`)
+    seen.add(label.toLowerCase())
+    const id = isCustomStage(d.id) ? d.id : (`custom:${label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'status'}-${nanoid(4)}` as const)
+    clean.push({ id, label, after: d.after, ...(d.tone ? { tone: d.tone } : {}) })
+  }
+  const before = statusesFor(spaceId ?? undefined, getStore().get())
+  getStore().update((d) => {
+    if (spaceId) {
+      const sp = d.spaces.find((x) => x.id === spaceId)
+      if (!sp) throw new Error('Unknown space')
+      if (clean.length) sp.workspaceStatuses = clean
+      else delete sp.workspaceStatuses
+    } else if (clean.length) d.settings.workspaceStatuses = clean
+    else delete d.settings.workspaceStatuses
+    const kept = new Set(clean.map((c) => c.id))
+    for (const w of d.workspaces) {
+      const inScope = spaceId ? w.spaceId === spaceId : !w.spaceId || !d.spaces.some((x) => x.id === w.spaceId)
+      if (inScope && isCustomStage(w.stage) && !kept.has(w.stage)) w.stage = anchorOf(w.stage, before)
+    }
+  })
+  return clean
 }
 
 export async function refreshJiraStatus(workspaceId: string): Promise<Workspace> {

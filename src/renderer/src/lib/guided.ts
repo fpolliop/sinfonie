@@ -2,7 +2,8 @@
  * Guided mode: the app for people who build with AI without writing code. One setting decides it, every
  * surface asks this module, and the words come from one map so the expert vocabulary never leaks through.
  */
-import { WORKSPACE_STAGES, type Workspace, type WorkspaceStage } from '@shared/types'
+import { WORKSPACE_STAGES, isBuiltinStage, type BuiltinStage, type Workspace, type WorkspaceStage } from '@shared/types'
+import { customStatus } from './stages'
 import { useApp } from '@/stores/app'
 
 /**
@@ -24,12 +25,13 @@ export const useGuided = (): boolean => useApp((s) => s.settings.mode === 'guide
 export const isGuided = (): boolean => useApp.getState().settings.mode === 'guided'
 
 /** Stage labels in guided words: the same four stages, seen from the person's side. */
-const GUIDED_STAGES: Record<WorkspaceStage, string> = { todo: 'Not started', 'in-progress': 'In progress', 'on-hold': 'Paused', 'in-review': 'Waiting for review', done: 'Live' }
+const GUIDED_STAGES: Record<BuiltinStage, string> = { todo: 'Not started', 'in-progress': 'In progress', 'on-hold': 'Paused', 'in-review': 'Waiting for review', done: 'Live' }
 
+/** A stage's name. A team's own status (feedback #62) shows its own name in both lenses: the team chose the words. */
 export function stageLabel(stage: WorkspaceStage | undefined, guided: boolean): string {
   if (!stage) return ''
-  if (guided) return GUIDED_STAGES[stage] ?? stage
-  return WORKSPACE_STAGES.find((s) => s.id === stage)?.label ?? stage
+  if (isBuiltinStage(stage)) return guided ? GUIDED_STAGES[stage] : (WORKSPACE_STAGES.find((s) => s.id === stage)?.label ?? stage)
+  return customStatus(stage)?.label ?? (guided ? GUIDED_STAGES['in-progress'] : 'In progress')
 }
 
 export const stages = (guided: boolean): { id: WorkspaceStage; label: string }[] => WORKSPACE_STAGES.map((s) => ({ id: s.id, label: stageLabel(s.id, guided) }))

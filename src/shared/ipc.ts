@@ -27,6 +27,8 @@ import type { MaestroMemoryCategory, MaestroMemoryEntry, MaestroConversation, Ma
   SessionSummary,
   UpdateInfo,
   WorkspaceStage,
+  BuiltinStage,
+  WorkspaceStatusDef,
   CreateWorkspaceInput,
   PermissionRequest,
   PermissionResponse,
@@ -117,6 +119,8 @@ export interface SinfonieInvoke {
   'workspaces:archive': (workspaceId: string, opts: { deleteBranches: boolean; forget?: boolean }) => Workspace | null
   'workspaces:safety': (workspaceId: string) => RepoSafety[]
   'workspaces:setStage': (workspaceId: string, stage: WorkspaceStage) => Workspace
+  /** Replace a space's own workspace statuses (null: the app-wide ones). Workspaces in a removed status move to its anchor. */
+  'workspaces:setStatuses': (spaceId: string | null, defs: { id?: string; label: string; tone?: string; after: BuiltinStage }[]) => WorkspaceStatusDef[]
   'workspaces:refreshJira': (workspaceId: string) => Workspace
   'workspaces:delete': (workspaceId: string) => void
   'workspaces:rename': (workspaceId: string, name: string, opts: { renameBranches: boolean }) => Workspace
