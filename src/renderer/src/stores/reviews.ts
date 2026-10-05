@@ -175,7 +175,17 @@ export const useReviews = create<ReviewsState>((set, get) => ({
     set({ sortDir })
   },
   refreshPrs: async () => {
-    const { owners, repos, mode } = get()
+    const { owners, mode, spaceId } = get()
+    // Re-read the space's repositories each time: one added since the space was opened must count,
+    // or its pull requests never show (feedback #54).
+    let repos = get().repos
+    if (spaceId !== null) {
+      const fresh = await api.invoke('reviews:detectRepos', spaceId).catch(() => null)
+      if (fresh && fresh.join('\n') !== repos.join('\n')) {
+        repos = fresh
+        set({ repos })
+      }
+    }
     if (owners.length === 0 && repos.length === 0) return
     set({ loadingPrs: true, error: undefined })
     try {

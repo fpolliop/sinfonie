@@ -14,6 +14,8 @@ export default defineConfig({
   },
   renderer: {
     plugins: [react(), tailwindcss()],
+    // Keep component names through minification, so crash reports' component stacks are readable.
+    esbuild: { keepNames: true },
     resolve: {
       alias: {
         '@': resolve('src/renderer/src'),

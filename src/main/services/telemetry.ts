@@ -68,6 +68,8 @@ const recent = new Map<string, number>()
 /** Log locally, and report once per distinct error per hour. Never includes chat content. */
 export function reportCrash(where: string, err: unknown, extra?: Record<string, unknown>): void {
   logError(where, err, extra)
+  // Errors marked expected are states the app already explains to the user (an expired sign-in), not bugs.
+  if (err && typeof err === 'object' && (err as { expected?: unknown }).expected === true) return
   // Development runs (electron-vite, hot reload, pkill restarts) produced most stored crashes; keep them local unless opted in.
   if (!app.isPackaged && process.env.SINFONIE_CRASH_PING !== '1') return
   const message = err instanceof Error ? `${err.name}: ${err.message}` : String(err)
