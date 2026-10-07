@@ -67,6 +67,7 @@ import * as oncall from './services/oncall/service'
 import * as gcp from './services/gcp'
 import * as assistant from './services/assistant'
 import * as db from './services/db/service'
+import * as jobs from './services/jobs'
 import * as viewStore from './services/views/store'
 import * as viewData from './services/views/data'
 import * as viewActions from './services/views/actions'
@@ -1148,6 +1149,9 @@ export function registerIpc(): void {
   handle('preview:cancelChecks', (id) => previewShots.cancelChecks(id))
   handle('builder:undoChange', (id, checkpoints) => builder.undoChange(id, checkpoints))
   handle('resources:get', () => resources.current())
+  handle('jobs:list', () => jobs.list())
+  handle('jobs:stop', (id) => jobs.stop(id))
+  jobs.start()
   handle('resources:stopTask', (workspaceId, taskId) => agent.stopTask(workspaceId, taskId))
   handle('resources:cancelWaiting', (workspaceId) => resources.cancelWaiting(workspaceId))
   handle('agent:interrupt', (id) => {

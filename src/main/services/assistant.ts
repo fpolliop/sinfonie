@@ -193,6 +193,12 @@ export function remove(id: string): void {
   }
   emit({ conversationId: id, type: 'removed' })
 }
+/** Maestro conversations answering right now, for the Running list. */
+export function busyConversations(): { id: string; title: string }[] {
+  load()
+  return Array.from(running.keys()).map((id) => ({ id, title: convos.get(id)?.title || 'Maestro' }))
+}
+
 export function stop(id: string): void {
   running.get(id)?.abort()
 }

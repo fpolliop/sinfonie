@@ -37,6 +37,7 @@ import logo from './assets/logo.svg'
 import { Button, hasOpenDialog } from './components/ui'
 import { CommandPalette, ShortcutSheet } from './components/CommandPalette'
 import { openSinfonieLink } from './lib/links'
+import { RunningView } from './components/RunningView'
 
 export default function App(): React.JSX.Element {
   const { loaded, load, selectedId, view, showNewWorkspace, settingsTarget, closeSettings, setShowNewWorkspace, setShowSettings, error, setError, stepSpace, setActiveSpace, feedbackDialog, setFeedbackDialog, onboarding, setOnboarding, assistantOpen, setAssistantOpen, openSettings } = useApp()
@@ -218,9 +219,9 @@ export default function App(): React.JSX.Element {
     // The Maestro dock is a column, not an overlay: the screen makes room for it instead of hiding under it.
     <div className="flex h-full" style={{ paddingRight: dockOpen && view !== 'maestro' ? dockWidth : 0 }}>
       <Rail />
-      {(view === 'workspace' || view === 'agents') && <Sidebar />}
+      {(view === 'workspace' || view === 'agents' || view === 'running') && <Sidebar />}
       <main className="flex min-w-0 flex-1 flex-col">
-        {view === 'reviews' || view === 'oncall' ? <ReviewInbox /> : view === 'agents' ? <AgentsView /> : view === 'notes' ? <NotesView /> : view === 'team' ? <TeamView /> : view === 'maestro' ? <MaestroHome tab="maestro" /> : view === 'home' ? <MaestroHome tab="pages" /> : selectedId ? <WorkspaceView key={selectedId} workspaceId={selectedId} /> : missionControl ? guided ? <BuilderHome /> : <MissionControl /> : <EmptyState />}
+        {view === 'reviews' || view === 'oncall' ? <ReviewInbox /> : view === 'agents' ? <AgentsView /> : view === 'notes' ? <NotesView /> : view === 'team' ? <TeamView /> : view === 'running' ? <RunningView /> : view === 'maestro' ? <MaestroHome tab="maestro" /> : view === 'home' ? <MaestroHome tab="pages" /> : selectedId ? <WorkspaceView key={selectedId} workspaceId={selectedId} /> : missionControl ? guided ? <BuilderHome /> : <MissionControl /> : <EmptyState />}
       </main>
       {showNewWorkspace && (guided ? <NewTaskDialog onClose={() => setShowNewWorkspace(false)} /> : <NewWorkspaceDialog onClose={() => setShowNewWorkspace(false)} />)}
       {settingsTarget && <SettingsWindow target={settingsTarget} onClose={closeSettings} />}
