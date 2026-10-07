@@ -406,7 +406,8 @@ function UsageBadge({ onOpen }: { onOpen: () => void }): React.JSX.Element | nul
 function MemoryGauge({ onOpen }: { onOpen: () => void }): React.JSX.Element | null {
   const snap = useResources((s) => s.snapshot)
   useEffect(() => subscribeResources(), [])
-  if (!snap || (snap.sessions.length === 0 && snap.level === 'normal' && snap.osPressure === 'normal')) return null
+  // Always shown once there is a reading: the Mac's own memory is worth a glance even when no agent runs.
+  if (!snap) return null
   const pct = Math.min(100, (snap.appRss / snap.budget) * 100)
   const running = snap.sessions.reduce((n, s) => n + s.tasks.length, 0)
   // The bar is Sinfonie against its own budget; the Mac's pressure is a separate note, so one is never mistaken for the other.
@@ -415,13 +416,20 @@ function MemoryGauge({ onOpen }: { onOpen: () => void }): React.JSX.Element | nu
   const text = own === 'critical' ? 'text-danger' : own === 'warn' ? 'text-warn' : 'text-muted'
   const macBusy = snap.osPressure !== 'normal'
   const others = (snap.topOthers ?? []).map((o) => `${o.name} ${gb(o.rss)}`).join(', ')
+  const macUse = snap.mac ? ` · Your Mac: ${gb(snap.mac.used)} of ${gb(snap.totalMem)} in use` : ''
   const macNote = macBusy ? ` · Your Mac is low on memory (macOS: ${snap.osPressure}, swap ${gb(snap.swapUsed)})${others ? `; biggest apps: ${others}` : ''}` : ''
   return (
-    <button onClick={onOpen} className="group mx-2 mb-1 rounded-md px-1.5 py-1 text-left hover:bg-panel-2" title={`Sinfonie uses ${gb(snap.appRss)} of a ${gb(snap.budget)} budget${macNote} · ${snap.sessions.length} agent${snap.sessions.length === 1 ? '' : 's'}, ${running} subagent${running === 1 ? '' : 's'} running. Click for details.`}>
+    <button onClick={onOpen} className="group mx-2 mb-1 rounded-md px-1.5 py-1 text-left hover:bg-panel-2" title={`Sinfonie uses ${gb(snap.appRss)} of a ${gb(snap.budget)} budget${macUse}${macNote} · ${snap.sessions.length} agent${snap.sessions.length === 1 ? '' : 's'}, ${running} subagent${running === 1 ? '' : 's'} running. Click for details.`}>
       <div className={clsx('flex items-center justify-between text-[11px]', text)}>
         <span>
           Memory {gb(snap.appRss)}
-          {macBusy && <span className={snap.osPressure === 'critical' ? 'text-danger' : 'text-warn'}> · Mac busy</span>}
+          {snap.mac ? (
+            <span className={snap.osPressure === 'critical' ? 'text-danger' : macBusy ? 'text-warn' : undefined}>
+              {' '}· Mac {(snap.mac.used / 1024 ** 3).toFixed(0)}/{(snap.totalMem / 1024 ** 3).toFixed(0)} GB
+            </span>
+          ) : (
+            macBusy && <span className={snap.osPressure === 'critical' ? 'text-danger' : 'text-warn'}> · Mac busy</span>
+          )}
         </span>
         <span>
           {snap.sessions.length} agent{snap.sessions.length === 1 ? '' : 's'}

@@ -820,6 +820,8 @@ export interface ResourceSnapshot {
   osPressure: PressureLevel
   /** The largest apps outside Sinfonie, for "close something to free memory". */
   topOthers: { name: string; rss: number }[]
+  /** The whole Mac, as Activity Monitor counts it (Memory Used = apps + wired + compressed). Null when vm_stat is unavailable. */
+  mac: { used: number; apps: number; wired: number; compressed: number; cached: number } | null
   totalMem: number
   budget: number
   /** Everything under the Sinfonie process, renderer included. */

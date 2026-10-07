@@ -48,6 +48,22 @@ export function ResourcesPage(): React.JSX.Element {
             <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-panel-2">
               <div className={clsx('h-full rounded-full transition-all', LEVEL[snap.appLevel ?? snap.level].bar)} style={{ width: `${pct}%` }} />
             </div>
+            <div className="mt-1.5 text-[11px] text-muted">
+              Sessions {gb(snap.sessions.reduce((n, s) => n + s.rss, 0))} · terminals {gb(snap.terminalsRss + snap.sessions.reduce((n, s) => n + s.terminalsRss, 0))} · app and other {gb(snap.otherRss)}
+            </div>
+            {snap.mac && (
+              <div className="mt-3 border-t border-border pt-2.5">
+                <div className="flex items-center gap-2 text-[12px]">
+                  <span className="font-medium">Your Mac: {gb(snap.mac.used)} of {gb(snap.totalMem)} in use</span>
+                  <span className="text-muted">
+                    apps {gb(snap.mac.apps)} · wired {gb(snap.mac.wired)} · compressed {gb(snap.mac.compressed)} · cached files {gb(snap.mac.cached)}
+                  </span>
+                </div>
+                <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-panel-2" title="Memory Used, as Activity Monitor counts it">
+                  <div className={clsx('h-full rounded-full transition-all', snap.osPressure === 'critical' ? 'bg-danger' : snap.osPressure === 'warn' ? 'bg-warn' : 'bg-muted')} style={{ width: `${Math.min(100, (snap.mac.used / snap.totalMem) * 100)}%` }} />
+                </div>
+              </div>
+            )}
             {snap.osPressure !== 'normal' && (
               <p className={clsx('mt-2 text-[12px]', snap.osPressure === 'critical' ? 'text-danger' : 'text-warn')}>
                 Your Mac is low on memory, and it is not Sinfonie: macOS reports {snap.osPressure} pressure with {gb(snap.swapUsed)} in swap.
@@ -55,9 +71,6 @@ export function ResourcesPage(): React.JSX.Element {
                 {snap.osPressure === 'critical' ? ' New subagents wait until it eases.' : ' Subagents keep running; Sinfonie only holds back if macOS reports critical pressure.'}
               </p>
             )}
-            <div className="mt-1.5 text-[11px] text-muted">
-              Sessions {gb(snap.sessions.reduce((n, s) => n + s.rss, 0))} · terminals {gb(snap.terminalsRss + snap.sessions.reduce((n, s) => n + s.terminalsRss, 0))} · app and other {gb(snap.otherRss)}
-            </div>
           </div>
 
           <div className="mb-4 rounded-lg border border-border">

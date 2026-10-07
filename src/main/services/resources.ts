@@ -86,6 +86,18 @@ export function delegationVeto(workspaceId: string): string | null {
   return null
 }
 
+/** The whole Mac's memory from vm_stat, counted the way Activity Monitor does: Memory Used = apps + wired + compressed. */
+function macMemory(vm: string): ResourceSnapshot['mac'] {
+  const page = Number(/page size of (\d+) bytes/.exec(vm)?.[1])
+  if (!page) return null
+  const pages = (label: string): number => Number(new RegExp(`${label}:\\s+(\\d+)`).exec(vm)?.[1] ?? 0) * page
+  const apps = Math.max(0, pages('Anonymous pages') - pages('Pages purgeable'))
+  const wired = pages('Pages wired down')
+  const compressed = pages('Pages occupied by compressor')
+  const cached = pages('File-backed pages') + pages('Pages purgeable')
+  return { used: apps + wired + compressed, apps, wired, compressed, cached }
+}
+
 /** The app a process belongs to: "Arc" for /Applications/Arc.app/…/Browser, else the binary's name. */
 function appName(command: string): string {
   const app = /\/([^/]+)\.app\//.exec(command)?.[1]
@@ -98,7 +110,8 @@ function pressureText(level: PressureLevel, enforce: boolean, stops: boolean | u
   if (snapshot.appLevel === 'normal') {
     // Only macOS critical gets here: Sinfonie is not the cause.
     const what = enforce ? ` New subagents wait until it eases${stops ? ', and the newest running one is stopped' : ''}.` : ''
-    return `Your Mac is critically low on memory (macOS reports critical pressure, swap ${gb(snapshot.swapUsed)}). Sinfonie itself uses ${gb(snapshot.appRss)}, well under its ${gb(snapshot.budget)} budget.${what}${others}`
+    const macUsed = snapshot.mac ? `, ${gb(snapshot.mac.used)} of ${gb(snapshot.totalMem)} in use` : ''
+    return `Your Mac is critically low on memory (macOS reports critical pressure${macUsed}, swap ${gb(snapshot.swapUsed)}). Sinfonie itself uses ${gb(snapshot.appRss)}, well under its ${gb(snapshot.budget)} budget.${what}${others}`
   }
   const over = snapshot.appLevel === 'critical'
   const what = enforce ? (over && stops ? ' New subagents wait, and the newest running one is stopped until it is back under budget.' : ' New subagents wait until running ones finish.') : ' Nothing is stopped (warn-only mode).'
@@ -107,7 +120,7 @@ function pressureText(level: PressureLevel, enforce: boolean, stops: boolean | u
 
 // ---------- sampling ----------
 
-let snapshot: ResourceSnapshot = { at: new Date().toISOString(), level: 'normal', appLevel: 'normal', osPressure: 'normal', topOthers: [], totalMem: os.totalmem(), budget: 0, appRss: 0, swapUsed: 0, sessions: [], terminalsRss: 0, otherRss: 0, waiting: [] }
+let snapshot: ResourceSnapshot = { at: new Date().toISOString(), level: 'normal', appLevel: 'normal', osPressure: 'normal', topOthers: [], mac: null, totalMem: os.totalmem(), budget: 0, appRss: 0, swapUsed: 0, sessions: [], terminalsRss: 0, otherRss: 0, waiting: [] }
 export function current(): ResourceSnapshot {
   return snapshot
 }
@@ -133,7 +146,7 @@ function sh(cmd: string, args: string[]): Promise<string> {
 }
 
 async function sample(): Promise<void> {
-  const [ps, pressure, swap] = await Promise.all([sh('ps', ['-axo', 'pid=,ppid=,rss=,comm=']), sh('sysctl', ['-n', 'kern.memorystatus_vm_pressure_level']), sh('sysctl', ['-n', 'vm.swapusage'])])
+  const [ps, pressure, swap, vm] = await Promise.all([sh('ps', ['-axo', 'pid=,ppid=,rss=,comm=']), sh('sysctl', ['-n', 'kern.memorystatus_vm_pressure_level']), sh('sysctl', ['-n', 'vm.swapusage']), sh('vm_stat', [])])
   const rss = new Map<number, number>()
   const names = new Map<number, string>()
   const children = new Map<number, number[]>()
@@ -230,6 +243,7 @@ async function sample(): Promise<void> {
     appLevel,
     osPressure: osLevel,
     topOthers,
+    mac: macMemory(vm),
     totalMem,
     budget,
     appRss: app.bytes,
@@ -280,7 +294,7 @@ function log(): void {
   try {
     const dir = join(app.getPath('userData'), 'logs')
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
-    const brief = { at: snapshot.at, level: snapshot.level, app: snapshot.appLevel, os: snapshot.osPressure, appMb: Math.round(snapshot.appRss / 1048576), swapMb: Math.round(snapshot.swapUsed / 1048576), sessions: snapshot.sessions.map((r) => ({ ws: r.workspaceId, mb: Math.round(r.rss / 1048576), procs: r.procs, tasks: r.tasks.length })) }
+    const brief = { at: snapshot.at, level: snapshot.level, app: snapshot.appLevel, os: snapshot.osPressure, macMb: snapshot.mac ? Math.round(snapshot.mac.used / 1048576) : null, appMb: Math.round(snapshot.appRss / 1048576), swapMb: Math.round(snapshot.swapUsed / 1048576), sessions: snapshot.sessions.map((r) => ({ ws: r.workspaceId, mb: Math.round(r.rss / 1048576), procs: r.procs, tasks: r.tasks.length })) }
     appendFileSync(join(dir, 'resources.jsonl'), JSON.stringify(brief) + '\n')
   } catch {
     /* never break sampling */
