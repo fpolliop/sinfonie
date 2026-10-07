@@ -79,13 +79,35 @@ export function delegationVeto(workspaceId: string): string | null {
   const cap = (space?.budgetMode ?? app.budgetMode) ? Math.min(2, s.maxSubagentsPerSession) : s.maxSubagentsPerSession
   if (running >= cap) return `${running} subagent${running === 1 ? ' is' : 's are'} already running in this session (limit ${cap}${cap < s.maxSubagentsPerSession ? ', budget mode' : ''}). Wait for one to finish before delegating again, or do the work yourself.`
   if (running >= s.maxSubagentsPerSession) return `${running} subagent${running === 1 ? ' is' : 's are'} already running in this session (limit ${s.maxSubagentsPerSession}). Wait for one to finish before delegating again, or do the work yourself.`
-  if (s.governor === 'enforce' && snapshot.level !== 'normal') return `the Mac is under memory pressure (Sinfonie is using ${gb(snapshot.appRss)} of its ${gb(snapshot.budget)} budget; macOS reports ${snapshot.osPressure}). Do the work yourself or wait for running subagents to finish; no new subagents start until pressure eases.`
+  if (s.governor === 'enforce' && snapshot.level !== 'normal') {
+    if (snapshot.appLevel === 'normal') return `macOS reports critical memory pressure on this Mac, mostly from other apps (Sinfonie itself uses ${gb(snapshot.appRss)} of its ${gb(snapshot.budget)} budget). Do the work yourself or wait; no new subagents start until it eases.`
+    return `Sinfonie is using ${gb(snapshot.appRss)} of its ${gb(snapshot.budget)} memory budget. Do the work yourself or wait for running subagents to finish; no new subagents start until it is back under 80%.`
+  }
   return null
+}
+
+/** The app a process belongs to: "Arc" for /Applications/Arc.app/…/Browser, else the binary's name. */
+function appName(command: string): string {
+  const app = /\/([^/]+)\.app\//.exec(command)?.[1]
+  return app ?? command.split('/').pop()?.trim() ?? command
+}
+
+/** What the person reads when the level changes: the real cause, and what helps. */
+function pressureText(level: PressureLevel, enforce: boolean, stops: boolean | undefined): string {
+  const others = snapshot.topOthers.length ? ` Closing other apps helps most: ${snapshot.topOthers.map((o) => `${o.name} ${gb(o.rss)}`).join(', ')}.` : ''
+  if (snapshot.appLevel === 'normal') {
+    // Only macOS critical gets here: Sinfonie is not the cause.
+    const what = enforce ? ` New subagents wait until it eases${stops ? ', and the newest running one is stopped' : ''}.` : ''
+    return `Your Mac is critically low on memory (macOS reports critical pressure, swap ${gb(snapshot.swapUsed)}). Sinfonie itself uses ${gb(snapshot.appRss)}, well under its ${gb(snapshot.budget)} budget.${what}${others}`
+  }
+  const over = snapshot.appLevel === 'critical'
+  const what = enforce ? (over && stops ? ' New subagents wait, and the newest running one is stopped until it is back under budget.' : ' New subagents wait until running ones finish.') : ' Nothing is stopped (warn-only mode).'
+  return `Sinfonie is ${over ? 'over' : 'near'} its memory budget: ${gb(snapshot.appRss)} of ${gb(snapshot.budget)}.${what}`
 }
 
 // ---------- sampling ----------
 
-let snapshot: ResourceSnapshot = { at: new Date().toISOString(), level: 'normal', osPressure: 'normal', totalMem: os.totalmem(), budget: 0, appRss: 0, swapUsed: 0, sessions: [], terminalsRss: 0, otherRss: 0, waiting: [] }
+let snapshot: ResourceSnapshot = { at: new Date().toISOString(), level: 'normal', appLevel: 'normal', osPressure: 'normal', topOthers: [], totalMem: os.totalmem(), budget: 0, appRss: 0, swapUsed: 0, sessions: [], terminalsRss: 0, otherRss: 0, waiting: [] }
 export function current(): ResourceSnapshot {
   return snapshot
 }
@@ -103,18 +125,25 @@ let timer: NodeJS.Timeout | null = null
 let lastLogAt = 0
 let warnedLevel: PressureLevel = 'normal'
 
+/** Development aid: SINFONIE_FAKE_PRESSURE=2 (warn) or 4 (critical) pretends macOS reports that level. Ignored when packaged. */
+const FAKE_PRESSURE = app.isPackaged ? undefined : process.env.SINFONIE_FAKE_PRESSURE
+
 function sh(cmd: string, args: string[]): Promise<string> {
   return new Promise((resolve) => execFile(cmd, args, { timeout: 4000 }, (err, out) => resolve(err ? '' : String(out))))
 }
 
 async function sample(): Promise<void> {
-  const [ps, pressure, swap] = await Promise.all([sh('ps', ['-axo', 'pid=,ppid=,rss=']), sh('sysctl', ['-n', 'kern.memorystatus_vm_pressure_level']), sh('sysctl', ['-n', 'vm.swapusage'])])
+  const [ps, pressure, swap] = await Promise.all([sh('ps', ['-axo', 'pid=,ppid=,rss=,comm=']), sh('sysctl', ['-n', 'kern.memorystatus_vm_pressure_level']), sh('sysctl', ['-n', 'vm.swapusage'])])
   const rss = new Map<number, number>()
+  const names = new Map<number, string>()
   const children = new Map<number, number[]>()
   for (const line of ps.split('\n')) {
-    const [pid, ppid, kb] = line.trim().split(/\s+/).map(Number)
+    const m = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(.*)$/.exec(line)
+    if (!m) continue
+    const [pid, ppid, kb] = [Number(m[1]), Number(m[2]), Number(m[3])]
     if (!pid) continue
     rss.set(pid, (kb || 0) * 1024)
+    names.set(pid, appName(m[4]))
     const list = children.get(ppid)
     if (list) list.push(pid)
     else children.set(ppid, [pid])
@@ -138,12 +167,36 @@ async function sample(): Promise<void> {
   const s = resourceSettings()
   const totalMem = os.totalmem()
   const budget = (totalMem * s.memoryBudgetPct) / 100
-  const osLevel: PressureLevel = pressure.trim() === '4' ? 'critical' : pressure.trim() === '2' ? 'warn' : 'normal'
+  const kernel = FAKE_PRESSURE || pressure.trim()
+  const osLevel: PressureLevel = kernel === '4' ? 'critical' : kernel === '2' ? 'warn' : 'normal'
   const swapUsed = (() => {
     const m = /used = ([\d.]+)([MG])/.exec(swap)
     return m ? Number(m[1]) * (m[2] === 'G' ? 1024 ** 3 : 1024 ** 2) : 0
   })()
-  const level: PressureLevel = osLevel === 'critical' || app.bytes > budget ? 'critical' : osLevel === 'warn' || app.bytes > budget * 0.8 ? 'warn' : 'normal'
+  // Sinfonie's own level decides; macOS only overrides it when it reports critical (feedback 2026-10-07: its
+  // routine "warn" comes from other apps, and refusing subagents for it blamed Sinfonie's budget for nothing).
+  const appLevel: PressureLevel = app.bytes > budget ? 'critical' : app.bytes > budget * 0.8 ? 'warn' : 'normal'
+  const level: PressureLevel = osLevel === 'critical' ? 'critical' : appLevel
+  const own = new Set<number>()
+  {
+    const stack = [process.pid]
+    while (stack.length) {
+      const p = stack.pop()!
+      if (own.has(p)) continue
+      own.add(p)
+      for (const c of children.get(p) ?? []) stack.push(c)
+    }
+  }
+  const byApp = new Map<string, number>()
+  for (const [pid, bytes] of rss) {
+    if (own.has(pid)) continue
+    const n = names.get(pid)
+    if (!n || n === 'kernel_task' || n === 'WindowServer') continue
+    byApp.set(n, (byApp.get(n) ?? 0) + bytes)
+  }
+  const topOthers = Array.from(byApp, ([name, bytes]) => ({ name, rss: bytes }))
+    .sort((a, b) => b.rss - a.rss)
+    .slice(0, 3)
 
   const byWs = new Map<string, ResourceSession>()
   let terminalsRss = 0
@@ -174,7 +227,9 @@ async function sample(): Promise<void> {
   snapshot = {
     at: new Date().toISOString(),
     level,
+    appLevel,
     osPressure: osLevel,
+    topOthers,
     totalMem,
     budget,
     appRss: app.bytes,
@@ -201,10 +256,10 @@ function govern(level: PressureLevel): void {
   if (level !== warnedLevel) {
     if (s.governor !== 'off') {
       if (level === 'normal') {
-        for (const r of busySessions) hooks.notice(r.workspaceId, 'info', 'Memory pressure eased; subagents may start again.')
+        for (const r of busySessions) hooks.notice(r.workspaceId, 'info', 'Memory is back to normal; subagents may start again.')
       } else {
-        const what = s.governor === 'enforce' ? 'New subagents are refused until it eases.' : 'The governor is in warn-only mode, so nothing is stopped.'
-        for (const r of busySessions) hooks.notice(r.workspaceId, level === 'critical' ? 'error' : 'warn', `Memory is ${level === 'critical' ? 'critically low' : 'under pressure'}: Sinfonie is using ${gb(snapshot.appRss)} of its ${gb(snapshot.budget)} budget and macOS reports ${snapshot.osPressure}. ${what}`)
+        const text = pressureText(level, s.governor === 'enforce', s.stopSubagentsOnCritical)
+        for (const r of busySessions) hooks.notice(r.workspaceId, level === 'critical' ? 'error' : 'warn', text)
       }
     }
     warnedLevel = level
@@ -225,7 +280,7 @@ function log(): void {
   try {
     const dir = join(app.getPath('userData'), 'logs')
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
-    const brief = { at: snapshot.at, level: snapshot.level, os: snapshot.osPressure, appMb: Math.round(snapshot.appRss / 1048576), swapMb: Math.round(snapshot.swapUsed / 1048576), sessions: snapshot.sessions.map((r) => ({ ws: r.workspaceId, mb: Math.round(r.rss / 1048576), procs: r.procs, tasks: r.tasks.length })) }
+    const brief = { at: snapshot.at, level: snapshot.level, app: snapshot.appLevel, os: snapshot.osPressure, appMb: Math.round(snapshot.appRss / 1048576), swapMb: Math.round(snapshot.swapUsed / 1048576), sessions: snapshot.sessions.map((r) => ({ ws: r.workspaceId, mb: Math.round(r.rss / 1048576), procs: r.procs, tasks: r.tasks.length })) }
     appendFileSync(join(dir, 'resources.jsonl'), JSON.stringify(brief) + '\n')
   } catch {
     /* never break sampling */

@@ -40,14 +40,21 @@ export function ResourcesPage(): React.JSX.Element {
             <div className="flex items-center gap-2 text-[13px]">
               <span className="font-semibold">Sinfonie is using {gb(snap.appRss)}</span>
               <span className="text-muted">of a {gb(snap.budget)} budget ({r.memoryBudgetPct}% of {gb(snap.totalMem)})</span>
-              <Badge tone={LEVEL[snap.level].tone}>{LEVEL[snap.level].label}</Badge>
+              <Badge tone={LEVEL[snap.appLevel ?? snap.level].tone}>{LEVEL[snap.appLevel ?? snap.level].label}</Badge>
               <span className="ml-auto text-[11px] text-muted" title="What the macOS kernel reports for the whole machine">
                 macOS: {snap.osPressure} · swap {gb(snap.swapUsed)}
               </span>
             </div>
             <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-panel-2">
-              <div className={clsx('h-full rounded-full transition-all', LEVEL[snap.level].bar)} style={{ width: `${pct}%` }} />
+              <div className={clsx('h-full rounded-full transition-all', LEVEL[snap.appLevel ?? snap.level].bar)} style={{ width: `${pct}%` }} />
             </div>
+            {snap.osPressure !== 'normal' && (
+              <p className={clsx('mt-2 text-[12px]', snap.osPressure === 'critical' ? 'text-danger' : 'text-warn')}>
+                Your Mac is low on memory, and it is not Sinfonie: macOS reports {snap.osPressure} pressure with {gb(snap.swapUsed)} in swap.
+                {snap.topOthers?.length ? ` The biggest apps right now: ${snap.topOthers.map((o) => `${o.name} ${gb(o.rss)}`).join(', ')}.` : ''}
+                {snap.osPressure === 'critical' ? ' New subagents wait until it eases.' : ' Subagents keep running; Sinfonie only holds back if macOS reports critical pressure.'}
+              </p>
+            )}
             <div className="mt-1.5 text-[11px] text-muted">
               Sessions {gb(snap.sessions.reduce((n, s) => n + s.rss, 0))} · terminals {gb(snap.terminalsRss + snap.sessions.reduce((n, s) => n + s.terminalsRss, 0))} · app and other {gb(snap.otherRss)}
             </div>
@@ -109,7 +116,7 @@ export function ResourcesPage(): React.JSX.Element {
         <Field label="Sessions generating at once" hint="Further messages wait for a free slot.">
           <input type="number" min={1} max={32} className={inputCls} key={r.maxActiveSessions} defaultValue={r.maxActiveSessions} onBlur={(e) => update({ maxActiveSessions: Math.max(1, Number(e.target.value) || DEFAULTS.maxActiveSessions) })} />
         </Field>
-        <Field label="Memory budget, % of RAM" hint="Pressure counts as warn at 80% of it and critical at 100%.">
+        <Field label="Memory budget, % of RAM" hint="Sinfonie holds back new subagents at 80% of it, and stops the newest one over 100%. macOS's own pressure only counts when it reports critical.">
           <input type="number" min={10} max={95} className={inputCls} key={r.memoryBudgetPct} defaultValue={r.memoryBudgetPct} onBlur={(e) => update({ memoryBudgetPct: Math.min(95, Math.max(10, Number(e.target.value) || DEFAULTS.memoryBudgetPct)) })} />
         </Field>
       </div>
