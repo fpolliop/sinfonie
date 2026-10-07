@@ -808,9 +808,20 @@ export interface ResourceSession {
 }
 export interface ResourceSnapshot {
   at: string
+  /**
+   * What the governor acts on: Sinfonie's own level against its budget, raised to critical when macOS
+   * reports critical pressure. macOS's routine "warn" alone does not raise it: other apps cause it and
+   * holding back Sinfonie's subagents does not relieve it.
+   */
   level: PressureLevel
+  /** Sinfonie's process tree against its budget only: warn at 80%, critical over 100%. */
+  appLevel: PressureLevel
   /** What the macOS kernel reports, independent of Sinfonie's own budget. */
   osPressure: PressureLevel
+  /** The largest apps outside Sinfonie, for "close something to free memory". */
+  topOthers: { name: string; rss: number }[]
+  /** The whole Mac, as Activity Monitor counts it (Memory Used = apps + wired + compressed). Null when vm_stat is unavailable. */
+  mac: { used: number; apps: number; wired: number; compressed: number; cached: number } | null
   totalMem: number
   budget: number
   /** Everything under the Sinfonie process, renderer included. */
