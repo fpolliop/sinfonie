@@ -806,6 +806,27 @@ export interface ResourceSession {
   tasks: ResourceTask[]
   busy: boolean
 }
+/** Something Sinfonie is doing right now, or will do soon, for the Running list (feedback #65). */
+export interface Job {
+  id: string
+  kind: 'agent-turn' | 'cli' | 'agent-task' | 'queued' | 'agent-run' | 'scheduled' | 'review' | 'triage' | 'fix-pr' | 'script' | 'maestro'
+  state: 'running' | 'queued' | 'scheduled'
+  title: string
+  /** One line about what it is doing or what it is for. */
+  detail?: string
+  workspaceId?: string
+  spaceId?: string
+  agentId?: string
+  reviewKey?: string
+  incidentId?: string
+  conversationId?: string
+  startedAt?: string
+  nextAt?: string
+  /** Memory of the process tree behind it, when Sinfonie can attribute it. */
+  rss?: number
+  stoppable: boolean
+}
+
 export interface ResourceSnapshot {
   at: string
   /**

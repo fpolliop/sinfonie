@@ -31,7 +31,7 @@ export function setRunEmitters(run: typeof emitRun, chat: typeof emitChat, runsC
   chatBusy = busy
 }
 
-const running = new Map<string, { abort: AbortController; workspaceId: string }>()
+const running = new Map<string, { abort: AbortController; workspaceId: string; agent?: { id: string; name: string; startedAt: string; prompt: string } }>()
 const invoking = new Set<string>()
 
 /** True while an agent's own conversation or a mention in a workspace is running. */
@@ -141,7 +141,7 @@ export function start(agentId: string, workspaceId: string | null, prompt: strin
   const ws = contextOf(spec, workspaceId)
   const runId = givenRunId && !running.has(givenRunId) ? givenRunId : nanoid(8)
   const abort = new AbortController()
-  running.set(runId, { abort, workspaceId: ws.id })
+  running.set(runId, { abort, workspaceId: ws.id, agent: { id: spec.id, name: spec.name, startedAt: new Date().toISOString(), prompt } })
   const started = new Date()
   const entry: AgentRun = { id: runId, trigger: 'manual', startedAt: started.toISOString(), prompt, ...(workspaceId ? { workspaceId } : {}) }
   if (base) record(base.id, entry)
@@ -164,6 +164,13 @@ export function start(agentId: string, workspaceId: string | null, prompt: strin
     })
     .finally(() => running.delete(runId))
   return runId
+}
+
+/** Standalone agent runs in progress (an agent's own chat or Run now). @name and scheduled runs show as their owner's background tasks. */
+export function activeRuns(): { runId: string; agentId: string; agentName: string; workspaceId: string; startedAt: string; prompt: string }[] {
+  const out: { runId: string; agentId: string; agentName: string; workspaceId: string; startedAt: string; prompt: string }[] = []
+  for (const [runId, r] of running) if (r.agent) out.push({ runId, agentId: r.agent.id, agentName: r.agent.name, workspaceId: r.workspaceId, startedAt: r.agent.startedAt, prompt: r.agent.prompt })
+  return out
 }
 
 export function cancel(runId: string): void {
