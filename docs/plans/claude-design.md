@@ -1,6 +1,6 @@
 # Claude Design in Sinfonie: design, then build, without leaving the app
 
-Status: plan, 2026-10-06. Discussed with the owner the same day.
+Status: plan, 2026-10-06. Spike done 2026-10-10 (see Spike results).
 
 ## Who designs
 
@@ -78,6 +78,33 @@ browser-based path or nothing. Using them needs a claude.ai plan with Claude Des
 - Reading a canvas through the browser uses the person's own claude.ai session in that space's browser
   profile; nothing is copied off the Mac except what the agent sends to the model.
 - Team rules apply: a space can turn Sketch an idea off, or limit who can sync the design system.
+
+## Spike results (2026-10-10)
+
+| Question | Answer |
+|---|---|
+| Can Sinfonie's agent sessions create or read canvases? | **No.** The `Artifact` tool is absent from Agent SDK sessions and from non-interactive Claude Code (`claude -p`), in the bundled 2.1.259 **and** the newest installed 2.1.285, both in the initial tool list and as a deferred tool (`ToolSearch "select:Artifact"` → "No matching deferred tools found"). It is only present in Claude Code sessions launched from the Claude app. |
+| Does `DesignSync` work from an agent session? | **Yes, after a one-time authorization.** The first call returns: "DesignSync needs design-system authorization, and /design-login cannot run in this non-interactive session… run /design-login once from an interactive Claude Code session on this machine; headless and SDK runs then reuse that authorization." |
+| Can the in-app browser read a private canvas? | **Not tested yet.** It needs the owner's claude.ai sign-in in a space's in-app browser (or an imported login from Arc) and a canvas link. |
+
+### What changes
+
+- **Flow 3 (design system per space) is buildable now.** Sinfonie detects the authorization error and
+  offers "Authorize Claude Design": it opens Sinfonie's CLI terminal with `claude` and asks the person
+  to run `/design-login` once.
+- **Flow 1 (design → build) is buildable with a different reading path.** No `Artifact` read, so:
+  - the **Design pane** accepts the canvas link (opened in the in-app browser, if question 3 passes) and
+    **exported artboards** (the canvas editor exports PNG/PDF), which the agent reads as images, as chat
+    images already work;
+  - the design brief is built from the exported images plus whatever the browser path can read.
+- **Flow 2 (Sketch an idea → canvas) is blocked** on Claude Design. Until canvases are reachable from
+  headless or SDK sessions, two options:
+  - *Sinfonie-native sketches:* Maestro drafts HTML mockups built from the team's design-system
+    components (read with `DesignSync get_file`), shown in the Design pane, with "Open in Claude
+    Design" as a manual hand-off;
+  - *wait:* re-check each Claude Code release (one probe call) and switch to real canvases when
+    `Artifact` appears in headless sessions.
+- **Flow 4 (design QA)** works off exported artboards just as well.
 
 ## Phases
 
