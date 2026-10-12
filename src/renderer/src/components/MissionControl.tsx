@@ -7,7 +7,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { ChevronRight, Plus } from 'lucide-react'
-import type { ChatToolBlock, PermissionRequest, QuestionRequest, Repo, Workspace } from '@shared/types'
+import type { MergeProposal, ChatToolBlock, PermissionRequest, QuestionRequest, Repo, Workspace } from '@shared/types'
 import { useApp, spaceScope } from '@/stores/app'
 import { useChat } from '@/stores/chat'
 import { useGuided, useWords, cap, stageLabel } from '@/lib/guided'
@@ -19,6 +19,7 @@ import { yieldsToEditor } from '@/lib/keys'
 import { tokens } from '@/lib/theme'
 import { Button, hasOpenDialog } from './ui'
 import { stageDot } from '@/lib/stages'
+import { proposalTitle } from './MergeProposals'
 
 type Tone = 'attn' | 'run' | 'ok' | 'idle'
 
@@ -26,6 +27,7 @@ type Row =
   | { key: string; kind: 'permission'; ws: Workspace; req: PermissionRequest; since?: number }
   | { key: string; kind: 'question'; ws: Workspace; req: QuestionRequest; since?: number }
   | { key: string; kind: 'error'; ws: Workspace; text: string }
+  | { key: string; kind: 'mergeable'; ws: Workspace; proposals: MergeProposal[] }
   | { key: string; kind: 'running'; ws: Workspace; tool?: ChatToolBlock; startedAt: number | null }
   | { key: string; kind: 'review'; ws: Workspace }
   | { key: string; kind: 'idle'; ws: Workspace }
@@ -83,6 +85,14 @@ export function MissionControl(): React.JSX.Element {
   }
   needs.sort((a, b) => ('since' in a && a.since ? a.since : 0) - ('since' in b && b.since ? b.since : 0))
   const prompted = new Set(needs.map((r) => r.ws.id))
+  // Keep it mergeable (feedback #50): proposals wait on the person like prompts do, in every space.
+  for (const ws of live) {
+    const proposals = ws.mergeWatch?.proposals ?? []
+    if (proposals.length && !prompted.has(ws.id)) {
+      needs.push({ key: `m:${ws.id}`, kind: 'mergeable', ws, proposals })
+      prompted.add(ws.id)
+    }
+  }
   for (const ws of inSpace) {
     if (prompted.has(ws.id)) continue
     const c = chats[ws.id]
@@ -297,7 +307,7 @@ function RowView({ row, guided, now, open, answer, showSpace }: RowProps): React
   const ws = row.ws
   const repos = useApp((s) => s.repos)
   const name = workspaceLabel(ws, guided)
-  const attn = row.kind === 'permission' || row.kind === 'question' || row.kind === 'error'
+  const attn = row.kind === 'permission' || row.kind === 'question' || row.kind === 'error' || row.kind === 'mergeable'
   const since = 'since' in row ? row.since : undefined
   const meta =
     row.kind === 'permission' || row.kind === 'question'
@@ -306,6 +316,8 @@ function RowView({ row, guided, now, open, answer, showSpace }: RowProps): React
         : ''
       : row.kind === 'error'
         ? `stopped ${timeAgo(ws.lastMessageAt ?? ws.createdAt)}`
+        : row.kind === 'mergeable'
+          ? `noticed ${timeAgo(row.proposals[row.proposals.length - 1].createdAt)}`
         : row.kind === 'running'
           ? ''
           : `updated ${timeAgo(ws.lastMessageAt ?? ws.createdAt)}`
@@ -358,7 +370,7 @@ function RowView({ row, guided, now, open, answer, showSpace }: RowProps): React
           {!guided && <kbd className={clsx(kbdCls, 'ml-1')}>R</kbd>}
         </Button>
       )}
-      {(row.kind === 'error' || row.kind === 'review') && (
+      {(row.kind === 'error' || row.kind === 'review' || row.kind === 'mergeable') && (
         <Button size="sm" className="shrink-0" onClick={() => open(ws)}>
           Open
         </Button>
@@ -417,6 +429,20 @@ function RowDetail({ row, guided, repos }: { row: Row; guided: boolean; repos: R
       </span>
     )
   }
+  if (row.kind === 'mergeable') {
+    const first = row.proposals[0]
+    const more = row.proposals.length - 1
+    const ok = row.proposals.every((p) => p.kind === 'ready')
+    return (
+      <span className={cls}>
+        <span className={clsx('inline-flex h-[18px] shrink-0 items-center rounded-full px-2 text-[11px] font-semibold', ok ? 'bg-ok/15 text-ok' : first.kind === 'ci' ? 'bg-danger/15 text-danger' : 'bg-warn/15 text-warn')}>{ok ? (guided ? 'Ready' : 'Ready to merge') : guided ? 'Needs a fix' : 'Keep mergeable'}</span>
+        <span className="truncate">
+          {proposalTitle(first, guided)}
+          {more > 0 ? ` and ${more} more` : ''}
+        </span>
+      </span>
+    )
+  }
   if (row.kind === 'running') {
     if (guided) return <span className={cls}>{row.tool ? `${guidedStep(row.tool)}…` : 'Working on it…'}</span>
     if (!row.tool) return <span className={cls}>Thinking…</span>
@@ -444,6 +470,7 @@ function rowSummaryText(row: Row, guided: boolean, repos: Repo[]): string {
   }
   if (row.kind === 'question') return `${guided ? 'Maestro asks' : 'Asks'}: ${row.req.questions[0]?.question ?? ''}`
   if (row.kind === 'error') return guided ? 'Stopped: something went wrong' : 'Failed'
+  if (row.kind === 'mergeable') return row.proposals.map((p) => proposalTitle(p, guided)).join(' ')
   if (row.kind === 'running') return guided ? (row.tool ? guidedStep(row.tool) : 'Working on it') : row.tool ? `Running ${expertToolName(row.tool)}` : 'Thinking'
   return stageLabel(row.ws.stage, guided)
 }
