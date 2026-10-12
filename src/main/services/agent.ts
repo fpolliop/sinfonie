@@ -33,6 +33,7 @@ import * as library from './agents'
 import { getWorkspace, patchWorkspace, assertOnDisk } from './workspaces'
 import { checkpoint } from './git'
 import { accountEnv } from './accounts'
+import { makeResumable } from './session-files'
 import * as jira from './jira'
 import * as linear from './linear'
 import { logError } from './telemetry'
@@ -343,6 +344,9 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
   assertOnDisk(ws)
   const primary = ws.repos.find((r) => r.repoId === ws.primaryRepoId) ?? ws.repos[0]
   const wsCwd = primary?.worktreePath ?? ws.rootPath
+  // The session may have been recorded under another folder (before the first repository was added, or under another primary).
+  const resumeId = ws.sessionId && makeResumable(ws, ws.sessionId) ? ws.sessionId : undefined
+  if (ws.sessionId && !resumeId) emit({ type: 'notice', workspaceId, itemId: nanoid(8), level: 'warn', text: "Claude couldn't find the earlier conversation, so this message starts a new one. The chat above stays.", createdAt: new Date().toISOString() })
   const others = ws.repos.filter((r) => r !== primary).map((r) => r.worktreePath)
   const flags = { restartAfterTurn: false, leanCalls: 0, leanCapNoted: false }
   const costMode = costModeFor(ws.spaceId, ws.id)
@@ -502,7 +506,7 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
       SINFONIE_WORKSPACE_ROOT: ws.rootPath,
       SINFONIE_PORT: String(ws.port)
     },
-    ...(ws.sessionId ? { resume: ws.sessionId } : {})
+    ...(resumeId ? { resume: resumeId } : {})
   }
 
   const stderrLines: string[] = []

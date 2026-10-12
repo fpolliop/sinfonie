@@ -1,12 +1,12 @@
 import { forkSession, getSessionInfo, getSessionMessages, listSessions } from '@anthropic-ai/claude-agent-sdk'
-import { copyFileSync, existsSync, mkdirSync, readdirSync } from 'fs'
+import { copyFileSync, existsSync, mkdirSync } from 'fs'
 import { join } from 'path'
-import { homedir } from 'os'
 import { nanoid } from 'nanoid'
 import type { ChatBlock, ChatItem, ChatToolBlock, SessionSummary } from '@shared/types'
 import { getStore } from '../store'
 import { getWorkspace, patchWorkspace } from './workspaces'
 import { accountEnv } from './accounts'
+import { claudeConfigDir, encodeProjectDir, makeResumable, sessionCwd } from './session-files'
 import { closeSession } from './agent'
 import { getTranscript, replaceTranscript } from './transcripts'
 import { createWorkspace } from './workspaces'
@@ -99,39 +99,9 @@ function toItems(messages: { type: string; uuid: string; message: unknown; paren
   return items
 }
 
-/** Claude Code keeps sessions under <config>/projects/<cwd with every non [A-Za-z0-9-] char turned into '-'>/<id>.jsonl. */
-function encodeProjectDir(cwd: string): string {
-  return cwd.replace(/[^A-Za-z0-9-]/g, '-')
-}
-
-/**
- * The CLI only resumes sessions that live in the current project's folder, so a
- * session recorded elsewhere is copied into the primary worktree's folder first.
- */
+/** The resume picker needs the session in the current project folder; failing here beats a dead "No conversation found". */
 function makeResumableFrom(ws: ReturnType<typeof getWorkspace>, sessionId: string, cwd: string | undefined): void {
-  const configDir = accountEnv(ws.claudeAccountId).CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude')
-  const projects = join(configDir, 'projects')
-  const primary = ws.repos.find((r) => r.repoId === ws.primaryRepoId) ?? ws.repos[0]
-  const wsCwd = primary?.worktreePath ?? ws.rootPath
-  const destDir = join(projects, encodeProjectDir(wsCwd))
-  const dest = join(destDir, `${sessionId}.jsonl`)
-  if (existsSync(dest)) return
-  let src = cwd ? join(projects, encodeProjectDir(cwd), `${sessionId}.jsonl`) : ''
-  if (!src || !existsSync(src)) {
-    src = ''
-    if (existsSync(projects)) {
-      for (const d of readdirSync(projects)) {
-        const candidate = join(projects, d, `${sessionId}.jsonl`)
-        if (existsSync(candidate)) {
-          src = candidate
-          break
-        }
-      }
-    }
-  }
-  if (!src) throw new Error(`Session file for ${sessionId.slice(0, 8)} not found under ${projects}`)
-  mkdirSync(destDir, { recursive: true })
-  copyFileSync(src, dest)
+  if (!makeResumable(ws, sessionId, cwd)) throw new Error(`Session file for ${sessionId.slice(0, 8)} not found under ${join(claudeConfigDir(ws.claudeAccountId), 'projects')}`)
 }
 
 /**
@@ -141,10 +111,9 @@ function makeResumableFrom(ws: ReturnType<typeof getWorkspace>, sessionId: strin
 export function carrySessionToAccount(workspaceId: string, fromAccountId: string | undefined): void {
   const ws = getWorkspace(workspaceId)
   if (!ws.sessionId) return
-  const primary = ws.repos.find((r) => r.repoId === ws.primaryRepoId) ?? ws.repos[0]
-  const cwd = primary?.worktreePath ?? ws.rootPath
-  const from = join(accountEnv(fromAccountId).CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude'), 'projects', encodeProjectDir(cwd), `${ws.sessionId}.jsonl`)
-  const toDir = join(accountEnv(ws.claudeAccountId).CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude'), 'projects', encodeProjectDir(cwd))
+  const cwd = sessionCwd(ws)
+  const from = join(claudeConfigDir(fromAccountId), 'projects', encodeProjectDir(cwd), `${ws.sessionId}.jsonl`)
+  const toDir = join(claudeConfigDir(ws.claudeAccountId), 'projects', encodeProjectDir(cwd))
   const to = join(toDir, `${ws.sessionId}.jsonl`)
   if (!existsSync(from) || existsSync(to)) return
   mkdirSync(toDir, { recursive: true })

@@ -1269,7 +1269,9 @@ export function registerIpc(): void {
     // No repo: a shell at the workspace root, where every worktree sits side by side.
     const wr = repoId ? ws.repos.find((r) => r.repoId === repoId) : undefined
     if (repoId && !wr) throw new Error('Repo not in workspace')
-    const repo = workspaces.getRepo(wr?.repoId ?? ws.primaryRepoId)
+    // A workspace without repositories has no primary to describe; the env then points at the root.
+    const envRepo = wr ?? ws.repos.find((r) => r.repoId === ws.primaryRepoId) ?? ws.repos[0]
+    const repo = envRepo ? workspaces.getRepo(envRepo.repoId) : null
     const cwd = wr?.worktreePath ?? ws.rootPath
     // An agent CLI instead of a plain shell: the vendor's own interactive program, on the workspace's account.
     const launch = agent ? agentCli.cliLaunch(agent, ws, cwd) : null

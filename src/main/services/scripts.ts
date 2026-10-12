@@ -13,10 +13,11 @@ function key(workspaceId: string, repoId: string, kind: string): string {
  * Env vars injected into every script and terminal. Both CONDUCTOR_* and
  * SINFONIE_* names are set, so conductor.json files keep working unchanged.
  */
-export function workspaceEnv(ws: Workspace, repo: Repo, worktreePath: string): NodeJS.ProcessEnv {
+/** `repo` is null for a workspace without repositories; ROOT_PATH is then the workspace root. */
+export function workspaceEnv(ws: Workspace, repo: Repo | null, worktreePath: string): NodeJS.ProcessEnv {
   const vars = {
     PORT: String(ws.port),
-    ROOT_PATH: repo.path,
+    ROOT_PATH: repo?.path ?? ws.rootPath,
     WORKSPACE_NAME: ws.slug,
     WORKSPACE_PATH: worktreePath,
     WORKSPACE_ROOT: ws.rootPath
@@ -27,7 +28,7 @@ export function workspaceEnv(ws: Workspace, repo: Repo, worktreePath: string): N
     env[`SINFONIE_${k}`] = v
   }
   // Give each repo inside the workspace its own port slot within the block of 10.
-  const idx = ws.repos.findIndex((r) => r.repoId === repo.id)
+  const idx = repo ? ws.repos.findIndex((r) => r.repoId === repo.id) : -1
   if (idx > 0) {
     env.CONDUCTOR_PORT = String(ws.port + idx)
     env.SINFONIE_PORT = String(ws.port + idx)
