@@ -36,6 +36,7 @@ import * as limits from './limits'
 import { accountForEngine, envForAccount } from './accounts'
 import { claudeBinary } from './claude-cli'
 import { workspaceEnv } from './scripts'
+import { encodeProjectDir, makeResumable } from './session-files'
 import { getRepo, getWorkspace, patchWorkspace, assertOnDisk } from './workspaces'
 import { CLAUDE_MODELS, classifyModel } from '@shared/types'
 import type { AgentEvent, CliStatus } from '@shared/types'
@@ -70,8 +71,6 @@ const live = new Map<string, Live>()
 agent.addBusySource((id) => live.get(id)?.busy ?? false)
 
 const q = (s: string): string => `'${s.replace(/'/g, `'\\''`)}'`
-/** Claude keys its session folder by the working directory, with every / and . turned into -. */
-const projectKey = (cwd: string): string => cwd.replace(/[/.]/g, '-')
 
 export function status(workspaceId: string): CliStatus {
   const l = live.get(workspaceId)
@@ -92,14 +91,15 @@ export async function start(workspaceId: string, opts: { prompt?: string; fresh?
   const primary = ws.repos.find((r) => r.repoId === ws.primaryRepoId) ?? ws.repos[0]
   assertOnDisk(ws)
   const cwd = primary?.worktreePath ?? ws.rootPath
-  const repo = getRepo(primary?.repoId ?? ws.primaryRepoId)
+  // A workspace without repositories runs in its root folder and has no repo to describe.
+  const repo = primary ? getRepo(primary.repoId) : null
   const acc = accountForEngine('claude-code', ws.claudeAccountId)
   const env: NodeJS.ProcessEnv = { ...workspaceEnv(ws, repo, cwd), ...envForAccount(acc), CLAUDE_CODE_FORCE_SESSION_PERSISTENCE: '1' }
   // A Sinfonie started from inside a Claude session inherits markers that make claude treat itself as a child and skip the transcript we tail.
   delete env.CLAUDE_CODE_CHILD_SESSION
   delete env.CLAUDECODE
   const configDir = env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude')
-  const projectDir = join(configDir, 'projects', projectKey(cwd))
+  const projectDir = join(configDir, 'projects', encodeProjectDir(cwd))
 
   const args: string[] = []
   for (const r of ws.repos) if (r.worktreePath !== cwd) args.push('--add-dir', q(r.worktreePath))
@@ -166,7 +166,8 @@ export async function start(workspaceId: string, opts: { prompt?: string; fresh?
   mkdirSync(join(app.getPath('userData'), 'cli'), { recursive: true })
   writeFileSync(settingsFile, JSON.stringify({ hooks: { PreToolUse: [hook('PreToolUse', 3600)], UserPromptSubmit: [hook('UserPromptSubmit', 10)], Stop: [hook('Stop', 10)], Notification: [hook('Notification', 10)] } }))
   args.push('--settings', q(settingsFile))
-  const resumeId = !opts.fresh && ws.sessionId ? ws.sessionId : null
+  // Copies the session in when it was recorded under another folder; with no copy anywhere, start fresh rather than fail.
+  const resumeId = !opts.fresh && ws.sessionId && makeResumable(ws, ws.sessionId) ? ws.sessionId : null
   if (resumeId) args.push('--resume', q(resumeId))
   // The prompt goes first: --add-dir takes a list, and a trailing positional would be read as a directory.
   const command = [q(claudeBinary()), ...(opts.prompt?.trim() ? [q(opts.prompt.trim())] : []), ...args].join(' ')
