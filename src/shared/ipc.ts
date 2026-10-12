@@ -27,6 +27,7 @@ import type { MaestroMemoryCategory, MaestroMemoryEntry, MaestroConversation, Ma
   SessionSummary,
   UpdateInfo,
   WorkspaceStage,
+  Job,
   BuiltinStage,
   WorkspaceStatusDef,
   CreateWorkspaceInput,
@@ -536,6 +537,10 @@ export interface SinfonieInvoke {
   'views:data': (binding: ViewSourceBinding, ctx: { spaceId?: string; workspaceId?: string }, force?: boolean) => ViewDataResult
   /** A git/GitHub action from a view; confirm/outward tiers need confirmed = true. Returns a summary. */
   'views:action': (name: string, params: Record<string, unknown>, confirmed: boolean) => string
+  // ---- running (everything Sinfonie is doing now, feedback #65) ----
+  'jobs:list': () => Job[]
+  /** Stop one job with its owner's own stop; returns what happened, in a sentence. */
+  'jobs:stop': (id: string) => string
   // ---- resources ----
   'resources:get': () => ResourceSnapshot
   'resources:stopTask': (workspaceId: string, taskId: string) => void

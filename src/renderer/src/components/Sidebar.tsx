@@ -9,6 +9,7 @@ import { type TeammateWorkspace } from '@shared/types'
 import { LabelChip, labelsFor } from './LabelPicker'
 import { useApp, spaceOrder } from '@/stores/app'
 import { useChat } from '@/stores/chat'
+import { useJobs } from '@/lib/jobs'
 import { timeAgo } from '@/lib/format'
 import { api } from '@/lib/api'
 import { renameWorkspace } from '@/lib/rename'
@@ -188,6 +189,7 @@ export function Sidebar(): React.JSX.Element {
       )}
       <div key={currentId} className="space-enter flex-1 overflow-auto px-2 pb-2">
         {inSpace.length > 0 && <OverviewRow active={view === 'workspace' && !selectedId} spaceIds={inSpace.map((w) => w.id)} onClick={() => select(null)} guided={guided} />}
+        <RunningRow active={view === 'running'} onClick={() => setView('running')} guided={guided} />
         <div
           className="group flex h-8 items-center gap-2 px-2"
           onContextMenu={(e) => {
@@ -356,6 +358,29 @@ function OverviewRow({ active, spaceIds, onClick, guided }: { active: boolean; s
       {waiting > 0 && (
         <span aria-label={`${waiting} waiting on you`} className="ml-auto min-w-4 rounded-full bg-warn/15 px-1.5 text-center text-[11px] font-semibold leading-4 text-warn">
           {waiting}
+        </span>
+      )}
+    </button>
+  )
+}
+
+/** Everything running, in every space (feedback #65), with a live count. */
+function RunningRow({ active, onClick, guided }: { active: boolean; onClick: () => void; guided: boolean }): React.JSX.Element {
+  const { jobs } = useJobs(4000)
+  const count = jobs.filter((j) => j.state === 'running' && (!guided || j.kind === 'agent-turn' || j.kind === 'maestro' || j.kind === 'review')).length
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-current={active ? 'page' : undefined}
+      title={guided ? 'Everything working right now' : 'Everything Sinfonie is doing right now, in every space'}
+      className={clsx('mb-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] font-medium transition-colors', active ? 'bg-panel-2 text-text' : 'text-muted hover:bg-panel-2/60 hover:text-text')}
+    >
+      <Activity size={14} className="shrink-0" />
+      {guided ? 'Working now' : 'Running'}
+      {count > 0 && (
+        <span aria-label={`${count} running`} className="ml-auto min-w-4 rounded-full bg-accent/15 px-1.5 text-center text-[11px] font-semibold leading-4 text-accent">
+          {count}
         </span>
       )}
     </button>

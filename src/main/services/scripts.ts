@@ -4,6 +4,8 @@ import type { Workspace, Repo, ScriptOutputEvent } from '@shared/types'
 type Emit = (event: ScriptOutputEvent) => void
 
 const running = new Map<string, ChildProcess>()
+/** When each running script started, for the Running list. */
+const startedAt = new WeakMap<ChildProcess, string>()
 
 function key(workspaceId: string, repoId: string, kind: string): string {
   return `${workspaceId}:${repoId}:${kind}`
@@ -63,6 +65,7 @@ export function runScript(
       stdio: ['ignore', 'pipe', 'pipe']
     })
     running.set(k, child)
+    startedAt.set(child, new Date().toISOString())
     emit({ workspaceId: ws.id, repoId: repo.id, kind, data: `$ ${command}\r\n` })
     const limit = opts.timeoutMs ?? SCRIPT_TIMEOUT_MS[kind]
     const timer = limit
@@ -125,6 +128,14 @@ export function runCommandOnce(ws: Workspace, repo: Repo, worktreePath: string, 
 }
 
 /** True while a script of this kind is running for the repo in the workspace. */
+/** Every script running now, for the Running list. */
+export function runningScripts(): { workspaceId: string; repoId: string; kind: string; startedAt: string }[] {
+  return Array.from(running, ([k, child]) => {
+    const [workspaceId, repoId, kind] = k.split(':')
+    return { workspaceId, repoId, kind, startedAt: startedAt.get(child) ?? new Date().toISOString() }
+  })
+}
+
 export function isScriptRunning(workspaceId: string, repoId: string, kind: string): boolean {
   return running.has(key(workspaceId, repoId, kind))
 }

@@ -2,7 +2,7 @@ import { tokens } from '@/lib/theme'
 import { create } from 'zustand'
 import type { AgentSpec, Engine, Label, Repo, Settings, Space, StoreData, Workspace } from '@shared/types'
 
-export type View = 'workspace' | 'reviews' | 'oncall' | 'agents' | 'notes' | 'maestro' | 'home' | 'team'
+export type View = 'workspace' | 'reviews' | 'oncall' | 'agents' | 'notes' | 'maestro' | 'home' | 'team' | 'running'
 import { api } from '@/lib/api'
 import { friendlyError, rawMessage } from '@/lib/errors'
 

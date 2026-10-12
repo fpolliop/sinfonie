@@ -82,7 +82,8 @@ export function CommandPalette({ onClose, onShortcuts }: { onClose: () => void; 
       { id: 'maestro', label: 'Maestro home', group: 'Go to', run: () => view('maestro') },
       { id: 'dock', label: 'Ask Maestro about this screen', group: 'Go to', hint: '⌘J', run: () => void openMaestroDock() },
       { id: 'pages', label: 'Your pages', group: 'Go to', run: () => view('home') },
-      { id: 'notes', label: 'Notes', group: 'Go to', run: () => view('notes') }
+      { id: 'notes', label: 'Notes', group: 'Go to', run: () => view('notes') },
+      { id: 'running', label: 'Running: everything Sinfonie is doing', group: 'Go to', run: () => view('running') }
     )
     if (!guided) {
       out.push(
