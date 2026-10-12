@@ -23,22 +23,24 @@ export function sessionCwd(ws: Workspace): string {
  * The CLI only resumes sessions that live in the current project's folder. A workspace's folder changes when its
  * first repository is added (root → primary worktree) or its primary changes, which strands the session in the old
  * folder ("No conversation found"). Copy it, with its subagent/tool-result folder, into the folder Claude will look in.
- * `hintCwd` is where the session was recorded, when known; otherwise every project folder is searched and the most
- * recently written copy wins. Returns false when no copy exists anywhere.
+ * `hintCwd` (where the session was recorded, when known) is used when there is no copy here yet; otherwise every
+ * project folder is searched and the most recently written copy wins. Returns false when no copy exists anywhere.
  */
 export function makeResumable(ws: Workspace, sessionId: string, hintCwd?: string): boolean {
   const projects = join(claudeConfigDir(ws.claudeAccountId), 'projects')
   const destDir = join(projects, encodeProjectDir(sessionCwd(ws)))
   const dest = join(destDir, `${sessionId}.jsonl`)
-  if (existsSync(dest)) return true
-  let src = hintCwd ? join(projects, encodeProjectDir(hintCwd), `${sessionId}.jsonl`) : ''
-  if (!src || !existsSync(src)) {
-    src = ''
-    let newest = -1
+  const hinted = hintCwd ? join(projects, encodeProjectDir(hintCwd), `${sessionId}.jsonl`) : ''
+  let src = ''
+  if (hinted && hinted !== dest && existsSync(hinted) && !existsSync(dest)) src = hinted
+  else {
+    // A copy left here earlier goes stale once the conversation carries on in another folder (say the primary changed
+    // and then changed back), so the most recently written copy wins, not just the one already in place.
+    let newest = existsSync(dest) ? statSync(dest).mtimeMs : -1
     if (existsSync(projects)) {
       for (const d of readdirSync(projects)) {
         const candidate = join(projects, d, `${sessionId}.jsonl`)
-        if (!existsSync(candidate)) continue
+        if (candidate === dest || !existsSync(candidate)) continue
         const mtime = statSync(candidate).mtimeMs
         if (mtime > newest) {
           newest = mtime
@@ -46,8 +48,8 @@ export function makeResumable(ws: Workspace, sessionId: string, hintCwd?: string
         }
       }
     }
+    if (!src) return newest >= 0
   }
-  if (!src) return false
   mkdirSync(destDir, { recursive: true })
   cpSync(src, dest, { preserveTimestamps: true })
   const extras = src.replace(/\.jsonl$/, '')

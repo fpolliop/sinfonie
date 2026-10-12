@@ -346,7 +346,11 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
   const wsCwd = primary?.worktreePath ?? ws.rootPath
   // The session may have been recorded under another folder (before the first repository was added, or under another primary).
   const resumeId = ws.sessionId && makeResumable(ws, ws.sessionId) ? ws.sessionId : undefined
-  if (ws.sessionId && !resumeId) emit({ type: 'notice', workspaceId, itemId: nanoid(8), level: 'warn', text: "Claude couldn't find the earlier conversation, so this message starts a new one. The chat above stays.", createdAt: new Date().toISOString() })
+  if (ws.sessionId && !resumeId) {
+    // Forget it, so a session that fails before starting doesn't search and warn again on every retry.
+    patchWorkspace(workspaceId, { sessionId: undefined })
+    emit({ type: 'notice', workspaceId, itemId: nanoid(8), level: 'warn', text: "Claude couldn't find the earlier conversation, so this message starts a new one. The chat above stays.", createdAt: new Date().toISOString() })
+  }
   const others = ws.repos.filter((r) => r !== primary).map((r) => r.worktreePath)
   const flags = { restartAfterTurn: false, leanCalls: 0, leanCapNoted: false }
   const costMode = costModeFor(ws.spaceId, ws.id)
