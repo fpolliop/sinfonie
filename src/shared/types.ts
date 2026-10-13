@@ -470,6 +470,9 @@ export interface Space {
   views?: ViewDef[]
   /** This space's own workspace statuses, on top of the built-in stages. Shared with its team. */
   workspaceStatuses?: WorkspaceStatusDef[]
+  /** API explorer: saved requests and the staging/production base URLs. Shared; secrets stay per person. */
+  apiCollection?: ApiSavedRequest[]
+  apiEnvironments?: Partial<Record<ApiRemoteEnv, ApiEnvDef>>
   /** Team guardrails every agent (and Maestro) in this space follows. Travels with the shared definition. */
   rules?: TeamRules
   /** An admin lifted the daily spend limit on this Mac for one day (YYYY-MM-DD, UTC). Never shared. */
@@ -544,7 +547,7 @@ export interface SharedRepo {
   description?: string
 }
 /** The keys of a Space that are shared; everything about accounts, secrets and local paths stays personal. */
-export type SharedSpaceSettings = Pick<Space, 'engine' | 'model' | 'permissionMode' | 'useCrew' | 'agents' | 'budgetMode' | 'leanMode' | 'strictMcp' | 'githubOwners' | 'browserSensitiveOrigins' | 'exposeGcpMcp' | 'exposeJiraMcp' | 'exposeLinearMcp' | 'guided' | 'views' | 'rules' | 'workspaceStatuses'> & {
+export type SharedSpaceSettings = Pick<Space, 'engine' | 'model' | 'permissionMode' | 'useCrew' | 'agents' | 'budgetMode' | 'leanMode' | 'strictMcp' | 'githubOwners' | 'browserSensitiveOrigins' | 'exposeGcpMcp' | 'exposeJiraMcp' | 'exposeLinearMcp' | 'guided' | 'views' | 'rules' | 'workspaceStatuses' | 'apiCollection' | 'apiEnvironments'> & {
   mcpServers?: McpServerSpec[]
   jira?: Pick<JiraSettings, 'siteUrl' | 'defaultJql'>
   linear?: Pick<LinearSettings, 'defaultQuery'>
@@ -866,7 +869,10 @@ export interface ApiDiscovery {
 }
 
 /** Where a request goes. Phase 2: only this Mac (the workspace's app, or another local port). */
-export type ApiEnv = 'workspace' | 'local'
+export type ApiEnv = 'workspace' | 'local' | 'staging' | 'production'
+/** Environments off this Mac: every request to them is shown in full and confirmed first. */
+export type ApiRemoteEnv = 'staging' | 'production'
+export const API_REMOTE_ENVS: ApiRemoteEnv[] = ['staging', 'production']
 /** How requests are signed. The secret itself (token, password, key) lives in the encrypted secrets. */
 export interface ApiAuth {
   kind: 'none' | 'bearer' | 'basic' | 'header'
@@ -881,6 +887,19 @@ export interface ApiSettings {
   /** Whether a secret is stored for the auth (never sent to the renderer). */
   hasSecret?: boolean
 }
+/** A space's staging or production API: shared with the team. The auth secret stays per person in the encrypted secrets. */
+export interface ApiEnvDef {
+  baseUrl: string
+  auth: ApiAuth
+}
+/** A request saved to the space's collection, shared with its team. Never carries a secret. */
+export interface ApiSavedRequest {
+  id: string
+  name: string
+  folder?: string
+  request: Omit<ApiRequest, 'confirmed'>
+  updatedAt: string
+}
 export interface ApiRequest {
   method: string
   /** Path and query, e.g. /v1/orders/12?expand=items. */
@@ -889,6 +908,17 @@ export interface ApiRequest {
   body?: string
   env: ApiEnv
   endpointId?: string
+  /** Set only after the person confirmed the full request; main refuses a request off this Mac without it. */
+  confirmed?: boolean
+}
+/** Exactly what a request will send, for the confirm step: auth values masked. */
+export interface ApiPreview {
+  method: string
+  url: string
+  headers: [string, string][]
+  body?: string
+  /** Leaves this Mac: needs the person's confirmation. */
+  remote: boolean
 }
 export interface ApiResponse {
   url: string
@@ -916,6 +946,10 @@ export interface ApiState {
   settings: ApiSettings
   history: ApiHistoryEntry[]
   bases: Record<ApiEnv, string | null>
+  /** The space's staging and production definitions, with whether this person stored a secret for each. */
+  envs: Partial<Record<ApiRemoteEnv, ApiEnvDef & { hasSecret: boolean }>>
+  /** The space's saved requests (the app's own when the workspace has no space). */
+  saved: ApiSavedRequest[]
 }
 
 /** Something Sinfonie is doing right now, or will do soon, for the Running list (feedback #65). */
@@ -1048,6 +1082,9 @@ export interface Settings {
   views?: ViewDef[]
   /** Workspace statuses for workspaces outside a space (each space keeps its own). */
   workspaceStatuses?: WorkspaceStatusDef[]
+  /** API explorer collection and environments for workspaces outside a space. */
+  apiCollection?: ApiSavedRequest[]
+  apiEnvironments?: Partial<Record<ApiRemoteEnv, ApiEnvDef>>
   /** Space views this user replaced with a personal copy or hid: space view id -> 'hidden' or the personal view id. */
   viewOverrides?: Record<string, string>
 }

@@ -1,18 +1,19 @@
 /**
  * API explorer (feedback #42): the workspace's HTTP endpoints, found without a collection.
  * Grouped by repository, service and controller; filter by method, path or name; open one to send
- * it (phase 2, ApiRequest.tsx), copy it as curl, or open the file that defines it.
+ * it (ApiRequest.tsx), save it to the space's shared collection, copy it as curl, or open the file that
+ * defines it.
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import clsx from 'clsx'
-import { Copy, ExternalLink, History, Plus, RefreshCw, Search, SlidersHorizontal } from 'lucide-react'
+import { Bookmark, Copy, ExternalLink, History, Plus, RefreshCw, Search, SlidersHorizontal } from 'lucide-react'
 import type { ApiDiscovery, ApiEndpoint, ApiRequest, ApiState } from '@shared/types'
 import { api } from '@/lib/api'
 import { friendlyError } from '@/lib/errors'
 import { timeAgo } from '@/lib/format'
 import { useApp } from '@/stores/app'
 import { Button, IconButton, Segmented, Spinner, inputCls } from './ui'
-import { HistoryList, METHOD_TONE, RequestEditor, RequestSettings, type Draft } from './ApiRequest'
+import { HistoryList, METHOD_TONE, RequestEditor, RequestSettings, SavedList, type Draft } from './ApiRequest'
 
 const SOURCE_LABEL: Record<ApiEndpoint['source'], string> = { openapi: 'OpenAPI file', running: 'running app', nestjs: 'NestJS', nextjs: 'Next.js', fastapi: 'FastAPI', express: 'Express' }
 
@@ -29,7 +30,7 @@ export function ApiPane({ workspaceId }: { workspaceId: string }): React.JSX.Ele
   const [q, setQ] = useState('')
   const [state, setState] = useState<ApiState | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null)
-  const [view, setView] = useState<'endpoints' | 'history'>('endpoints')
+  const [view, setView] = useState<'endpoints' | 'saved' | 'history'>('endpoints')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const loadState = useCallback(() => {
     void api
@@ -85,7 +86,7 @@ export function ApiPane({ workspaceId }: { workspaceId: string }): React.JSX.Ele
     if (e.file) void api.invoke('fs:open', workspaceId, e.file).catch((err) => setError(friendlyError(err)))
   }
 
-  if (draft && state) return <RequestEditor key={JSON.stringify(draft)} workspaceId={workspaceId} draft={draft} state={state} onBack={() => setDraft(null)} onSent={loadState} />
+  if (draft && state) return <RequestEditor key={JSON.stringify(draft)} workspaceId={workspaceId} draft={draft} state={state} onBack={() => setDraft(null)} onSent={loadState} onState={setState} />
 
   return (
     <div className="flex h-full flex-col">
@@ -98,7 +99,16 @@ export function ApiPane({ workspaceId }: { workspaceId: string }): React.JSX.Ele
           </span>
         )}
         <span className="ml-auto" />
-        <Segmented size="sm" value={view} onChange={setView} options={[{ id: 'endpoints', label: 'Endpoints' }, { id: 'history', label: <span className="inline-flex items-center gap-1"><History size={12} aria-hidden /> History</span> }]} />
+        <Segmented
+          size="sm"
+          value={view}
+          onChange={setView}
+          options={[
+            { id: 'endpoints', label: 'Endpoints' },
+            { id: 'saved', label: <span className="inline-flex items-center gap-1 whitespace-nowrap" title="Saved requests, shared with your team"><Bookmark size={12} aria-hidden /> Saved{state?.saved.length ? ` ${state.saved.length}` : ''}</span> },
+            { id: 'history', label: <span className="inline-flex items-center gap-1 whitespace-nowrap"><History size={12} aria-hidden /> History</span> }
+          ]}
+        />
         <IconButton label="New request" onClick={() => setDraft({})} disabled={!state}>
           <Plus size={13} />
         </IconButton>
@@ -107,11 +117,11 @@ export function ApiPane({ workspaceId }: { workspaceId: string }): React.JSX.Ele
         </IconButton>
         <label className="relative flex items-center">
           <Search size={12} className="pointer-events-none absolute left-2 text-muted" aria-hidden />
-          <input className={clsx(inputCls, 'h-[26px] w-36! py-0 pl-6 text-[12px]')} placeholder="Filter: GET /orders, login" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Filter endpoints" />
+          <input className={clsx(inputCls, 'h-[26px] w-28! py-0 pl-6 text-[12px]')} placeholder="Filter" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Filter endpoints" title="Filter endpoints: GET /orders, login" />
         </label>
-        <Button size="sm" variant="ghost" onClick={() => load(true)} disabled={loading}>
-          <RefreshCw size={13} className={clsx(loading && 'animate-spin')} aria-hidden /> Rescan
-        </Button>
+        <IconButton label="Rescan the code for endpoints" onClick={() => load(true)} disabled={loading}>
+          <RefreshCw size={13} className={clsx(loading && 'animate-spin')} />
+        </IconButton>
       </div>
       {error && (
         <div role="alert" className="border-b border-danger/30 bg-danger/10 px-3 py-2 text-[12px] text-danger">
@@ -119,6 +129,7 @@ export function ApiPane({ workspaceId }: { workspaceId: string }): React.JSX.Ele
         </div>
       )}
       <div className="min-h-0 flex-1 overflow-auto p-3">
+        {view === 'saved' && state && <SavedList workspaceId={workspaceId} saved={state.saved} onOpen={(s) => setDraft({ saved: s })} onState={setState} />}
         {view === 'history' && state && (
           <HistoryList
             history={state.history}
