@@ -68,6 +68,7 @@ import * as gcp from './services/gcp'
 import * as assistant from './services/assistant'
 import * as db from './services/db/service'
 import * as mergeWatch from './services/merge-watch'
+import * as mergeUpdate from './services/merge-update'
 import * as apiDiscover from './services/api/discover'
 import * as apiRequests from './services/api/requests'
 import * as jobs from './services/jobs'
@@ -1165,6 +1166,9 @@ export function registerIpc(): void {
   handle('mergeWatch:set', (id, on) => mergeWatch.setWatch(id, on))
   handle('mergeWatch:check', (id) => mergeWatch.check(id))
   handle('mergeWatch:dismiss', (id, proposalId) => mergeWatch.dismiss(id, proposalId))
+  handle('mergeWatch:bringInBase', (id, proposalId) => mergeUpdate.bringInBase(id, proposalId))
+  handle('mergeWatch:abort', (id, proposalId) => mergeUpdate.abort(id, proposalId))
+  handle('mergeWatch:setStyle', (id, style) => mergeUpdate.setStyle(id, style))
   mergeWatch.start()
   handle('resources:stopTask', (workspaceId, taskId) => agent.stopTask(workspaceId, taskId))
   handle('resources:cancelWaiting', (workspaceId) => resources.cancelWaiting(workspaceId))

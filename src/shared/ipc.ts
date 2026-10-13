@@ -29,6 +29,7 @@ import type { MaestroMemoryCategory, MaestroMemoryEntry, MaestroConversation, Ma
   WorkspaceStage,
   ApiDiscovery, ApiState, ApiSettings, ApiRequest, ApiResponse,
   MergeProposal,
+  MergeUpdateResult,
   Job,
   BuiltinStage,
   WorkspaceStatusDef,
@@ -565,6 +566,11 @@ export interface SinfonieInvoke {
   /** Look at the workspace's PRs now; returns the new proposals. */
   'mergeWatch:check': (workspaceId: string) => MergeProposal[]
   'mergeWatch:dismiss': (workspaceId: string, proposalId: string) => Workspace
+  /** Phase 2: a behind or conflicting branch takes in its base (on GitHub, or merged/rebased locally). */
+  'mergeWatch:bringInBase': (workspaceId: string, proposalId: string) => MergeUpdateResult
+  /** Undo the merge or rebase Sinfonie started for this proposal. */
+  'mergeWatch:abort': (workspaceId: string, proposalId: string) => Workspace
+  'mergeWatch:setStyle': (workspaceId: string, style: 'merge' | 'rebase') => Workspace
   // ---- running (everything Sinfonie is doing now, feedback #65) ----
   'jobs:list': () => Job[]
   /** Stop one job with its owner's own stop; returns what happened, in a sentence. */

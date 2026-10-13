@@ -41,10 +41,29 @@ export function buildCiPrompt(repo: WorkspaceRepo, pr: Pick<PrInfo, 'number' | '
   ].join('\n')
 }
 
+/** The rule every conflict prompt carries: resolve the mechanical, ask about the rest. */
+const AMBIGUITY = `Resolve only mechanical conflicts: both sides added different things (keep both), imports, formatting, a rename both sides clearly agree on. When the intent is unclear (both sides changed the same behaviour differently, or a change on one side depends on code the other side removed), stop and ask me with the AskUserQuestion tool, showing both versions, before choosing.`
+
 export function buildConflictPrompt(repo: WorkspaceRepo, pr: Pick<PrInfo, 'number' | 'title' | 'url' | 'baseRefName'>): string {
   return [
     `${repo.repoName} PR #${pr.number} "${pr.title}" (${pr.url}) conflicts with ${pr.baseRefName}.`,
     ``,
-    `In the worktree ${repo.worktreePath}: fetch origin and merge origin/${pr.baseRefName} into this branch (merge, do not rebase, never force-push). Resolve each conflict keeping both changes' intent. If a conflict is ambiguous (both sides changed the same behaviour differently), stop and ask me before choosing. Run the tests that cover the files you touched, commit the merge, and tell me what conflicted and how you resolved it. Do not push.`
+    `In the worktree ${repo.worktreePath}: fetch origin and merge origin/${pr.baseRefName} into this branch (merge, do not rebase, never force-push). ${AMBIGUITY} Run the tests that cover the files you touched, commit the merge, and tell me what conflicted and how you resolved it. Do not push.`
+  ].join('\n')
+}
+
+/**
+ * Sinfonie already started the merge (or rebase) of the base in the worktree and git stopped on conflicts:
+ * the agent finishes it, or aborts it when it cannot.
+ */
+export function buildConflictResolvePrompt(repo: WorkspaceRepo, pr: Pick<PrInfo, 'number' | 'title' | 'url' | 'baseRefName'>, op: 'merge' | 'rebase', files: string[]): string {
+  const finish = op === 'merge' ? '`git add` each resolved file, then `git commit --no-edit` to finish the merge' : '`git add` each resolved file, then `git rebase --continue` (repeat for each commit that stops)'
+  const abort = op === 'merge' ? 'git merge --abort' : 'git rebase --abort'
+  return [
+    `Sinfonie started ${op === 'merge' ? `merging origin/${pr.baseRefName} into` : `rebasing onto origin/${pr.baseRefName}`} ${repo.repoName} PR #${pr.number} "${pr.title}" (${pr.url}) in the worktree ${repo.worktreePath}, and git stopped on conflicts in:`,
+    ``,
+    files.map((f) => `- ${f}`).join('\n'),
+    ``,
+    `Resolve them there. ${AMBIGUITY} Then ${finish}. Run the tests that cover the files you touched, and tell me per file what conflicted and how you resolved it. If you cannot finish, run \`${abort}\` so the branch is as it was, and tell me why. Do not push${op === 'rebase' ? ' (after a rebase the branch needs a force-push, which is my call)' : ''}.`
   ].join('\n')
 }

@@ -4,14 +4,16 @@
  * thread that appears, a branch that starts conflicting: each becomes one proposal the person starts
  * with a click (the workspace's agent fixes and commits; it never pushes or replies on GitHub). An
  * approved, green, mergeable PR gets a "ready to merge" note. Only what changed since the last look
- * is proposed, so the same failure is not proposed twice.
+ * is proposed, so the same failure is not proposed twice. Phase 2 (merge-update.ts): a branch that is behind
+ * or conflicts with its base is updated or merged in from the card, with conflicts handed to the agent.
  */
 import { BrowserWindow, Notification } from 'electron'
 import { nanoid } from 'nanoid'
 import { getStore } from '../store'
-import { repoPrStatus } from './github'
+import { behindBy, repoPrStatus } from './github'
 import { getWorkspace, patchWorkspace } from './workspaces'
 import { buildAddressPrompt, buildCiPrompt, buildConflictPrompt } from '@shared/merge-prompts'
+import { headOf, inProgressOp } from './merge-update'
 import type { MergeProposal, MergeWatch, Workspace } from '@shared/types'
 
 const POLL_MS = 4 * 60 * 1000
@@ -20,7 +22,7 @@ let timer: NodeJS.Timeout | null = null
 
 export function setWatch(workspaceId: string, on: boolean): Workspace {
   const ws = getWorkspace(workspaceId)
-  const next: MergeWatch | undefined = on ? { on: true, since: new Date().toISOString(), seen: {}, proposals: ws.mergeWatch?.proposals ?? [] } : undefined
+  const next: MergeWatch | undefined = on ? { on: true, since: new Date().toISOString(), seen: {}, proposals: ws.mergeWatch?.proposals ?? [], ...(ws.mergeWatch?.style ? { style: ws.mergeWatch.style } : {}) } : undefined
   const saved = patchWorkspace(workspaceId, { mergeWatch: next })
   if (on) void check(workspaceId).catch(() => undefined)
   return saved
@@ -68,26 +70,53 @@ export async function check(workspaceId: string): Promise<MergeProposal[]> {
         const who = Array.from(new Set(newThreads.flatMap((t) => t.comments.slice(0, 1).map((c) => c.author)))).join(', ')
         fresh.push({ ...base, id: nanoid(8), kind: 'review', title: `${newThreads.length} new review comment${newThreads.length === 1 ? '' : 's'} on ${repo.repoName} #${pr.number}${who ? ` from ${who}` : ''}.`, prompt: buildAddressPrompt(ws, unresolved.map((thread) => ({ repo, pr, thread }))) })
       }
-      if (conflict && !prev?.conflict) fresh.push({ ...base, id: nanoid(8), kind: 'conflict', title: `${repo.repoName} #${pr.number} conflicts with ${pr.baseRefName}.`, prompt: buildConflictPrompt(repo, pr) })
+      if (conflict && !prev?.conflict) fresh.push({ ...base, id: nanoid(8), kind: 'conflict', baseRefName: pr.baseRefName, title: `${repo.repoName} #${pr.number} conflicts with ${pr.baseRefName}.`, prompt: buildConflictPrompt(repo, pr) })
+      // Behind, when branch protection requires the branch to be up to date before merging (phase 2).
+      const behind = !conflict && pr.mergeStateStatus === 'BEHIND'
+      if (behind && !prev?.behind) {
+        const n = await behindBy(repo.worktreePath, pr.baseRefName, pr.headRefName)
+        fresh.push({ ...base, id: nanoid(8), kind: 'behind', baseRefName: pr.baseRefName, title: `${repo.repoName} #${pr.number} is behind ${pr.baseRefName}${n ? ` by ${n} commit${n === 1 ? '' : 's'}` : ''} and must be up to date to merge.` })
+      }
       if (ready && !prev?.ready) fresh.push({ ...base, id: nanoid(8), kind: 'ready', title: `${repo.repoName} #${pr.number} is ${pr.reviewDecision === 'APPROVED' ? 'approved, ' : ''}green and ready to merge.` })
 
-      seen[repo.repoId] = { pr: pr.number, failing, threads: unresolved.map((t) => t.id), conflict, ready }
+      seen[repo.repoId] = { pr: pr.number, failing, threads: unresolved.map((t) => t.id), conflict, ready, behind }
+    }
+    // A merge Sinfonie started: once git is no longer in the middle of it, it was either finished (the
+    // branch moved past where it started: resolved locally, waiting for a push) or aborted outside Sinfonie.
+    const settledIds = new Map<string, 'resolved' | 'aborted'>()
+    for (const p of getWorkspace(workspaceId).mergeWatch?.proposals ?? []) {
+      if (!p.inProgress) continue
+      const repo = ws.repos.find((r) => r.repoId === p.repoId)
+      if (!repo || (await inProgressOp(repo.worktreePath).catch(() => null))) continue
+      settledIds.set(p.id, p.inProgress.head && (await headOf(repo.worktreePath)) === p.inProgress.head ? 'aborted' : 'resolved')
     }
     // A newer proposal of the same kind for the same PR replaces the older one; fixed problems drop out.
     const latest = getWorkspace(workspaceId).mergeWatch
     if (!latest?.on) return []
-    const keep = (latest.proposals ?? []).filter((p) => {
+    const current = (latest.proposals ?? []).map((p): MergeProposal => {
+      const how = settledIds.get(p.id)
+      if (!how) return p
+      const { inProgress: _done, ...rest } = p
+      void _done
+      return how === 'resolved' ? { ...rest, resolvedLocally: true } : rest
+    })
+    const keep = current.filter((p) => {
+      // A merge Sinfonie started stays on screen (with Abort) until it is finished or aborted, whatever GitHub says.
+      if (p.inProgress) return true
       if (fresh.some((f) => f.repoId === p.repoId && f.kind === p.kind)) return false
       const s = seen[p.repoId]
       if (!s || s.pr !== p.pr) return false
       if (p.kind === 'ci') return s.failing.length > 0
       if (p.kind === 'review') return s.threads.length > 0
       if (p.kind === 'conflict') return s.conflict
+      if (p.kind === 'behind') return Boolean(s.behind)
       return s.ready
     })
-    patchWorkspace(workspaceId, { mergeWatch: { ...latest, seen, proposals: [...keep, ...fresh], checkedAt: now, ...(lastError ? { lastError } : { lastError: undefined }) } })
-    if (fresh.length) announce(ws, fresh)
-    return fresh
+    // A conflict proposal waiting on the agent is not doubled by a fresh one for the same PR.
+    const dedup = fresh.filter((f) => !keep.some((k) => k.inProgress && k.repoId === f.repoId && k.kind === f.kind))
+    patchWorkspace(workspaceId, { mergeWatch: { ...latest, seen, proposals: [...keep, ...dedup], checkedAt: now, ...(lastError ? { lastError } : { lastError: undefined }) } })
+    if (dedup.length) announce(ws, dedup)
+    return dedup
   } finally {
     checking.delete(workspaceId)
   }
@@ -95,7 +124,7 @@ export async function check(workspaceId: string): Promise<MergeProposal[]> {
 
 function announce(ws: Workspace, list: MergeProposal[]): void {
   if (!getStore().get().settings.desktopNotifications || !Notification.isSupported()) return
-  const n = new Notification({ title: `${ws.name}: ${list.length === 1 ? list[0].title : `${list.length} things need you on its pull requests`}`, body: list.length === 1 ? (list[0].prompt ? 'Open the workspace to have the agent fix it.' : 'Open the pull request to merge it.') : list.map((p) => p.title).join(' ').slice(0, 180) })
+  const n = new Notification({ title: `${ws.name}: ${list.length === 1 ? list[0].title : `${list.length} things need you on its pull requests`}`, body: list.length === 1 ? (list[0].kind === 'behind' ? 'Open the workspace to update the branch.' : list[0].prompt ? 'Open the workspace to have the agent fix it.' : 'Open the pull request to merge it.') : list.map((p) => p.title).join(' ').slice(0, 180) })
   n.on('click', () => {
     const win = BrowserWindow.getAllWindows()[0]
     if (!win) return

@@ -65,7 +65,13 @@ Everything here leaves the Mac (pushes, comments, resolved threads), so the desi
 
 1. **Watch and propose**: poller, state diff, failing checks and new review threads, *Propose* cards
    only. Gets real-world signal before any autonomous push.
-2. **Conflicts and up-to-date**: merge/rebase handling with stop-on-ambiguity; `update-branch`.
+2. **Conflicts and up-to-date** (built 2026-10-13, `merge-update.ts`): a branch GitHub reports `BEHIND` gets an
+   *Update on GitHub* card (GitHub's update-branch, a merge commit; the card says it changes the PR) or, with
+   the workspace set to rebase, *Rebase locally*. *Resolve conflicts* merges (or rebases onto) the base in the
+   worktree; a clean result waits for the person to push, and conflicts go to the agent with a prompt that
+   resolves only mechanical conflicts and asks (AskUserQuestion) about the rest. A worktree with uncommitted
+   changes is refused (never stashed or discarded); *Abort* runs `git merge --abort` / `git rebase --abort`.
+   Merge or rebase is a per-workspace choice next to the switch (default merge).
 3. **Act mode**: autonomy setting, limits, team-rule override, brief trail, notifications.
 4. **Auto-merge** (opt-in per space): merge when approved and green, respecting branch protection.
 

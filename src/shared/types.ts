@@ -691,8 +691,10 @@ export interface MergeWatch {
   checkedAt?: string
   lastError?: string
   /** What was true at the last look, per repository, so only changes become proposals. */
-  seen?: Record<string, { pr: number; failing: string[]; threads: string[]; conflict: boolean; ready: boolean }>
+  seen?: Record<string, { pr: number; failing: string[]; threads: string[]; conflict: boolean; ready: boolean; behind?: boolean }>
   proposals?: MergeProposal[]
+  /** How the branch takes in its base: a merge commit (default, never needs a force-push) or a local rebase. */
+  style?: 'merge' | 'rebase'
 }
 export interface MergeProposal {
   id: string
@@ -700,12 +702,28 @@ export interface MergeProposal {
   repoName: string
   pr: number
   prUrl: string
-  kind: 'ci' | 'review' | 'conflict' | 'ready'
+  kind: 'ci' | 'review' | 'conflict' | 'ready' | 'behind'
   /** One sentence: what happened. */
   title: string
-  /** What the agent is asked to do when the person accepts; absent for "ready" (nothing to fix). */
+  /** What the agent is asked to do when the person accepts; absent for "ready" and "behind" (Sinfonie does those). */
   prompt?: string
   createdAt: string
+  /** The PR's base branch, for updating or merging it in. */
+  baseRefName?: string
+  /** A merge or rebase of the base that stopped on conflicts in the worktree, waiting for the agent or an abort. */
+  inProgress?: { op: 'merge' | 'rebase'; files: string[]; startedAt: string; /** HEAD before it started: back there means it was aborted. */ head?: string }
+  /** The merge Sinfonie started was finished in the worktree; the pull request updates when the person pushes. */
+  resolvedLocally?: boolean
+}
+
+/** What happened when Sinfonie brought a PR's base branch into its worktree or updated it on GitHub. */
+export interface MergeUpdateResult {
+  outcome: 'updated-on-github' | 'merged' | 'rebased' | 'conflicts' | 'up-to-date'
+  /** One or two sentences for the person, including what to do next (push). */
+  message: string
+  /** On conflicts: the prompt that hands them to the workspace's agent. */
+  prompt?: string
+  files?: string[]
 }
 
 export interface Workspace {
@@ -1618,6 +1636,8 @@ export interface PrInfo {
   author: string
   reviewDecision: 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED' | ''
   mergeable: string
+  /** GitHub's merge state: BEHIND when branch protection requires the branch to be up to date with its base. */
+  mergeStateStatus?: string
   baseRefName: string
   headRefName: string
   additions: number
