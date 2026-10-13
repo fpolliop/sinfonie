@@ -27,6 +27,7 @@ import type { MaestroMemoryCategory, MaestroMemoryEntry, MaestroConversation, Ma
   SessionSummary,
   UpdateInfo,
   WorkspaceStage,
+  ApiDiscovery,
   MergeProposal,
   Job,
   BuiltinStage,
@@ -538,6 +539,9 @@ export interface SinfonieInvoke {
   'views:data': (binding: ViewSourceBinding, ctx: { spaceId?: string; workspaceId?: string }, force?: boolean) => ViewDataResult
   /** A git/GitHub action from a view; confirm/outward tiers need confirmed = true. Returns a summary. */
   'views:action': (name: string, params: Record<string, unknown>, confirmed: boolean) => string
+  // ---- API explorer (feedback #42) ----
+  /** The workspace's HTTP endpoints, from OpenAPI files, the running app's spec and a code scan. Cached a minute unless forced. */
+  'api:discover': (workspaceId: string, force?: boolean) => ApiDiscovery
   // ---- keep it mergeable (feedback #50) ----
   'mergeWatch:set': (workspaceId: string, on: boolean) => Workspace
   /** Look at the workspace's PRs now; returns the new proposals. */

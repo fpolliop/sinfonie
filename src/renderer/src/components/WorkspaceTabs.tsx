@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { create } from 'zustand'
-import { GitCompare, Database, ListChecks, TerminalSquare, Globe, PanelRightClose, PanelRightOpen } from 'lucide-react'
+import { GitCompare, Database, ListChecks, TerminalSquare, Globe, Network, PanelRightClose, PanelRightOpen } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApp, type Tab } from '@/stores/app'
 import { useChat } from '@/stores/chat'
@@ -20,7 +20,7 @@ import { yieldsToEditor } from '@/lib/keys'
  * it), Preview, Checks (pull requests and CI), Terminal (with the setup and run scripts) and Data, then any
  * generated views. ⌘1…⌘9 pick a tab in this order and expand the panel.
  */
-export type Pane = 'changes' | 'preview' | 'checks' | 'terminal' | 'data' | `view:${string}`
+export type Pane = 'changes' | 'preview' | 'checks' | 'terminal' | 'data' | 'api' | `view:${string}`
 
 interface PaneDef {
   id: Pane
@@ -36,7 +36,8 @@ const PANES: PaneDef[] = [
   { id: 'preview', tab: 'browser', label: 'Preview', icon: <Globe size={13} />, hint: 'The app in a browser the agent can drive' },
   { id: 'checks', tab: 'prs', label: 'Checks', icon: <ListChecks size={13} />, hint: 'Pull requests, CI checks and review comments' },
   { id: 'terminal', tab: 'terminal', label: 'Terminal', icon: <TerminalSquare size={13} />, hint: 'Shells in the worktrees, and the setup and run scripts' },
-  { id: 'data', tab: 'data', label: 'Data', icon: <Database size={13} />, hint: 'Databases of this space' }
+  { id: 'data', tab: 'data', label: 'Data', icon: <Database size={13} />, hint: 'Databases of this space' },
+  { id: 'api', tab: 'api', label: 'API', icon: <Network size={13} />, hint: 'HTTP endpoints found in these repositories' }
 ]
 /** Guided mode: look at the result. Everything else still runs underneath. */
 const GUIDED_PANES: PaneDef[] = [{ id: 'preview', tab: 'browser', label: 'Preview', icon: <Globe size={13} />, hint: 'The app, as it looks with your changes' }]
@@ -56,6 +57,8 @@ export function paneOf(tab: Tab): Pane | null {
       return 'terminal'
     case 'data':
       return 'data'
+    case 'api':
+      return 'api'
     case 'chat':
       return null
     default:
