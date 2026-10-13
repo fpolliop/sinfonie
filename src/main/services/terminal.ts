@@ -6,6 +6,8 @@ type DataHandler = (terminalId: string, data: string) => void
 type ExitHandler = (terminalId: string, exitCode: number) => void
 
 const terminals = new Map<string, pty.IPty>()
+/** The user's own shells (not ones Sinfonie opened to run a command, like the CLI), for Running. */
+const shells = new Map<string, { cwd: string }>()
 
 export function createTerminal(
   cwd: string,
@@ -25,10 +27,12 @@ export function createTerminal(
     env: env as Record<string, string>
   })
   terminals.set(id, term)
+  if (!command) shells.set(id, { cwd })
   resources.registerProcess(term.pid, { kind: 'terminal', cwd })
   term.onData((d) => onData(id, d))
   term.onExit(({ exitCode }) => {
     terminals.delete(id)
+    shells.delete(id)
     resources.unregisterProcess(term.pid)
     onExit(id, exitCode)
   })
@@ -49,7 +53,18 @@ export function disposeTerminal(id: string): void {
   if (t) {
     t.kill()
     terminals.delete(id)
+    shells.delete(id)
   }
+}
+
+/** The user's own terminals, with their shell's pid and folder. */
+export function userTerminals(): { id: string; pid: number; cwd: string }[] {
+  return Array.from(shells, ([id, s]) => ({ id, pid: terminals.get(id)?.pid ?? 0, cwd: s.cwd })).filter((t) => t.pid)
+}
+
+/** Ctrl-C to the terminal's foreground command, as if typed; the terminal stays open. */
+export function interruptTerminal(id: string): void {
+  terminals.get(id)?.write('\x03')
 }
 
 export function disposeAllTerminals(): void {

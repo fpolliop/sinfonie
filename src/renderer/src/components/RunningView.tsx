@@ -5,7 +5,7 @@
  */
 import React, { useEffect, useMemo, useState } from 'react'
 import clsx from 'clsx'
-import { Activity, Bot, CalendarClock, Clock, FileCode, GitPullRequest, Hourglass, MessageSquare, Siren, Square, TerminalSquare, Wand2, Workflow } from 'lucide-react'
+import { Activity, Bot, CalendarClock, Clock, FileCode, GitPullRequest, Hourglass, MessageSquare, Siren, Square, SquareTerminal, TerminalSquare, Wand2, Workflow } from 'lucide-react'
 import type { Job } from '@shared/types'
 import { api } from '@/lib/api'
 import { friendlyError } from '@/lib/errors'
@@ -28,13 +28,18 @@ const ICON: Record<Job['kind'], React.ReactNode> = {
   triage: <Siren size={14} />,
   'fix-pr': <GitPullRequest size={14} />,
   script: <FileCode size={14} />,
-  maestro: <Wand2 size={14} />
+  maestro: <Wand2 size={14} />,
+  command: <SquareTerminal size={14} />,
+  terminal: <TerminalSquare size={14} />
 }
-const STOP_LABEL: Partial<Record<Job['kind'], string>> = { queued: 'Remove', cli: 'Interrupt', review: 'Stop review', script: 'Stop script' }
+const STOP_LABEL: Partial<Record<Job['kind'], string>> = { queued: 'Remove', cli: 'Interrupt', review: 'Stop review', script: 'Stop script', terminal: 'Ctrl-C' }
 /** The guided lens shows the person's own work and Maestro, in plain words; no scripts, CLI or subagents. */
 const GUIDED_KINDS: Job['kind'][] = ['agent-turn', 'queued', 'maestro', 'review']
 
-const gb = (b: number): string => `${(b / 1024 ** 3).toFixed(1)} GB`
+const size = (b: number): string => (b >= 1024 ** 3 ? `${(b / 1024 ** 3).toFixed(1)} GB` : `${Math.max(1, Math.round(b / 1024 ** 2))} MB`)
+/** A row holding this much is worth a look: the same 3 GB the governor stops a runaway command at. */
+const HEAVY = 3 * 1024 ** 3
+const clock = (iso?: string): string => (iso ? new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '')
 
 export function RunningView(): React.JSX.Element {
   const { jobs: all, refresh } = useJobs(2500)
@@ -85,7 +90,7 @@ export function RunningView(): React.JSX.Element {
 
   const row = (j: Job): React.JSX.Element => {
     const sp = spaceOf(j.spaceId)
-    const when = j.state === 'scheduled' ? untilText(j.nextAt) : elapsed(j.startedAt)
+    const when = j.state === 'scheduled' ? [untilText(j.nextAt), clock(j.nextAt) && `at ${clock(j.nextAt)}`].filter(Boolean).join(' · ') : elapsed(j.startedAt)
     return (
       <li key={j.id} className="flex items-center gap-3 border-b border-border px-3 py-2 last:border-b-0">
         <span className={clsx('shrink-0', j.state === 'running' ? 'text-accent' : 'text-muted')}>{ICON[j.kind]}</span>
@@ -99,7 +104,11 @@ export function RunningView(): React.JSX.Element {
             {sp.name}
           </span>
         )}
-        {j.rss ? <span className="shrink-0 text-[11px] tabular-nums text-muted">{gb(j.rss)}</span> : null}
+        {j.rss ? (
+          <span className={clsx('shrink-0 text-[11px] tabular-nums', j.rss >= HEAVY ? 'font-semibold text-warn' : 'text-muted')} title="Memory of this and everything it started, as macOS counts it">
+            {size(j.rss)}
+          </span>
+        ) : null}
         {when && (
           <span className="flex shrink-0 items-center gap-1 text-[11px] tabular-nums text-muted">
             <Clock size={11} aria-hidden />

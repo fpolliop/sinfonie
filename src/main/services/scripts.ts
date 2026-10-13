@@ -130,10 +130,10 @@ export function runCommandOnce(ws: Workspace, repo: Repo, worktreePath: string, 
 
 /** True while a script of this kind is running for the repo in the workspace. */
 /** Every script running now, for the Running list. */
-export function runningScripts(): { workspaceId: string; repoId: string; kind: string; startedAt: string }[] {
+export function runningScripts(): { workspaceId: string; repoId: string; kind: string; startedAt: string; pid?: number }[] {
   return Array.from(running, ([k, child]) => {
     const [workspaceId, repoId, kind] = k.split(':')
-    return { workspaceId, repoId, kind, startedAt: startedAt.get(child) ?? new Date().toISOString() }
+    return { workspaceId, repoId, kind, startedAt: startedAt.get(child) ?? new Date().toISOString(), pid: child.pid }
   })
 }
 

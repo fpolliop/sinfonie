@@ -14,6 +14,7 @@ import * as runs from './crew/runs'
 import * as library from './agents'
 import * as scheduler from './crew/scheduler'
 import * as oncall from './oncall/service'
+import * as terminal from './terminal'
 import type { Job } from '@shared/types'
 
 /** First time each running thing was seen, so a turn without its own start time still shows how long it has run. */
@@ -41,6 +42,20 @@ export function list(): Job[] {
     else if (cliSession.isRunning(w.id)) out.push({ id: `cli:${w.id}`, kind: 'cli', state: 'running', title: w.name, detail: 'CLI session open', workspaceId: w.id, spaceId: w.spaceId, startedAt: seen(`cli:${w.id}`), rss: rssOf(w.id), stoppable: true })
     for (const t of resources.runningTasks(w.id)) out.push({ id: `task:${w.id}:${t.taskId}`, kind: 'agent-task', state: 'running', title: t.description || 'Subagent', detail: `In ${w.name}`, workspaceId: w.id, spaceId: w.spaceId, startedAt: t.startedAt, stoppable: true })
   }
+  // Commands agents started (a test run, a dev server, a background job) and the other engines' tool processes:
+  // each with its memory, stoppable on its own without stopping the agent.
+  for (const c of resources.agentCommands()) {
+    const w = live.find((x) => x.id === c.workspaceId)
+    if (!w) continue
+    out.push({ id: `cmd:${c.pid}`, kind: 'command', state: 'running', title: c.command || 'A command', detail: `${c.kind === 'tool' ? 'Tool process' : 'Started by the agent'} · ${w.name}`, workspaceId: w.id, spaceId: w.spaceId, startedAt: c.since ?? seen(`cmd:${c.pid}`), rss: c.bytes || undefined, stoppable: true })
+  }
+  // The user's own terminals, while a command runs in them (an idle shell is not "running").
+  for (const t of terminal.userTerminals()) {
+    const fg = resources.terminalForeground(t.pid)
+    if (!fg) continue
+    const w = live.find((x) => x.rootPath && (t.cwd === x.rootPath || t.cwd.startsWith(x.rootPath + '/')))
+    out.push({ id: `term:${t.id}`, kind: 'terminal', state: 'running', title: fg.command || 'A command', detail: `Terminal${w ? ` · ${w.name}` : ` · ${t.cwd.split('/').pop()}`}`, workspaceId: w?.id, spaceId: w?.spaceId, startedAt: seen(`term:${t.id}:${fg.pid}`), rss: fg.bytes || undefined, stoppable: true })
+  }
   for (const id of snap.waiting) {
     const w = live.find((x) => x.id === id)
     out.push({ id: `queued:${id}`, kind: 'queued', state: 'queued', title: w?.name ?? 'A workspace', detail: 'Message waiting for a free session slot', workspaceId: id, spaceId: w?.spaceId, startedAt: seen(`queued:${id}`), stoppable: true })
@@ -48,7 +63,7 @@ export function list(): Job[] {
   for (const s of scripts.runningScripts()) {
     const w = live.find((x) => x.id === s.workspaceId)
     const repo = repos.find((r) => r.id === s.repoId)
-    out.push({ id: `script:${s.workspaceId}:${s.repoId}:${s.kind}`, kind: 'script', state: 'running', title: `${s.kind === 'run' ? 'Run' : s.kind === 'setup' ? 'Setup' : s.kind} script · ${repo?.name ?? 'repository'}`, detail: w ? `In ${w.name}` : undefined, workspaceId: s.workspaceId, spaceId: w?.spaceId, startedAt: s.startedAt, stoppable: s.kind !== 'archive' })
+    out.push({ id: `script:${s.workspaceId}:${s.repoId}:${s.kind}`, kind: 'script', state: 'running', title: `${s.kind === 'run' ? 'Run' : s.kind === 'setup' ? 'Setup' : s.kind} script · ${repo?.name ?? 'repository'}`, detail: w ? `In ${w.name}` : undefined, workspaceId: s.workspaceId, spaceId: w?.spaceId, startedAt: s.startedAt, rss: resources.treeBytes(s.pid), stoppable: s.kind !== 'archive' })
   }
   for (const c of assistant.busyConversations()) out.push({ id: `maestro:${c.id}`, kind: 'maestro', state: 'running', title: c.title, detail: 'Maestro answering', conversationId: c.id, startedAt: seen(`maestro:${c.id}`), stoppable: true })
   for (const r of runs.activeRuns()) out.push({ id: `run:${r.runId}`, kind: 'agent-run', state: 'running', title: r.agentName, detail: r.prompt.replace(/\s+/g, ' ').slice(0, 120), agentId: r.agentId, startedAt: r.startedAt, stoppable: true })
@@ -58,8 +73,8 @@ export function list(): Job[] {
     out.push({ id: `review:${r.key}`, kind: 'review', state: 'running', title: `${r.pr.nameWithOwner}#${r.pr.number}`, detail: `${what}: ${r.pr.title}`, reviewKey: r.key, startedAt: r.startedAt, stoppable: true })
   }
   for (const inc of oncall.state().incidents) {
-    if (inc.status === 'triaging') out.push({ id: `triage:${inc.id}`, kind: 'triage', state: 'running', title: inc.title, detail: `On call triage · #${inc.channelName}`, incidentId: inc.id, spaceId: inc.spaceId || undefined, startedAt: seen(`triage:${inc.id}`), stoppable: true })
-    if (inc.fix?.status === 'running') out.push({ id: `fix:${inc.id}`, kind: 'fix-pr', state: 'running', title: inc.title, detail: `Drafting a fix PR${inc.fix.phase ? ` · ${inc.fix.phase}` : ''}`, incidentId: inc.id, spaceId: inc.spaceId || undefined, startedAt: seen(`fix:${inc.id}`), stoppable: true })
+    if (inc.status === 'triaging') out.push({ id: `triage:${inc.id}`, kind: 'triage', state: 'running', title: inc.title, detail: `On call triage · #${inc.channelName}`, incidentId: inc.id, spaceId: inc.spaceId || undefined, startedAt: seen(`triage:${inc.id}`), rss: resources.jobBytes(`oncall:${inc.id}`), stoppable: true })
+    if (inc.fix?.status === 'running') out.push({ id: `fix:${inc.id}`, kind: 'fix-pr', state: 'running', title: inc.title, detail: `Drafting a fix PR${inc.fix.phase ? ` · ${inc.fix.phase}` : ''}`, incidentId: inc.id, spaceId: inc.spaceId || undefined, startedAt: seen(`fix:${inc.id}`), rss: resources.jobBytes(`oncall:fix:${inc.id}`), stoppable: true })
   }
   const now = Date.now()
   for (const spec of library.list()) {
@@ -104,6 +119,12 @@ export async function stop(id: string): Promise<string> {
     case 'review':
       reviews.cancelReview(rest.join(':'))
       return 'Stopped the review; findings so far are kept.'
+    case 'cmd':
+      resources.stopProcessTree(Number(a))
+      return 'Stopped the command and everything it started.'
+    case 'term':
+      terminal.interruptTerminal(a)
+      return 'Sent Ctrl-C to the terminal; it stays open.'
     case 'triage':
     case 'fix':
       oncall.cancel(a)

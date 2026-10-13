@@ -77,8 +77,11 @@ Historical runs and logs (Agents and Review keep theirs), CPU graphs, killing ar
 1. **Registry**: `jobs.ts` and IPC; register agent turns, queued messages, scripts, Maestro,
    standalone runs and reviews (they already have stop functions).
 2. **Panel**: the Running list with Open/Stop, rail entry, ⌘K, guided lens.
-3. **Gaps**: register on-call triage and fix PRs with cancellation, ACP/native tool processes,
-   terminals, and agent background tasks (from `resources`); add scheduled-next.
+3. **Gaps** (built 2026-10-13): commands agents start (foreground or background shells under the agent CLI)
+   and ACP/native tool processes as rows, with their memory and a Stop that ends the whole process tree;
+   the user's own terminals while a command runs in them (Stop sends Ctrl-C, the terminal stays open);
+   memory on script and on-call rows; on-call cancel also ends the commands the agent started; scheduled
+   rows show the clock time. On-call triage and fix PRs already had rows and cancellation from phase 1.
 4. **Maestro**: `running_jobs` and `stop_job` tools; "N things running" in the brief when something
    has run for unusually long.
 

@@ -451,6 +451,8 @@ function startRun(incidentId: string, timeoutMs: number, what: string): { ctrl: 
   running.get(incidentId)?.abort()
   const ctrl = new AbortController()
   running.set(incidentId, ctrl)
+  // Aborting ends the agent CLI; also end the commands it started (tests, gh…), or they keep running orphaned.
+  ctrl.signal.addEventListener('abort', () => resources.killJob(`oncall:${incidentId}`), { once: true })
   let timedOut = false
   const t = setTimeout(() => {
     timedOut = true
@@ -476,7 +478,7 @@ async function runAgent(spaceId: string, prompt: string, opts: { schema?: Record
     run.done()
   }
 }
-async function runAgentInner(spaceId: string, prompt: string, opts: { schema?: Record<string, unknown>; maxTurns: number }, abortController: AbortController): Promise<{ text: string; structured?: unknown; costUsd: number }> {
+async function runAgentInner(spaceId: string, prompt: string, opts: { schema?: Record<string, unknown>; maxTurns: number; incidentId?: string }, abortController: AbortController): Promise<{ text: string; structured?: unknown; costUsd: number }> {
   const s = settingsFor(spaceId)
   const dirs = contextDirs(spaceId)
   let mcpServers: Options['mcpServers'] = {}
@@ -521,7 +523,7 @@ async function runAgentInner(spaceId: string, prompt: string, opts: { schema?: R
     env: { ...process.env, ...accountEnv(s.claudeAccountId) },
     spawnClaudeCodeProcess: (o) => {
       const child = spawn(o.command, o.args, { cwd: o.cwd, env: o.env as NodeJS.ProcessEnv, stdio: ['pipe', 'pipe', 'pipe'], signal: o.signal })
-      resources.registerProcess(child.pid, { kind: 'agent', label: 'On call' })
+      resources.registerProcess(child.pid, { kind: 'agent', label: 'On call', jobKey: opts.incidentId ? `oncall:${opts.incidentId}` : undefined })
       child.once('exit', () => resources.unregisterProcess(child.pid))
       child.stderr?.on('data', (d: Buffer) => console.error('[oncall agent]', d.toString().trimEnd()))
       return child as unknown as SpawnedProcess
@@ -779,7 +781,7 @@ export async function openFixPr(id: string): Promise<Incident> {
         stderr: (d) => console.error(`[oncall fix ${inc.id}]`, d.trimEnd()),
         spawnClaudeCodeProcess: (o) => {
           const child = spawn(o.command, o.args, { cwd: o.cwd, env: o.env as NodeJS.ProcessEnv, stdio: ['pipe', 'pipe', 'pipe'], signal: o.signal })
-          resources.registerProcess(child.pid, { kind: 'agent', label: 'On call fix' })
+          resources.registerProcess(child.pid, { kind: 'agent', label: 'On call fix', jobKey: `oncall:fix:${inc.id}` })
           child.once('exit', () => resources.unregisterProcess(child.pid))
           return child as unknown as SpawnedProcess
         }
