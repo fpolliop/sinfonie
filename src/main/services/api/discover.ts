@@ -236,16 +236,83 @@ function scanFastApi(root: string, files: string[], services: Map<string, string
   return out
 }
 
-function scanExpress(root: string, files: string[], services: Map<string, string>, repo: WorkspaceRepo, texts: Map<string, string>): ApiEndpoint[] {
-  const out: ApiEndpoint[] = []
+/** The file an import or require of `spec` from `from` points to, among the files read. */
+function resolveImport(from: string, spec: string, texts: Map<string, string>): string | null {
+  if (!spec.startsWith('.')) return null
+  const base = join(dirname(from), spec)
+  for (const c of [base, ...['.ts', '.js', '.mjs', '.cjs', '.tsx'].map((e) => base.replace(/\.(js|mjs|cjs)$/, '') + e), ...['index.ts', 'index.js', 'index.mjs'].map((i) => join(base, i))]) if (texts.has(c)) return c
+  return null
+}
+
+/**
+ * Where each router file is mounted: Express `app.use('/users', users)`, Hono `app.route('/users', users)`
+ * and Fastify `register(plugin, { prefix: '/v1' })`, followed through imports and nested mounts.
+ * A file with no mount keeps its own paths ('' prefix).
+ */
+function mountPrefixes(files: string[], texts: Map<string, string>): Map<string, string[]> {
+  const mounts = new Map<string, { parent: string; prefix: string }[]>()
   for (const file of files) {
     const text = texts.get(file)
-    // Only server code: files that use express, fastify or hono. HTTP clients (axios.get) never match these names.
-    if (!text || !/from ['"](express|fastify|hono)['"]|require\(['"](express|fastify)['"]\)/.test(text)) continue
+    if (!text) continue
+    const imports = new Map<string, string>()
+    const importRes = [/(?:const|let|var)\s+(\w+)\s*=\s*require\(\s*['"]([^'"]+)['"]\s*\)/g, /import\s+(\w+)\s*(?:,\s*\{[^}]*\})?\s*from\s*['"]([^'"]+)['"]/g, /import\s+\*\s+as\s+(\w+)\s+from\s*['"]([^'"]+)['"]/g]
+    for (const re of importRes) for (const m of text.matchAll(re)) {
+      const target = resolveImport(file, m[2], texts)
+      if (target) imports.set(m[1], target)
+    }
+    for (const m of text.matchAll(/import\s*\{([^}]+)\}\s*from\s*['"]([^'"]+)['"]/g)) {
+      const target = resolveImport(file, m[2], texts)
+      if (target) for (const name of m[1].split(',')) imports.set(name.trim().split(/\s+as\s+/).pop()!.trim(), target)
+    }
+    const add = (prefix: string, target: string | null | undefined) => {
+      if (!target || target === file) return
+      mounts.set(target, [...(mounts.get(target) ?? []), { parent: file, prefix }])
+    }
+    // Express use / Hono route: the router is the last argument (middleware may come first), by name or inline require.
+    for (const m of text.matchAll(/\.(use|route)\(\s*['"`](\/[^'"`]*)['"`]\s*,([^;]*?)\)\s*(?:;|\n)/g)) {
+      const args = m[3].trim()
+      const req = /require\(\s*['"]([^'"]+)['"]\s*\)\s*$/.exec(args)
+      const name = /(\w+)(?:\.\w+)*(?:\(\s*\))?\s*$/.exec(args)?.[1]
+      add(m[2], req ? resolveImport(file, req[1], texts) : name ? imports.get(name) : undefined)
+    }
+    // Fastify: register(plugin, { prefix: '/v1' })
+    for (const m of text.matchAll(/\.register\(\s*(?:(\w+)|import\(\s*['"]([^'"]+)['"]\s*\)|require\(\s*['"]([^'"]+)['"]\s*\))\s*,\s*\{[^}]*?prefix\s*:\s*['"`]([^'"`]+)['"`]/g)) {
+      add(m[4], m[1] ? imports.get(m[1]) : resolveImport(file, (m[2] ?? m[3])!, texts))
+    }
+  }
+  const memo = new Map<string, string[]>()
+  const prefixesOf = (file: string, seen: Set<string>): string[] => {
+    const hit = memo.get(file)
+    if (hit) return hit
+    const list = mounts.get(file)
+    if (!list || seen.has(file)) return ['']
+    seen.add(file)
+    const out = Array.from(new Set(list.flatMap((m) => prefixesOf(m.parent, seen).map((p) => join2(p, m.prefix)))))
+    seen.delete(file)
+    memo.set(file, out)
+    return out
+  }
+  const result = new Map<string, string[]>()
+  for (const f of mounts.keys()) result.set(f, prefixesOf(f, new Set()))
+  return result
+}
+
+function scanExpress(root: string, files: string[], services: Map<string, string>, repo: WorkspaceRepo, texts: Map<string, string>): ApiEndpoint[] {
+  const out: ApiEndpoint[] = []
+  // Only server code: files that use express, fastify or hono. HTTP clients (axios.get) never match these names.
+  const server = files.filter((f) => /from ['"](express|fastify|hono)['"]|require\(['"](express|fastify|hono)['"]\)/.test(texts.get(f) ?? ''))
+  const prefixes = mountPrefixes(files, texts)
+  for (const file of server) {
+    const text = texts.get(file)!
     const service = serviceOf(root, file, services)
-    const re = /\b(app|router|server|fastify|route[rs]?)\.(get|post|put|patch|delete|options|head|all)\s*\(\s*['"`](\/[^'"`]*)['"`]/g
+    const re = /\b(app|router|server|fastify|route[rs]?|api|\w+Router)\.(get|post|put|patch|delete|options|head|all)\s*\(\s*['"`](\/[^'"`]*)['"`]/g
     let m: RegExpExecArray | null
-    while ((m = re.exec(text))) out.push({ id: '', method: m[2] === 'all' ? 'ANY' : m[2].toUpperCase(), path: m[3], source: 'express', repoId: repo.repoId, repoName: repo.repoName, service, file, line: lineOf(text, m.index), group: relative(root, file).split(sep).slice(-2).join('/'), params: Array.from(m[3].matchAll(/:(\w+)/g)).map((x) => x[1]) })
+    while ((m = re.exec(text))) {
+      for (const prefix of prefixes.get(file) ?? ['']) {
+        const path = prefix ? (m[3] === '/' ? join2(prefix) : join2(prefix, m[3])) : m[3]
+        out.push({ id: '', method: m[2] === 'all' ? 'ANY' : m[2].toUpperCase(), path, source: 'express', repoId: repo.repoId, repoName: repo.repoName, service, file, line: lineOf(text, m.index), group: relative(root, file).split(sep).slice(-2).join('/'), params: Array.from(path.matchAll(/:(\w+)/g)).map((x) => x[1]) })
+      }
+    }
   }
   return out
 }
