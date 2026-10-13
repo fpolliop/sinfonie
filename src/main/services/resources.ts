@@ -2,6 +2,10 @@
  * Resource governor: measures what Sinfonie's process tree costs the Mac, attributes it to
  * workspaces, and enforces the limits the user set. Deterministic and cheap (one `ps` every
  * few seconds), so it reacts before a swap storm rather than after.
+ *
+ * Memory is the physical footprint, as macOS counts it in Force Quit and Activity Monitor: resident
+ * plus compressed and swapped. Resident alone (RSS) falls as macOS swaps a runaway out, so on
+ * 2026-10-13 Sinfonie read 2.7 GB while macOS charged it 45 GB.
  */
 import { execFile } from 'child_process'
 import os from 'os'
@@ -11,7 +15,7 @@ import { join } from 'path'
 import { getStore } from '../store'
 import type { ChatImageRef, PressureLevel, ResourceSettings, ResourceSnapshot, ResourceTask, ResourceSession } from '@shared/types'
 
-export const DEFAULT_RESOURCES: Required<ResourceSettings> = { governor: 'enforce', maxSubagentsPerSession: 4, maxActiveSessions: 6, memoryBudgetPct: 60, stopSubagentsOnCritical: true }
+export const DEFAULT_RESOURCES: Required<ResourceSettings> = { governor: 'enforce', maxSubagentsPerSession: 4, maxActiveSessions: 6, memoryBudgetPct: 50, stopSubagentsOnCritical: true }
 
 export function resourceSettings(): Required<ResourceSettings> {
   return { ...DEFAULT_RESOURCES, ...(getStore().get().settings.resources ?? {}) }
@@ -106,16 +110,87 @@ function appName(command: string): string {
 
 /** What the person reads when the level changes: the real cause, and what helps. */
 function pressureText(level: PressureLevel, enforce: boolean, stops: boolean | undefined): string {
+  const big = snapshot.sessions[0]
+  const bigName = big && big.rss > 1024 ** 3 ? getStore().get().workspaces.find((w) => w.id === big.workspaceId)?.name : undefined
+  const biggest = bigName ? ` The biggest is the workspace ${bigName}, at ${gb(big.rss)}.` : ''
   const others = snapshot.topOthers.length ? ` Closing other apps helps most: ${snapshot.topOthers.map((o) => `${o.name} ${gb(o.rss)}`).join(', ')}.` : ''
   if (snapshot.appLevel === 'normal') {
     // Only macOS critical gets here: Sinfonie is not the cause.
-    const what = enforce ? ` New subagents wait until it eases${stops ? ', and the newest running one is stopped' : ''}.` : ''
+    const what = enforce ? ` New subagents wait until it eases${stops ? '. A command an agent started that holds over 3 GB is stopped, otherwise the newest subagent' : ''}.` : ''
     const macUsed = snapshot.mac ? `, ${gb(snapshot.mac.used)} of ${gb(snapshot.totalMem)} in use` : ''
-    return `Your Mac is critically low on memory (macOS reports critical pressure${macUsed}, swap ${gb(snapshot.swapUsed)}). Sinfonie itself uses ${gb(snapshot.appRss)}, well under its ${gb(snapshot.budget)} budget.${what}${others}`
+    return `Your Mac is critically low on memory (macOS reports critical pressure${macUsed}, swap ${gb(snapshot.swapUsed)}). Sinfonie uses ${gb(snapshot.appRss)} of its ${gb(snapshot.budget)} budget.${biggest}${what}${others}`
   }
   const over = snapshot.appLevel === 'critical'
-  const what = enforce ? (over && stops ? ' New subagents wait, and the newest running one is stopped until it is back under budget.' : ' New subagents wait until running ones finish.') : ' Nothing is stopped (warn-only mode).'
-  return `Sinfonie is ${over ? 'over' : 'near'} its memory budget: ${gb(snapshot.appRss)} of ${gb(snapshot.budget)}.${what}`
+  const what = enforce ? (over && stops ? ' New subagents wait. The biggest command an agent started (over 3 GB) is stopped, otherwise the newest subagent, until it is back under budget.' : ' New subagents wait until running ones finish.') : ' Nothing is stopped (warn-only mode).'
+  return `Sinfonie is ${over ? 'over' : 'near'} its memory budget: ${gb(snapshot.appRss)} of ${gb(snapshot.budget)}.${biggest}${what}`
+}
+
+// ---------- footprint ----------
+
+/** Physical footprint per pid from `top` (its MEM column). About 0.4 s of CPU, so not on every tick. */
+let footprints = new Map<number, number>()
+let footprintAt = 0
+const FOOTPRINT_EVERY_MS = 10_000
+
+function parseSize(v: string): number {
+  const m = /^([\d.]+)([BKMG])/.exec(v.replace(/[+-]$/, ''))
+  if (!m) return 0
+  return Number(m[1]) * { B: 1, K: 1024, M: 1024 ** 2, G: 1024 ** 3 }[m[2] as 'B' | 'K' | 'M' | 'G']
+}
+async function readFootprints(): Promise<void> {
+  const out = await sh('top', ['-l', '1', '-o', 'mem', '-n', '3000', '-stats', 'pid,mem'])
+  if (!out) return
+  const next = new Map<number, number>()
+  for (const line of out.split('\n')) {
+    const m = /^\s*(\d+)\s+(\S+)\s*$/.exec(line)
+    if (m) next.set(Number(m[1]), parseSize(m[2]))
+  }
+  if (next.size) {
+    footprints = next
+    footprintAt = Date.now()
+  }
+}
+
+// ---------- runaway commands ----------
+
+/** A command an agent started that holds this much when macOS reports critical pressure is stopped. */
+const RUNAWAY_MIN = 3 * 1024 ** 3
+const SHELLS = new Set(['zsh', 'bash', 'sh', 'fish', 'dash'])
+let lastStopAt = 0
+/** Per workspace: why its last command was stopped, for the agent's next tool result. */
+const stoppedNotes = new Map<string, string>()
+
+/** The note for the agent about a command Sinfonie stopped, once. */
+export function takeStoppedNote(workspaceId: string): string | undefined {
+  const n = stoppedNotes.get(workspaceId)
+  stoppedNotes.delete(workspaceId)
+  return n
+}
+
+/** What the agent typed, without Claude Code's shell wrapper (`zsh -c -l source … && eval '…'`). */
+function readableCommand(command: string): string {
+  const evald = /eval '((?:[^']|'\\'')*)'/.exec(command)?.[1]?.replace(/'\\''/g, "'")
+  const text = (evald ?? command.replace(/^\S*\/(zsh|bash|sh) (-\S+ )*/, '')).trim()
+  return text.length > 140 ? text.slice(0, 137) + '…' : text
+}
+
+function killTree(pids: number[]): void {
+  for (const pid of [...pids].reverse()) {
+    try {
+      process.kill(pid, 'SIGTERM')
+    } catch {
+      /* already gone */
+    }
+  }
+  setTimeout(() => {
+    for (const pid of pids) {
+      try {
+        process.kill(pid, 'SIGKILL')
+      } catch {
+        /* exited on TERM */
+      }
+    }
+  }, 3000).unref()
 }
 
 // ---------- sampling ----------
@@ -134,6 +209,7 @@ interface Hooks {
   isBusy: (workspaceId: string) => boolean
 }
 let hooks: Hooks | null = null
+let candidates: { pid: number; workspaceId: string; bytes: number; pids: number[] }[] = []
 let timer: NodeJS.Timeout | null = null
 let lastLogAt = 0
 let warnedLevel: PressureLevel = 'normal'
@@ -146,7 +222,9 @@ function sh(cmd: string, args: string[]): Promise<string> {
 }
 
 async function sample(): Promise<void> {
-  const [ps, pressure, swap, vm] = await Promise.all([sh('ps', ['-axo', 'pid=,ppid=,rss=,comm=']), sh('sysctl', ['-n', 'kern.memorystatus_vm_pressure_level']), sh('sysctl', ['-n', 'vm.swapusage']), sh('vm_stat', [])])
+  // Footprints every 10 s, and on every tick once macOS reports pressure (that is when RSS lies most).
+  const wantFootprint = Date.now() - footprintAt > FOOTPRINT_EVERY_MS || snapshot.osPressure !== 'normal' || snapshot.level !== 'normal'
+  const [ps, pressure, swap, vm] = await Promise.all([sh('ps', ['-axo', 'pid=,ppid=,rss=,comm=']), sh('sysctl', ['-n', 'kern.memorystatus_vm_pressure_level']), sh('sysctl', ['-n', 'vm.swapusage']), sh('vm_stat', []), wantFootprint ? readFootprints() : Promise.resolve()])
   const rss = new Map<number, number>()
   const names = new Map<number, string>()
   const children = new Map<number, number[]>()
@@ -155,7 +233,8 @@ async function sample(): Promise<void> {
     if (!m) continue
     const [pid, ppid, kb] = [Number(m[1]), Number(m[2]), Number(m[3])]
     if (!pid) continue
-    rss.set(pid, (kb || 0) * 1024)
+    // The larger of resident and footprint: footprint can be a few seconds old, resident is never too high to trust.
+    rss.set(pid, Math.max((kb || 0) * 1024, footprints.get(pid) ?? 0))
     names.set(pid, appName(m[4]))
     const list = children.get(ppid)
     if (list) list.push(pid)
@@ -210,6 +289,31 @@ async function sample(): Promise<void> {
   const topOthers = Array.from(byApp, ([name, bytes]) => ({ name, rss: bytes }))
     .sort((a, b) => b.rss - a.rss)
     .slice(0, 3)
+
+  // For the governor: each agent's commands (shell subtrees under the agent) and each tool process.
+  candidates = []
+  for (const p of procs.values()) {
+    if (!p.workspaceId) continue
+    if (p.kind === 'tool') {
+      const t = subtree(p.pid)
+      candidates.push({ pid: p.pid, workspaceId: p.workspaceId, bytes: t.bytes, pids: pidsUnder(p.pid) })
+    } else if (p.kind === 'agent') {
+      for (const c of children.get(p.pid) ?? []) {
+        if (!SHELLS.has(names.get(c) ?? '')) continue
+        candidates.push({ pid: c, workspaceId: p.workspaceId, bytes: subtree(c).bytes, pids: pidsUnder(c) })
+      }
+    }
+  }
+  function pidsUnder(pid: number): number[] {
+    const out: number[] = []
+    const stack = [pid]
+    while (stack.length) {
+      const x = stack.pop()!
+      out.push(x)
+      for (const c of children.get(x) ?? []) stack.push(c)
+    }
+    return out
+  }
 
   const byWs = new Map<string, ResourceSession>()
   let terminalsRss = 0
@@ -278,7 +382,27 @@ function govern(level: PressureLevel): void {
     }
     warnedLevel = level
   }
-  if (level === 'critical' && s.governor === 'enforce' && s.stopSubagentsOnCritical) {
+  if (level === 'critical' && s.governor === 'enforce' && s.stopSubagentsOnCritical && Date.now() - lastStopAt > 10_000) {
+    // A runaway command first: on 2026-10-13 one `turbo run test` started ~45 Jest workers and took 30 GB in a
+    // minute, while stopping subagents freed nothing. One per 10 s, so memory can settle before the next.
+    const top = [...candidates].sort((a, b) => b.bytes - a.bytes)[0]
+    if (top && top.bytes >= RUNAWAY_MIN) {
+      lastStopAt = Date.now()
+      const victim = top
+      void sh('ps', ['-o', 'command=', '-p', String(victim.pid)]).then((raw) => {
+        const cmd = readableCommand(raw.trim()) || 'a command'
+        killTree(victim.pids)
+        hooks?.notice(victim.workspaceId, 'error', `Stopped \`${cmd}\`: it was using ${gb(victim.bytes)} and your Mac ran out of memory. The agent was told to run it again with fewer parallel workers.`)
+        stoppedNotes.set(
+          victim.workspaceId,
+          `Sinfonie stopped this command (\`${cmd}\`) because it used ${gb(victim.bytes)} and the Mac ran out of memory (${gb(os.totalmem())} total). Do not run it again as it was. Limit parallelism: one package at a time (turbo --concurrency=1, nx --parallel=1), and few test workers (jest/vitest --maxWorkers=2, pytest -n 2). Run only the tests you need.`
+        )
+      })
+      return
+    }
+  }
+  if (level === 'critical' && s.governor === 'enforce' && s.stopSubagentsOnCritical && Date.now() - lastStopAt > 10_000) {
+    lastStopAt = Date.now()
     // One per tick: the youngest task across all sessions is the cheapest to lose.
     const all = snapshot.sessions.flatMap((r) => r.tasks.map((t) => ({ ...t, workspaceId: r.workspaceId })))
     const victim = all.sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0]
