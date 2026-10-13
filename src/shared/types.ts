@@ -865,6 +865,57 @@ export interface ApiDiscovery {
   port: number
 }
 
+/** Where a request goes. Phase 2: only this Mac (the workspace's app, or another local port). */
+export type ApiEnv = 'workspace' | 'local'
+/** How requests are signed. The secret itself (token, password, key) lives in the encrypted secrets. */
+export interface ApiAuth {
+  kind: 'none' | 'bearer' | 'basic' | 'header'
+  /** basic: the user name; header: the header name (e.g. x-api-key). */
+  name?: string
+}
+export interface ApiSettings {
+  env: ApiEnv
+  /** The "Local" environment's base URL, e.g. http://localhost:3001. */
+  localBase?: string
+  auth: ApiAuth
+  /** Whether a secret is stored for the auth (never sent to the renderer). */
+  hasSecret?: boolean
+}
+export interface ApiRequest {
+  method: string
+  /** Path and query, e.g. /v1/orders/12?expand=items. */
+  path: string
+  headers: [string, string][]
+  body?: string
+  env: ApiEnv
+  endpointId?: string
+}
+export interface ApiResponse {
+  url: string
+  status: number
+  statusText: string
+  headers: [string, string][]
+  body: string
+  /** The body shown is cut at 2 MB. */
+  truncated: boolean
+  bytes: number
+  ms: number
+}
+export interface ApiHistoryEntry {
+  id: string
+  at: string
+  request: ApiRequest
+  url: string
+  status?: number
+  ms?: number
+  error?: string
+}
+export interface ApiState {
+  settings: ApiSettings
+  history: ApiHistoryEntry[]
+  bases: Record<ApiEnv, string | null>
+}
+
 /** Something Sinfonie is doing right now, or will do soon, for the Running list (feedback #65). */
 export interface Job {
   id: string

@@ -1,31 +1,24 @@
 /**
- * API explorer, phase 1 (feedback #42): the workspace's HTTP endpoints, found without a collection.
- * Grouped by repository, service and controller; filter by method, path or name; copy a request
- * as curl or open the file that defines it. Sending requests comes in phase 2.
+ * API explorer (feedback #42): the workspace's HTTP endpoints, found without a collection.
+ * Grouped by repository, service and controller; filter by method, path or name; open one to send
+ * it (phase 2, ApiRequest.tsx), copy it as curl, or open the file that defines it.
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import clsx from 'clsx'
-import { Copy, ExternalLink, RefreshCw, Search } from 'lucide-react'
-import type { ApiDiscovery, ApiEndpoint } from '@shared/types'
+import { Copy, ExternalLink, History, Plus, RefreshCw, Search, SlidersHorizontal } from 'lucide-react'
+import type { ApiDiscovery, ApiEndpoint, ApiRequest, ApiState } from '@shared/types'
 import { api } from '@/lib/api'
 import { friendlyError } from '@/lib/errors'
 import { timeAgo } from '@/lib/format'
 import { useApp } from '@/stores/app'
-import { Button, IconButton, Spinner, inputCls } from './ui'
+import { Button, IconButton, Segmented, Spinner, inputCls } from './ui'
+import { HistoryList, METHOD_TONE, RequestEditor, RequestSettings, type Draft } from './ApiRequest'
 
-const METHOD_TONE: Record<string, string> = {
-  GET: 'bg-accent/15 text-accent',
-  POST: 'bg-ok/15 text-ok',
-  PUT: 'bg-warn/15 text-warn',
-  PATCH: 'bg-warn/15 text-warn',
-  DELETE: 'bg-danger/15 text-danger'
-}
 const SOURCE_LABEL: Record<ApiEndpoint['source'], string> = { openapi: 'OpenAPI file', running: 'running app', nestjs: 'NestJS', nextjs: 'Next.js', fastapi: 'FastAPI', express: 'Express' }
 
-function curlFor(e: ApiEndpoint, port: number): string {
-  const url = `http://localhost:${port}${e.path.replace(/:(\w+)/g, '{$1}')}`
+function requestFor(e: ApiEndpoint, env: ApiState['settings']['env']): ApiRequest {
   const method = e.method === 'ANY' ? 'GET' : e.method
-  return `curl -X ${method} '${url}'${e.hasBody || ['POST', 'PUT', 'PATCH'].includes(method) ? ` -H 'Content-Type: application/json' -d '{}'` : ''}`
+  return { method, path: e.path, headers: [], body: ['POST', 'PUT', 'PATCH'].includes(method) ? '{}' : undefined, env, endpointId: e.id }
 }
 
 export function ApiPane({ workspaceId }: { workspaceId: string }): React.JSX.Element {
@@ -34,6 +27,17 @@ export function ApiPane({ workspaceId }: { workspaceId: string }): React.JSX.Ele
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [q, setQ] = useState('')
+  const [state, setState] = useState<ApiState | null>(null)
+  const [draft, setDraft] = useState<Draft | null>(null)
+  const [view, setView] = useState<'endpoints' | 'history'>('endpoints')
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const loadState = useCallback(() => {
+    void api
+      .invoke('api:state', workspaceId)
+      .then(setState)
+      .catch((err) => setError(friendlyError(err)))
+  }, [workspaceId])
+  useEffect(() => loadState(), [loadState])
 
   const load = useCallback(
     (force: boolean) => {
@@ -71,21 +75,39 @@ export function ApiPane({ workspaceId }: { workspaceId: string }): React.JSX.Ele
   }, [shown])
 
   const copy = (e: ApiEndpoint): void => {
-    void navigator.clipboard.writeText(curlFor(e, data?.port ?? 3000)).then(() => notify({ kind: 'success', text: `Copied curl for ${e.method} ${e.path}` }))
+    void api
+      .invoke('api:curl', workspaceId, requestFor(e, state?.settings.env ?? 'workspace'))
+      .then((c) => navigator.clipboard.writeText(c))
+      .then(() => notify({ kind: 'success', text: `Copied curl for ${e.method} ${e.path}` }))
+      .catch((err) => setError(friendlyError(err)))
   }
   const openFile = (e: ApiEndpoint): void => {
     if (e.file) void api.invoke('fs:open', workspaceId, e.file).catch((err) => setError(friendlyError(err)))
   }
 
+  if (draft && state) return <RequestEditor key={JSON.stringify(draft)} workspaceId={workspaceId} draft={draft} state={state} onBack={() => setDraft(null)} onSent={loadState} />
+
   return (
     <div className="flex h-full flex-col">
+      {settingsOpen && state && <RequestSettings workspaceId={workspaceId} state={state} onClose={() => setSettingsOpen(false)} onSaved={setState} />}
       <div className="flex items-center gap-2 border-b border-border px-3 py-1.5">
-        <span className="text-[11px] font-medium uppercase tracking-wide text-muted">API</span>
-        {data && <span className="text-[11px] text-muted">· {data.endpoints.length} endpoints · scanned {timeAgo(data.scannedAt)}</span>}
+        <span className="shrink-0 text-[11px] font-medium uppercase tracking-wide text-muted">API</span>
+        {data && (
+          <span className="truncate whitespace-nowrap text-[11px] text-muted" title={`Scanned ${timeAgo(data.scannedAt)}`}>
+            · {data.endpoints.length}
+          </span>
+        )}
         <span className="ml-auto" />
+        <Segmented size="sm" value={view} onChange={setView} options={[{ id: 'endpoints', label: 'Endpoints' }, { id: 'history', label: <span className="inline-flex items-center gap-1"><History size={12} aria-hidden /> History</span> }]} />
+        <IconButton label="New request" onClick={() => setDraft({})} disabled={!state}>
+          <Plus size={13} />
+        </IconButton>
+        <IconButton label="Request settings: environment and auth" onClick={() => setSettingsOpen(true)} disabled={!state}>
+          <SlidersHorizontal size={13} />
+        </IconButton>
         <label className="relative flex items-center">
           <Search size={12} className="pointer-events-none absolute left-2 text-muted" aria-hidden />
-          <input className={clsx(inputCls, 'h-[26px] w-48 py-0 pl-6 text-[12px]')} placeholder="Filter: GET /orders, login" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Filter endpoints" />
+          <input className={clsx(inputCls, 'h-[26px] w-36! py-0 pl-6 text-[12px]')} placeholder="Filter: GET /orders, login" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Filter endpoints" />
         </label>
         <Button size="sm" variant="ghost" onClick={() => load(true)} disabled={loading}>
           <RefreshCw size={13} className={clsx(loading && 'animate-spin')} aria-hidden /> Rescan
@@ -97,15 +119,24 @@ export function ApiPane({ workspaceId }: { workspaceId: string }): React.JSX.Ele
         </div>
       )}
       <div className="min-h-0 flex-1 overflow-auto p-3">
-        {!data && loading && (
+        {view === 'history' && state && (
+          <HistoryList
+            history={state.history}
+            onOpen={(h) => setDraft({ request: h.request, endpoint: data?.endpoints.find((e) => e.id === h.request.endpointId) })}
+            onClear={() => void api.invoke('api:clearHistory', workspaceId).then(loadState)}
+          />
+        )}
+        {view === 'endpoints' && !data && loading && (
           <div className="flex items-center gap-2 py-10 text-[12px] text-muted">
             <Spinner /> Looking for endpoints: OpenAPI files, the running app, NestJS, Next.js, FastAPI and Express routes…
           </div>
         )}
-        {data && data.endpoints.length === 0 && (
+        {view === 'endpoints' && data && data.endpoints.length === 0 && (
           <div className="py-10 text-center text-[12px] text-muted">No endpoints found. Sinfonie looks for OpenAPI files, the running app's spec, NestJS controllers, Next.js route handlers, FastAPI and Express or Fastify routes.</div>
         )}
-        {data &&
+        {view === 'endpoints' && data && data.endpoints.length > 0 && shown.length === 0 && <div className="py-10 text-center text-[12px] text-muted">No endpoints match “{q}”.</div>}
+        {view === 'endpoints' &&
+          data &&
           Array.from(tree.entries()).map(([repoName, services]) => {
             const info = data.repos.find((r) => r.repoName === repoName)
             return (
@@ -129,9 +160,9 @@ export function ApiPane({ workspaceId }: { workspaceId: string }): React.JSX.Ele
                           {list.map((e) => (
                             <li key={e.id} className="group flex items-center gap-2 px-3 py-1 hover:bg-panel-2">
                               <span className={clsx('w-14 shrink-0 rounded px-1 text-center font-mono text-[11px] font-semibold', METHOD_TONE[e.method] ?? 'bg-panel-2 text-muted')}>{e.method}</span>
-                              <code className="min-w-0 flex-1 truncate text-[12px]" title={e.path}>
+                              <button type="button" className="min-w-0 flex-1 truncate text-left font-mono text-[12px] hover:text-accent" title={`Open ${e.method} ${e.path} to send it`} onClick={() => setDraft({ endpoint: e })} disabled={!state}>
                                 {e.path}
-                              </code>
+                              </button>
                               {e.summary && <span className="hidden max-w-[40%] truncate text-[11px] text-muted @md:inline">{e.summary}</span>}
                               <span className="shrink-0 text-[11px] text-muted">{SOURCE_LABEL[e.source]}</span>
                               <IconButton label={`Copy curl for ${e.method} ${e.path}`} className="reveal-on-focus opacity-0 group-hover:opacity-100" onClick={() => copy(e)}>

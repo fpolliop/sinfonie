@@ -27,7 +27,7 @@ import type { MaestroMemoryCategory, MaestroMemoryEntry, MaestroConversation, Ma
   SessionSummary,
   UpdateInfo,
   WorkspaceStage,
-  ApiDiscovery,
+  ApiDiscovery, ApiState, ApiSettings, ApiRequest, ApiResponse,
   MergeProposal,
   Job,
   BuiltinStage,
@@ -542,6 +542,12 @@ export interface SinfonieInvoke {
   // ---- API explorer (feedback #42) ----
   /** The workspace's HTTP endpoints, from OpenAPI files, the running app's spec and a code scan. Cached a minute unless forced. */
   'api:discover': (workspaceId: string, force?: boolean) => ApiDiscovery
+  'api:state': (workspaceId: string) => ApiState
+  /** secret: a new token/password/key; null clears it; undefined keeps the stored one. */
+  'api:setSettings': (workspaceId: string, settings: ApiSettings, secret?: string | null) => ApiState
+  'api:send': (workspaceId: string, req: ApiRequest) => ApiResponse
+  'api:curl': (workspaceId: string, req: ApiRequest) => string
+  'api:clearHistory': (workspaceId: string) => void
   // ---- keep it mergeable (feedback #50) ----
   'mergeWatch:set': (workspaceId: string, on: boolean) => Workspace
   /** Look at the workspace's PRs now; returns the new proposals. */
