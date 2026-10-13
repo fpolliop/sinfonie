@@ -163,11 +163,11 @@ async function readCapped(res: Response): Promise<{ text: string; bytes: number;
   return { text: Buffer.concat(chunks).toString('utf8'), bytes, truncated }
 }
 
-export async function send(workspaceId: string, req: ApiRequest): Promise<ApiResponse> {
+export async function send(workspaceId: string, req: ApiRequest, by?: 'agent'): Promise<ApiResponse> {
   const method = req.method.toUpperCase()
   const { url, headers } = prepare(workspaceId, req)
   const started = Date.now()
-  const entry: ApiHistoryEntry = { id: nanoid(8), at: new Date().toISOString(), request: scrub({ ...req, method }), url: url.toString() }
+  const entry: ApiHistoryEntry = { id: nanoid(8), at: new Date().toISOString(), request: scrub({ ...req, method }), url: url.toString(), ...(by ? { by } : {}) }
   try {
     const res = await fetch(url, { method, headers, body: hasBody(method) && req.body ? req.body : undefined, redirect: 'follow', signal: AbortSignal.timeout(TIMEOUT_MS) })
     const { text, bytes, truncated } = await readCapped(res)

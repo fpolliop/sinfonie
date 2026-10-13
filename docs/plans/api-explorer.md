@@ -72,7 +72,12 @@ stale rather than deleted.
    header; secret encrypted on the Mac), history (last 50, typed auth headers hidden), curl export. Main
    refuses any non-local host, so nothing leaves the Mac and nothing needs a confirm yet; the confirm step
    arrives with staging and production in phase 4.
-3. **Agent**: the tools, rescan after route changes, agent-assisted OpenAPI for partial routes.
+3. **Agent** (built, except agent-assisted OpenAPI): `mcp__api__api_endpoints` and `mcp__api__api_request` for
+   Claude Code chat and CLI sessions (requests are local only, use the saved auth and show in History as
+   the agent's); after a turn that edits a route-like file, a rescan diffs the endpoints, the chat shows the
+   change and the agent gets it with the next message (UserPromptSubmit hook). Not yet: crew workers, ACP and
+   native engines, Express mount prefixes (`app.use('/users', router)` lists `/:id`, not `/users/:id`),
+   agent-assisted OpenAPI.
 4. **Team and interop**: space collections, staging/production environments, Postman/Insomnia/OpenAPI
    import and export, traffic capture from the in-app browser, and a views source.
 

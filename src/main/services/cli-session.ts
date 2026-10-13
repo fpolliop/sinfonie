@@ -14,6 +14,7 @@ import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-
 import * as notes from './notes'
 import * as slack from './slack'
 import * as slackTools from './slack-tools'
+import * as apiTools from './api/tools'
 import * as workspaceTools from './workspace-tools'
 import * as browserTools from './browser/tools'
 import * as gcp from './gcp'
@@ -130,6 +131,7 @@ export async function start(workspaceId: string, opts: { prompt?: string; fresh?
   }
   const slackConn = slack.connectionForSpace(ws.spaceId)
   if (slack.connection(slackConn).connected) inProcess.slack = slackTools.sdkServer(slackConn) as McpSdkServerConfigWithInstance
+  if (ws.repos.length) inProcess.api = apiTools.sdkServer(ws.id) as McpSdkServerConfigWithInstance
   for (const [name, s] of Object.entries(servers)) {
     if ((s as { type?: string }).type === 'sdk') inProcess[name] = s as McpSdkServerConfigWithInstance
     else config[name] = s
@@ -147,10 +149,11 @@ export async function start(workspaceId: string, opts: { prompt?: string; fresh?
   const gcpOn = Boolean(gcp.gcpFor(ws.spaceId)) && (space ? space.exposeGcpMcp !== false : true)
   const appendPrompt = [
     `You are working inside a Sinfonie workspace named "${ws.name}" that spans ${ws.repos.length} git repositor${ws.repos.length === 1 ? 'y' : 'ies'}: ${ws.repos.map((r) => `${r.repoName} at ${r.worktreePath} (branch ${r.branch})`).join('; ')}. Keep each repository's changes inside its own worktree.`,
-    `Sinfonie's tools are the mcp__workspace, mcp__notes${inProcess.slack ? ', mcp__slack' : ''}${servers.jira ? ', mcp__jira' : ''}${servers.linear ? ', mcp__linear' : ''}${gcpOn ? ', mcp__gcp' : ''}${servers.db ? ', mcp__db' : ''} and mcp__browser servers; they use Sinfonie's own sign-ins, nothing needs authorising.`,
+    `Sinfonie's tools are the mcp__workspace, mcp__notes${inProcess.slack ? ', mcp__slack' : ''}${servers.jira ? ', mcp__jira' : ''}${servers.linear ? ', mcp__linear' : ''}${gcpOn ? ', mcp__gcp' : ''}${servers.db ? ', mcp__db' : ''}${inProcess.api ? ', mcp__api' : ''} and mcp__browser servers; they use Sinfonie's own sign-ins, nothing needs authorising.`,
     workspaceTools.promptFor(ws.id),
     notes.promptFor(ws.id, true),
     inProcess.slack ? slackTools.promptFor(slackConn) : '',
+    inProcess.api ? apiTools.promptFor() : '',
     gcpOn ? gcp.promptFor(ws.spaceId) : '',
     servers.db && ws.spaceId ? dbTools.promptFor(ws.spaceId) : '',
     browserTools.promptFor(ws.port),
