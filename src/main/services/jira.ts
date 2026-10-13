@@ -5,6 +5,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { UnauthorizedError, type OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js'
 import type { OAuthClientInformationMixed, OAuthClientMetadata, OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js'
+import { authedFetch, bearer, LoginRevoked } from './oauth-refresh'
 import type { JiraIssue, JiraSettings } from '@shared/types'
 import { getStore } from '../store'
 
@@ -164,7 +165,8 @@ function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
 async function connect(connId: string): Promise<Conn> {
   const existing = conns.get(connId)
   if (existing) return existing
-  const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: new StoreOAuthProvider(connId) })
+  // Sinfonie refreshes the token itself (see oauth-refresh.ts), so the transport only gets a fetch that adds it.
+  const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { fetch: authedFetch((force, stale) => tokenFor(connId, force, stale)) })
   const c = new Client({ name: 'sinfonie', version: '0.1.0' })
   await withTimeout(c.connect(transport), 12_000, 'Connecting to the Atlassian MCP')
   const tools = await withTimeout(c.listTools(), 12_000, 'Listing Atlassian MCP tools')
@@ -299,56 +301,28 @@ export async function authenticate(connId: string): Promise<void> {
   updateJiraSettings(connId, { connected: true, connectedAt: new Date().toISOString() })
 }
 
-/** A currently valid Atlassian access token for this connection (connecting refreshes it when needed). */
+/**
+ * The access token for this connection, refreshed when it is about to expire (one refresh at a time).
+ * Throws JiraReauthRequired, and marks the connection disconnected, only when the login is really
+ * gone; a network error or a slow server is just an error, and the connection stays connected.
+ */
+export async function tokenFor(connId: string, force = false, stale?: string): Promise<string> {
+  try {
+    return await withTimeout(bearer(`jira:${connId || 'default'}`, MCP_URL, new StoreOAuthProvider(connId), { force, stale }), 15_000, 'Jira token refresh')
+  } catch (err) {
+    if (err instanceof LoginRevoked) {
+      dropClient(connId)
+      updateJiraSettings(connId, { connected: false, connectedAt: undefined })
+      throw new JiraReauthRequired(connId)
+    }
+    throw err
+  }
+}
+
+/** A currently valid Atlassian access token, or null when not connected. Transient failures throw. */
 export async function accessToken(connId: string): Promise<string | null> {
   if (!jiraSettings(connId).connected) return null
-  try {
-    await withTimeout(connect(connId), 10_000, 'Jira token refresh')
-  } catch (err) {
-    dropClient(connId)
-    if (err instanceof JiraReauthRequired || err instanceof UnauthorizedError) {
-      // The refresh token is dead: mark the connection disconnected so the UI says so, and stop retrying every turn.
-      updateJiraSettings(connId, { connected: false, connectedAt: undefined })
-      throw new JiraReauthRequired(connId)
-    }
-    console.warn('Jira MCP connect for token failed', err)
-    return null
-  }
-  return new StoreOAuthProvider(connId).tokens()?.access_token ?? null
-}
-
-/**
- * When this connection's Atlassian access token expires (ms epoch), or 0 if unknown. The agent's Jira
- * MCP is handed a static bearer it cannot refresh, so the caller rebuilds the session past this point.
- */
-export function tokenExpiresAt(connId: string): number {
-  const p = new StoreOAuthProvider(connId)
-  const at = p.tokensObtainedAt()
-  const tok = p.tokens()
-  if (!at || !tok) return 0
-  const ttl = (typeof tok.expires_in === 'number' && tok.expires_in > 0 ? tok.expires_in : 3300) * 1000
-  return at + ttl
-}
-
-/**
- * A definitely-fresh access token to hand the agent's Jira MCP: a real MCP call refreshes the stored
- * token when it has expired (the SDK transport refreshes on a 401), which a static bearer cannot do.
- */
-export async function warmToken(connId: string): Promise<string | null> {
-  if (!jiraSettings(connId).connected) return null
-  try {
-    const conn = await withTimeout(connect(connId), 10_000, 'Jira token refresh')
-    await withTimeout(conn.client.listTools(), 10_000, 'Jira token refresh')
-  } catch (err) {
-    dropClient(connId)
-    if (err instanceof JiraReauthRequired || err instanceof UnauthorizedError) {
-      updateJiraSettings(connId, { connected: false, connectedAt: undefined })
-      throw new JiraReauthRequired(connId)
-    }
-    console.warn('Jira token warm failed', err)
-    // Fall back to whatever token is stored, rather than dropping Jira tools entirely.
-  }
-  return new StoreOAuthProvider(connId).tokens()?.access_token ?? null
+  return tokenFor(connId)
 }
 
 export { MCP_URL as JIRA_MCP_URL }

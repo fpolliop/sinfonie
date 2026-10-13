@@ -227,25 +227,52 @@ export function disconnect(connId = ''): SlackConnection {
 // ---------- tokens ----------
 
 /** A valid access token, refreshed when it is about to expire. */
+/** Slack answers that mean the login itself is gone; anything else (network, 5xx, rate limits) is retryable. */
+const DEAD_LOGIN = /invalid_refresh_token|invalid_grant|token_revoked|token_expired|invalid_auth|account_inactive|invalid_client|bad_client_secret|app_uninstalled|not_authed/
+
+const refreshing = new Map<string, Promise<string>>()
+
+/**
+ * A usable Slack token. Rotating tokens are refreshed a minute before they expire, once at a time per
+ * connection: two refreshes at once would spend the same refresh token twice. Only an answer that
+ * says the login is dead marks the connection disconnected; a dropped Wi-Fi or a slow proxy does not,
+ * and the current token keeps working while it has time left.
+ */
 export async function accessToken(connId = '', force = false): Promise<string> {
   const t = readSecret<Tokens>(k('tokens', connId))
   if (!t) throw new Error('Slack is not connected. Connect it under Settings, Integrations, Slack.')
-  if (force || (t.expires_at && t.expires_at - Date.now() < 60_000)) {
-    if (!t.refresh_token) {
-      patchConnection(connId, { connected: false })
-      throw new Error('Slack login expired. Reconnect it under Settings, Integrations, Slack.')
-    }
-    try {
-      const n = await exchange(connId, { grant_type: 'refresh_token', refresh_token: t.refresh_token })
-      const merged = { ...t, ...n, refresh_token: n.refresh_token ?? t.refresh_token }
-      writeSecret(k('tokens', connId), merged)
-      return merged.access_token
-    } catch (err) {
-      patchConnection(connId, { connected: false })
-      throw new Error(`Slack login could not be refreshed (${err instanceof Error ? err.message : String(err)}). Reconnect it under Settings, Integrations, Slack.`)
-    }
+  if (!force && !(t.expires_at && t.expires_at - Date.now() < 60_000)) return t.access_token
+  if (!t.refresh_token) {
+    if (t.expires_at && t.expires_at > Date.now()) return t.access_token
+    patchConnection(connId, { connected: false })
+    throw new Error('Slack login expired. Reconnect it under Settings, Integrations, Slack.')
   }
-  return t.access_token
+  let p = refreshing.get(connId)
+  if (!p) {
+    p = (async () => {
+      try {
+        const n = await exchange(connId, { grant_type: 'refresh_token', refresh_token: t.refresh_token! })
+        // Re-read: the stored tokens may have changed while this ran (a reconnect); keep the newest refresh token.
+        const cur = readSecret<Tokens>(k('tokens', connId)) ?? t
+        const merged = { ...cur, ...n, refresh_token: n.refresh_token ?? cur.refresh_token }
+        writeSecret(k('tokens', connId), merged)
+        return merged.access_token
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        if (DEAD_LOGIN.test(msg)) {
+          patchConnection(connId, { connected: false })
+          throw new Error(`Slack login could not be refreshed (${msg}). Reconnect it under Settings, Integrations, Slack.`)
+        }
+        console.warn('[slack] token refresh failed, will retry', msg)
+        if (t.expires_at && t.expires_at > Date.now()) return t.access_token
+        throw new Error(`Slack could not be reached to renew its login (${msg}). Try again in a moment.`)
+      } finally {
+        refreshing.delete(connId)
+      }
+    })()
+    refreshing.set(connId, p)
+  }
+  return p
 }
 
 /** For agent sessions: Slack's MCP server with the user's bearer token. */
@@ -304,7 +331,8 @@ export async function api<T>(connId: string, method: string, params: Record<stri
       rateLimitedUntil.set(method, Date.now() + after * 1000)
       throw new SlackRateLimited(method, after)
     }
-    if (json.error === 'token_expired' && !retried) {
+    // A token rejected right after a renewal elsewhere is often just the old one: renew and retry once before giving up on the login.
+    if ((json.error === 'token_expired' || json.error === 'invalid_auth') && !retried && readSecret<Tokens>(k('tokens', connId))?.refresh_token) {
       await accessToken(connId, true)
       return api<T>(connId, method, params, true)
     }
