@@ -6,23 +6,16 @@
 import React from 'react'
 import { Button } from './ui'
 import { friendlyError } from '@/lib/errors'
-
-/** Written to the console in the shape main's crash forwarding picks up ("Uncaught …"). */
-export function reportRenderError(kind: 'uncaught' | 'caught', thrown: unknown, componentStack?: string): void {
-  const message = thrown instanceof Error ? `${thrown.name}: ${thrown.message}` : String(thrown)
-  const stack = (componentStack ?? '')
-    .split('\n')
-    .map((l) => l.trim())
-    .filter(Boolean)
-    .slice(0, 12)
-    .join(' < ')
-  console.error(`Uncaught render error (${kind}): ${message}${stack ? ` | components: ${stack}` : ''}`)
-}
+import { report } from '@/lib/crash'
 
 export class RootErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: unknown }> {
   state = { error: null as unknown }
   static getDerivedStateFromError(error: unknown): { error: unknown } {
     return { error }
+  }
+  // The boundary reports as well as renders: the component stack is the one clue a render loop leaves.
+  componentDidCatch(error: unknown, info: React.ErrorInfo): void {
+    report('render', error, info.componentStack)
   }
   render(): React.ReactNode {
     if (this.state.error === null) return this.props.children
