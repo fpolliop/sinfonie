@@ -14,6 +14,7 @@ import { DataPane } from './DataPane'
 import { WorkspaceTabs, WorkspaceTabsRail, paneOf, usePanes, type Pane } from './WorkspaceTabs'
 import { Segmented, hasOpenDialog } from './ui'
 import { yieldsToEditor } from '@/lib/keys'
+import { ApiPane } from './ApiPane'
 
 /** The conversation never gets narrower than this; the panel gives way first. */
 const CHAT_MIN = 360
@@ -142,6 +143,7 @@ export function WorkspaceInspector({ workspaceId, renderView }: { workspaceId: s
           {shown && pane === 'checks' && <PrsPane workspaceId={workspaceId} />}
           {shown && pane === 'terminal' && <TerminalTab workspaceId={workspaceId} tab={shownTab} />}
           {shown && pane === 'data' && <DataPane workspaceId={workspaceId} />}
+          {shown && pane === 'api' && <ApiPane workspaceId={workspaceId} />}
           {shown && pane.startsWith('view:') && renderView(pane.slice(5))}
         </div>
         {shown && hasStrip && <TerminalStrip workspaceId={workspaceId} open={drawer} onToggle={() => setDrawer(!drawer)} />}

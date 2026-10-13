@@ -836,6 +836,35 @@ export interface ResourceSession {
   tasks: ResourceTask[]
   busy: boolean
 }
+/** An HTTP endpoint found in a workspace's code (feedback #42, API explorer). */
+export interface ApiEndpoint {
+  id: string
+  /** GET, POST, …; ANY when the code does not say (a Next.js pages API route). */
+  method: string
+  /** As the service serves it, with :params. */
+  path: string
+  source: 'openapi' | 'running' | 'nestjs' | 'nextjs' | 'fastapi' | 'express'
+  repoId: string
+  repoName: string
+  /** The package (folder with its own package.json or pyproject) inside the repo, for monorepos; '' at the root. */
+  service: string
+  /** Absolute path of the file that defines it, when found in code. */
+  file?: string
+  line?: number
+  summary?: string
+  /** Controller, OpenAPI tag or route folder: how the list groups it. */
+  group?: string
+  params?: string[]
+  hasBody?: boolean
+}
+export interface ApiDiscovery {
+  endpoints: ApiEndpoint[]
+  repos: { repoId: string; repoName: string; sources: ApiEndpoint['source'][]; specFiles: string[]; runningDoc?: string; error?: string }[]
+  scannedAt: string
+  /** The workspace's port, for "this workspace" requests and curl examples. */
+  port: number
+}
+
 /** Something Sinfonie is doing right now, or will do soon, for the Running list (feedback #65). */
 export interface Job {
   id: string
