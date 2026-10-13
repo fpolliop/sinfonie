@@ -19,6 +19,7 @@ import { getWorkspace, patchWorkspace } from '../workspaces'
 import { askPermission } from '../interaction'
 import { run } from '../native/tools'
 import * as jira from '../jira'
+import * as relay from '../mcp-relay'
 import { logError } from '../telemetry'
 import { whichSync } from '../shell-path'
 import { apiKeyForKind } from '../providers'
@@ -267,6 +268,15 @@ function spaceOf(ws: Workspace) {
   return { settings, space: spaces.find((x) => x.id === ws.spaceId) }
 }
 
+/** Connected and not revoked; a network hiccup still counts as usable (the relay retries per call). */
+async function usable(token: () => Promise<string | null>, Revoked: new (...a: never[]) => Error): Promise<boolean> {
+  try {
+    return (await token()) !== null
+  } catch (err) {
+    return !(err instanceof Revoked)
+  }
+}
+
 async function acpMcpServers(ws: Workspace): Promise<schema.McpServer[]> {
   const { settings, space } = spaceOf(ws)
   const specs: McpServerSpec[] = [...(settings.mcpServers ?? []), ...(space?.mcpServers ?? [])].filter((s) => s.enabled)
@@ -282,13 +292,15 @@ async function acpMcpServers(ws: Workspace): Promise<schema.McpServer[]> {
     else if (s.url && s.transport === 'http') out.push({ type: 'http', name: s.name, url: s.url, headers: Object.entries(s.headers ?? {}).map(([name, value]) => ({ name, value })) })
     else if (s.url && s.transport === 'sse') out.push({ type: 'sse', name: s.name, url: s.url, headers: Object.entries(s.headers ?? {}).map(([name, value]) => ({ name, value })) })
   }
-  const expose = space ? space.exposeJiraMcp !== false : true
-  if (!expose || out.some((m) => m.name === 'jira')) return out
-  const token = await jira.accessToken(jira.connectionForSpace(ws.spaceId))
-  if (token) out.push({ type: 'http', name: 'jira', url: jira.JIRA_MCP_URL, headers: [{ name: 'Authorization', value: `Bearer ${token}` }] })
-  if ((space ? space.exposeLinearMcp !== false : true) && !out.some((m) => m.name === 'linear')) {
-    const lt = await linear.accessToken(linear.connectionForSpace(ws.spaceId)).catch(() => null)
-    if (lt) out.push({ type: 'http', name: 'linear', url: linear.LINEAR_MCP_URL, headers: [{ name: 'Authorization', value: `Bearer ${lt}` }] })
+  // Jira and Linear go through the local relay, which keeps their tokens fresh for the whole session.
+  // Each is checked on its own: an expired Jira login must not take Linear or the other servers with it.
+  const jiraConn = jira.connectionForSpace(ws.spaceId)
+  if ((space ? space.exposeJiraMcp !== false : true) && !out.some((m) => m.name === 'jira') && (await usable(() => jira.accessToken(jiraConn), jira.JiraReauthRequired))) {
+    out.push({ type: 'http', name: 'jira', url: await relay.relayUrl('jira', jiraConn), headers: [] })
+  }
+  const linearConn = linear.connectionForSpace(ws.spaceId)
+  if ((space ? space.exposeLinearMcp !== false : true) && !out.some((m) => m.name === 'linear') && (await usable(() => linear.accessToken(linearConn), linear.LinearReauthRequired))) {
+    out.push({ type: 'http', name: 'linear', url: await relay.relayUrl('linear', linearConn), headers: [] })
   }
   return out
 }

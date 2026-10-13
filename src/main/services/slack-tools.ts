@@ -87,6 +87,9 @@ const searchShape = {
   page: z.number().int().min(1).optional()
 }
 
+/** The read-only Slack tools, which need no permission card; posting still asks. */
+export const SDK_READ_ALLOWED = ['slack_search', 'slack_channels', 'slack_history', 'slack_thread', 'slack_permalink', 'slack_user'].map((t) => `mcp__slack__${t}`)
+
 /** Slack as an in-process MCP server for Claude workers and the Claude Code engine. */
 export function sdkServer(connId: string): NonNullable<Options['mcpServers']>[string] {
   const text = (t: string) => ({ content: [{ type: 'text' as const, text: t }] })

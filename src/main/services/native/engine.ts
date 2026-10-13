@@ -27,6 +27,7 @@ import { askPermission } from '../interaction'
 import { estimateCost, resolveModel } from '../providers'
 import { isReadOnlyCommand } from '../readonly'
 import * as jira from '../jira'
+import * as relay from '../mcp-relay'
 import * as linear from '../linear'
 import * as gcp from '../gcp'
 import * as dbTools from '../db/tools'
@@ -148,16 +149,17 @@ async function connectMcp(ws: Workspace, session: NativeSession): Promise<{ tool
   const expose = space ? space.exposeJiraMcp !== false : true
   if (expose && !names.includes('jira')) {
     try {
-      const token = await jira.accessToken(jira.connectionForSpace(ws.spaceId))
-      if (token) await connect('jira', () => createMCPClient({ transport: { type: 'http', url: jira.JIRA_MCP_URL, headers: { Authorization: `Bearer ${token}` } } }))
+      const jiraConn = jira.connectionForSpace(ws.spaceId)
+      // Through the local relay, so the token is refreshed per request for as long as this client lives.
+      if (await jira.accessToken(jiraConn)) await connect('jira', async () => createMCPClient({ transport: { type: 'http', url: await relay.relayUrl('jira', jiraConn) } }))
     } catch (err) {
       logError('native:jira', err)
     }
   }
   if ((space ? space.exposeLinearMcp !== false : true) && !names.includes('linear')) {
     try {
-      const token = await linear.accessToken(linear.connectionForSpace(ws.spaceId))
-      if (token) await connect('linear', () => createMCPClient({ transport: { type: 'http', url: linear.LINEAR_MCP_URL, headers: { Authorization: `Bearer ${token}` } } }))
+      const linearConn = linear.connectionForSpace(ws.spaceId)
+      if (await linear.accessToken(linearConn)) await connect('linear', async () => createMCPClient({ transport: { type: 'http', url: await relay.relayUrl('linear', linearConn) } }))
     } catch (err) {
       logError('native:linear', err)
     }

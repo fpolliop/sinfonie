@@ -10,6 +10,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { UnauthorizedError, type OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js'
 import type { OAuthClientInformationMixed, OAuthClientMetadata, OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js'
+import { authedFetch, bearer, LoginRevoked } from './oauth-refresh'
 import { getStore } from '../store'
 import type { LinearIssue, LinearSettings } from '@shared/types'
 
@@ -143,7 +144,8 @@ function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
 async function connect(connId: string): Promise<Conn> {
   const existing = conns.get(connId)
   if (existing) return existing
-  const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: new StoreOAuthProvider(connId) })
+  // Sinfonie refreshes the token itself (see oauth-refresh.ts), so the transport only gets a fetch that adds it.
+  const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { fetch: authedFetch((force, stale) => tokenFor(connId, force, stale)) })
   const c = new Client({ name: 'sinfonie', version: '0.1.0' })
   await withTimeout(c.connect(transport), 12_000, 'Connecting to the Linear MCP')
   const tools = await withTimeout(c.listTools(), 12_000, 'Listing Linear MCP tools')
@@ -268,47 +270,28 @@ export async function authenticate(connId: string): Promise<void> {
   }
 }
 
+/**
+ * The access token for this connection, refreshed when it is about to expire (one refresh at a time).
+ * Throws LinearReauthRequired, and marks the connection disconnected, only when the login is really
+ * gone; a network error or a slow server is just an error, and the connection stays connected.
+ */
+export async function tokenFor(connId: string, force = false, stale?: string): Promise<string> {
+  try {
+    return await withTimeout(bearer(`linear:${connId || 'default'}`, MCP_URL, new StoreOAuthProvider(connId), { force, stale }), 15_000, 'Linear token refresh')
+  } catch (err) {
+    if (err instanceof LoginRevoked) {
+      dropClient(connId)
+      updateLinearSettings(connId, { connected: false, connectedAt: undefined })
+      throw new LinearReauthRequired(connId)
+    }
+    throw err
+  }
+}
+
+/** A currently valid Linear access token, or null when not connected. Transient failures throw. */
 export async function accessToken(connId: string): Promise<string | null> {
   if (!linearSettings(connId).connected) return null
-  try {
-    await withTimeout(connect(connId), 10_000, 'Linear token refresh')
-  } catch (err) {
-    dropClient(connId)
-    if (err instanceof LinearReauthRequired || err instanceof UnauthorizedError) {
-      updateLinearSettings(connId, { connected: false, connectedAt: undefined })
-      throw new LinearReauthRequired(connId)
-    }
-    console.warn('Linear MCP connect for token failed', err)
-    return null
-  }
-  return new StoreOAuthProvider(connId).tokens()?.access_token ?? null
-}
-
-/** When this connection's Linear access token expires (ms epoch), or 0 if unknown. */
-export function tokenExpiresAt(connId: string): number {
-  const p = new StoreOAuthProvider(connId)
-  const at = p.tokensObtainedAt()
-  const tok = p.tokens()
-  if (!at || !tok) return 0
-  const ttl = (typeof tok.expires_in === 'number' && tok.expires_in > 0 ? tok.expires_in : 3300) * 1000
-  return at + ttl
-}
-
-/** A definitely-fresh access token for the agent's Linear MCP: a real call refreshes it on a 401. */
-export async function warmToken(connId: string): Promise<string | null> {
-  if (!linearSettings(connId).connected) return null
-  try {
-    const conn = await withTimeout(connect(connId), 10_000, 'Linear token refresh')
-    await withTimeout(conn.client.listTools(), 10_000, 'Linear token refresh')
-  } catch (err) {
-    dropClient(connId)
-    if (err instanceof LinearReauthRequired || err instanceof UnauthorizedError) {
-      updateLinearSettings(connId, { connected: false, connectedAt: undefined })
-      throw new LinearReauthRequired(connId)
-    }
-    console.warn('Linear token warm failed', err)
-  }
-  return new StoreOAuthProvider(connId).tokens()?.access_token ?? null
+  return tokenFor(connId)
 }
 
 export function disconnect(connId: string): void {

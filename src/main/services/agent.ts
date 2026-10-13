@@ -18,6 +18,8 @@ import { z } from 'zod'
 import { classifyModel } from '@shared/types'
 import { runWorker } from './crew/workers'
 import * as notes from './notes'
+import * as slack from './slack'
+import * as slackTools from './slack-tools'
 import { nanoid } from 'nanoid'
 import type { AgentEvent, PermissionMode, PermissionRequest, Question, Space, SubagentStep, Workspace } from '@shared/types'
 import { askPermission, askQuestion } from './interaction'
@@ -36,6 +38,7 @@ import { accountEnv } from './accounts'
 import { makeResumable } from './session-files'
 import * as jira from './jira'
 import * as linear from './linear'
+import * as relay from './mcp-relay'
 import { logError } from './telemetry'
 import type { McpServerSpec } from '@shared/types'
 import * as teamRules from './team-rules'
@@ -64,6 +67,9 @@ interface Session {
   interrupted: boolean
   /** Names of the MCP servers Sinfonie passed to this session. */
   mcpNames: string[]
+  /** Last mid-session MCP check, and the servers already reported as down (said once until they recover). */
+  mcpCheckedAt?: number
+  mcpDown?: Set<string>
   /** Pending tool_use ids per external crew member, so worker activity attaches to the right call. */
   crewCalls: Map<string, string[]>
   /** Set when the workspace gained a repository mid-turn: restart the session at turn end so the new worktree is a working directory. */
@@ -74,8 +80,6 @@ interface Session {
   /** Cumulative per-model usage already written to the ledger (SDK totals are cumulative per session). */
   usageSeen: Record<string, { costUsd: number; inputTokens: number; outputTokens: number; cacheReadTokens: number }>
   contextWarned: boolean
-  /** When the Jira/Linear MCP bearer this session was built with expires; past it, reload for a fresh one. */
-  tokenExpiresAt?: number
   /** Last known context size and window, for the pill and for the awareness note the model gets. */
   context: { tokens: number; window?: number; notedBand: number }
   contextUsageCache?: { at: number; value: import('@shared/types').ContextUsage }
@@ -225,6 +229,24 @@ function toSdkMcp(spec: McpServerSpec): NonNullable<Options['mcpServers']>[strin
   return { type: spec.transport, url: spec.url, headers: spec.headers }
 }
 
+/**
+ * Whether a Jira/Linear login can serve this session: connected, and not revoked. A network error does
+ * not count against it (the relay retries per call); an expired login is said once, here, and never
+ * opens a browser.
+ */
+async function loginUsable(label: string, token: () => Promise<string | null>, Revoked: new (...a: never[]) => Error, onWarning?: (text: string) => void): Promise<boolean> {
+  try {
+    return (await token()) !== null
+  } catch (err) {
+    if (err instanceof Revoked) {
+      onWarning?.(`${label} tools are off for this session: ${err.message}`)
+      return false
+    }
+    console.warn(`[mcp] ${label} token check failed; the relay will retry per call`, err)
+    return true
+  }
+}
+
 /** App-level servers, then the space's, then the space's Jira login as the Atlassian MCP. */
 export async function mcpServersFor(ws: Workspace, onWarning?: (text: string) => void): Promise<Record<string, NonNullable<Options['mcpServers']>[string]>> {
   const { settings, spaces } = getStore().get()
@@ -238,22 +260,13 @@ export async function mcpServersFor(ws: Workspace, onWarning?: (text: string) =>
   const connId = jira.connectionForSpace(ws.spaceId)
   const expose = space ? space.exposeJiraMcp !== false : true
   if (expose && !out.jira) {
-    try {
-      const token = await jira.warmToken(connId)
-      if (token) out.jira = { type: 'http', url: jira.JIRA_MCP_URL, headers: { Authorization: `Bearer ${token}` } }
-    } catch (err) {
-      // An expired Jira login must not take the other MCP servers down with it, and must never open a browser here.
-      onWarning?.(`Jira tools are off for this session: ${err instanceof Error ? err.message : String(err)}`)
-    }
+    // Through the local relay, which refreshes the token per request; a static bearer would die within the hour.
+    if (await loginUsable('Jira', () => jira.accessToken(connId), jira.JiraReauthRequired, onWarning)) out.jira = { type: 'http', url: await relay.relayUrl('jira', connId) }
   }
   const exposeLinear = space ? space.exposeLinearMcp !== false : true
   if (exposeLinear && !out.linear) {
-    try {
-      const token = await linear.warmToken(linear.connectionForSpace(ws.spaceId))
-      if (token) out.linear = { type: 'http', url: linear.LINEAR_MCP_URL, headers: { Authorization: `Bearer ${token}` } }
-    } catch (err) {
-      onWarning?.(`Linear tools are off for this session: ${err instanceof Error ? err.message : String(err)}`)
-    }
+    const linearConn = linear.connectionForSpace(ws.spaceId)
+    if (await loginUsable('Linear', () => linear.accessToken(linearConn), linear.LinearReauthRequired, onWarning)) out.linear = { type: 'http', url: await relay.relayUrl('linear', linearConn) }
   }
   // Google Cloud: read-only tools over the user's local gcloud login, when the space (or app) names a project.
   if (gcp.gcpFor(ws.spaceId) && (space ? space.exposeGcpMcp !== false : true) && !out.gcp) out.gcp = gcp.sdkServer(ws.spaceId)
@@ -400,7 +413,10 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
   const crew = lean ? { agents: {}, prompt: '' } : crewFor(ws, emit, crewCalls)
   if (crew.server) mcpServers = { ...mcpServers, crew: crew.server }
   // Lean keeps only the workspace tools (two small ones) and whatever MCP servers the user configured themselves.
-  mcpServers = lean ? { ...mcpServers, workspace: workspaceTools.sdkServer(ws.id, () => (flags.restartAfterTurn = true)) } : { ...mcpServers, notes: notes.sdkServer(ws.id), browser: browserTools.sdkServer(ws.id), workspace: workspaceTools.sdkServer(ws.id, () => (flags.restartAfterTurn = true)) }
+  // Sinfonie's own Slack tools (the user's sign-in, refreshed per call), unless the user configured a "slack" server of their own.
+  const slackConn = slack.connectionForSpace(ws.spaceId)
+  const ownSlack = !lean && !mcpServers.slack && slack.connection(slackConn).connected
+  mcpServers = lean ? { ...mcpServers, workspace: workspaceTools.sdkServer(ws.id, () => (flags.restartAfterTurn = true)) } : { ...mcpServers, notes: notes.sdkServer(ws.id), browser: browserTools.sdkServer(ws.id), workspace: workspaceTools.sdkServer(ws.id, () => (flags.restartAfterTurn = true)), ...(ownSlack ? { slack: slackTools.sdkServer(slackConn) } : {}) }
   const options: Options = {
     ...claudeExecutableOption(),
     cwd: wsCwd,
@@ -418,13 +434,13 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
     canUseTool,
     systemPrompt: lean
       ? { type: 'preset', preset: 'claude_code', append: systemPromptFor(ws, true) + (Object.keys(mcpServers).length ? `\nMCP servers available in this workspace: ${Object.keys(mcpServers).join(', ')}.` : '') + (mcpServers.gcp ? gcp.promptFor(ws.spaceId) : '') + (mcpServers.db && ws.spaceId ? dbTools.promptFor(ws.spaceId) : '') + notes.standingPrompt(ws.id) + leanPrompt() }
-      : { type: 'preset', preset: 'claude_code', append: systemPromptFor(ws) + (Object.keys(mcpServers).length ? `\nMCP servers available in this workspace: ${Object.keys(mcpServers).join(', ')}.` : '') + crew.prompt + notes.promptFor(ws.id, true) + (mcpServers.gcp ? gcp.promptFor(ws.spaceId) : '') + (mcpServers.db && ws.spaceId ? dbTools.promptFor(ws.spaceId) : '') + '\n' + browserTools.promptFor(ws.port) },
+      : { type: 'preset', preset: 'claude_code', append: systemPromptFor(ws) + (Object.keys(mcpServers).length ? `\nMCP servers available in this workspace: ${Object.keys(mcpServers).join(', ')}.` : '') + crew.prompt + notes.promptFor(ws.id, true) + (ownSlack ? '\n' + slackTools.promptFor(slackConn) : '') + (mcpServers.gcp ? gcp.promptFor(ws.spaceId) : '') + (mcpServers.db && ws.spaceId ? dbTools.promptFor(ws.spaceId) : '') + '\n' + browserTools.promptFor(ws.port) },
     ...(Object.keys(crew.agents).length ? { agents: crew.agents } : {}),
     ...(Object.keys(mcpServers).length ? { mcpServers } : {}),
     ...(space?.strictMcp ?? settings.strictMcp ? { strictMcpConfig: true } : {}),
     settingSources: ['user', 'project', 'local'],
     // db_query is allowed too: read-only runs need no prompt, and writes ask through the tool's own permission card.
-    allowedTools: lean ? [...workspaceTools.SDK_ALLOWED, ...gcp.SDK_ALLOWED, ...dbTools.SDK_ALLOWED] : [...browserTools.sdkAllowedTools(), ...workspaceTools.SDK_ALLOWED, ...gcp.SDK_ALLOWED, ...dbTools.SDK_ALLOWED],
+    allowedTools: lean ? [...workspaceTools.SDK_ALLOWED, ...gcp.SDK_ALLOWED, ...dbTools.SDK_ALLOWED] : [...browserTools.sdkAllowedTools(), ...workspaceTools.SDK_ALLOWED, ...gcp.SDK_ALLOWED, ...dbTools.SDK_ALLOWED, ...(ownSlack ? slackTools.SDK_READ_ALLOWED : [])],
     hooks: {
       PreToolUse: [
         ...(lean || budget
@@ -522,17 +538,45 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
     if (stderrLines.length > 40) stderrLines.splice(0, stderrLines.length - 40)
   }
   const q = query({ prompt: input.iterable, options })
-  // The agent's Jira/Linear MCP is handed a static bearer it cannot refresh; note when it expires so the
-  // next turn past that point reloads the session (resuming the conversation) with a fresh token.
-  const oauthExpiries: number[] = []
-  if (mcpServers.jira) oauthExpiries.push(jira.tokenExpiresAt(jira.connectionForSpace(ws.spaceId)))
-  if (mcpServers.linear) oauthExpiries.push(linear.tokenExpiresAt(linear.connectionForSpace(ws.spaceId)))
-  const positiveExpiries = oauthExpiries.filter((e) => e > 0)
-  const tokenExpiresAt = positiveExpiries.length ? Math.min(...positiveExpiries) : undefined
-  const session: Session = { workspaceId, q, push: input.push, end: input.end, abort, busy: false, stderr: stderrLines, queue: [], interrupted: false, mcpNames: Object.keys(mcpServers).filter((n) => n !== 'crew' && n !== 'notes' && n !== 'browser' && n !== 'workspace'), crewCalls, flags, lean, emitPermission, usageSeen: {}, contextWarned: false, context: { tokens: 0, notedBand: 0 }, tokenExpiresAt }
+  const session: Session = { workspaceId, q, push: input.push, end: input.end, abort, busy: false, stderr: stderrLines, queue: [], interrupted: false, mcpNames: Object.keys(mcpServers).filter((n) => n !== 'crew' && n !== 'notes' && n !== 'browser' && n !== 'workspace'), crewCalls, flags, lean, emitPermission, usageSeen: {}, contextWarned: false, context: { tokens: 0, notedBand: 0 } }
   sessions.set(workspaceId, session)
   void pump(session, emit)
   return session
+}
+
+/**
+ * After a turn: Sinfonie's MCP servers can drop mid-session (a network change, a server restart) and the
+ * SDK does not bring them back. Reconnect any that failed, and say so only when that does not help.
+ */
+async function checkMcp(session: Session, notice: (level: 'info' | 'warn' | 'error', text: string) => void): Promise<void> {
+  if (session.mcpCheckedAt && Date.now() - session.mcpCheckedAt < 60_000) return
+  session.mcpCheckedAt = Date.now()
+  const down = (session.mcpDown ??= new Set())
+  try {
+    const ours = new Set(session.mcpNames)
+    for (const m of await session.q.mcpServerStatus()) {
+      if (!ours.has(m.name)) continue
+      if (m.status === 'connected' || m.status === 'pending' || m.status === 'disabled') {
+        down.delete(m.name)
+        continue
+      }
+      if (m.status === 'failed') {
+        await session.q.reconnectMcpServer(m.name).catch(() => undefined)
+        const now = (await session.q.mcpServerStatus()).find((x) => x.name === m.name)
+        if (now?.status === 'connected') {
+          console.info(`[mcp ${session.workspaceId}] reconnected ${m.name}`)
+          down.delete(m.name)
+          continue
+        }
+      }
+      if (down.has(m.name)) continue
+      down.add(m.name)
+      const why = m.status === 'needs-auth' ? 'needs signing in again' : `disconnected${m.error ? ` (${m.error})` : ''} and could not reconnect`
+      notice('warn', `MCP server "${m.name}" ${why}. Its tools are unavailable until it is back; Sinfonie tries again after each turn.`)
+    }
+  } catch (err) {
+    console.warn(`[mcp ${session.workspaceId}] status check failed`, err)
+  }
 }
 
 /** Translate the SDK's message stream into the small event set the UI renders. */
@@ -615,7 +659,11 @@ async function pump(session: Session, emit: EmitEvent): Promise<void> {
             // config (claude.ai connectors, plugins) is folded into one quiet line, once per app run.
             const ours = new Set(session.mcpNames)
             const bad = msg.mcp_servers.filter((m) => m.status !== 'connected' && m.status !== 'pending')
-            for (const m of bad) if (ours.has(m.name)) notice('warn', `MCP server "${m.name}" is ${m.status}.`)
+            for (const m of bad) {
+              if (!ours.has(m.name)) continue
+              ;(session.mcpDown ??= new Set()).add(m.name)
+              notice('warn', `MCP server "${m.name}" is ${m.status}. Sinfonie tries to reconnect it after each turn.`)
+            }
             const inherited = bad.filter((m) => !ours.has(m.name))
             if (inherited.length && !mcpNoticeShown.has(workspaceId)) {
               mcpNoticeShown.add(workspaceId)
@@ -763,6 +811,7 @@ async function pump(session: Session, emit: EmitEvent): Promise<void> {
             emit({ type: 'queue', workspaceId, items: [...session.queue] })
             deliver(session, next.text, emit, true, next.images)
           }
+          void checkMcp(session, notice)
           try {
             const wsNow = getWorkspace(workspaceId)
             usage.recordTurn(usage.fromResult(msg, { workspaceId, spaceId: wsNow.spaceId ?? '', accountId: limits.accountIdOf(wsNow), kind: 'chat' }, session.usageSeen))
@@ -891,14 +940,8 @@ export async function sendMessage(workspaceId: string, text: string, emit: EmitE
       emit({ type: 'queue', workspaceId, items: [...live.queue] })
       return
     }
-    // If the Jira/Linear bearer this session holds has expired, reload the session (it resumes the
-    // conversation) so the agent's MCP is rebuilt with a refreshed token instead of a dead static one.
-    if (!(live.tokenExpiresAt && Date.now() >= live.tokenExpiresAt)) {
-      deliver(live, text, emit, true, images)
-      return
-    }
-    closeSession(workspaceId)
-    // fall through: the fresh-session path below warms and re-reads the tokens, then resumes.
+    deliver(live, text, emit, true, images)
+    return
   }
   if (starting.has(workspaceId)) {
     emit({ type: 'notice', workspaceId, itemId: nanoid(8), level: 'warn', text: 'The session is still starting; send again in a moment.', createdAt: new Date().toISOString() })
