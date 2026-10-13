@@ -909,6 +909,8 @@ export interface ApiHistoryEntry {
   status?: number
   ms?: number
   error?: string
+  /** Sent by the workspace's agent through its api_request tool, not from the pane. */
+  by?: 'agent'
 }
 export interface ApiState {
   settings: ApiSettings

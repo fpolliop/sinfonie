@@ -265,6 +265,11 @@ export function HistoryList({ history, onOpen, onClear }: { history: ApiHistoryE
               <code className="min-w-0 flex-1 truncate text-[12px]" title={h.url}>
                 {h.request.path}
               </code>
+              {h.by === 'agent' && (
+                <span className="shrink-0 rounded border border-border px-1 text-[11px] text-muted" title="Sent by this workspace's agent">
+                  agent
+                </span>
+              )}
               {h.status ? <span className={clsx('rounded px-1 font-mono text-[11px]', statusTone(h.status))}>{h.status}</span> : <span className="max-w-[30%] truncate text-[11px] text-danger">{h.error ?? 'failed'}</span>}
               <span className="w-16 shrink-0 text-right text-[11px] text-muted">{timeAgo(h.at)}</span>
             </button>

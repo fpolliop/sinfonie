@@ -40,6 +40,7 @@ import { makeResumable } from './session-files'
 import * as jira from './jira'
 import * as linear from './linear'
 import * as relay from './mcp-relay'
+import * as apiTools from './api/tools'
 import { logError } from './telemetry'
 import type { McpServerSpec } from '@shared/types'
 import * as teamRules from './team-rules'
@@ -74,7 +75,7 @@ interface Session {
   /** Pending tool_use ids per external crew member, so worker activity attaches to the right call. */
   crewCalls: Map<string, string[]>
   /** Set when the workspace gained a repository mid-turn: restart the session at turn end so the new worktree is a working directory. */
-  flags: { restartAfterTurn: boolean; leanCalls: number; leanCapNoted: boolean }
+  flags: { restartAfterTurn: boolean; leanCalls: number; leanCapNoted: boolean; routeEdits: boolean }
   /** Lean mode: one agent, trimmed context, per-turn tool cap. */
   lean: boolean
   emitPermission: EmitPermission
@@ -368,7 +369,7 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
     emit({ type: 'notice', workspaceId, itemId: nanoid(8), level: 'warn', text: "Claude couldn't find the earlier conversation, so this message starts a new one. The chat above stays.", createdAt: new Date().toISOString() })
   }
   const others = ws.repos.filter((r) => r !== primary).map((r) => r.worktreePath)
-  const flags = { restartAfterTurn: false, leanCalls: 0, leanCapNoted: false }
+  const flags = { restartAfterTurn: false, leanCalls: 0, leanCapNoted: false, routeEdits: false }
   const costMode = costModeFor(ws.spaceId, ws.id)
   const budget = costMode === 'budget'
   const lean = costMode === 'lean'
@@ -423,7 +424,9 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
   // Sinfonie's own Slack tools (the user's sign-in, refreshed per call), unless the user configured a "slack" server of their own.
   const slackConn = slack.connectionForSpace(ws.spaceId)
   const ownSlack = !lean && !mcpServers.slack && slack.connection(slackConn).connected
-  mcpServers = lean ? { ...mcpServers, workspace: workspaceTools.sdkServer(ws.id, () => (flags.restartAfterTurn = true)) } : { ...mcpServers, notes: notes.sdkServer(ws.id), browser: browserTools.sdkServer(ws.id), workspace: workspaceTools.sdkServer(ws.id, () => (flags.restartAfterTurn = true)), ...(ownSlack ? { slack: slackTools.sdkServer(slackConn) } : {}) }
+  // The API explorer's endpoints and request runner, for workspaces with code.
+  const ownApi = !lean && !mcpServers.api && ws.repos.length > 0
+  mcpServers = lean ? { ...mcpServers, workspace: workspaceTools.sdkServer(ws.id, () => (flags.restartAfterTurn = true)) } : { ...mcpServers, notes: notes.sdkServer(ws.id), browser: browserTools.sdkServer(ws.id), workspace: workspaceTools.sdkServer(ws.id, () => (flags.restartAfterTurn = true)), ...(ownSlack ? { slack: slackTools.sdkServer(slackConn) } : {}), ...(ownApi ? { api: apiTools.sdkServer(ws.id) } : {}) }
   const options: Options = {
     ...claudeExecutableOption(),
     cwd: wsCwd,
@@ -441,15 +444,17 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
     canUseTool,
     systemPrompt: lean
       ? { type: 'preset', preset: 'claude_code', append: systemPromptFor(ws, true) + (Object.keys(mcpServers).length ? `\nMCP servers available in this workspace: ${Object.keys(mcpServers).join(', ')}.` : '') + (mcpServers.gcp ? gcp.promptFor(ws.spaceId) : '') + (mcpServers.db && ws.spaceId ? dbTools.promptFor(ws.spaceId) : '') + notes.standingPrompt(ws.id) + leanPrompt() }
-      : { type: 'preset', preset: 'claude_code', append: systemPromptFor(ws) + (Object.keys(mcpServers).length ? `\nMCP servers available in this workspace: ${Object.keys(mcpServers).join(', ')}.` : '') + crew.prompt + notes.promptFor(ws.id, true) + (ownSlack ? '\n' + slackTools.promptFor(slackConn) : '') + (mcpServers.gcp ? gcp.promptFor(ws.spaceId) : '') + (mcpServers.db && ws.spaceId ? dbTools.promptFor(ws.spaceId) : '') + '\n' + browserTools.promptFor(ws.port) },
+      : { type: 'preset', preset: 'claude_code', append: systemPromptFor(ws) + (Object.keys(mcpServers).length ? `\nMCP servers available in this workspace: ${Object.keys(mcpServers).join(', ')}.` : '') + crew.prompt + notes.promptFor(ws.id, true) + (ownSlack ? '\n' + slackTools.promptFor(slackConn) : '') + (ownApi ? '\n' + apiTools.promptFor() : '') + (mcpServers.gcp ? gcp.promptFor(ws.spaceId) : '') + (mcpServers.db && ws.spaceId ? dbTools.promptFor(ws.spaceId) : '') + '\n' + browserTools.promptFor(ws.port) },
     ...(Object.keys(crew.agents).length ? { agents: crew.agents } : {}),
     ...(Object.keys(mcpServers).length ? { mcpServers } : {}),
     ...(space?.strictMcp ?? settings.strictMcp ? { strictMcpConfig: true } : {}),
     settingSources: ['user', 'project', 'local'],
     // db_query is allowed too: read-only runs need no prompt, and writes ask through the tool's own permission card.
-    allowedTools: lean ? [...workspaceTools.SDK_ALLOWED, ...gcp.SDK_ALLOWED, ...dbTools.SDK_ALLOWED] : [...browserTools.sdkAllowedTools(), ...workspaceTools.SDK_ALLOWED, ...gcp.SDK_ALLOWED, ...dbTools.SDK_ALLOWED, ...(ownSlack ? slackTools.SDK_READ_ALLOWED : [])],
+    allowedTools: lean ? [...workspaceTools.SDK_ALLOWED, ...gcp.SDK_ALLOWED, ...dbTools.SDK_ALLOWED] : [...browserTools.sdkAllowedTools(), ...workspaceTools.SDK_ALLOWED, ...gcp.SDK_ALLOWED, ...dbTools.SDK_ALLOWED, ...(ownSlack ? slackTools.SDK_READ_ALLOWED : []), ...(ownApi ? apiTools.SDK_ALLOWED : [])],
     hooks: {
       PreToolUse: [
+        // Before the first route edit, keep the endpoint list as it was, to diff against after the turn.
+        { matcher: 'Edit|Write|MultiEdit', hooks: [async (raw: HookInput) => (ownApi && apiTools.isRouteFile(ws.id, editedFile(raw)) && (await Promise.race([apiTools.ensureBaseline(ws.id).catch(() => undefined), new Promise((r) => setTimeout(r, 15_000))])), {})] },
         ...(lean || budget
           ? [
               {
@@ -518,7 +523,21 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
         }
       ],
       // A command the resource governor stopped fails with a bare signal; say why, so the agent does not rerun it as it was.
-      PostToolUse: [{ matcher: 'Bash', hooks: [async () => stoppedContext('PostToolUse')] }],
+      PostToolUse: [
+        { matcher: 'Bash', hooks: [async () => stoppedContext('PostToolUse')] },
+        // An edit to a route file: rescan the endpoints after the turn and tell the agent what changed.
+        { matcher: 'Edit|Write|MultiEdit', hooks: [async (raw: HookInput) => (ownApi && apiTools.isRouteFile(ws.id, editedFile(raw)) && (flags.routeEdits = true), {})] }
+      ],
+      UserPromptSubmit: [
+        {
+          hooks: [
+            async () => {
+              const note = ownApi ? apiTools.takeNote(ws.id) : undefined
+              return note ? { hookSpecificOutput: { hookEventName: 'UserPromptSubmit' as const, additionalContext: note } } : {}
+            }
+          ]
+        }
+      ],
       PostToolUseFailure: [{ matcher: 'Bash', hooks: [async () => stoppedContext('PostToolUseFailure')] }]
     },
     // Spawn the CLI ourselves so the governor knows its pid and can charge its whole subtree to this workspace.
@@ -548,7 +567,7 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
     if (stderrLines.length > 40) stderrLines.splice(0, stderrLines.length - 40)
   }
   const q = query({ prompt: input.iterable, options })
-  const session: Session = { workspaceId, q, push: input.push, end: input.end, abort, busy: false, stderr: stderrLines, queue: [], interrupted: false, mcpNames: Object.keys(mcpServers).filter((n) => n !== 'crew' && n !== 'notes' && n !== 'browser' && n !== 'workspace'), crewCalls, flags, lean, emitPermission, usageSeen: {}, contextWarned: false, context: { tokens: 0, notedBand: 0 } }
+  const session: Session = { workspaceId, q, push: input.push, end: input.end, abort, busy: false, stderr: stderrLines, queue: [], interrupted: false, mcpNames: Object.keys(mcpServers).filter((n) => n !== 'crew' && n !== 'notes' && n !== 'browser' && n !== 'workspace' && n !== 'api'), crewCalls, flags, lean, emitPermission, usageSeen: {}, contextWarned: false, context: { tokens: 0, notedBand: 0 } }
   sessions.set(workspaceId, session)
   void pump(session, emit)
   return session
@@ -587,6 +606,12 @@ async function checkMcp(session: Session, notice: (level: 'info' | 'warn' | 'err
   } catch (err) {
     console.warn(`[mcp ${session.workspaceId}] status check failed`, err)
   }
+}
+
+/** The file an Edit/Write/MultiEdit hook input touches. */
+function editedFile(raw: HookInput): string {
+  const input = (raw as { tool_input?: { file_path?: unknown } }).tool_input
+  return typeof input?.file_path === 'string' ? input.file_path : ''
 }
 
 /** Translate the SDK's message stream into the small event set the UI renders. */
@@ -822,6 +847,13 @@ async function pump(session: Session, emit: EmitEvent): Promise<void> {
             deliver(session, next.text, emit, true, next.images)
           }
           void checkMcp(session, notice)
+          if (session.flags.routeEdits) {
+            session.flags.routeEdits = false
+            void apiTools
+              .afterRouteEdits(workspaceId)
+              .then((t) => t && notice('info', t))
+              .catch((err) => console.warn('[api] rescan after route edits failed', err))
+          }
           try {
             const wsNow = getWorkspace(workspaceId)
             usage.recordTurn(usage.fromResult(msg, { workspaceId, spaceId: wsNow.spaceId ?? '', accountId: limits.accountIdOf(wsNow), kind: 'chat' }, session.usageSeen))
