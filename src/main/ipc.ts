@@ -42,7 +42,7 @@ import * as reviews from './services/reviews'
 import * as inbox from './services/inbox'
 import * as sessionsSvc from './services/sessions'
 import { checkForUpdate, latestKnownUpdate, downloadUpdate, installUpdate, installWhenIdle, setIdleProbe, cancelDownload } from './services/updates'
-import { clearErrors, listErrors, logsDir, sendFeedback, noteMessage } from './services/telemetry'
+import { clearErrors, listErrors, logsDir, sendFeedback, noteMessage, reportRendererCrash } from './services/telemetry'
 import * as interaction from './services/interaction'
 import * as providers from './services/providers'
 import * as acp from './services/acp/engine'
@@ -707,6 +707,7 @@ export function registerIpc(): void {
     }
     return sendFeedback({ kind: p.kind, message: p.message, email: p.email, context: logs ? { errorsLog: logs } : undefined, attachments: p.attachments?.slice(0, 4) })
   })
+  handle('telemetry:rendererCrash', (p) => reportRendererCrash(p))
   handle('logs:open', () => {
     void shell.openPath(logsDir())
   })

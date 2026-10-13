@@ -264,6 +264,18 @@ export interface SinfonieInvoke {
   /** The update this app run already knows about, without checking again. */
   'updates:latest': () => UpdateInfo | null
   'feedback:send': (payload: { kind: 'feedback' | 'feature' | 'bug'; message: string; email?: string; includeLogs?: boolean; attachments?: { name: string; mime: string; data: string }[] }) => { ok: boolean; error?: string }
+  /**
+   * A crash the page caught itself: an uncaught error, a rejected promise, or a render throw. It
+   * carries the renderer stack, component stack and screen that Chromium's console line leaves out.
+   */
+  'telemetry:rendererCrash': (payload: {
+    kind: 'uncaught' | 'rejection' | 'render'
+    message: string
+    stack?: string
+    componentStack?: string
+    screen?: string
+    trail?: string[]
+  }) => void
   'logs:open': () => void
   'logs:list': () => ErrorEntry[]
   'logs:clear': () => void

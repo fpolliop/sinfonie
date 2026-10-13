@@ -95,11 +95,66 @@ export function installCrashHandlers(): void {
   })
 }
 
+// ---------- renderer crashes ----------
+
+/**
+ * A crash is seen twice: richly, from the page's own handler (stack, components, screen), and bare,
+ * from Chromium's console line (which only ever names preload/index.js). The bare one is held for a
+ * moment so the rich one replaces it, and sent alone if no rich report follows.
+ */
+const RICH_GRACE = 1500
+const heldConsole = new Map<string, NodeJS.Timeout>()
+const richSeen = new Map<string, number>()
+
+/** The error text without its "Uncaught" wrapper, so both views of one crash share a key. */
+function coreMessage(m: string): string {
+  return m
+    .replace(/^Uncaught(\s\(in promise\))?:?\s*/, '')
+    .replace(/^\w*Error:\s*/, '')
+    .slice(0, 80)
+}
+
+export interface RendererCrash {
+  kind: 'uncaught' | 'rejection' | 'render'
+  message: string
+  stack?: string
+  componentStack?: string
+  screen?: string
+  trail?: string[]
+}
+
+/** The page's own report for a crash inside it. Replaces the bare console report for the same error. */
+export function reportRendererCrash(p: RendererCrash): void {
+  const key = coreMessage(p.message)
+  const held = heldConsole.get(key)
+  if (held) {
+    clearTimeout(held)
+    heldConsole.delete(key)
+  }
+  richSeen.set(key, Date.now())
+  const err = new Error(p.message)
+  if (p.stack) err.stack = p.stack
+  reportCrash(`renderer:${p.kind}`, err, {
+    ...(p.componentStack ? { components: p.componentStack } : {}),
+    ...(p.screen ? { screen: p.screen } : {}),
+    ...(p.trail?.length ? { trail: p.trail.join(' -> ') } : {})
+  })
+}
+
 /** Renderer console errors are forwarded here from the window's console-message event. */
 export function rendererConsoleError(message: string, sourceId: string, line: number): void {
   // Ignore noise from devtools / extensions; keep real uncaught errors.
   if (!/Uncaught|TypeError|ReferenceError|RangeError|Error:/.test(message)) return
-  reportCrash('renderer:console', new Error(message), { source: `${sourceId}:${line}` })
+  const key = coreMessage(message)
+  const now = Date.now()
+  for (const [k, t] of richSeen) if (t < now - 60_000) richSeen.delete(k)
+  if ((richSeen.get(key) ?? 0) > now - RICH_GRACE || heldConsole.has(key)) return
+  const timer = setTimeout(() => {
+    heldConsole.delete(key)
+    reportCrash('renderer:console', new Error(message), { source: `${sourceId}:${line}` })
+  }, RICH_GRACE)
+  timer.unref()
+  heldConsole.set(key, timer)
 }
 
 export function listErrors(): ErrorEntry[] {
