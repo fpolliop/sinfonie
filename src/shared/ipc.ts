@@ -27,6 +27,7 @@ import type { MaestroMemoryCategory, MaestroMemoryEntry, MaestroConversation, Ma
   SessionSummary,
   UpdateInfo,
   WorkspaceStage,
+  MergeProposal,
   Job,
   BuiltinStage,
   WorkspaceStatusDef,
@@ -537,6 +538,11 @@ export interface SinfonieInvoke {
   'views:data': (binding: ViewSourceBinding, ctx: { spaceId?: string; workspaceId?: string }, force?: boolean) => ViewDataResult
   /** A git/GitHub action from a view; confirm/outward tiers need confirmed = true. Returns a summary. */
   'views:action': (name: string, params: Record<string, unknown>, confirmed: boolean) => string
+  // ---- keep it mergeable (feedback #50) ----
+  'mergeWatch:set': (workspaceId: string, on: boolean) => Workspace
+  /** Look at the workspace's PRs now; returns the new proposals. */
+  'mergeWatch:check': (workspaceId: string) => MergeProposal[]
+  'mergeWatch:dismiss': (workspaceId: string, proposalId: string) => Workspace
   // ---- running (everything Sinfonie is doing now, feedback #65) ----
   'jobs:list': () => Job[]
   /** Stop one job with its owner's own stop; returns what happened, in a sentence. */

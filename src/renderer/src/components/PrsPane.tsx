@@ -8,8 +8,10 @@ import { useChat } from '@/stores/chat'
 import { Badge, Button } from './ui'
 import { PrDialog } from './ChangesPane'
 import { ConnectGitHubCard } from './ConnectGitHub'
+import { MergeWatchToggle } from './MergeProposals'
 import { timeAgo } from '@/lib/format'
-import type { PrCheck, RepoPr, ReviewThread, Workspace } from '@shared/types'
+import type { PrCheck, RepoPr, ReviewThread } from '@shared/types'
+import { buildAddressPrompt } from '@shared/merge-prompts'
 
 export function PrsPane({ workspaceId }: { workspaceId: string }): React.JSX.Element {
   const ws = useApp((s) => s.workspaces.find((w) => w.id === workspaceId))
@@ -49,6 +51,7 @@ export function PrsPane({ workspaceId }: { workspaceId: string }): React.JSX.Ele
         <span className="text-[11px] font-medium uppercase tracking-wide text-muted">Pull requests</span>
         {state?.fetchedAt && <span className="text-[11px] text-muted">· updated {timeAgo(state.fetchedAt)}</span>}
         <span className="ml-auto" />
+        <MergeWatchToggle workspaceId={workspaceId} />
         {totalUnresolved > 0 && (
           <Button size="sm" variant="primary" onClick={addressAll}>
             <Sparkles size={12} /> Address all {totalUnresolved} review comment{totalUnresolved === 1 ? '' : 's'}
@@ -256,26 +259,3 @@ function CheckChip({ check }: { check: PrCheck }): React.JSX.Element {
 }
 
 /** The prompt sent to Claude when addressing review comments. Everything the reviewer wrote goes in verbatim. */
-function buildAddressPrompt(ws: Workspace, items: { repo: Workspace['repos'][number]; pr: NonNullable<RepoPr['pr']>; thread: ReviewThread }[]): string {
-  const byRepo = new Map<string, typeof items>()
-  for (const it of items) byRepo.set(it.repo.repoId, [...(byRepo.get(it.repo.repoId) ?? []), it])
-  const sections: string[] = []
-  for (const [, list] of byRepo) {
-    const { repo, pr } = list[0]
-    const threads = list
-      .map(({ thread }, i) => {
-        const loc = `${thread.path}${thread.line != null ? `:${thread.line}` : ''}${thread.isOutdated ? ' (outdated: the code moved since the comment)' : ''}`
-        const comments = thread.comments.map((c) => `  ${c.author}: ${c.body.replace(/\n/g, '\n  ')}`).join('\n')
-        return `${i + 1}. ${loc}\n${comments}\n   thread url: ${thread.comments[0]?.url ?? pr.url}`
-      })
-      .join('\n\n')
-    sections.push(`### ${repo.repoName} — PR #${pr.number} "${pr.title}"\nworktree: ${repo.worktreePath}\n\n${threads}`)
-  }
-  return [
-    `Address the unresolved review comments on the pull request${byRepo.size > 1 ? 's' : ''} for workspace "${ws.name}".`,
-    ``,
-    `For each thread: make the change the reviewer asked for in that repository's worktree, or explain briefly why not if you disagree. Keep each repository's changes inside its own worktree. When you are done, commit in each affected worktree with a message that references the PR number, and give me a short list of what you changed per thread. Do not push.`,
-    ``,
-    sections.join('\n\n')
-  ].join('\n')
-}

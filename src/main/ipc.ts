@@ -67,6 +67,7 @@ import * as oncall from './services/oncall/service'
 import * as gcp from './services/gcp'
 import * as assistant from './services/assistant'
 import * as db from './services/db/service'
+import * as mergeWatch from './services/merge-watch'
 import * as jobs from './services/jobs'
 import * as viewStore from './services/views/store'
 import * as viewData from './services/views/data'
@@ -1152,6 +1153,10 @@ export function registerIpc(): void {
   handle('jobs:list', () => jobs.list())
   handle('jobs:stop', (id) => jobs.stop(id))
   jobs.start()
+  handle('mergeWatch:set', (id, on) => mergeWatch.setWatch(id, on))
+  handle('mergeWatch:check', (id) => mergeWatch.check(id))
+  handle('mergeWatch:dismiss', (id, proposalId) => mergeWatch.dismiss(id, proposalId))
+  mergeWatch.start()
   handle('resources:stopTask', (workspaceId, taskId) => agent.stopTask(workspaceId, taskId))
   handle('resources:cancelWaiting', (workspaceId) => resources.cancelWaiting(workspaceId))
   handle('agent:interrupt', (id) => {

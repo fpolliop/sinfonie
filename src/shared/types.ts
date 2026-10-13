@@ -680,6 +680,34 @@ export interface RepoSafety {
   error?: string
 }
 
+/**
+ * Keep it mergeable (feedback #50): Sinfonie watches the workspace's pull requests and, when something
+ * changes that needs doing (a check fails, a reviewer comments, the branch conflicts), proposes a fix
+ * the person starts with one click. Phase 1 only proposes: nothing is pushed or posted on its own.
+ */
+export interface MergeWatch {
+  on: boolean
+  since: string
+  checkedAt?: string
+  lastError?: string
+  /** What was true at the last look, per repository, so only changes become proposals. */
+  seen?: Record<string, { pr: number; failing: string[]; threads: string[]; conflict: boolean; ready: boolean }>
+  proposals?: MergeProposal[]
+}
+export interface MergeProposal {
+  id: string
+  repoId: string
+  repoName: string
+  pr: number
+  prUrl: string
+  kind: 'ci' | 'review' | 'conflict' | 'ready'
+  /** One sentence: what happened. */
+  title: string
+  /** What the agent is asked to do when the person accepts; absent for "ready" (nothing to fix). */
+  prompt?: string
+  createdAt: string
+}
+
 export interface Workspace {
   id: string
   name: string
@@ -710,6 +738,8 @@ export interface Workspace {
   /** Cost profile for this workspace only; undefined inherits the space, then the app. */
   costMode?: CostMode
   stage: WorkspaceStage
+  /** Keep it mergeable: watch this workspace's PRs and propose fixes. */
+  mergeWatch?: MergeWatch
   /** Position in the sidebar's manual order; unset sorts last. */
   order?: number
   labelIds?: string[]

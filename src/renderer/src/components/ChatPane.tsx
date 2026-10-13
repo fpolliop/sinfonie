@@ -24,6 +24,7 @@ import { expertToolName, formatDuration, formatElapsed, guidedNotice, recentGuid
 import { AskTeammate, AskTeammateButton } from './AskTeammate'
 import { CaffeineButton } from './CaffeineButton'
 import { ChangeCard } from './builder/ChangeCard'
+import { MergeProposals } from './MergeProposals'
 import { useBuilder, pickLabel, composeMessage, dataUrlToBlob, type ChangeCard as ChangeCardData } from '@/stores/builder'
 import type { ChatBlock, ChatItem, ChatToolBlock } from '@shared/types'
 
@@ -436,6 +437,7 @@ function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Elem
             </div>
           )}
           {chat?.limit && <LimitCard workspaceId={workspaceId} ev={chat.limit} />}
+          <MergeProposals workspaceId={workspaceId} />
           {!guided && <CrewBar items={items} busy={busy} model={chat?.model ?? settingsModel} crewNames={crewNames} />}
           {disabled && notReady && (
             <div role="status" className="mb-2 flex items-center gap-2 px-1 text-[12px] text-muted">
