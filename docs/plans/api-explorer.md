@@ -1,7 +1,7 @@
 # API explorer: endpoints found for you, requests in one click
 
 Feedback #42 ("Insomnia/Postman + discover all endpoints automatically"), 2026-09-06.
-Status: plan, 2026-10-01.
+Status: phase 1 shipped in 0.1.75; phase 2 (requests) built 2026-10-13.
 
 ## Problem
 
@@ -68,8 +68,10 @@ stale rather than deleted.
    with `@nestjs/swagger`, so their running apps already publish an exact OpenAPI document;
    backend-services also has FastAPI and Fastify parts; lumepic-support is NestJS/Fastify without
    swagger; astro-market uses Express; seven repos are Next.js with API routes.)
-2. **Requests**: the runner in main, environments (workspace / local), auth, history, curl export,
-   safety prompts.
+2. **Requests** (built): the runner in main, environments (workspace / local), auth (bearer, basic, API-key
+   header; secret encrypted on the Mac), history (last 50, typed auth headers hidden), curl export. Main
+   refuses any non-local host, so nothing leaves the Mac and nothing needs a confirm yet; the confirm step
+   arrives with staging and production in phase 4.
 3. **Agent**: the tools, rescan after route changes, agent-assisted OpenAPI for partial routes.
 4. **Team and interop**: space collections, staging/production environments, Postman/Insomnia/OpenAPI
    import and export, traffic capture from the in-app browser, and a views source.
