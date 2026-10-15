@@ -1,6 +1,6 @@
 # Claude Design in Sinfonie: design, then build, without leaving the app
 
-Status: plan, 2026-10-06. Spike done 2026-10-10 (see Spike results).
+Status: plan, 2026-10-06. Spike done 2026-10-10 (see Spike results). Phases 1 and 2 built 2026-10-15 (see Phases).
 
 ## Who designs
 
@@ -113,9 +113,19 @@ browser-based path or nothing. Using them needs a claude.ai plan with Claude Des
      and read a canvas?
    - How does `DesignSync`'s first-call scope prompt surface in an SDK session (no terminal)?
    - Can the in-app browser stay signed in to claude.ai and read a private canvas's artboards reliably?
-1. **Design → build**: linked designs, the Design pane, the design brief (browser path) and the CLI
-   path where available.
-2. **Design system per space**: the Team page and the sync flow, then incremental component sync.
+1. **Design → build** (built 2026-10-15): `Workspace.designs` (canvas link + exported artboards copied into
+   app data), the **Design** pane (link, add or drop PNG/JPG/WebP/PDF, zoom, notes, "Open here" in the
+   space's browser, "Open in Claude"), a "Link this design" offer when a canvas link is typed in the chat,
+   and **Build this design**: the artboards go to the agent as images (scaled to 1568px) with a brief
+   (link, PDF paths, notes). The agent records where artboards map with
+   `mcp__workspace__remember_design_mapping` (appended to the design's notes). Not built: the browser
+   design brief (needs the owner's claude.ai sign-in in a space browser; untested) and side-by-side
+   Design/Preview.
+2. **Design system per space** (built 2026-10-15): Settings → a space → **Design system**: a read-only
+   check (a short Haiku turn that calls only `DesignSync list_projects`; detects the /design-login error),
+   the project, the component repository and folder, and **Sync design system**, which asks a workspace's
+   agent to run the design-sync flow (finalize_plan only after the person approves). Not built: offering
+   incremental sync when a workspace changes a component.
 3. **Design first** (guided): Sketch an idea, the design runner, Build this.
 4. **Design QA**: screen capture vs artboards, findings in the review inbox, fix rounds.
 

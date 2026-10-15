@@ -23,9 +23,9 @@ export interface Notice {
  * run scripts, data, or a generated view. 'chat' is kept for callers that ask to "show the conversation": the
  * conversation is always on screen, so it changes nothing. A generated view tab is `view:<id>`.
  */
-export type Tab = 'chat' | 'changes' | 'code' | 'prs' | 'terminal' | 'run' | 'browser' | 'data' | 'api' | `view:${string}`
+export type Tab = 'chat' | 'changes' | 'code' | 'prs' | 'terminal' | 'run' | 'browser' | 'design' | 'data' | 'api' | `view:${string}`
 export type AppPage = 'preferences' | 'general' | 'spaces' | 'repos' | 'providers' | 'accounts' | 'logins' | 'crew' | 'resources' | 'usage' | 'oncall' | 'mcp' | 'jira' | 'linear' | 'slack' | 'gcp' | 'integrations' | 'feedback' | 'phone' | 'plan' | 'about'
-export type SpacePage = 'general' | 'repos' | 'crew' | 'oncall' | 'mcp' | 'jira' | 'linear' | 'slack' | 'gcp' | 'databases' | 'github'
+export type SpacePage = 'general' | 'repos' | 'crew' | 'oncall' | 'mcp' | 'jira' | 'linear' | 'slack' | 'gcp' | 'databases' | 'github' | 'design'
 export type SettingsTarget = { scope: 'app'; page: AppPage } | { scope: 'space'; spaceId: string; page: SpacePage }
 
 interface AppState {

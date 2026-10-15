@@ -70,6 +70,8 @@ import * as db from './services/db/service'
 import * as mergeWatch from './services/merge-watch'
 import * as mergeUpdate from './services/merge-update'
 import * as apiDiscover from './services/api/discover'
+import * as designs from './services/designs'
+import * as designSystem from './services/design-system'
 import * as apiRequests from './services/api/requests'
 import * as apiCollections from './services/api/collections'
 import * as jobs from './services/jobs'
@@ -856,6 +858,15 @@ export function registerIpc(): void {
     return resources.submit(id, text, refs)
   }
   handle('agent:send', (id, text, images) => sendMessage(id, text, images))
+  handle('designs:build', async (id, designId, extra) => {
+    const b = designs.brief(id, designId, extra)
+    return sendMessage(id, b.text, b.images)
+  })
+  handle('designSystem:sync', async (spaceId, wsId) => {
+    const text = designSystem.syncPrompt(spaceId)
+    await sendMessage(wsId, text)
+    designSystem.markSynced(spaceId)
+  })
   remote.setBridge({
     // In CLI mode the phone types into the terminal; otherwise the SDK session takes the message.
     send: async (id, text) => {
@@ -1159,6 +1170,17 @@ export function registerIpc(): void {
   handle('jobs:stop', (id) => jobs.stop(id))
   jobs.start()
   handle('api:discover', (id, force) => apiDiscover.discover(id, Boolean(force)))
+  handle('designs:list', (id) => designs.list(id))
+  handle('designs:link', (id, url, title) => designs.link(id, url, title))
+  handle('designs:addFiles', (id, designId) => designs.addFiles(id, designId))
+  handle('designs:addData', (id, files, designId) => designs.addData(id, files, designId))
+  handle('designs:update', (id, designId, patch) => designs.update(id, designId, patch))
+  handle('designs:remove', (id, designId) => designs.remove(id, designId))
+  handle('designs:removeFile', (id, designId, fileId) => designs.removeFile(id, designId, fileId))
+  handle('designs:openFile', (id, designId, fileId) => designs.openFile(id, designId, fileId))
+  handle('designSystem:probe', (force) => designSystem.probe(Boolean(force)))
+  handle('designSystem:last', () => designSystem.lastProbe())
+  handle('designSystem:save', (spaceId, ds) => designSystem.save(spaceId, ds))
   handle('api:state', (id) => apiRequests.state(id))
   handle('api:setSettings', (id, settings, secret) => apiRequests.setSettings(id, settings, secret))
   handle('api:send', (id, req) => apiRequests.send(id, req))

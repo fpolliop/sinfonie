@@ -29,6 +29,7 @@ import type { MaestroMemoryCategory, MaestroMemoryEntry, MaestroConversation, Ma
   WorkspaceStage,
   ApiDiscovery, ApiState, ApiSettings, ApiRequest, ApiResponse, ApiPreview, ApiRemoteEnv, ApiEnvDef, ApiSavedRequest,
   MergeProposal,
+  DesignLink, DesignSystemProbe, SpaceDesignSystem,
   MergeUpdateResult,
   Job,
   BuiltinStage,
@@ -555,6 +556,23 @@ export interface SinfonieInvoke {
   // ---- API explorer (feedback #42) ----
   /** The workspace's HTTP endpoints, from OpenAPI files, the running app's spec and a code scan. Cached a minute unless forced. */
   'api:discover': (workspaceId: string, force?: boolean) => ApiDiscovery
+  // Claude Design: designs linked to a workspace, and the space's design system.
+  'designs:list': (workspaceId: string) => DesignLink[]
+  'designs:link': (workspaceId: string, url: string, title?: string) => DesignLink[]
+  'designs:addFiles': (workspaceId: string, designId?: string) => DesignLink[]
+  /** Artboards dropped on the Design pane (base64); designId absent makes a new design. */
+  'designs:addData': (workspaceId: string, files: { name: string; data: string }[], designId?: string) => DesignLink[]
+  'designs:update': (workspaceId: string, designId: string, patch: { title?: string; notes?: string; url?: string }) => DesignLink[]
+  'designs:remove': (workspaceId: string, designId: string) => DesignLink[]
+  'designs:removeFile': (workspaceId: string, designId: string, fileId: string) => DesignLink[]
+  'designs:openFile': (workspaceId: string, designId: string, fileId: string) => void
+  /** Sends the design (artboards as images, brief) to the workspace's agent as a message. */
+  'designs:build': (workspaceId: string, designId: string, extra?: string) => void
+  'designSystem:probe': (force?: boolean) => DesignSystemProbe
+  'designSystem:last': () => DesignSystemProbe | null
+  'designSystem:save': (spaceId: string, ds: SpaceDesignSystem) => void
+  /** Asks the workspace's agent to run the design-sync flow for the space (it writes only after the person approves the plan). */
+  'designSystem:sync': (spaceId: string, workspaceId: string) => void
   'api:state': (workspaceId: string) => ApiState
   /** secret: a new token/password/key; null clears it; undefined keeps the stored one. */
   'api:setSettings': (workspaceId: string, settings: ApiSettings, secret?: string | null) => ApiState

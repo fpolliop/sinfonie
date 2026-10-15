@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { Plus, RefreshCw, Trash2, FolderGit2, Settings as SettingsIcon, Layers, Server, UserCircle2, Users, Plug, Ticket, GitPullRequest, MessageSquarePlus, Info, ChevronRight, Gauge, Siren, CircleDot, Hash, Activity, Cloud, Database, Gem, FileJson, Smartphone, X, Bot } from 'lucide-react'
+import { Plus, RefreshCw, Trash2, FolderGit2, Settings as SettingsIcon, Layers, Server, UserCircle2, Users, Plug, Ticket, GitPullRequest, MessageSquarePlus, Info, ChevronRight, Gauge, Siren, CircleDot, Hash, Activity, Cloud, Database, Gem, FileJson, Smartphone, X, Bot, PenTool } from 'lucide-react'
 import { GcpSection } from './GcpSection'
 import { DatabasesSection } from './DatabasesSection'
+import { DesignSystemSection } from './DesignSystemSection'
 import { api } from '@/lib/api'
 import { useApp, type SettingsTarget, type AppPage, type SpacePage } from '@/stores/app'
 import { UpdateCard } from './UpdateCard'
@@ -96,7 +97,8 @@ const SPACE_PAGES: { id: SpacePage; label: string; icon: React.ReactNode; desc: 
   { id: 'github', label: 'GitHub', icon: <GitPullRequest size={14} />, desc: 'Which GitHub owners the review cockpit lists for this space.', group: 'Integrations' },
   { id: 'gcp', label: 'Google Cloud', icon: <Cloud size={14} />, desc: 'This space’s Google Cloud project, when it differs from the application default.', overrides: 'gcp', group: 'Integrations' },
   { id: 'databases', label: 'Databases', icon: <Database size={14} />, desc: 'Postgres, MySQL, SQLite, MongoDB and BigQuery, direct, through SSH, or through Cloud SQL.', group: 'Integrations' },
-  { id: 'mcp', label: 'MCP servers', icon: <Plug size={14} />, desc: 'Servers for this space, on top of the application-wide ones.', overrides: 'mcp', group: 'Integrations' }
+  { id: 'mcp', label: 'MCP servers', icon: <Plug size={14} />, desc: 'Servers for this space, on top of the application-wide ones.', overrides: 'mcp', group: 'Integrations' },
+  { id: 'design', label: 'Design system', icon: <PenTool size={14} />, desc: 'Sync this space\u2019s components with Claude Design, so designs use the real components.', group: 'Integrations' }
 ]
 
 export function SettingsWindow({ target, onClose }: { target: SettingsTarget; onClose: () => void }): React.JSX.Element {
@@ -838,6 +840,8 @@ function SpacePageView({ space, page }: { space: Space; page: SpacePage }): Reac
       return <LinearSection connId={space.id} intro="Connect the Linear workspace this space’s issues live in. Leave it disconnected to use the application’s default connection." />
     case 'databases':
       return <DatabasesSection spaceId={space.id} />
+    case 'design':
+      return <DesignSystemSection space={space} />
     case 'gcp':
       return <GcpSection connId={space.id} intro="The project this space’s services run in. Sessions here and the space’s on-call agent get read-only Cloud Logging, Cloud Run, Error Reporting and gcloud list / describe tools." />
     case 'oncall':
