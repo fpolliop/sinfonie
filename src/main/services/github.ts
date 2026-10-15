@@ -52,7 +52,7 @@ export async function repoPrStatus(repoId: string, worktreePath: string, branch:
   try {
     raw = JSON.parse(
       await gh(
-        ['pr', 'view', branch, '--json', 'number,title,url,state,isDraft,reviewDecision,mergeable,baseRefName,headRefName,additions,deletions,statusCheckRollup,author'],
+        ['pr', 'view', branch, '--json', 'number,title,url,state,isDraft,reviewDecision,mergeable,mergeStateStatus,baseRefName,headRefName,additions,deletions,statusCheckRollup,author'],
         worktreePath
       )
     ) as Record<string, unknown>
@@ -70,6 +70,7 @@ export async function repoPrStatus(repoId: string, worktreePath: string, branch:
     author: ((raw.author as { login?: string }) ?? {}).login ?? '',
     reviewDecision: (raw.reviewDecision as PrInfo['reviewDecision']) ?? '',
     mergeable: (raw.mergeable as string) ?? '',
+    mergeStateStatus: (raw.mergeStateStatus as string) ?? '',
     baseRefName: raw.baseRefName as string,
     headRefName: raw.headRefName as string,
     additions: (raw.additions as number) ?? 0,
@@ -103,6 +104,21 @@ interface RawThread {
   path: string
   line: number | null
   comments: { nodes: { id: string; author: { login: string } | null; body: string; url: string; createdAt: string }[] }
+}
+
+/** GitHub's "Update branch": merges the base into the PR's branch on GitHub (a merge commit). Leaves the Mac. */
+export async function updatePrBranch(worktreePath: string, prNumber: number): Promise<void> {
+  await gh(['api', '-X', 'PUT', `repos/{owner}/{repo}/pulls/${prNumber}/update-branch`], worktreePath)
+}
+
+/** How many commits the PR's branch is behind its base on GitHub, or null when that could not be read. */
+export async function behindBy(worktreePath: string, base: string, head: string): Promise<number | null> {
+  try {
+    const out = JSON.parse(await gh(['api', `repos/{owner}/{repo}/compare/${encodeURIComponent(base)}...${encodeURIComponent(head)}`, '--jq', '{behind: .behind_by}'], worktreePath)) as { behind?: number }
+    return typeof out.behind === 'number' ? out.behind : null
+  } catch {
+    return null
+  }
 }
 
 /** Rename a branch on GitHub so open PRs follow it. Returns false when there is no remote branch. */
