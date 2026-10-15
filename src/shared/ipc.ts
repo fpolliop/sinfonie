@@ -27,7 +27,7 @@ import type { MaestroMemoryCategory, MaestroMemoryEntry, MaestroConversation, Ma
   SessionSummary,
   UpdateInfo,
   WorkspaceStage,
-  ApiDiscovery, ApiState, ApiSettings, ApiRequest, ApiResponse,
+  ApiDiscovery, ApiState, ApiSettings, ApiRequest, ApiResponse, ApiPreview, ApiRemoteEnv, ApiEnvDef, ApiSavedRequest,
   MergeProposal,
   Job,
   BuiltinStage,
@@ -560,6 +560,17 @@ export interface SinfonieInvoke {
   'api:send': (workspaceId: string, req: ApiRequest) => ApiResponse
   'api:curl': (workspaceId: string, req: ApiRequest) => string
   'api:clearHistory': (workspaceId: string) => void
+  /** Exactly what a request will send (auth masked), for the confirm step before it leaves the Mac. */
+  'api:preview': (workspaceId: string, req: ApiRequest) => ApiPreview
+  /** The space's staging or production API; null removes it. secret: this person's token; null clears it. */
+  'api:setEnvironment': (workspaceId: string, env: ApiRemoteEnv, def: ApiEnvDef | null, secret?: string | null) => ApiState
+  'api:saveRequest': (workspaceId: string, item: { id?: string; name: string; folder?: string; request: ApiSavedRequest['request'] }) => ApiState
+  'api:renameSaved': (workspaceId: string, id: string, name: string, folder?: string) => ApiState
+  'api:deleteSaved': (workspaceId: string, id: string) => ApiState
+  /** Pick a Postman v2.1 or OpenAPI file and add its requests; null when the picker was cancelled. */
+  'api:import': (workspaceId: string) => { added: number; skipped: number; format: string; state: ApiState } | null
+  /** Save the collection as Postman v2.1, or the discovered endpoints as OpenAPI 3; the path, or null when cancelled. */
+  'api:export': (workspaceId: string, what: 'postman' | 'openapi') => string | null
   // ---- keep it mergeable (feedback #50) ----
   'mergeWatch:set': (workspaceId: string, on: boolean) => Workspace
   /** Look at the workspace's PRs now; returns the new proposals. */

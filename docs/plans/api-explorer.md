@@ -77,8 +77,13 @@ stale rather than deleted.
    the agent's); after a turn that edits a route-like file, a rescan diffs the endpoints, the chat shows the
    change and the agent gets it with the next message (UserPromptSubmit hook). Not yet: crew workers, ACP and
    native engines, agent-assisted OpenAPI. Express, Hono and Fastify mount prefixes are resolved (2026-10-13).
-4. **Team and interop**: space collections, staging/production environments, Postman/Insomnia/OpenAPI
-   import and export, traffic capture from the in-app browser, and a views source.
+4. **Team and interop** (built, except the last three items): saved requests per space (shared with the
+   definition, auth headers never kept), staging and production per space (base URL and auth kind shared, the
+   secret per person; every request to them is shown in full with auth masked and confirmed first, main
+   refuses it otherwise, redirects off the server are not followed, and the agent cannot call them), import of
+   Postman v2.1 and OpenAPI 3 / Swagger 2 (JSON or YAML), export of saved requests as Postman v2.1 and of the
+   discovered endpoints as OpenAPI 3. Not yet: Insomnia import, traffic capture from the in-app browser, and
+   the views source.
 
 ## Open questions
 

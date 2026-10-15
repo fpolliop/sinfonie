@@ -70,6 +70,7 @@ import * as db from './services/db/service'
 import * as mergeWatch from './services/merge-watch'
 import * as apiDiscover from './services/api/discover'
 import * as apiRequests from './services/api/requests'
+import * as apiCollections from './services/api/collections'
 import * as jobs from './services/jobs'
 import * as viewStore from './services/views/store'
 import * as viewData from './services/views/data'
@@ -1162,6 +1163,16 @@ export function registerIpc(): void {
   handle('api:send', (id, req) => apiRequests.send(id, req))
   handle('api:curl', (id, req) => apiRequests.curl(id, req))
   handle('api:clearHistory', (id) => apiRequests.clearHistory(id))
+  handle('api:preview', (id, req) => apiRequests.preview(id, req))
+  handle('api:setEnvironment', (id, env, def, secret) => apiRequests.setEnvironment(id, env, def, secret))
+  handle('api:saveRequest', (id, item) => (apiCollections.saveRequest(id, item), apiRequests.state(id)))
+  handle('api:renameSaved', (id, savedId, name, folder) => (apiCollections.renameSaved(id, savedId, name, folder), apiRequests.state(id)))
+  handle('api:deleteSaved', (id, savedId) => (apiCollections.deleteSaved(id, savedId), apiRequests.state(id)))
+  handle('api:import', async (id) => {
+    const r = await apiCollections.importFile(id)
+    return r ? { ...r, state: apiRequests.state(id) } : null
+  })
+  handle('api:export', (id, what) => (what === 'openapi' ? apiCollections.exportOpenApi(id) : apiCollections.exportCollection(id)))
   handle('mergeWatch:set', (id, on) => mergeWatch.setWatch(id, on))
   handle('mergeWatch:check', (id) => mergeWatch.check(id))
   handle('mergeWatch:dismiss', (id, proposalId) => mergeWatch.dismiss(id, proposalId))
