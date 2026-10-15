@@ -6,9 +6,11 @@
  * Scripts run in an isolated world (the page's own scripts cannot see or tamper with them), and everything they
  * return is treated as untrusted page data: checked, clamped, and fenced as data before Maestro reads it.
  */
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, nativeImage, type NativeImage } from 'electron'
 import { mkdir, readFile, unlink, writeFile } from 'fs/promises'
 import { join } from 'path'
+import { request as httpRequest } from 'http'
+import { request as httpsRequest } from 'https'
 import { getStore } from '../../store'
 import { isShown, peekTab } from './service'
 import type { BrowserTab } from './driver'
@@ -77,6 +79,15 @@ export async function thumbnails(workspaceIds: string[]): Promise<Record<string,
 
 /** "Before" pictures, taken when a guided turn starts, waiting for that turn's change. */
 const before = new Map<string, string>()
+/** The same moment as the whole page (PNG, at most 960 px wide), so the card can show the part that changed. */
+const beforeFull = new Map<string, { png: Buffer; cssWidth: number }>()
+
+/** The whole page (up to 6000 CSS px tall) when the preview is on screen; null when it cannot be taken. */
+async function captureFull(workspaceId: string): Promise<{ image: NativeImage; cssWidth: number } | null> {
+  const tab = livePage(workspaceId)
+  if (!tab || !isShown(workspaceId)) return null
+  return tab.captureFull({ maxHeight: 6000, maxWidth: 960 }).catch(() => null)
+}
 /** When each workspace's last turn ended, to spot a queued message delivered straight after it. */
 const ended = new Map<string, number>()
 /** Workspaces whose last change gets no pictures: a queued turn started at once, so an "after" would mix both turns. */
@@ -84,22 +95,83 @@ const skip = new Set<string>()
 
 export function turnEnded(workspaceId: string): void {
   ended.set(workspaceId, Date.now())
+  waitingBefore.delete(workspaceId)
   // A skip is only ever for the turn before this one (its change is saved just after the next turn starts). If that
   // turn changed nothing, no pictures() call consumed it: drop it so it cannot swallow this turn's pictures.
   skip.delete(workspaceId)
 }
 
-/** A guided turn is starting: remember what the preview looks like now. Cheap, and silent when there is no preview. */
-export function beforeTurn(workspaceId: string): void {
-  if (!guided()) return
+/** The turn each workspace is waiting on for a "before" picture; a newer turn, an edit or the turn's end stops it. */
+const waitingBefore = new Map<string, number>()
+let beforeSeq = 0
+
+/**
+ * A guided turn is starting: remember what the preview looks like now. Cheap, and silent when there is no preview.
+ * When the preview is not up yet (the task was just created and the app is still starting), keep looking until it
+ * is, as long as the turn has not edited anything: the very first change gets its before picture too.
+ */
+export function beforeTurn(workspaceId: string): Promise<boolean> {
+  if (!guided()) return Promise.resolve(false)
   const e = ended.get(workspaceId)
   if (e && Date.now() - e < 2000) skip.add(workspaceId)
   before.delete(workspaceId)
-  void capture(workspaceId)
-    .then((c) => {
-      if (c) before.set(workspaceId, c.shot)
+  beforeFull.delete(workspaceId)
+  const seq = ++beforeSeq
+  waitingBefore.set(workspaceId, seq)
+  const deadline = Date.now() + 120_000
+  // Resolves true once the picture is taken, false when it stopped looking (an edit, the turn's end, a newer turn).
+  return new Promise<boolean>((resolve) => {
+    const attempt = (): void => {
+      if (waitingBefore.get(workspaceId) !== seq) return resolve(false)
+      void capture(workspaceId)
+        .then((c) => {
+          if (waitingBefore.get(workspaceId) !== seq) return resolve(false)
+          if (c) {
+            before.set(workspaceId, c.shot)
+            waitingBefore.delete(workspaceId)
+            void captureFull(workspaceId)
+              .then((f) => {
+                if (f && before.get(workspaceId) === c.shot) beforeFull.set(workspaceId, { png: f.image.toPNG(), cssWidth: f.cssWidth })
+              })
+              .finally(() => resolve(true))
+          } else if (Date.now() < deadline) setTimeout(attempt, 1000)
+          else {
+            waitingBefore.delete(workspaceId)
+            resolve(false)
+          }
+        })
+        .catch(() => resolve(false))
+    }
+    attempt()
+  })
+}
+
+/** The turn is about to edit a file: a "before" taken from now on would already show the change, so stop looking. */
+export function editStarting(workspaceId: string): void {
+  waitingBefore.delete(workspaceId)
+}
+
+/**
+ * Whether something answers at a preview address on this machine (any HTTP response counts, even an error page: the
+ * server is up). Only local addresses are checked, so this cannot be used to reach other hosts.
+ */
+export function reachable(url: string): Promise<boolean> {
+  let u: URL
+  try {
+    u = new URL(url)
+  } catch {
+    return Promise.resolve(false)
+  }
+  if (!/^https?:$/.test(u.protocol) || !/^(localhost|127\.0\.0\.1|\[::1\])$/.test(u.hostname)) return Promise.resolve(false)
+  return new Promise((resolve) => {
+    const req = (u.protocol === 'https:' ? httpsRequest : httpRequest)(u, { method: 'GET', timeout: 3000, rejectUnauthorized: false }, (res) => {
+      res.resume()
+      resolve(true)
     })
-    .catch(() => undefined)
+    req.on('timeout', () => req.destroy())
+    req.on('error', () => resolve(false))
+    req.end()
+  })
 }
 
 /**
@@ -109,7 +181,9 @@ export function beforeTurn(workspaceId: string): void {
 export async function pictures(workspaceId: string, changeId: string): Promise<GuidedPictures | null> {
   if (skip.delete(workspaceId)) return null
   const was = before.get(workspaceId)
+  const wasFull = beforeFull.get(workspaceId)
   before.delete(workspaceId)
+  beforeFull.delete(workspaceId)
   const tab = livePage(workspaceId)
   if (!was || !tab || !isShown(workspaceId)) return null
   try {
@@ -121,15 +195,102 @@ export async function pictures(workspaceId: string, changeId: string): Promise<G
     await tab.settle(6000, 500)
     await sleep(250)
     const after = await capture(workspaceId)
-    return after ? { workspaceId, changeId, before: was, after: after.shot, thumb: after.thumb } : null
+    if (!after) return null
+    // The part of the page that changed, from whole-page pictures; the screen-sized pair when that cannot be found.
+    const afterFull = wasFull ? await captureFull(workspaceId) : null
+    const pair = wasFull && afterFull && afterFull.cssWidth === wasFull.cssWidth ? changedPair(nativeImage.createFromBuffer(wasFull.png), afterFull.image, afterFull.cssWidth) : null
+    return { workspaceId, changeId, before: pair?.before ?? was, after: pair?.after ?? after.shot, thumb: after.thumb }
   } catch {
     return null
   }
 }
 
+/**
+ * The first region that differs between two whole-page pictures, as fractions of the first one's height, or null when
+ * nothing differs or the pages are too different in size to compare. Compared at a small size, for speed. A row only
+ * counts when several pixels in it differ clearly (one stray pixel, a caret or a smoothing difference does not), and
+ * the region is the first run of such rows (short gaps allowed), so content that merely shifted further down the page
+ * does not stretch it.
+ */
+function changedRegion(a: NativeImage, b: NativeImage): { top: number; bottom: number } | null {
+  const W = 160
+  const sa = a.resize({ width: W, quality: 'good' })
+  const sb = b.resize({ width: W, quality: 'good' })
+  const ha = sa.getSize().height
+  const hb = sb.getSize().height
+  if (!ha || !hb || Math.max(ha, hb) / Math.min(ha, hb) > 1.5) return null
+  const pa = sa.toBitmap()
+  const pb = sb.toBitmap()
+  const rows = Math.min(ha, hb)
+  const changed: boolean[] = []
+  for (let y = 0; y < rows; y++) {
+    let n = 0
+    for (let x = 0; x < W && n < 3; x++) {
+      const i = (y * W + x) * 4
+      if (Math.abs(pa[i] - pb[i]) + Math.abs(pa[i + 1] - pb[i + 1]) + Math.abs(pa[i + 2] - pb[i + 2]) > 60) n++
+    }
+    changed.push(n >= 3)
+  }
+  // Content added or removed at the end of the page makes the pages differ in height: that part changed too.
+  if (Math.abs(ha - hb) > 2) for (let y = rows; y < Math.max(ha, hb); y++) changed.push(true)
+  // The first run of changed rows at least 2 rows tall, allowing gaps of up to 4 rows inside it.
+  const GAP = 4
+  for (let y = 0; y < changed.length; y++) {
+    if (!changed[y]) continue
+    let end = y
+    let gap = 0
+    for (let k = y + 1; k < changed.length && gap <= GAP; k++) {
+      if (changed[k]) {
+        end = k
+        gap = 0
+      } else gap++
+    }
+    if (end > y) {
+      const region = { top: y / ha, bottom: (end + 1) / ha }
+      return region
+    }
+    y = end
+  }
+  return null
+}
+
+/**
+ * Before and after cropped around the first part of the page that changed: full width, centred on the change with
+ * 80 CSS px around it, at least 400 and at most 1600 CSS px tall, kept inside the page. JPEG data URLs no wider than
+ * the whole-page pictures (960 px). Null: no change found.
+ */
+function changedPair(a: NativeImage, b: NativeImage, cssWidth: number): { before: string; after: string } | null {
+  const box = changedRegion(a, b)
+  if (!box) return null
+  const { width, height } = a.getSize()
+  if (b.getSize().width !== width) return null
+  const pageH = Math.min(height, b.getSize().height)
+  const px = width / cssWidth
+  const pad = 80 * px
+  const minH = Math.min(400 * px, pageH)
+  const maxH = 1600 * px
+  const boxTop = box.top * height
+  const boxBottom = box.bottom * height
+  // The crop's height: the change and its margin, within the limits; centred on the change (or on its top part when
+  // the change is taller than the crop), then moved, not cut, to stay inside the page.
+  const h = Math.min(pageH, Math.max(minH, Math.min(maxH, boxBottom - boxTop + 2 * pad)))
+  const centre = boxBottom - boxTop + 2 * pad > maxH ? boxTop - pad + h / 2 : (boxTop + boxBottom) / 2
+  const top = Math.round(Math.min(Math.max(0, centre - h / 2), pageH - h))
+  const ch = Math.max(1, Math.round(h))
+  const crop = (img: NativeImage): string | null => {
+    const out = img.crop({ x: 0, y: top, width, height: Math.min(ch, img.getSize().height - top) })
+    return out.isEmpty() ? null : `data:image/jpeg;base64,${out.toJPEG(72).toString('base64')}`
+  }
+  const before = crop(a)
+  const after = crop(b)
+  return before && after ? { before, after } : null
+}
+
 /** A task was deleted: drop its thumbnail and anything held for it. */
 export function forget(workspaceId: string): void {
   before.delete(workspaceId)
+  beforeFull.delete(workspaceId)
+  waitingBefore.delete(workspaceId)
   ended.delete(workspaceId)
   skip.delete(workspaceId)
   checkRuns.delete(workspaceId)

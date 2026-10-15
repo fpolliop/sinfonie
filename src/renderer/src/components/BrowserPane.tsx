@@ -39,7 +39,8 @@ export function BrowserPane({ workspaceId, visible, frame = 'desktop', leading }
     if (!editing) setAddress(active?.url && active.url !== 'about:blank' ? active.url : '')
   }, [active?.url, editing])
 
-  // Guided mode: start the app and open its preview the first time this workspace's Preview is shown.
+  // Guided mode: start the app the first time this workspace's Preview is shown. The preview itself opens once the
+  // app answers (below), so a slow server never leaves the canvas waiting for a click.
   const runs = useScripts((s) => s.runs)
   useEffect(() => useScripts.getState().subscribe(), [])
   const previewUrl = guided ? previewUrlFor(ws ?? undefined) : ''
@@ -47,13 +48,17 @@ export function BrowserPane({ workspaceId, visible, frame = 'desktop', leading }
     if (!guided || !visible || !ws || ws.status !== 'ready') return
     if (started.has(workspaceId)) return
     started.add(workspaceId)
-    void api.invoke('workspaces:runScript', workspaceId, 'run').catch(() => undefined)
-    // Give the server a moment to bind before the first navigation; a reload button is always there.
-    const t = setTimeout(() => void api.invoke(state?.tabs.length ? 'browser:navigate' : 'browser:open', workspaceId, previewUrl), 1500)
-    return () => clearTimeout(t)
+    const url = previewUrl || `http://localhost:${ws.port}`
+    void api
+      .invoke('workspaces:runScript', workspaceId, 'run')
+      // Nothing to start: open the address anyway, so the canvas explains in plain words what is missing.
+      .then(({ started: n }) => {
+        if (!n && !useBrowser.getState().states[workspaceId]?.tabs.length) return api.invoke('browser:open', workspaceId, url)
+      })
+      .catch(() => undefined)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [guided, visible, ws?.status, workspaceId])
-  /** The end of the run output (the failed runs', or every run's while it is still starting), for Maestro to read. */
+  /** The end of the run output  /** The end of the run output (the failed runs', or every run's while it is still starting), for Maestro to read. */
   const failedOutput = (includeRunning = false): string =>
     Object.entries(runs)
       .filter(([k, r]) => k.startsWith(`${workspaceId}:`) && k.endsWith(':run') && ((r.exitCode ?? 0) !== 0 || (includeRunning && r.running)))
@@ -73,6 +78,30 @@ export function BrowserPane({ workspaceId, visible, frame = 'desktop', leading }
   const pageDown = guided && Boolean(active?.url && active.failed && !active.loading)
   const hasRunScript = useApp((s) => Boolean(ws?.repos.some((r) => s.repos.find((x) => x.id === r.repoId)?.config?.scripts?.run)))
   const scriptRunning = Object.entries(runs).some(([k, r]) => k.startsWith(`${workspaceId}:`) && k.endsWith(':run') && r.running)
+  // Guided: the app is starting and no page is open yet. Check its address every second and open the preview as soon
+  // as it answers; meanwhile the canvas says "Starting the app…" (and, after a while, "taking longer than usual").
+  const noTabs = Boolean(state && state.tabs.length === 0)
+  useEffect(() => {
+    if (!guided || !visible || !ws || ws.status !== 'ready' || !noTabs || !scriptRunning) return
+    const url = previewUrl || `http://localhost:${ws.port}`
+    let cancelled = false
+    let timer: number | undefined
+    const check = (): void => {
+      void api
+        .invoke('preview:reachable', url)
+        .catch(() => false)
+        .then((up) => {
+          if (cancelled) return
+          if (!up) return void (timer = window.setTimeout(check, 1000))
+          if (!useBrowser.getState().states[workspaceId]?.tabs.length) void api.invoke('browser:open', workspaceId, url).catch(() => undefined)
+        })
+    }
+    check()
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [guided, visible, ws?.status, ws?.port, workspaceId, noTabs, scriptRunning, previewUrl])
   useEffect(() => {
     if (!pageDown || !visible) return
     const t = setInterval(() => void api.invoke('browser:tabAction', workspaceId, 'reload').catch(() => undefined), 5000)

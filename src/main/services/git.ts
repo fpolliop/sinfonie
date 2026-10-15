@@ -207,6 +207,9 @@ export async function createWorktree(
   baseBranch: string
 ): Promise<void> {
   const g = git(repoPath)
+  // A task folder deleted outside Sinfonie (Finder, a cleanup) stays registered in git and blocks a new task at the
+  // same path; forget those first. Only folders that no longer exist are pruned.
+  await g.raw(['worktree', 'prune']).catch(() => undefined)
   try {
     await gitNet(repoPath, ['fetch', 'origin', baseBranch], 60_000)
   } catch {
@@ -511,6 +514,12 @@ export async function checkpoint(worktreePath: string, message: string): Promise
   await g.add(['-A'])
   const r = await g.commit(message)
   return r.commit || null
+}
+
+/** The files one commit changed (worktree-relative paths), for the guided change card's plain summary. */
+export async function commitFiles(worktreePath: string, sha: string): Promise<string[]> {
+  const out = await git(worktreePath).raw(['diff-tree', '--root', '--no-commit-id', '--name-only', '-r', sha])
+  return out.split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 200)
 }
 
 /**

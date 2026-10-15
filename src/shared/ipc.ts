@@ -510,6 +510,8 @@ export interface SinfonieInvoke {
   // ---- builder: the guided task screen's preview ----
   /** A small picture of the preview as it is now (JPEG data URL, the task's thumbnail, also saved on disk), or null when it is not open or not on screen. */
   'preview:capture': (workspaceId: string) => string | null
+  /** Whether the app answers at this local preview address yet (localhost only), so guided Preview can open it by itself. */
+  'preview:reachable': (url: string) => boolean
   /** The last saved preview picture per task, for the builder home. */
   'preview:thumbnails': (workspaceIds: string[]) => Record<string, string>
   /** "Point at something": waits for the person to click an element in the preview; null when cancelled (Esc). */

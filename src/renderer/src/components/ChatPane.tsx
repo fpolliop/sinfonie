@@ -22,6 +22,7 @@ import { friendlyError, rawMessage } from '@/lib/errors'
 import { yieldsToEditor } from '@/lib/keys'
 import { expertToolName, formatDuration, formatElapsed, guidedNotice, recentGuidedSteps, turnActivity } from '@/lib/activity'
 import { AskTeammate, AskTeammateButton } from './AskTeammate'
+import { humanName, repoLabel } from '@/lib/labels'
 import { CaffeineButton } from './CaffeineButton'
 import { ChangeCard } from './builder/ChangeCard'
 import { MergeProposals } from './MergeProposals'
@@ -119,6 +120,7 @@ function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Elem
   const pick = useBuilder((s) => s.picks[workspaceId] ?? null)
   const picking = useBuilder((s) => Boolean(s.picking[workspaceId]))
   const ws = useApp((s) => s.workspaces.find((w) => w.id === workspaceId))
+  const allRepos = useApp((s) => s.repos)
   const scrollRef = useRef<HTMLDivElement>(null)
   const items = chat?.items ?? []
   const busy = chat?.busy ?? false
@@ -231,19 +233,32 @@ function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Elem
   const [resumeDlg, setResumeDlg] = useState(false)
   const [forkDlg, setForkDlg] = useState(false)
   const [confirmFresh, setConfirmFresh] = useState(false)
-  // Follow new output only while the view is already at the bottom; scrolling up detaches.
+  // Standard chat behaviour: follow new output until the person scrolls up themselves; scrolling back to the bottom
+  // (or sending a message) follows again. Growth of the conversation never detaches, only the person moving up does.
+  const follow = useRef(true)
+  const lastTop = useRef(0)
   const [atBottom, setAtBottom] = useState(true)
   const [unseen, setUnseen] = useState(false)
+  const stick = (): void => {
+    const el = scrollRef.current
+    if (!el) return
+    el.scrollTop = el.scrollHeight
+    lastTop.current = el.scrollTop
+  }
   const onScroll = (): void => {
     const el = scrollRef.current
     if (!el) return
-    const near = el.scrollHeight - el.scrollTop - el.clientHeight < 48
-    setAtBottom(near)
-    if (near) setUnseen(false)
+    const top = el.scrollTop
+    const gap = el.scrollHeight - top - el.clientHeight
+    if (gap < 2 || (top > lastTop.current && gap < 48)) follow.current = true
+    else if (top < lastTop.current - 1) follow.current = false
+    lastTop.current = top
+    setAtBottom(follow.current)
+    if (follow.current) setUnseen(false)
   }
   const jumpToLatest = (): void => {
-    const el = scrollRef.current
-    if (el) el.scrollTop = el.scrollHeight
+    follow.current = true
+    stick()
     setAtBottom(true)
     setUnseen(false)
   }
@@ -281,13 +296,42 @@ function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Elem
       })
   }
 
+  // The person sent a message (from the composer, a "Fix it" or "Try again" button, or the preview): follow again.
+  const userCount = useMemo(() => items.filter((it) => it.role === 'user').length, [items])
+  const lastUserCount = useRef(userCount)
+  useEffect(() => {
+    const sent = userCount > lastUserCount.current
+    lastUserCount.current = userCount
+    if (sent && !follow.current) {
+      follow.current = true
+      setAtBottom(true)
+      setUnseen(false)
+    }
+    if (follow.current) stick()
+    else setUnseen(true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, questions.length, cards.length, chat?.error])
+  // Anything that grows the conversation or shrinks its view (a change card's pictures arriving, an image loading, the
+  // working line appearing under it) keeps the latest output in view while following.
   useEffect(() => {
     const el = scrollRef.current
     if (!el) return
-    if (atBottom) el.scrollTop = el.scrollHeight
-    else setUnseen(true)
+    const ro = new ResizeObserver(() => {
+      if (follow.current) stick()
+    })
+    ro.observe(el)
+    for (const child of Array.from(el.children)) ro.observe(child)
+    return () => ro.disconnect()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, questions.length])
+  }, [items.length === 0])
+  // Another task's conversation starts at its latest output.
+  useEffect(() => {
+    follow.current = true
+    stick()
+    setAtBottom(true)
+    setUnseen(false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaceId])
 
   // ⌘. stops the running turn, from anywhere in the workspace except an editor or terminal that wants the key.
   useEffect(() => {
@@ -376,7 +420,7 @@ function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Elem
           <div className="mx-auto mt-16 max-w-md text-center text-muted">
             <p className="mb-2">{guided ? 'Describe what should change. You’ll see it in the preview as Maestro works. To talk about one part of the page, use Point at something.' : 'Claude Code runs here with every worktree of this workspace in scope.'}</p>
             <p className="text-[12px]">
-              {ws?.repos.map((r) => r.repoName).join(' · ')}
+              {ws?.repos.map((r) => (guided ? repoLabel(allRepos.find((x) => x.id === r.repoId)) || humanName(r.repoName) : r.repoName)).join(' · ')}
               {ws?.sessionId && <span className="mt-1 block">{guided ? 'You can pick up where you left off.' : 'Previous session will be resumed.'}</span>}
             </p>
           </div>
