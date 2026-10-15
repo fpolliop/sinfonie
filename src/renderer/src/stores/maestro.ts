@@ -50,10 +50,15 @@ const sameContext = (a?: MaestroContext, b?: MaestroContext): boolean => context
 /** newConversation calls in flight, by context, so two at once create one conversation. */
 const creating = new Map<string, Promise<string>>()
 
+/** The Maestro dock's width limits (the drag also leaves the window at least 480px for the rest). */
+export const MAESTRO_MIN = 380
+export const MAESTRO_MAX = 1400
+export const MAESTRO_DEFAULT = 460
+
 export const useMaestro = create<MaestroState>((set, get) => ({
   open: false,
   shape: (localStorage.getItem('sinfonie.maestro.shape') as Shape) || 'side',
-  width: Math.min(900, Math.max(380, Number(localStorage.getItem('sinfonie.maestro.width')) || 460)),
+  width: Math.min(MAESTRO_MAX, Math.max(MAESTRO_MIN, Number(localStorage.getItem('sinfonie.maestro.width')) || MAESTRO_DEFAULT)),
   activeId: localStorage.getItem('sinfonie.maestro.active'),
   conversations: [],
   byId: {},
@@ -66,7 +71,7 @@ export const useMaestro = create<MaestroState>((set, get) => ({
     set({ shape })
   },
   setWidth: (width) => {
-    const w = Math.min(900, Math.max(380, Math.round(width)))
+    const w = Math.min(MAESTRO_MAX, Math.max(MAESTRO_MIN, Math.round(width)))
     localStorage.setItem('sinfonie.maestro.width', String(w))
     set({ width: w })
   },

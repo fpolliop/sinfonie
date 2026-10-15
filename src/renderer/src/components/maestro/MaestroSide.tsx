@@ -1,17 +1,17 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { Wand2, Plus, Maximize2, Minus, ChevronDown, Brain } from 'lucide-react'
 import { MaestroMemory } from './MaestroMemory'
-import { useMaestro } from '@/stores/maestro'
+import { useMaestro, MAESTRO_DEFAULT, MAESTRO_MAX, MAESTRO_MIN } from '@/stores/maestro'
 import { useApp } from '@/stores/app'
 import { MaestroConversation } from './MaestroConversation'
 import { ListError, NoConversation } from './MaestroParts'
+import { EdgeResizer } from '../EdgeResizer'
 
 /** Maestro docked at the right edge, over whatever the main pane shows. Resizable; expands to full screen. */
 export function MaestroSide(): React.JSX.Element | null {
   const { open, width, activeId, conversations, listLoaded, setOpen, setWidth, setShape, select, newConversation, loadList, subscribe } = useMaestro()
   const setView = useApp((s) => s.setView)
   const view = useApp((s) => s.view)
-  const dragging = useRef(false)
   const [memory, setMemory] = useState(false)
   useEffect(() => {
     subscribe()
@@ -28,25 +28,10 @@ export function MaestroSide(): React.JSX.Element | null {
   if (!open || view === 'maestro') return null
   const active = conversations.find((c) => c.id === activeId)
   const recent = conversations.filter((c) => !c.archivedAt).slice(0, 12)
-  const startResize = (e: React.MouseEvent): void => {
-    e.preventDefault()
-    dragging.current = true
-    const startX = e.clientX
-    const startW = width
-    const move = (ev: MouseEvent): void => {
-      if (dragging.current) setWidth(startW + (startX - ev.clientX))
-    }
-    const up = (): void => {
-      dragging.current = false
-      window.removeEventListener('mousemove', move)
-      window.removeEventListener('mouseup', up)
-    }
-    window.addEventListener('mousemove', move)
-    window.addEventListener('mouseup', up)
-  }
   return (
     <aside aria-label="Maestro" className="no-drag fixed right-0 top-0 z-40 flex h-full flex-col border-l border-border bg-panel" style={{ width }}>
-      <div className="absolute left-0 top-0 h-full w-1 cursor-col-resize hover:bg-accent/40" onMouseDown={startResize} title="Drag to resize" />
+      {/* Above the header (a window-drag area) and the content, which used to cover the old 4px strip. */}
+      <EdgeResizer width={width} min={MAESTRO_MIN} max={Math.max(MAESTRO_MIN, Math.min(MAESTRO_MAX, window.innerWidth - 480))} reset={MAESTRO_DEFAULT} label="Resize Maestro" onLive={setWidth} onCommit={setWidth} className="z-50" />
       <div className="drag flex h-[52px] shrink-0 items-center gap-2 border-b border-border px-3">
         <span className="flex h-7 w-7 items-center justify-center rounded-full bg-maestro/15 text-maestro">
           <Wand2 size={14} />
