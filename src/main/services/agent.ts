@@ -36,6 +36,7 @@ import * as library from './agents'
 import { getWorkspace, patchWorkspace, assertOnDisk } from './workspaces'
 import { checkpoint } from './git'
 import { accountEnv } from './accounts'
+import { mainSetupServersFor, signInHint } from './claude-config'
 import { makeResumable } from './session-files'
 import * as jira from './jira'
 import * as linear from './linear'
@@ -69,6 +70,8 @@ interface Session {
   interrupted: boolean
   /** Names of the MCP servers Sinfonie passed to this session. */
   mcpNames: string[]
+  /** The account's Claude settings folder, when it is not the main one (for sign-in hints). */
+  configDir?: string
   /** Last mid-session MCP check, and the servers already reported as down (said once until they recover). */
   mcpCheckedAt?: number
   mcpDown?: Set<string>
@@ -129,7 +132,8 @@ function describeError(code: string | undefined): string {
 
 const sessions = new Map<string, Session>()
 /** Workspaces that already got the inherited-MCP notice this app run. */
-const mcpNoticeShown = new Set<string>()
+/** Failures of servers from the user's own Claude Code setup already reported this app run, as name|status. */
+const inheritedWarned = new Set<string>()
 
 /** An async iterable we can push into from outside; the SDK consumes it as the prompt stream. */
 function makeInputStream(): { iterable: AsyncIterable<SDKUserMessage>; push: (m: SDKUserMessage) => void; end: () => void } {
@@ -369,6 +373,10 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
     emit({ type: 'notice', workspaceId, itemId: nanoid(8), level: 'warn', text: "Claude couldn't find the earlier conversation, so this message starts a new one. The chat above stays.", createdAt: new Date().toISOString() })
   }
   const others = ws.repos.filter((r) => r !== primary).map((r) => r.worktreePath)
+  // A second Claude account has its own settings folder, which hides the main setup's MCP servers: pass them in.
+  const configDir = accountEnv(ws.claudeAccountId).CLAUDE_CONFIG_DIR
+  const fromMainSetup = (space?.strictMcp ?? settings.strictMcp) ? {} : mainSetupServersFor(configDir)
+  for (const [name, cfg] of Object.entries(fromMainSetup)) if (!mcpServers[name]) mcpServers = { ...mcpServers, [name]: cfg }
   const flags = { restartAfterTurn: false, leanCalls: 0, leanCapNoted: false, routeEdits: false }
   const costMode = costModeFor(ws.spaceId, ws.id)
   const budget = costMode === 'budget'
@@ -567,7 +575,7 @@ function getOrCreateSession(workspaceId: string, emit: EmitEvent, emitPermission
     if (stderrLines.length > 40) stderrLines.splice(0, stderrLines.length - 40)
   }
   const q = query({ prompt: input.iterable, options })
-  const session: Session = { workspaceId, q, push: input.push, end: input.end, abort, busy: false, stderr: stderrLines, queue: [], interrupted: false, mcpNames: Object.keys(mcpServers).filter((n) => n !== 'crew' && n !== 'notes' && n !== 'browser' && n !== 'workspace' && n !== 'api'), crewCalls, flags, lean, emitPermission, usageSeen: {}, contextWarned: false, context: { tokens: 0, notedBand: 0 } }
+  const session: Session = { workspaceId, q, push: input.push, end: input.end, abort, busy: false, stderr: stderrLines, queue: [], interrupted: false, mcpNames: Object.keys(mcpServers).filter((n) => n !== 'crew' && n !== 'notes' && n !== 'browser' && n !== 'workspace' && n !== 'api' && !(n in fromMainSetup)), configDir, crewCalls, flags, lean, emitPermission, usageSeen: {}, contextWarned: false, context: { tokens: 0, notedBand: 0 } }
   sessions.set(workspaceId, session)
   void pump(session, emit)
   return session
@@ -584,7 +592,11 @@ async function checkMcp(session: Session, notice: (level: 'info' | 'warn' | 'err
   try {
     const ours = new Set(session.mcpNames)
     for (const m of await session.q.mcpServerStatus()) {
-      if (!ours.has(m.name)) continue
+      if (!ours.has(m.name)) {
+        // The user's own servers: bring a dropped one back quietly; the init notice already said if it never worked.
+        if (m.status === 'failed') await session.q.reconnectMcpServer(m.name).catch(() => undefined)
+        continue
+      }
       if (m.status === 'connected' || m.status === 'pending' || m.status === 'disabled') {
         down.delete(m.name)
         continue
@@ -699,12 +711,16 @@ async function pump(session: Session, emit: EmitEvent): Promise<void> {
               ;(session.mcpDown ??= new Set()).add(m.name)
               notice('warn', `MCP server "${m.name}" is ${m.status}. Sinfonie tries to reconnect it after each turn.`)
             }
-            const inherited = bad.filter((m) => !ours.has(m.name))
-            if (inherited.length && !mcpNoticeShown.has(workspaceId)) {
-              mcpNoticeShown.add(workspaceId)
-              // First paragraph is the summary; the list after the blank line folds behind "Details" in the chat.
-              const names = inherited.map((m) => `${m.name} (${m.status})`).join('\n')
-              notice('info', `${inherited.length} MCP server${inherited.length === 1 ? '' : 's'} from your Claude Code config ${inherited.length === 1 ? 'is' : 'are'} not available and ${inherited.length === 1 ? 'was' : 'were'} skipped. Turn on "Only Sinfonie's MCP servers" in the space settings to stop loading them.\n\n${names}`)
+            // Servers from the user's own Claude Code setup (and claude.ai connectors): each failure is said once per
+            // app run with what fixes it, instead of one quiet line that hid a dead Jira or Slack.
+            const fresh = bad.filter((m) => !ours.has(m.name) && !inheritedWarned.has(`${m.name}|${m.status}`))
+            for (const m of fresh) inheritedWarned.add(`${m.name}|${m.status}`)
+            if (fresh.length) {
+              const how = (m: { name: string; status: string }) =>
+                m.status === 'needs-auth' ? (m.name.startsWith('claude.ai ') ? `${m.name}: needs connecting again at claude.ai, Settings, Connectors.` : `${m.name}: needs signing in again; ${signInHint(session.configDir)}.`) : m.status === 'disabled' ? `${m.name}: turned off in your Claude Code settings.` : `${m.name}: failed to start. Check it with \`claude mcp list\`${session.configDir ? ` (with CLAUDE_CONFIG_DIR=${session.configDir})` : ''}.`
+              const names = fresh.map((m) => m.name).join(', ')
+              // First paragraph is the summary; the lines after the blank line fold behind "Details".
+              notice('warn', `${fresh.length === 1 ? 'An MCP server' : `${fresh.length} MCP servers`} from your Claude Code setup ${fresh.length === 1 ? 'is' : 'are'} not working in this session: ${names}. Their tools are unavailable until fixed; Sinfonie's own integrations are not affected.\n\n${fresh.map(how).join('\n')}\nTo load only Sinfonie's servers, turn on "Only Sinfonie's MCP servers" in the space settings.`)
             }
           } else if (msg.subtype === 'api_retry') {
             notice('warn', `${describeError(msg.error)} Retrying (${msg.attempt}/${msg.max_retries}) in ${Math.round(msg.retry_delay_ms / 1000)}s…`)

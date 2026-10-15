@@ -15,6 +15,7 @@ import * as notes from './notes'
 import * as slack from './slack'
 import * as slackTools from './slack-tools'
 import * as apiTools from './api/tools'
+import { mainSetupServersFor } from './claude-config'
 import * as workspaceTools from './workspace-tools'
 import * as browserTools from './browser/tools'
 import * as gcp from './gcp'
@@ -136,6 +137,8 @@ export async function start(workspaceId: string, opts: { prompt?: string; fresh?
     if ((s as { type?: string }).type === 'sdk') inProcess[name] = s as McpSdkServerConfigWithInstance
     else config[name] = s
   }
+  // A second account's settings folder hides the main Claude Code setup's servers; pass them in (see claude-config.ts).
+  if (!(space?.strictMcp ?? settings.strictMcp)) for (const [name, cfg] of Object.entries(mainSetupServersFor(acc?.configDir ?? undefined))) if (!config[name] && !inProcess[name]) config[name] = cfg
   const mcpToken = nanoid(24)
   mcpSessions.set(workspaceId, { token: mcpToken, servers: inProcess, queues: {} })
   for (const name of Object.keys(inProcess)) config[name] = { type: 'http', url: `http://127.0.0.1:${port}/mcp/${workspaceId}/${mcpToken}/${name}` }
