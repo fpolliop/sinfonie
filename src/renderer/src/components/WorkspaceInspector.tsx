@@ -2,6 +2,7 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { ChevronUp, TerminalSquare } from 'lucide-react'
 import { api } from '@/lib/api'
+import { EdgeResizer } from './EdgeResizer'
 import { useApp, INSPECTOR_DEFAULT, INSPECTOR_MAX, INSPECTOR_MIN, type Tab } from '@/stores/app'
 import { useScripts } from '@/stores/scripts'
 import { useGuided } from '@/lib/guided'
@@ -60,7 +61,9 @@ export function WorkspaceInspector({ workspaceId, renderView }: { workspaceId: s
   // What the panel can have without squeezing the chat below its minimum; the saved width is never changed here.
   const maxFit = room === null ? INSPECTOR_MAX : room - CHAT_MIN
   const fits = Math.min(width, maxFit)
-  const cramped = open && fits < FIT_MIN
+  // Folded only when the window cannot give the panel the width chosen (or FIT_MIN, if that is less), never because
+  // the chosen width itself is narrow: a 360px panel by choice stays beside the chat.
+  const cramped = open && maxFit < Math.min(width, FIT_MIN)
   // Folded for lack of room, the panel can still be shown on demand: over the chat, next to its rail.
   const [peek, setPeek] = useState(false)
   const peeking = peek && cramped
@@ -84,6 +87,11 @@ export function WorkspaceInspector({ workspaceId, renderView }: { workspaceId: s
   }, [peeking])
   const shown = open && (!cramped || peeking)
   const panelWidth = peeking ? Math.max(300, Math.min(width, (room ?? width) - RAIL - 48)) : fits
+  const setInspectorWidth = useApp((s) => s.setInspectorWidth)
+  // While dragging, the width goes straight to the panel; the store (and the layout around it) updates on release.
+  const applyWidth = (w: number): void => {
+    if (asideRef.current) asideRef.current.style.width = `${w}px`
+  }
 
   // The terminal drawer under the current tab, per workspace for this session.
   const [drawer, setDrawerState] = useState(() => drawerOpen.has(workspaceId))
@@ -126,7 +134,11 @@ export function WorkspaceInspector({ workspaceId, renderView }: { workspaceId: s
   return (
     <>
       <span ref={anchorRef} hidden />
-      {shown && !peeking && <SplitDivider target={asideRef} width={fits} max={maxFit} />}
+      {shown && !peeking && (
+        <div className="relative z-10 w-0 shrink-0">
+          <EdgeResizer width={fits} min={INSPECTOR_MIN} max={Math.min(INSPECTOR_MAX, maxFit)} reset={INSPECTOR_DEFAULT} label="Resize the side panel" onLive={applyWidth} onCommit={setInspectorWidth} />
+        </div>
+      )}
       {/* The aside stays mounted while collapsed so the preview's agent hooks keep listening; hidden, it draws nothing. */}
       <aside
         ref={asideRef}
@@ -134,6 +146,8 @@ export function WorkspaceInspector({ workspaceId, renderView }: { workspaceId: s
         style={{ width: panelWidth, ...(peeking ? { right: RAIL } : {}) }}
         aria-label={guided ? 'Preview' : 'Workspace panel'}
       >
+        {/* Shown over the chat when the window is short of room: it still resizes, within what the window leaves. */}
+        {peeking && <EdgeResizer width={panelWidth} min={INSPECTOR_MIN} max={Math.max(INSPECTOR_MIN, (room ?? width) - RAIL - 48)} reset={INSPECTOR_DEFAULT} label="Resize the side panel" onLive={applyWidth} onCommit={setInspectorWidth} />}
         {shown && <WorkspaceTabs workspaceId={workspaceId} current={pane} panes={panes} onCollapse={peeking ? () => setPeek(false) : undefined} />}
         <div id="ws-inspector-panel" role="tabpanel" aria-labelledby={`ws-tab-${pane}`} className="relative min-h-0 flex-1">
           {shown && pane === 'changes' && <ChangesTab workspaceId={workspaceId} tab={shownTab} visible={shown} />}
@@ -150,77 +164,6 @@ export function WorkspaceInspector({ workspaceId, renderView }: { workspaceId: s
       </aside>
       {!shown || peeking ? <WorkspaceTabsRail workspaceId={workspaceId} panes={panes} cramped={cramped} quiet={peeking} onShow={() => setPeek(true)} /> : null}
     </>
-  )
-}
-
-/**
- * The divider between the conversation and the panel: a 1px line with a 24px hit area. Drag it, or focus it and
- * use ←/→ (Shift for bigger steps); Home or a double-click resets. Widths are clamped to the room the chat leaves.
- * The width is applied straight to the panel while dragging and saved on release; the pointer is captured, so
- * letting go outside the window still ends the drag.
- */
-function SplitDivider({ target, width, max }: { target: React.RefObject<HTMLElement | null>; width: number; max: number }): React.JSX.Element {
-  const setWidth = useApp((s) => s.setInspectorWidth)
-  const [dragging, setDragging] = useState(false)
-  const latest = useRef(width)
-  const maxRef = useRef(max)
-  maxRef.current = max
-  const clamp = (w: number): number => Math.max(INSPECTOR_MIN, Math.min(INSPECTOR_MAX, maxRef.current, w))
-  useEffect(() => {
-    if (!dragging) return
-    // The native preview page draws above the DOM and swallows pointer events; detach it while dragging.
-    void api.invoke('browser:suspend', true)
-    document.body.style.cursor = 'col-resize'
-    return () => {
-      void api.invoke('browser:suspend', false)
-      document.body.style.cursor = ''
-      setWidth(latest.current)
-    }
-  }, [dragging, setWidth])
-  const onKey = (e: React.KeyboardEvent): void => {
-    const step = e.shiftKey ? 64 : 16
-    if (e.key === 'ArrowLeft') setWidth(clamp(width + step))
-    else if (e.key === 'ArrowRight') setWidth(clamp(width - step))
-    else if (e.key === 'Home') setWidth(clamp(INSPECTOR_DEFAULT))
-    else return
-    e.preventDefault()
-  }
-  const end = (): void => setDragging(false)
-  return (
-    <div className="relative z-10 w-0 shrink-0">
-      <div
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="Resize the side panel"
-        aria-valuemin={INSPECTOR_MIN}
-        aria-valuemax={Math.max(INSPECTOR_MIN, Math.min(INSPECTOR_MAX, max))}
-        aria-valuenow={width}
-        tabIndex={0}
-        title="Drag to resize (or focus and use ← →). Double-click resets."
-        onPointerDown={(e) => {
-          e.preventDefault()
-          e.currentTarget.setPointerCapture(e.pointerId)
-          latest.current = width
-          setDragging(true)
-        }}
-        onPointerMove={(e) => {
-          if (!dragging) return
-          const el = target.current
-          const box = el?.parentElement?.getBoundingClientRect()
-          if (!el || !box) return
-          latest.current = clamp(box.right - e.clientX)
-          el.style.width = `${latest.current}px`
-        }}
-        onPointerUp={end}
-        onPointerCancel={end}
-        onLostPointerCapture={end}
-        onDoubleClick={() => setWidth(clamp(INSPECTOR_DEFAULT))}
-        onKeyDown={onKey}
-        className="group absolute inset-y-0 -left-3 flex w-6 cursor-col-resize justify-center outline-none"
-      >
-        <span aria-hidden className={clsx('h-full w-px transition-colors group-hover:bg-accent/60 group-focus-visible:w-0.5 group-focus-visible:bg-accent', dragging ? 'bg-accent' : 'bg-transparent')} />
-      </div>
-    </div>
   )
 }
 
