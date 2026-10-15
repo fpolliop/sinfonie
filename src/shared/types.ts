@@ -477,6 +477,51 @@ export interface Space {
   rules?: TeamRules
   /** An admin lifted the daily spend limit on this Mac for one day (YYYY-MM-DD, UTC). Never shared. */
   rulesOverride?: { spendDay?: string }
+  /** Claude Design: the design-system project this space's components sync to, and where they live (shared). */
+  designSystem?: SpaceDesignSystem
+}
+
+/** Claude Design: where a space's component library lives and which claude.ai design-system project it syncs to. */
+export interface SpaceDesignSystem {
+  /** The claude.ai design-system project; absent means "create one" on the first sync. */
+  projectId?: string
+  projectName?: string
+  repoId?: string
+  /** The component library's folder inside that repository, e.g. packages/ui/src. */
+  folder?: string
+  lastSyncAt?: string
+}
+
+/** What a quick DesignSync check found: whether Claude Design is authorized here, and the projects it can write to. */
+export interface DesignSystemProbe {
+  authorized: boolean
+  projects: { id: string; name: string }[]
+  checkedAt: string
+  error?: string
+}
+
+/** One exported artboard (image) or export (PDF) of a linked design, copied into the app's data folder. */
+export interface DesignFile {
+  id: string
+  name: string
+  kind: 'image' | 'pdf'
+  mimeType: string
+  path: string
+  /** sinfonie-image:// URL for images, so the Design pane can show them. */
+  url?: string
+}
+
+/** A design linked to a workspace: a Claude Design canvas link and/or exported artboards, plus what the agent learned. */
+export interface DesignLink {
+  id: string
+  title: string
+  url?: string
+  linkedAt: string
+  files: DesignFile[]
+  /** Where each artboard maps (repo, route, component), written by the person or recorded by the agent. */
+  notes?: string
+  /** When "Build this design" last sent it to the agent. */
+  sentAt?: string
 }
 
 /**
@@ -547,7 +592,7 @@ export interface SharedRepo {
   description?: string
 }
 /** The keys of a Space that are shared; everything about accounts, secrets and local paths stays personal. */
-export type SharedSpaceSettings = Pick<Space, 'engine' | 'model' | 'permissionMode' | 'useCrew' | 'agents' | 'budgetMode' | 'leanMode' | 'strictMcp' | 'githubOwners' | 'browserSensitiveOrigins' | 'exposeGcpMcp' | 'exposeJiraMcp' | 'exposeLinearMcp' | 'guided' | 'views' | 'rules' | 'workspaceStatuses' | 'apiCollection' | 'apiEnvironments'> & {
+export type SharedSpaceSettings = Pick<Space, 'engine' | 'model' | 'permissionMode' | 'useCrew' | 'agents' | 'budgetMode' | 'leanMode' | 'strictMcp' | 'githubOwners' | 'browserSensitiveOrigins' | 'exposeGcpMcp' | 'exposeJiraMcp' | 'exposeLinearMcp' | 'guided' | 'views' | 'rules' | 'workspaceStatuses' | 'apiCollection' | 'apiEnvironments' | 'designSystem'> & {
   mcpServers?: McpServerSpec[]
   jira?: Pick<JiraSettings, 'siteUrl' | 'defaultJql'>
   linear?: Pick<LinearSettings, 'defaultQuery'>
@@ -771,6 +816,8 @@ export interface Workspace {
   jiraStatusAt?: string
   /** When a pull request was first opened from this workspace (Send for review or Open PR): the team's review gate. */
   reviewRequestedAt?: string
+  /** Claude Design: designs linked to this workspace (canvas links and exported artboards). */
+  designs?: DesignLink[]
 }
 
 /** Same modes as the Claude Code CLI (Shift+Tab cycles them there and here). */

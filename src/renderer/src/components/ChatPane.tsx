@@ -1,6 +1,6 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { ChevronRight, ChevronDown, ChevronsUpDown, Square, RotateCcw, Send, ShieldCheck, XCircle, AlertTriangle, Info, History, Users, GitFork, ListTree, ArrowLeft, StickyNote, Paperclip, X, Plus, Coffee, Check, Crosshair } from 'lucide-react'
+import { ChevronRight, ChevronDown, ChevronsUpDown, Square, RotateCcw, Send, ShieldCheck, XCircle, AlertTriangle, Info, History, Users, GitFork, ListTree, ArrowLeft, StickyNote, Paperclip, X, Plus, Coffee, Check, Crosshair, PenTool } from 'lucide-react'
 import { imageFiles } from '@/lib/images'
 import type { AgentMode, ContextUsage, ChatTurnResult, AgentEvent, ChatImageRef, LimitAlternative, CostMode, CostModeScope } from '@shared/types'
 import { CliView, closeCliView } from './TerminalPane'
@@ -458,6 +458,7 @@ function ChatPaneInner({ workspaceId }: { workspaceId: string }): React.JSX.Elem
               }
             }}
           >
+            <DesignLinkOffer workspaceId={workspaceId} draft={draft} linked={ws?.designs} />
             {pendingImages.length > 0 && (
               <div className="flex flex-wrap gap-2 px-3 pt-3">
                 {pendingImages.map((img) => (
@@ -1836,3 +1837,34 @@ function Collapsible({ label, body, muted }: { label: string; body: string; mute
 }
 
 const NO_NOTES: never[] = []
+
+/** A Claude Design link in the draft: offer to link it to the workspace (the Design pane then holds it). */
+const DESIGN_LINK = /https:\/\/claude\.ai\/(?:artifact|design|code\/artifact)\/[\w-]+/
+function DesignLinkOffer({ workspaceId, draft, linked }: { workspaceId: string; draft: string; linked?: { url?: string }[] }): React.JSX.Element | null {
+  const setTab = useApp((s) => s.setTab)
+  const guided = useGuided()
+  const [dismissed, setDismissed] = useState<string | null>(null)
+  const url = DESIGN_LINK.exec(draft)?.[0]
+  if (!url || url === dismissed || linked?.some((d) => d.url === url)) return null
+  return (
+    <div className="flex items-center gap-2 px-3 pt-2 text-[12px] text-muted">
+      <PenTool size={12} aria-hidden />
+      <span className="min-w-0 flex-1 truncate">{guided ? 'That looks like a design.' : 'That looks like a Claude Design canvas.'}</span>
+      <Button
+        size="sm"
+        variant="ghost"
+        onClick={() =>
+          void api
+            .invoke('designs:link', workspaceId, url)
+            .then(() => setTab('design'))
+            .catch(() => setDismissed(url))
+        }
+      >
+        Link this design
+      </Button>
+      <IconButton label="Not now" onClick={() => setDismissed(url)}>
+        <X size={12} />
+      </IconButton>
+    </div>
+  )
+}

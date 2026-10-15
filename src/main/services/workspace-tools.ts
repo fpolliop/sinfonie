@@ -10,6 +10,7 @@ import { tool as aiTool, type ToolSet } from 'ai'
 import { getStore } from '../store'
 import { getWorkspace, addRepoToWorkspace } from './workspaces'
 import { askQuestion } from './interaction'
+import * as designs from './designs'
 import type { Repo, ScriptOutputEvent } from '@shared/types'
 
 /** Setup-script output from a newly added repository goes to the Run pane, like any other script. */
@@ -69,6 +70,7 @@ async function add(workspaceId: string, name: string, baseBranch: string | undef
 }
 
 const listDesc = 'Repositories in this workspace and the ones that can still be added.'
+const designDesc = 'Record where an artboard of a linked design maps (repository, route, component), so the next "Build this design" starts from it. Saved on the design\'s notes; design is its title (default: the latest).'
 const addDesc = 'Attach a repository of this space to the workspace as a worktree on the workspace branch. The user is asked to confirm first. Use the repository name from list_repositories.'
 
 export function sdkServer(workspaceId: string, onAdded?: () => void): NonNullable<Options['mcpServers']>[string] {
@@ -77,6 +79,7 @@ export function sdkServer(workspaceId: string, onAdded?: () => void): NonNullabl
     name: 'workspace',
     tools: [
       sdkTool('list_repositories', listDesc, {}, async () => text(list(workspaceId))),
+      sdkTool('remember_design_mapping', designDesc, { note: z.string().describe('e.g. "Checkout artboard → web, /checkout, components/Checkout.tsx"'), design: z.string().optional() }, async ({ note, design }) => text(designs.remember(workspaceId, note, design))),
       sdkTool('add_repository', addDesc, { name: z.string(), base_branch: z.string().optional().describe('Branch to start from; default the repository default branch') }, async ({ name, base_branch }) => {
         try {
           return text(await add(workspaceId, name, base_branch, onAdded))
@@ -87,11 +90,12 @@ export function sdkServer(workspaceId: string, onAdded?: () => void): NonNullabl
     ]
   })
 }
-export const SDK_ALLOWED = ['mcp__workspace__list_repositories', 'mcp__workspace__add_repository']
+export const SDK_ALLOWED = ['mcp__workspace__list_repositories', 'mcp__workspace__add_repository', 'mcp__workspace__remember_design_mapping']
 
 export function aiTools(workspaceId: string): ToolSet {
   return {
     list_repositories: aiTool({ description: listDesc, inputSchema: z.object({}), execute: async () => list(workspaceId) }),
+    remember_design_mapping: aiTool({ description: designDesc, inputSchema: z.object({ note: z.string(), design: z.string().optional() }), execute: async ({ note, design }) => designs.remember(workspaceId, note, design) }),
     add_repository: aiTool({
       description: addDesc,
       inputSchema: z.object({ name: z.string(), base_branch: z.string().optional() }),

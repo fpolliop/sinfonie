@@ -18,6 +18,7 @@ import { z } from 'zod'
 import { classifyModel } from '@shared/types'
 import { runWorker } from './crew/workers'
 import * as notes from './notes'
+import * as designs from './designs'
 import * as slack from './slack'
 import * as slackTools from './slack-tools'
 import os from 'os'
@@ -186,6 +187,8 @@ function systemPromptFor(ws: Workspace, lean = false): string {
   // Test runners default to a worker per core per package; three NestJS suites under turbo took 30 GB on 2026-10-13.
   lines.push(`This Mac has ${Math.round(os.totalmem() / 1024 ** 3)} GB of memory shared with the user's other apps and agents. When you run test suites or builds, keep parallelism low: one package at a time (turbo --concurrency=1, nx --parallel=1) and few workers (jest or vitest --maxWorkers=2, pytest -n 2), and run only the tests you need.`)
   lines.push(workspaceTools.promptFor(ws.id))
+  const designHint = designs.promptFor(ws.id)
+  if (designHint) lines.push(designHint)
   lines.push('Context hygiene: the user pays for every token you re-read. Prefer targeted reads over whole files, avoid echoing large outputs, and when a note tells you the window is filling, suggest compacting or a new session before a fresh task.')
   if (!lean) lines.push(`Sinfonie runs on the user's Mac next to other sessions and limits you to ${resources.resourceSettings().maxSubagentsPerSession} subagents at once; under memory pressure it refuses new ones. When a delegation is refused, the tool result says why: do that work yourself or wait for running subagents instead of retrying.`)
   const guided = guidedPromptFor(ws)
