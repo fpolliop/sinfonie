@@ -921,7 +921,7 @@ export interface ApiState {
 /** Something Sinfonie is doing right now, or will do soon, for the Running list (feedback #65). */
 export interface Job {
   id: string
-  kind: 'agent-turn' | 'cli' | 'agent-task' | 'queued' | 'agent-run' | 'scheduled' | 'review' | 'triage' | 'fix-pr' | 'script' | 'maestro'
+  kind: 'agent-turn' | 'cli' | 'agent-task' | 'queued' | 'agent-run' | 'scheduled' | 'review' | 'triage' | 'fix-pr' | 'script' | 'maestro' | 'command' | 'terminal'
   state: 'running' | 'queued' | 'scheduled'
   title: string
   /** One line about what it is doing or what it is for. */

@@ -27,6 +27,9 @@ interface Proc {
   kind: ProcKind
   workspaceId?: string
   label?: string
+  /** Groups the processes of one job (e.g. an on-call run), for its memory and for stopping it whole. */
+  jobKey?: string
+  since: string
 }
 
 const procs = new Map<number, Proc>()
@@ -41,9 +44,9 @@ function workspaceForCwd(cwd?: string): string | undefined {
 }
 
 /** Track a process Sinfonie spawned. Its whole subtree (MCP servers, test runners…) is charged to the workspace. */
-export function registerProcess(pid: number | undefined, info: { kind: ProcKind; workspaceId?: string; cwd?: string; label?: string }): void {
+export function registerProcess(pid: number | undefined, info: { kind: ProcKind; workspaceId?: string; cwd?: string; label?: string; jobKey?: string }): void {
   if (!pid) return
-  procs.set(pid, { pid, kind: info.kind, workspaceId: info.workspaceId ?? workspaceForCwd(info.cwd), label: info.label })
+  procs.set(pid, { pid, kind: info.kind, workspaceId: info.workspaceId ?? workspaceForCwd(info.cwd), label: info.label, jobKey: info.jobKey, since: new Date().toISOString() })
 }
 export function unregisterProcess(pid: number | undefined): void {
   if (pid) procs.delete(pid)
@@ -209,7 +212,53 @@ interface Hooks {
   isBusy: (workspaceId: string) => boolean
 }
 let hooks: Hooks | null = null
-let candidates: { pid: number; workspaceId: string; bytes: number; pids: number[] }[] = []
+let candidates: { pid: number; workspaceId: string; bytes: number; pids: number[]; kind: 'command' | 'tool'; label?: string; since?: string }[] = []
+/** The last sampled process tree, so Running can show each row's memory and stop a whole tree. */
+let lastTree: { bytes: Map<number, number>; children: Map<number, number[]> } = { bytes: new Map(), children: new Map() }
+/** Full command lines of agent commands and of terminals' foreground commands, from the last sample. */
+let commandText = new Map<number, string>()
+
+function treePids(pid: number): number[] {
+  const out: number[] = []
+  const stack = [pid]
+  while (stack.length) {
+    const x = stack.pop()!
+    if (out.includes(x)) continue
+    out.push(x)
+    for (const c of lastTree.children.get(x) ?? []) stack.push(c)
+  }
+  return out
+}
+/** Footprint of a process and everything under it, as of the last sample (undefined when unknown). */
+export function treeBytes(pid: number | undefined): number | undefined {
+  if (!pid || !lastTree.bytes.has(pid)) return undefined
+  return treePids(pid).reduce((n, p) => n + (lastTree.bytes.get(p) ?? 0), 0) || undefined
+}
+/** Footprint of every process registered under a job key. */
+export function jobBytes(jobKey: string): number | undefined {
+  let n = 0
+  for (const p of procs.values()) if (p.jobKey === jobKey) n += treeBytes(p.pid) ?? 0
+  return n || undefined
+}
+/** Stop a process and everything it started (TERM, then KILL after 3 s). */
+export function stopProcessTree(pid: number): void {
+  killTree(treePids(pid))
+}
+/** Stop every process registered under a job key, with their children, so nothing is left orphaned. */
+export function killJob(jobKey: string): void {
+  for (const p of Array.from(procs.values())) if (p.jobKey === jobKey) stopProcessTree(p.pid)
+}
+/** Commands agents started (shells under an agent CLI) and tool processes of the other engines, with memory. */
+export function agentCommands(): { pid: number; workspaceId: string; kind: 'command' | 'tool'; command: string; bytes: number; since?: string }[] {
+  // Claude Code's own housekeeping shell (it snapshots the user's shell setup at start) is not the agent's command.
+  return candidates.filter((c) => !/SNAPSHOT_FILE=|shell-snapshots\/snapshot-/.test(commandText.get(c.pid) ?? '') || /eval '/.test(commandText.get(c.pid) ?? '')).map((c) => ({ pid: c.pid, workspaceId: c.workspaceId, kind: c.kind, command: c.kind === 'tool' ? (c.label ?? readableCommand(commandText.get(c.pid) ?? '')) : readableCommand(commandText.get(c.pid) ?? ''), bytes: c.bytes, since: c.since }))
+}
+/** The foreground command of a terminal shell (its first child), with memory, or null when the shell is idle. */
+export function terminalForeground(shellPid: number): { pid: number; command: string; bytes: number } | null {
+  const child = (lastTree.children.get(shellPid) ?? [])[0]
+  if (!child) return null
+  return { pid: child, command: readableCommand(commandText.get(child) ?? ''), bytes: treeBytes(child) ?? 0 }
+}
 let timer: NodeJS.Timeout | null = null
 let lastLogAt = 0
 let warnedLevel: PressureLevel = 'normal'
@@ -296,14 +345,26 @@ async function sample(): Promise<void> {
     if (!p.workspaceId) continue
     if (p.kind === 'tool') {
       const t = subtree(p.pid)
-      candidates.push({ pid: p.pid, workspaceId: p.workspaceId, bytes: t.bytes, pids: pidsUnder(p.pid) })
+      candidates.push({ pid: p.pid, workspaceId: p.workspaceId, bytes: t.bytes, pids: pidsUnder(p.pid), kind: 'tool', label: p.label, since: p.since })
     } else if (p.kind === 'agent') {
       for (const c of children.get(p.pid) ?? []) {
         if (!SHELLS.has(names.get(c) ?? '')) continue
-        candidates.push({ pid: c, workspaceId: p.workspaceId, bytes: subtree(c).bytes, pids: pidsUnder(c) })
+        candidates.push({ pid: c, workspaceId: p.workspaceId, bytes: subtree(c).bytes, pids: pidsUnder(c), kind: 'command' })
       }
     }
   }
+  lastTree = { bytes: rss, children }
+  // Command lines for Running: agent commands and terminals' foreground commands (one small ps when there are any).
+  const wanted = [...candidates.filter((c) => c.kind === 'command').map((c) => c.pid), ...Array.from(procs.values()).filter((p) => p.kind === 'terminal').flatMap((p) => (children.get(p.pid) ?? []).slice(0, 1))]
+  if (wanted.length) {
+    const text = await sh('ps', ['-o', 'pid=,command=', '-p', wanted.join(',')])
+    const next = new Map<number, string>()
+    for (const l of text.split('\n')) {
+      const m = /^\s*(\d+)\s+(.*)$/.exec(l)
+      if (m) next.set(Number(m[1]), m[2])
+    }
+    commandText = next
+  } else commandText = new Map()
   function pidsUnder(pid: number): number[] {
     const out: number[] = []
     const stack = [pid]
