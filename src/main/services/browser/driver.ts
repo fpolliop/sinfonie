@@ -2,7 +2,7 @@
  * One embedded browser tab: a WebContentsView driven through the Chrome DevTools Protocol.
  * Everything the agent can do goes through here; the service decides which tab and when.
  */
-import { WebContentsView, type WebContents } from 'electron'
+import { nativeImage, WebContentsView, type NativeImage, type WebContents } from 'electron'
 
 export interface ConsoleEntry {
   level: string
@@ -255,6 +255,23 @@ export class BrowserTab {
     const max = opts.maxWidth ?? 960
     const scaled = size.width > max ? img.resize({ width: max, quality: 'good' }) : img
     return `data:image/jpeg;base64,${scaled.toJPEG(opts.quality ?? 72).toString('base64')}`
+  }
+  /**
+   * The whole page, not just what is on screen (up to `maxHeight` CSS px from the top), at most `maxWidth` pixels wide,
+   * with the page's CSS width so callers can convert. Null when the page cannot be captured. Used for the change card's
+   * before and after pictures, so a change below the fold shows up in them.
+   */
+  async captureFull(opts: { maxHeight?: number; maxWidth?: number } = {}): Promise<{ image: NativeImage; cssWidth: number } | null> {
+    if (this.wc.isDestroyed()) return null
+    const m = await this.cdp<{ cssContentSize?: { width: number; height: number }; cssLayoutViewport?: { clientWidth: number; clientHeight: number } }>('Page.getLayoutMetrics')
+    const width = Math.round(m.cssLayoutViewport?.clientWidth ?? 0)
+    const height = Math.round(Math.min(opts.maxHeight ?? 6000, Math.max(m.cssContentSize?.height ?? 0, m.cssLayoutViewport?.clientHeight ?? 0)))
+    if (!width || !height) return null
+    const { data } = await this.cdp<{ data: string }>('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true, fromSurface: true, clip: { x: 0, y: 0, width, height, scale: 1 } })
+    const img = nativeImage.createFromBuffer(Buffer.from(data, 'base64'))
+    if (img.isEmpty()) return null
+    const max = opts.maxWidth ?? 960
+    return { image: img.getSize().width > max ? img.resize({ width: max, quality: 'good' }) : img, cssWidth: width }
   }
   /**
    * Role and name, from the accessibility tree, of the first element matching `selector` (the builder marks the

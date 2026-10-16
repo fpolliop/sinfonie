@@ -44,14 +44,16 @@ export function ChangeCard({ card }: { card: Card }): React.JSX.Element {
     <section aria-label="What changed" className="rounded-xl border border-border bg-panel p-3.5 text-[15px]">
       <div className="mb-2 flex items-center gap-2 text-[13px] font-medium text-muted">
         {undone ? <RotateCcw size={13} aria-hidden /> : <Check size={13} className="text-ok" aria-hidden />}
-        {undone ? 'This change was undone' : `Changed ${card.apps.join(' and ')}`}
+        {undone ? 'This change was undone' : card.apps.length ? `Changed ${card.apps.join(' and ')}` : 'Changed your app'}
       </div>
+      {card.title && <p className={`mb-2 font-medium ${undone ? 'text-muted' : 'text-text'}`}>{card.title}</p>}
       {pictures && (
         <button type="button" className={`mb-3 grid w-full grid-cols-2 gap-2 rounded-lg text-left ${undone ? 'opacity-60' : ''}`} onClick={() => setZoom(true)} aria-label="See the before and after pictures larger">
           <Shot label="Before" src={card.before!} />
           <Shot label="After" src={card.after!} />
         </button>
       )}
+      {card.steps.length > 0 && (
       <ul className="mb-3 flex flex-col gap-1 text-muted">
         {card.steps.map((s) => (
           <li key={s} className="flex items-start gap-2">
@@ -60,6 +62,7 @@ export function ChangeCard({ card }: { card: Card }): React.JSX.Element {
           </li>
         ))}
       </ul>
+      )}
       {error && (
         <div role="alert" className="mb-3 flex flex-wrap items-center gap-2 rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-[13px]">
           <span className="min-w-0 flex-1">{error}</span>
@@ -103,7 +106,7 @@ function Shot({ label, src, large }: { label: string; src: string; large?: boole
   return (
     <figure className="m-0 flex min-w-0 flex-col gap-1">
       <figcaption className="text-[11px] font-semibold uppercase tracking-wide text-muted">{label}</figcaption>
-      <img src={src} alt={`The preview ${label.toLowerCase()} the change`} className={`w-full rounded-md border border-border bg-panel-2 object-cover object-top ${large ? 'max-h-[70vh] object-contain' : 'h-28'}`} />
+      <img src={src} alt={`The preview ${label.toLowerCase()} the change`} className={`w-full rounded-md border border-border bg-panel-2 ${large ? 'max-h-[70vh] object-contain object-top' : 'h-28 object-cover object-center'}`} />
     </figure>
   )
 }

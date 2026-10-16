@@ -4,21 +4,26 @@
  * of the app; thumbnails are also kept on disk by the main process.
  */
 import { create } from 'zustand'
-import type { ChangeCheckpoint, GuidedChange, GuidedPictures, PickedElement } from '@shared/types'
+import type { ChangeCheckpoint, ChatToolBlock, GuidedChange, GuidedPictures, PickedElement } from '@shared/types'
 import { api } from '@/lib/api'
 import { guidedStep } from '@/lib/activity'
+import { humanName, humanTitle, repoLabel } from '@/lib/labels'
 import { useApp } from './app'
+import { useChat } from './chat'
 
 export interface ChangeCard {
   id: string
   workspaceId: string
   /** The conversation item the card follows (Maestro's last message of that turn), or null to show it last. */
   afterItemId: string | null
+  /** The apps the change touched, by their display names ("Sample shop"), never folder names. */
   apps: string[]
+  /** What the person asked for in that turn, as a short title ("Make the add-to-cart button bigger"); '' when unknown. */
+  title: string
   checkpoints: ChangeCheckpoint[]
   before?: string
   after?: string
-  /** What changed, in guided words ("Changed the styling"). */
+  /** What Maestro did, in guided words ("Changed the styling", "Ran a check"); may be empty. */
   steps: string[]
   state: 'open' | 'kept' | 'undoing' | 'undone'
   at: number
@@ -101,14 +106,22 @@ export const useBuilder = create<BuilderState>((set, get) => ({
     // The card arrives as soon as the turn's change is saved, with the turn's own last message and edits (main takes
     // them at turn end, so a queued next turn cannot mix in). Its pictures follow in 'guided:pictures'.
     api.on('guided:changed', (e: GuidedChange) => {
-      const steps = [...new Set((e.edits ?? []).map((t) => guidedStep(t)).filter((t) => t.startsWith('Changed')))]
+      const { title, tools } = turnOf(e.workspaceId, e.afterItemId)
+      // What changed first ("Changed the styling", from the files the turn saved, whatever tool wrote them), then how
+      // Maestro checked it ("Checked the preview", "Ran a check") as secondary lines.
+      const changed = [...new Set((e.edits ?? []).map((t) => guidedStep(t)).filter((t) => t.startsWith('Changed')))]
+      const checks = [...new Set(tools.map((t) => guidedStep(t)).filter((t) => t === 'Checked the preview' || t === 'Ran a check'))]
+      const steps = [...changed.slice(0, 4), ...checks].slice(0, 5)
+      const { repos } = useApp.getState()
+      const apps = (e.checkpoints ?? []).map((c) => repoLabel(repos.find((r) => r.id === c.repoId))).filter(Boolean)
       const card: ChangeCard = {
         id: e.changeId,
         workspaceId: e.workspaceId,
         afterItemId: e.afterItemId,
-        apps: e.apps,
+        apps: apps.length ? [...new Set(apps)] : e.apps.map((a) => humanName(a)),
+        title,
         checkpoints: e.checkpoints ?? [],
-        steps: steps.length ? steps : ['Changed the app'],
+        steps,
         state: 'open',
         at: Date.now()
       }
@@ -138,6 +151,24 @@ export const useBuilder = create<BuilderState>((set, get) => ({
     })
   }
 }))
+
+/**
+ * The turn a change card belongs to: the person's message that started it (as a short title, without the folded
+ * details composeMessage adds) and Maestro's tool calls in it. The turn ends at `afterItemId` when known.
+ */
+function turnOf(workspaceId: string, afterItemId: string | null): { title: string; tools: ChatToolBlock[] } {
+  const items = useChat.getState().chats[workspaceId]?.items ?? []
+  let end = afterItemId ? items.findIndex((it) => it.id === afterItemId) : -1
+  if (end < 0) end = items.length - 1
+  let start = end
+  while (start >= 0 && items[start].role !== 'user') start--
+  const tools: ChatToolBlock[] = []
+  for (const it of items.slice(start + 1, end + 1)) if (it.role === 'assistant') for (const b of it.blocks) if (b.type === 'tool') tools.push(b)
+  if (start < 0) return { title: '', tools }
+  const text = items[start].blocks.map((b) => (b.type === 'text' ? b.text : '')).join('\n')
+  const words = text.split('```')[0].trim()
+  return { title: words ? humanTitle(words, 80) : '', tools }
+}
 
 /** "Add to cart button", "Coffee Shop heading", "picture": what the person pointed at, in their words. */
 export function pickLabel(p: Pick<PickedElement, 'role' | 'name' | 'tag'>): string {

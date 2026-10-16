@@ -34,8 +34,8 @@ import { join } from 'path'
 import { getStore } from '../store'
 import { effectivePermissionMode } from './permission-mode'
 import * as library from './agents'
-import { getWorkspace, patchWorkspace, assertOnDisk } from './workspaces'
-import { checkpoint } from './git'
+import { getWorkspace, patchWorkspace, assertOnDisk, configFor } from './workspaces'
+import { checkpoint, commitFiles } from './git'
 import { accountEnv } from './accounts'
 import { mainSetupServersFor, signInHint } from './claude-config'
 import { makeResumable } from './session-files'
@@ -796,6 +796,7 @@ async function pump(session: Session, emit: EmitEvent): Promise<void> {
               const name = toolNames.get(toolUseId) ?? ''
               if (/^(Edit|Write|MultiEdit|NotebookEdit)$/.test(name) && input && typeof input === 'object') {
                 const i = input as Record<string, unknown>
+                previewShots.editStarting(workspaceId)
                 turnEdits.push({ name, input: { file_path: i.file_path, notebook_path: i.notebook_path, path: i.path } })
               }
             }
@@ -912,12 +913,17 @@ async function pump(session: Session, emit: EmitEvent): Promise<void> {
                 wsNow.repos.map(async (r) => {
                   const sha = await checkpoint(r.worktreePath, `Checkpoint: ${wsNow.name}`).catch((err) => (logError('guided.checkpoint', err, { workspaceId }), null))
                   const repo = getStore().get().repos.find((x) => x.id === r.repoId)
-                  return sha ? { app: repo?.displayName || r.repoName, repoId: r.repoId, sha } : null
+                  // What the checkpoint saved, whatever tool wrote it (Maestro often edits through a shell command, which
+                  // the turn's Edit/Write calls never see).
+                  const files = sha ? await commitFiles(r.worktreePath, sha).catch(() => [] as string[]) : []
+                  return sha ? { app: repo?.displayName || r.repoName, repoId: r.repoId, sha, files } : null
                 })
               )
             ).then((changed) => {
-              const hits = changed.filter((a): a is { app: string; repoId: string; sha: string } => Boolean(a))
-              if (hits.length) emitGuidedChanged({ workspaceId, apps: hits.map((h) => h.app), checkpoints: hits.map(({ repoId, sha }) => ({ repoId, sha })), afterItemId, edits })
+              const hits = changed.filter((a): a is { app: string; repoId: string; sha: string; files: string[] } => Boolean(a))
+              // Steps are folded by their words in the renderer, so a file both edited and saved counts once.
+              const saved = hits.flatMap((h) => h.files).map((f) => ({ name: 'Edit', input: { file_path: f } as Record<string, unknown> }))
+              if (hits.length) emitGuidedChanged({ workspaceId, apps: hits.map((h) => h.app), checkpoints: hits.map(({ repoId, sha }) => ({ repoId, sha })), afterItemId, edits: [...edits, ...saved].slice(-200) })
             })
           }
           getStore().update((d) => {
@@ -960,24 +966,90 @@ function contextNote(session: Session): string {
 function deliver(session: Session, text: string, emit: EmitEvent, announce = true, images?: ChatImageRef[]): void {
   const { workspaceId } = session
   // Guided mode: a picture of the preview before this turn, for the change card if the turn changes the app.
-  previewShots.beforeTurn(workspaceId)
+  const pictured = previewShots.beforeTurn(workspaceId)
   session.busy = true
   session.flags.leanCalls = 0
   session.flags.leanCapNoted = false
   const note = text.startsWith('/') ? '' : contextNote(session)
   if (announce) emit({ type: 'user_message', workspaceId, itemId: nanoid(8), text, createdAt: new Date().toISOString(), ...(images?.length ? { images } : {}) })
   emit({ type: 'status', workspaceId, busy: true })
-  session.push({
-    type: 'user',
-    message: {
-      role: 'user',
-      content: [
-        ...(images ?? []).map((img) => ({ type: 'image' as const, source: { type: 'base64' as const, media_type: img.mimeType as 'image/png', data: toBase64(img) } })),
-        { type: 'text' as const, text: note + (text || (images?.length ? 'See the attached image.' : '')) }
-      ]
-    },
-    parent_tool_use_id: null
+  const push = (): void =>
+    session.push({
+      type: 'user',
+      message: {
+        role: 'user',
+        content: [
+          ...(images ?? []).map((img) => ({ type: 'image' as const, source: { type: 'base64' as const, media_type: img.mimeType as 'image/png', data: toBase64(img) } })),
+          { type: 'text' as const, text: note + (text || (images?.length ? 'See the attached image.' : '')) }
+        ]
+      },
+      parent_tool_use_id: null
+    })
+  if (!waitForPreview(workspaceId, text)) return push()
+  // The task's first guided turn while its app is still starting: hold the message until the preview shows the app
+  // and its "before" picture is taken (bounded), so the very first change gets before and after pictures too. The
+  // person sees nothing new: the canvas already says "Starting the app…". Never in expert mode.
+  const entry: HeldTurn = { session, emit, timer: undefined }
+  heldTurns.set(workspaceId, entry)
+  void Promise.race([pictured, new Promise<boolean>((r) => (entry.timer = setTimeout(() => r(false), PREVIEW_WAIT_MS)))]).then(() => {
+    // Stop, archive or delete during the wait dropped the hold (dropHeldTurn): the message is never sent.
+    if (heldTurns.get(workspaceId) !== entry) return
+    heldTurns.delete(workspaceId)
+    clearTimeout(entry.timer)
+    if (sessions.get(workspaceId) === session) push()
   })
+}
+
+/** A first guided turn whose message is held until the preview is up (deliver). */
+interface HeldTurn {
+  session: Session
+  emit: EmitEvent
+  timer: ReturnType<typeof setTimeout> | undefined
+}
+const heldTurns = new Map<string, HeldTurn>()
+
+/**
+ * Drops a held message so it is never sent. `stopped`: the person pressed Stop, so the turn ends as any stopped turn
+ * does (their message stays in the conversation, "You stopped the response.", the next queued message goes on).
+ * Returns whether a message was held.
+ */
+function dropHeldTurn(workspaceId: string, stopped: boolean): boolean {
+  const h = heldTurns.get(workspaceId)
+  if (!h) return false
+  heldTurns.delete(workspaceId)
+  clearTimeout(h.timer)
+  previewShots.turnEnded(workspaceId)
+  if (!stopped || sessions.get(workspaceId) !== h.session) return true
+  const { session, emit } = h
+  session.busy = false
+  emit({ type: 'notice', workspaceId, itemId: nanoid(8), level: 'info', text: 'You stopped the response.', createdAt: new Date().toISOString() })
+  const next = session.queue.shift()
+  if (next) {
+    emit({ type: 'queue', workspaceId, items: [...session.queue] })
+    deliver(session, next.text, emit, true, next.images)
+  } else emit({ type: 'status', workspaceId, busy: false })
+  return true
+}
+
+/** How long a task's first guided turn waits for its preview to come up. */
+const PREVIEW_WAIT_MS = 30_000
+/** Workspaces whose first guided turn already waited for the preview in this run of the app. */
+const waitedForPreview = new Set<string>()
+
+/** Guided, a slash command aside, and the task's app has a run script: wait for the preview once per task and run. */
+function waitForPreview(workspaceId: string, text: string): boolean {
+  if (getStore().get().settings.mode !== 'guided' || text.startsWith('/') || waitedForPreview.has(workspaceId)) return false
+  waitedForPreview.add(workspaceId)
+  try {
+    const ws = getWorkspace(workspaceId)
+    const { repos } = getStore().get()
+    return ws.repos.some((wr) => {
+      const repo = repos.find((r) => r.id === wr.repoId)
+      return Boolean(repo && configFor(repo, wr.worktreePath)?.scripts?.run)
+    })
+  } catch {
+    return false
+  }
 }
 
 const starting = new Set<string>()
@@ -1073,6 +1145,8 @@ export function isBusy(workspaceId: string): boolean {
 export async function interrupt(workspaceId: string): Promise<void> {
   native.interrupt(workspaceId)
   acp.interrupt(workspaceId)
+  // Stop while the first guided turn waits for the preview: nothing reached the agent yet, so just drop the message.
+  if (dropHeldTurn(workspaceId, true)) return
   const s = sessions.get(workspaceId)
   if (!s) return
   s.interrupted = true
@@ -1150,6 +1224,8 @@ export function closeSession(workspaceId: string): void {
   native.closeSession(workspaceId)
   acp.closeSession(workspaceId)
   resources.clearWorkspace(workspaceId)
+  // Archive, delete or a session restart: a message still held for the preview is dropped, never sent later.
+  dropHeldTurn(workspaceId, false)
   const s = sessions.get(workspaceId)
   if (!s) return
   s.end()

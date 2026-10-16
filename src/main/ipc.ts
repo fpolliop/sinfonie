@@ -1159,6 +1159,7 @@ export function registerIpc(): void {
   handle('browser:suspend', (on) => browser.setSuspended(on))
   // ---- builder: the guided task screen's preview ----
   handle('preview:capture', (id) => previewShots.thumbnail(id))
+  handle('preview:reachable', (url) => previewShots.reachable(url))
   handle('preview:thumbnails', (ids) => previewShots.thumbnails(ids))
   handle('preview:pick', (id, token) => previewShots.pick(id, token))
   handle('preview:cancelPick', (id, token) => previewShots.cancelPick(id, token))

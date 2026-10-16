@@ -59,8 +59,8 @@ export function SoloApp({ source, onSpace, onAdded }: { source: 'mac' | 'github'
       if (k.kind === 'needs-git') return setBlocker({ kind: 'needs-git', retry: () => void addFolder(path) })
       if (k.kind === 'unsafe') return setErr('That folder holds much more than one app. Choose the folder of one app.')
       if (k.kind === 'not-repo') return setBlocker({ kind: 'not-set-up', path: k.path })
-      if (k.kind === 'inside-repo') setNote(`That folder is part of a bigger app, so Sinfonie added the whole app (${k.path.split('/').pop()}).`)
       const { repo, spaceId } = await addSoloPath(k.path)
+      if (k.kind === 'inside-repo') setNote(`That folder is part of a bigger app, so Sinfonie added the whole app (${repoLabel(repo)}).`)
       done(repo.id, spaceId)
     } catch (e) {
       setErr(friendlyError(e, 'That folder is not an app Sinfonie can work with. Choose the folder that holds your whole app, or ask a teammate which one it is.'))

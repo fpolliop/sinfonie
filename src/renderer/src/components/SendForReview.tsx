@@ -10,6 +10,10 @@ import { Button, Dialog, Field, inputCls } from './ui'
 import { friendlyError, needsGitHub, rawMessage } from '@/lib/errors'
 import { ConnectGitHubCard, FixPrerequisiteCard } from './ConnectGitHub'
 import { AskTeammate } from './AskTeammate'
+import { humanName, repoLabel } from '@/lib/labels'
+
+/** An app as the person calls it ("Sample shop"), never its folder name. */
+const appLabel = (repoId: string, folder: string): string => repoLabel(useApp.getState().repos.find((r) => r.id === repoId)) || humanName(folder)
 
 /** A problem this dialog explains itself, in plain words; shown as is. */
 class PlainError extends Error {}
@@ -136,7 +140,7 @@ function SendDialog({ ws, onClose }: { ws: Workspace; onClose: () => void }): Re
       const safety = await api.invoke('workspaces:safety', ws.id)
       // Sinfonie could not even read what changed: say so, instead of "nothing has changed".
       const unreadable = safety.filter((x) => x.error)
-      if (unreadable.length && unreadable.length === safety.length) throw new PlainError(`Sinfonie could not read the changes in ${unreadable.map((u) => u.repoName).join(', ')}. Ask Maestro to look at it, or ask a teammate.`)
+      if (unreadable.length && unreadable.length === safety.length) throw new PlainError(`Sinfonie could not read the changes in ${unreadable.map((u) => appLabel(u.repoId, u.repoName)).join(', ')}. Ask Maestro to look at it, or ask a teammate.`)
       const status = await api.invoke('github:status', ws.id)
       const out: { repo: string; repoId: string; url: string }[] = []
       for (const r of ws.repos) {
@@ -149,14 +153,14 @@ function SendDialog({ ws, onClose }: { ws: Workspace; onClose: () => void }): Re
         if (!changed && !existing) continue
         setPhase('sending')
         if (changed) await api.invoke('git:push', ws.id, r.repoId)
-        if (existing) out.push({ repo: r.repoName, repoId: r.repoId, url: existing.url })
+        if (existing) out.push({ repo: appLabel(r.repoId, r.repoName), repoId: r.repoId, url: existing.url })
         else {
           const url = await api.invoke('git:createPr', ws.id, r.repoId, title.trim() || ws.name, note.trim(), reviewers)
-          out.push({ repo: r.repoName, repoId: r.repoId, url: /https?:\/\/\S+/.exec(url)?.[0] ?? url })
+          out.push({ repo: appLabel(r.repoId, r.repoName), repoId: r.repoId, url: /https?:\/\/\S+/.exec(url)?.[0] ?? url })
         }
       }
       if (out.length === 0) {
-        if (unreadable.length) throw new PlainError(`Nothing new to send from the apps Sinfonie could read, and it could not read ${unreadable.map((u) => u.repoName).join(', ')}. Ask Maestro to look at it, or ask a teammate.`)
+        if (unreadable.length) throw new PlainError(`Nothing new to send from the apps Sinfonie could read, and it could not read ${unreadable.map((u) => appLabel(u.repoId, u.repoName)).join(', ')}. Ask Maestro to look at it, or ask a teammate.`)
         throw new PlainError('Nothing has changed yet, so there is nothing to send. Describe what you want in the chat first.')
       }
       await api.invoke('workspaces:setStage', ws.id, 'in-review')
@@ -351,7 +355,7 @@ function SendBlockerCard({ ws, pre, busy, onFix, onRecheck, onClose }: { ws: Wor
   const admin = useApp((s) => Boolean(space?.orgId && s.settings.cloud?.account?.orgs?.some((o) => o.id === space.orgId && o.role === 'admin')))
   const b = pre.blocker
   const repos = pre.repos.filter((r) => r.blocker === b)
-  const names = repos.map((r) => r.repoName).join(', ')
+  const names = repos.map((r) => appLabel(r.repoId, r.repoName)).join(', ')
   const box = (children: React.ReactNode): React.JSX.Element => <div className="rounded-lg border border-warn/40 bg-warn/5 px-3 py-2.5 text-[13px]">{children}</div>
   if (b === 'needs-git') return <FixPrerequisiteCard what="xcode" onFixed={onRecheck} />
   if (b === 'needs-github') return <ConnectGitHubCard reason="Sending for review goes through your GitHub account. Connect it once and Sinfonie takes care of the rest." onConnected={onRecheck} />
