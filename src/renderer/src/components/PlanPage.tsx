@@ -27,7 +27,7 @@ import { useGuided, words } from '@/lib/guided'
 import { Badge, Button, IconButton, SectionHeader, Segmented, inputCls } from './ui'
 import { friendlyError } from '@/lib/errors'
 import { TeamSection } from './TeamSection'
-import { PLAN_LABELS, PLAN_LIMITS, type BillingPeriod, type Plan, type PlanLimits } from '@shared/types'
+import { BILLING_ENABLED, PLAN_LABELS, PLAN_LIMITS, type BillingPeriod, type Plan, type PlanLimits } from '@shared/types'
 
 const PRICES: Record<Exclude<Plan, 'free'>, Record<BillingPeriod, number>> = { pro: { month: 15, year: 120 }, team: { month: 30, year: 300 } }
 /** Plan rows in the vocabulary of the mode: developers hear spaces and repositories, guided users hear teams and apps. */
@@ -201,93 +201,100 @@ export function PlanPage({ hideTeam = false }: { hideTeam?: boolean } = {}): Rea
         )}
       </section>
 
-      <SectionHeader
-        action={
-          <Segmented<BillingPeriod>
-            size="sm"
-            value={period}
-            onChange={setPeriod}
-            options={[
-              { id: 'month', label: 'Monthly' },
-              { id: 'year', label: 'Yearly' }
-            ]}
-          />
-        }
-      >
-        Plans
-      </SectionHeader>
-      <div className="grid grid-cols-3 gap-3">
-        {planRows(guided).map(({ plan: p, blurb, points }) => {
-          const current = p === plan
-          const price = p === 'free' ? null : PRICES[p][period]
-          return (
-            <div key={p} className={clsx('flex flex-col rounded-lg border p-3', current ? 'border-accent' : 'border-border')}>
-              <div className="flex items-center gap-2 text-[13px] font-semibold">
-                {PLAN_LABELS[p]}
-                {current && <Badge tone="accent">Current</Badge>}
-              </div>
-              <div className="mt-1 text-[18px] font-semibold">
-                {price === null ? '$0' : `$${price}`}
-                <span className="text-[11px] font-normal text-muted">{price === null ? '' : period === 'month' ? ' / month' : ' / year'}{p === 'team' ? ' per seat' : ''}</span>
-              </div>
-              <div className="mb-2 text-[12px] text-muted">{blurb}</div>
-              <ul className="mb-3 flex-1 space-y-1 text-[12px]">
-                {points.map((pt) => (
-                  <li key={pt} className="flex items-start gap-1.5">
-                    <Check size={12} className="mt-0.5 shrink-0 text-ok" /> {pt}
-                  </li>
-                ))}
-              </ul>
-              {p !== 'free' && !current && (
-                <div className="flex items-center gap-2">
-                  {p === 'team' && account && (
-                    <span className="w-[72px] shrink-0">
-                      <input type="number" min={1} max={500} value={seats} onChange={(e) => setSeats(Math.max(1, Math.min(500, Number(e.target.value) || 1)))} className={inputCls} aria-label="Seats" title="Seats" />
-                    </span>
+      {/* Plans, prices and checkout only exist once plans are on sale; the account, teams and codes above always do. */}
+      {BILLING_ENABLED && (
+        <>
+          <SectionHeader
+            action={
+              <Segmented<BillingPeriod>
+                size="sm"
+                value={period}
+                onChange={setPeriod}
+                options={[
+                  { id: 'month', label: 'Monthly' },
+                  { id: 'year', label: 'Yearly' }
+                ]}
+              />
+            }
+          >
+            Plans
+          </SectionHeader>
+          <div className="grid grid-cols-3 gap-3">
+            {planRows(guided).map(({ plan: p, blurb, points }) => {
+              const current = p === plan
+              const price = p === 'free' ? null : PRICES[p][period]
+              return (
+                <div key={p} className={clsx('flex flex-col rounded-lg border p-3', current ? 'border-accent' : 'border-border')}>
+                  <div className="flex items-center gap-2 text-[13px] font-semibold">
+                    {PLAN_LABELS[p]}
+                    {current && <Badge tone="accent">Current</Badge>}
+                  </div>
+                  <div className="mt-1 text-[18px] font-semibold">
+                    {price === null ? '$0' : `$${price}`}
+                    <span className="text-[11px] font-normal text-muted">{price === null ? '' : period === 'month' ? ' / month' : ' / year'}{p === 'team' ? ' per seat' : ''}</span>
+                  </div>
+                  <div className="mb-2 text-[12px] text-muted">{blurb}</div>
+                  <ul className="mb-3 flex-1 space-y-1 text-[12px]">
+                    {points.map((pt) => (
+                      <li key={pt} className="flex items-start gap-1.5">
+                        <Check size={12} className="mt-0.5 shrink-0 text-ok" /> {pt}
+                      </li>
+                    ))}
+                  </ul>
+                  {p !== 'free' && !current && (
+                    <div className="flex items-center gap-2">
+                      {p === 'team' && account && (
+                        <span className="w-[72px] shrink-0">
+                          <input type="number" min={1} max={500} value={seats} onChange={(e) => setSeats(Math.max(1, Math.min(500, Number(e.target.value) || 1)))} className={inputCls} aria-label="Seats" title="Seats" />
+                        </span>
+                      )}
+                      <Button
+                        // Signed out, signing in (above) is the next step: upgrade buttons stay secondary until then.
+                        variant={account ? 'primary' : 'subtle'}
+                        size="sm"
+                        disabled={busy === `buy:${p}` || (account ? !account.billing : false)}
+                        title={account && !account.billing ? 'Checkout is not open yet' : undefined}
+                        onClick={() =>
+                          void run(`buy:${p}`, async () => {
+                            if (!account) return api.invoke('cloud:signIn', 'github')
+                            await api.invoke('cloud:checkout', p, period, p === 'team' ? seats : 1)
+                            setPaying({ plan: p, until: Date.now() + 10 * 60_000, expired: false })
+                          })
+                        }
+                      >
+                        {account ? (plan === 'free' ? `Upgrade to ${PLAN_LABELS[p]}` : `Switch to ${PLAN_LABELS[p]}`) : 'Sign in to upgrade'}
+                      </Button>
+                    </div>
                   )}
-                  <Button
-                    // Signed out, signing in (above) is the next step: upgrade buttons stay secondary until then.
-                    variant={account ? 'primary' : 'subtle'}
-                    size="sm"
-                    disabled={busy === `buy:${p}` || (account ? !account.billing : false)}
-                    title={account && !account.billing ? 'Checkout is not open yet' : undefined}
-                    onClick={() =>
-                      void run(`buy:${p}`, async () => {
-                        if (!account) return api.invoke('cloud:signIn', 'github')
-                        await api.invoke('cloud:checkout', p, period, p === 'team' ? seats : 1)
-                        setPaying({ plan: p, until: Date.now() + 10 * 60_000, expired: false })
-                      })
-                    }
-                  >
-                    {account ? (plan === 'free' ? `Upgrade to ${PLAN_LABELS[p]}` : `Switch to ${PLAN_LABELS[p]}`) : 'Sign in to upgrade'}
-                  </Button>
+                  {p !== 'free' && !current && account && !account.billing && <p className="mt-1.5 text-[11px] text-muted">Checkout is not open yet. You keep everything you have today; this button turns on once paid plans launch.</p>}
                 </div>
-              )}
-              {p !== 'free' && !current && account && !account.billing && <p className="mt-1.5 text-[11px] text-muted">Checkout is not open yet. You keep everything you have today; this button turns on once paid plans launch.</p>}
+              )
+            })}
+          </div>
+          {paying && (
+            <div className="mt-3 flex items-center gap-3 rounded-lg border border-accent/40 px-3 py-2 text-[12px]" role="status">
+              {paying.expired ? <RefreshCw size={14} className="shrink-0 text-muted" /> : <Loader2 size={14} className="shrink-0 animate-spin text-accent" />}
+              <span className="flex-1">
+                {paying.expired
+                  ? `Sinfonie has not seen the payment for ${PLAN_LABELS[paying.plan]} yet. If you finished paying, check again; it can take a minute to arrive.`
+                  : `Finish paying in your browser. This page switches to ${PLAN_LABELS[paying.plan]} by itself once the payment goes through.`}
+              </span>
+              <Button size="sm" disabled={busy === 'paycheck'} onClick={() => void run('paycheck', async () => (await checkPayment(paying.plan)) || setPaying({ ...paying, until: Date.now() + 10 * 60_000, expired: false }))}>
+                Check again
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setPaying(null)}>
+                Stop waiting
+              </Button>
             </div>
-          )
-        })}
-      </div>
-      {paying && (
-        <div className="mt-3 flex items-center gap-3 rounded-lg border border-accent/40 px-3 py-2 text-[12px]" role="status">
-          {paying.expired ? <RefreshCw size={14} className="shrink-0 text-muted" /> : <Loader2 size={14} className="shrink-0 animate-spin text-accent" />}
-          <span className="flex-1">
-            {paying.expired
-              ? `Sinfonie has not seen the payment for ${PLAN_LABELS[paying.plan]} yet. If you finished paying, check again; it can take a minute to arrive.`
-              : `Finish paying in your browser. This page switches to ${PLAN_LABELS[paying.plan]} by itself once the payment goes through.`}
-          </span>
-          <Button size="sm" disabled={busy === 'paycheck'} onClick={() => void run('paycheck', async () => (await checkPayment(paying.plan)) || setPaying({ ...paying, until: Date.now() + 10 * 60_000, expired: false }))}>
-            Check again
-          </Button>
-          <Button size="sm" variant="ghost" onClick={() => setPaying(null)}>
-            Stop waiting
-          </Button>
-        </div>
+          )}
+        </>
       )}
       <CouponBox signedIn={Boolean(account)} />
       <p className="mt-3 text-[11px] text-muted">
-        Your plan: {limitText(PLAN_LIMITS[plan], guided)}. You have {spaces.length} {words(guided).space}{spaces.length === 1 ? '' : 's'}.
-        {account && !account.enforce ? ' Limits are not enforced yet; nothing you have today will be locked.' : ''} {guided ? 'Your AI subscriptions are yours and are billed by their vendors, never through Sinfonie.' : 'Agent subscriptions and API keys are yours and are billed by their vendors, never through Sinfonie.'}
+        {BILLING_ENABLED
+          ? `Your plan: ${limitText(PLAN_LIMITS[plan], guided)}. You have ${spaces.length} ${words(guided).space}${spaces.length === 1 ? '' : 's'}.${account && !account.enforce ? ' Limits are not enforced yet; nothing you have today will be locked.' : ''}`
+          : `Every feature is on and nothing is capped: Sinfonie is free while it is in beta. You have ${spaces.length} ${words(guided).space}${spaces.length === 1 ? '' : 's'}.`}{' '}
+        {guided ? 'Your AI subscriptions are yours and are billed by their vendors, never through Sinfonie.' : 'Agent subscriptions and API keys are yours and are billed by their vendors, never through Sinfonie.'}
       </p>
       {!hideTeam && <TeamSection signedIn={Boolean(account)} />}
     </div>
