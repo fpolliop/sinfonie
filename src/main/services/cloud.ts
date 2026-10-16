@@ -4,14 +4,15 @@
  * the Slack sign-in uses). The token lives in the encrypted secrets; the plan answer is cached in
  * settings.cloud so the app works offline, with a two-week grace before a stale answer counts as free.
  *
- * Plan limits (`assertWithin`) only bite when the server says `enforce`, so nothing changes for
- * existing users until checkout exists. SINFONIE_PLAN=pro|team overrides everything for development.
+ * Plan limits (`assertWithin`) and features (`assertFeature`) only bite when BILLING_ENABLED is on *and*
+ * the server says `enforce`, so nothing is gated while plans are off. SINFONIE_PLAN=pro|team overrides
+ * everything for development, including the switch, so the gates can still be tested.
  */
 import { safeStorage, shell } from 'electron'
 import { randomBytes } from 'crypto'
 import { getStore } from '../store'
 import { presentAuthLink, authDone, onAuthCancel } from './auth-link'
-import { PLAN_LIMITS, PLAN_LABELS, PLAN_FEATURES, PLAIN_ERROR_MARK } from '@shared/types'
+import { BILLING_ENABLED, PLAN_LIMITS, PLAN_LABELS, PLAN_FEATURES, PLAIN_ERROR_MARK } from '@shared/types'
 import type { AppMode, BillingPeriod, CloudAccount, CloudOrgDetail, CloudState, DiscoveredOrg, Plan, PlanFeature, PlanLimits, Vendor } from '@shared/types'
 
 export const CLOUD_URL = process.env.SINFONIE_CLOUD_URL ?? 'https://sinfonie.dev'
@@ -201,6 +202,7 @@ export async function signOut(): Promise<CloudState> {
 // ---------- billing ----------
 /** Opens Paddle checkout for a plan in the browser. The server builds the transaction so the price ids never ship. */
 export async function checkout(plan: Exclude<Plan, 'free'>, period: BillingPeriod, seats = 1): Promise<void> {
+  if (!BILLING_ENABLED) throw new Error(`${PLAIN_ERROR_MARK}Plans are not on sale yet: every feature is on for everyone.`)
   if (!sessionToken()) throw new Error(`${PLAIN_ERROR_MARK}Sign in to Sinfonie first, then choose a plan.`)
   const q = new URLSearchParams({ plan, period, seats: String(seats) })
   const { url } = await call<{ url: string }>(`/api/billing/checkout?${q}`, { method: 'POST' })
@@ -406,6 +408,8 @@ export function plan(): Plan {
 }
 function enforced(): boolean {
   if (DEV_PLAN) return true
+  // The app's own switch wins: while plans are off everyone keeps everything, even if the server says enforce.
+  if (!BILLING_ENABLED) return false
   return Boolean(state().account?.enforce)
 }
 export function limits(): PlanLimits {

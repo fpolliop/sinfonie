@@ -1330,6 +1330,11 @@ export const PLAN_FEATURES: Record<Plan, PlanFeature[]> = {
   pro: ['crew', 'reviewCockpit', 'jira', 'linear', 'oncall'],
   team: ['crew', 'reviewCockpit', 'jira', 'linear', 'oncall', 'sharedSpaces']
 }
+/**
+ * The billing kill switch. While it is false nothing is gated and the Plan page sells nothing, whatever
+ * the server answers; flip it to true (and set PLANS_ENFORCED on sinfonie.dev) the day plans go on sale.
+ */
+export const BILLING_ENABLED: boolean = false
 export type BillingPeriod = 'month' | 'year'
 
 export interface CloudUser {
