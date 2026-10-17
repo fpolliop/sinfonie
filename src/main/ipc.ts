@@ -650,7 +650,8 @@ export function registerIpc(): void {
     // Let PR state pull the stage forward: any PR means review, all PRs merged means done.
     const prs = result.map((r) => r.pr).filter((p): p is NonNullable<typeof p> => Boolean(p))
     if (prs.length > 0 && ws.status === 'ready') {
-      if (prs.every((p) => p.state === 'MERGED')) workspaces.advanceStage(id, 'done')
+      // Merged means done only when nothing was added after the PR (feedback #85: an earlier PR on the branch).
+      if (prs.every((p) => p.state === 'MERGED' && !p.workAfter)) workspaces.advanceStage(id, 'done')
       else if (prs.some((p) => p.state === 'OPEN')) workspaces.advanceStage(id, 'in-review')
     }
     return result

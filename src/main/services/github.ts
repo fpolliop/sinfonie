@@ -52,7 +52,7 @@ export async function repoPrStatus(repoId: string, worktreePath: string, branch:
   try {
     raw = JSON.parse(
       await gh(
-        ['pr', 'view', branch, '--json', 'number,title,url,state,isDraft,reviewDecision,mergeable,mergeStateStatus,baseRefName,headRefName,additions,deletions,statusCheckRollup,author'],
+        ['pr', 'view', branch, '--json', 'number,title,url,state,isDraft,reviewDecision,mergeable,mergeStateStatus,baseRefName,headRefName,headRefOid,additions,deletions,statusCheckRollup,author'],
         worktreePath
       )
     ) as Record<string, unknown>
@@ -75,8 +75,10 @@ export async function repoPrStatus(repoId: string, worktreePath: string, branch:
     headRefName: raw.headRefName as string,
     additions: (raw.additions as number) ?? 0,
     deletions: (raw.deletions as number) ?? 0,
-    checks: ((raw.statusCheckRollup as RawRollup[]) ?? []).map(mapCheck)
+    checks: ((raw.statusCheckRollup as RawRollup[]) ?? []).map(mapCheck),
+    headRefOid: (raw.headRefOid as string | undefined) || undefined
   }
+  if (pr.state !== 'OPEN') pr.workAfter = await hasWorkAfter(worktreePath, pr.headRefOid)
   let threads: ReviewThread[] = []
   try {
     const [owner, repo] = nameWithOwner.split('/')
@@ -95,6 +97,24 @@ export async function repoPrStatus(repoId: string, worktreePath: string, branch:
     return { ...base, nameWithOwner, pr, error: `review threads failed: ${shortErr(err)}` }
   }
   return { ...base, nameWithOwner, pr, threads }
+}
+
+/**
+ * Whether the worktree holds work a finished PR does not: uncommitted changes, or commits after the PR's head.
+ * `gh pr view <branch>` returns the branch's latest PR even when it was merged long ago, and feedback #85 saw
+ * workspaces jump to Done after an agent turn because of exactly that. Unknown (the commit is not here) counts
+ * as work after, so a stale PR never marks a workspace done.
+ */
+async function hasWorkAfter(worktreePath: string, headOid?: string): Promise<boolean> {
+  try {
+    const { stdout: dirty } = await exec('git', ['status', '--porcelain'], { cwd: worktreePath })
+    if (dirty.trim()) return true
+    if (!headOid) return true
+    const { stdout: count } = await exec('git', ['rev-list', '--count', `${headOid}..HEAD`], { cwd: worktreePath })
+    return Number(count.trim()) > 0
+  } catch {
+    return true
+  }
 }
 
 interface RawThread {

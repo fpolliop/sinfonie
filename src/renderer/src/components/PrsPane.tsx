@@ -228,7 +228,7 @@ function ThreadView({ thread }: { thread: ReviewThread }): React.JSX.Element {
 }
 
 function StateBadge({ pr }: { pr: NonNullable<RepoPr['pr']> }): React.JSX.Element {
-  if (pr.state === 'MERGED') return <Badge tone="accent">merged</Badge>
+  if (pr.state === 'MERGED') return <Badge tone="accent">{pr.workAfter ? 'merged, new changes since' : 'merged'}</Badge>
   if (pr.state === 'CLOSED') return <Badge tone="danger">closed</Badge>
   if (pr.isDraft) return <Badge>draft</Badge>
   return <Badge tone="ok">open</Badge>

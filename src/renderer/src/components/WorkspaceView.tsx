@@ -502,10 +502,12 @@ function PrButton({ ws }: { ws: Workspace }): React.JSX.Element | null {
   const failing = open.some((p) => p.pr!.checks.some((c) => c.status === 'failure'))
   const changes = open.some((p) => p.pr!.reviewDecision === 'CHANGES_REQUESTED' || p.threads.some((t) => !t.isResolved))
   const merged = withPr.every((p) => p.pr!.state === 'MERGED')
-  const text = merged ? 'Merged' : failing ? 'Checks failing' : changes ? 'Changes requested' : open.length ? (withPr.length === 1 ? `PR #${withPr[0].pr!.number}` : `${open.length} PRs open`) : 'PRs closed'
+  // A merged PR with work after it (feedback #85): the branch has moved on; it needs a new PR, not "Merged".
+  const after = merged && withPr.some((p) => p.pr!.workAfter)
+  const text = after ? 'Merged, new changes since' : merged ? 'Merged' : failing ? 'Checks failing' : changes ? 'Changes requested' : open.length ? (withPr.length === 1 ? `PR #${withPr[0].pr!.number}` : `${open.length} PRs open`) : 'PRs closed'
   return (
     <Button size="sm" variant="ghost" onClick={() => setTab('prs')} aria-label={text} title={`${text}: pull requests, checks and review comments`}>
-      <span aria-hidden className={clsx('h-1.5 w-1.5 rounded-full', merged ? 'bg-accent' : failing ? 'bg-danger' : changes ? 'bg-warn' : open.length ? 'bg-ok' : 'bg-muted')} />
+      <span aria-hidden className={clsx('h-1.5 w-1.5 rounded-full', after ? 'bg-warn' : merged ? 'bg-accent' : failing ? 'bg-danger' : changes ? 'bg-warn' : open.length ? 'bg-ok' : 'bg-muted')} />
       <GitPullRequest size={12} aria-hidden /> <span className="@max-[860px]:hidden">{text}</span>
     </Button>
   )

@@ -92,7 +92,16 @@ export const useMaestro = create<MaestroState>((set, get) => ({
     else localStorage.removeItem('sinfonie.maestro.active')
     set({ activeId: id })
     if (!id || get().byId[id]) return
-    const c: MaestroConversation = await api.invoke('maestro:get', id)
+    let c: MaestroConversation
+    try {
+      c = await api.invoke('maestro:get', id)
+    } catch (err) {
+      // Feedback #79: a remembered or linked conversation that was deleted since. Forget it and show the list.
+      if (!/No conversation/.test(err instanceof Error ? err.message : String(err))) throw err
+      localStorage.removeItem('sinfonie.maestro.active')
+      set((s) => ({ activeId: s.activeId === id ? null : s.activeId, conversations: s.conversations.filter((x) => x.id !== id) }))
+      return
+    }
     set((s) => ({ byId: { ...s.byId, [id]: { ...empty(), items: c.items, busy: Boolean(c.busy) } } }))
   },
   newConversation: async (context) => {
@@ -214,7 +223,11 @@ export async function openMaestro(opts?: { context?: MaestroContext; fresh?: boo
   if (opts?.fresh || opts?.context || !useMaestro.getState().activeId) {
     const id = await useMaestro.getState().newConversation(opts?.context)
     if (opts?.prompt) useMaestro.getState().setDraft(id, opts.prompt)
-  } else await useMaestro.getState().select(useMaestro.getState().activeId)
+  } else {
+    await useMaestro.getState().select(useMaestro.getState().activeId)
+    // The remembered conversation was gone (select forgot it): start a fresh one rather than an empty pane.
+    if (!useMaestro.getState().activeId) await useMaestro.getState().newConversation()
+  }
   // Already on Maestro home: stay there, and don't arm the dock to pop up on the next screen.
   const onHome = (await import('./app')).useApp.getState().view === 'maestro'
   if (useMaestro.getState().shape === 'full' || onHome) setView('maestro')

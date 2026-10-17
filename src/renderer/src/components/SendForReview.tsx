@@ -438,7 +438,7 @@ export function ReviewStatusLine({ workspaceId }: { workspaceId: string }): Reac
   const text = useMemo(() => {
     const withPr = (prs ?? []).filter((p) => p.pr)
     if (withPr.length === 0) return null
-    if (withPr.every((p) => p.pr!.state === 'MERGED')) return { tone: 'ok', text: 'Approved and live.' }
+    if (withPr.every((p) => p.pr!.state === 'MERGED')) return withPr.some((p) => p.pr!.workAfter) ? { tone: 'warn', text: 'The last version is live. There are new changes since; send them for review when they are ready.' } : { tone: 'ok', text: 'Approved and live.' }
     const open = withPr.filter((p) => p.pr!.state === 'OPEN')
     if (open.some((p) => p.pr!.reviewDecision === 'CHANGES_REQUESTED' || p.threads.some((t) => !t.isResolved))) return { tone: 'warn', text: 'A reviewer asked for changes. Tell Maestro to address them, then send again.' }
     if (open.some((p) => p.pr!.reviewDecision === 'APPROVED')) return { tone: 'ok', text: 'Approved. It goes live when the team merges it.' }
