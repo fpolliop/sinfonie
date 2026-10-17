@@ -87,12 +87,13 @@ export function PermissionPrompt(): React.JSX.Element | null {
           </Button>
           <span className="ml-auto" />
           {req.canAlwaysAllow && (
-            <Button onClick={() => answer(req.requestId, 'always')} title={`Allow ${req.toolName} like this from now on, without asking`}>
-              Always allow
+            <Button onClick={() => answer(req.requestId, 'always')} title={`Allow it, and never ask again in this workspace for ${req.toolName} calls like this one. Other actions still ask.`}>
+              Don't ask again for this
             </Button>
           )}
-          <Button onClick={allowAll} title="Approve this call and switch this workspace's permissions to Auto: a classifier approves the rest of the session. Change it back from the Permissions menu in the composer.">
-            Allow all (switch to Auto)
+          {/* Feedback #86: this was "Allow all", but Auto still asks for risky actions, so it looked broken. */}
+          <Button onClick={allowAll} title="Allow it, and switch this workspace to Auto: routine actions run without asking; risky ones (pushing, deleting, anything that leaves the Mac) still ask or are refused. Change it back from the Permissions menu in the composer.">
+            Allow, then Auto for the rest
           </Button>
           <Button variant="primary" autoFocus onClick={() => answer(req.requestId, 'allow')}>
             Allow once

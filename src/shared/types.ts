@@ -829,7 +829,7 @@ export const PERMISSION_MODES: { id: PermissionMode; label: string; hint: string
   { id: 'default', label: 'Ask', hint: 'Prompts before risky tools' },
   { id: 'acceptEdits', label: 'Accept edits', hint: 'Auto-approves file edits, asks for the rest' },
   { id: 'plan', label: 'Plan', hint: 'Read-only: explores and plans, no changes' },
-  { id: 'auto', label: 'Auto', hint: 'A classifier approves or denies prompts' },
+  { id: 'auto', label: 'Auto', hint: 'Routine actions run without asking; risky ones still ask or are refused' },
   { id: 'bypassPermissions', label: 'Bypass', hint: 'Never asks. Use with care' }
 ]
 
@@ -1732,6 +1732,13 @@ export interface PrInfo {
   additions: number
   deletions: number
   checks: PrCheck[]
+  /** The PR's last commit. */
+  headRefOid?: string
+  /**
+   * A merged (or closed) PR found by branch name may be an earlier one: true when the worktree has work the PR
+   * does not contain (commits after its head, or uncommitted changes), so it does not mean the work is done.
+   */
+  workAfter?: boolean
 }
 
 export interface ReviewComment {
