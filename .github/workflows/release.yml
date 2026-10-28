@@ -34,16 +34,17 @@ jobs:
         with:
           p12-file-base64: ${{ secrets.MAC_CERT_P12 }}
           p12-password: ${{ secrets.MAC_CERT_PASSWORD }}
-      # electron-builder publishes straight to a non-draft release, and GitHub refuses those unless the
-      # tag already exists in the target repo. Create it first (pointing at that repo's current head) so
-      # the parallel asset uploads don't race to create the release and fail with 422.
-      - name: Ensure the release exists in the releases repo
+      # Create the release up front, as a DRAFT, for two reasons:
+      #  - electron-builder's parallel asset uploads otherwise race to create it and fail with 422;
+      #  - a draft is invisible to GitHub's /releases/latest redirect, which sinfonie.dev/download follows.
+      # The build takes ~12 minutes, so publishing the release first would point every download link on the
+      # site at assets that do not exist yet. The last step below undrafts it once the DMGs are uploaded.
+      - name: Create the draft release in the releases repo
         env:
           GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
         run: |
-          # electron-builder's parallel uploads race to create the release; creating it (and its tag) here first removes that.
           gh release view "${GITHUB_REF_NAME}" -R fpolliop/sinfonie-releases >/dev/null 2>&1 \
-            || gh release create "${GITHUB_REF_NAME}" -R fpolliop/sinfonie-releases --title "Sinfonie ${GITHUB_REF_NAME#v}" --notes "See the changelog at https://sinfonie.dev" --target "$(gh api repos/fpolliop/sinfonie-releases/commits/HEAD -q .sha)"
+            || gh release create "${GITHUB_REF_NAME}" -R fpolliop/sinfonie-releases --draft --title "Sinfonie ${GITHUB_REF_NAME#v}" --notes "See the changelog at https://sinfonie.dev" --target "$(gh api repos/fpolliop/sinfonie-releases/commits/HEAD -q .sha)"
       - name: Build and publish
         # Signing uses the identity imported above (electron-builder auto-discovers it in the keychain);
         # notarization needs APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID.
@@ -58,3 +59,10 @@ jobs:
             export CSC_IDENTITY_AUTO_DISCOVERY=false
           fi
           pnpm release
+      # Only now is the release complete: undrafting it creates the tag, makes it /releases/latest, and
+      # hands sinfonie.dev/download a DMG that is actually there. A failed build leaves a draft nobody sees.
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          gh release edit "${GITHUB_REF_NAME}" -R fpolliop/sinfonie-releases --draft=false --latest
