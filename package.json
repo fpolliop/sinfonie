@@ -62,7 +62,7 @@
       "provider": "github",
       "owner": "fpolliop",
       "repo": "sinfonie-releases",
-      "releaseType": "release"
+      "releaseType": "draft"
     }
   },
   "devDependencies": {
