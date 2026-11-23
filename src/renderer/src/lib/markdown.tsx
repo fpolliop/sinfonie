@@ -9,7 +9,7 @@ import { openSinfonieLink } from '@/lib/links'
  * tables, task lists, strikethrough and nested lists from the model display
  * properly. Links open in the system browser.
  */
-export function Markdown({ text }: { text: string }): React.JSX.Element {
+export const Markdown = React.memo(function Markdown({ text }: { text: string }): React.JSX.Element {
   return (
     <div className="prose-chat">
       <ReactMarkdown
@@ -41,4 +41,4 @@ export function Markdown({ text }: { text: string }): React.JSX.Element {
       </ReactMarkdown>
     </div>
   )
-}
+})

@@ -235,7 +235,28 @@ export const useChat = create<ChatState>((set, get) => ({
     // React StrictMode runs effects twice in dev; a second listener would double every event.
     if (subscribed) return
     subscribed = true
-    api.on('agent:event', (e) => get().handleEvent(e))
+    // Streamed tokens arrive far faster than the screen refreshes: merge consecutive deltas for the same item and
+    // apply them once per frame. Any other event first flushes what is pending, so order is preserved.
+    let pending: AgentEvent[] = []
+    let frame = 0
+    const flushDeltas = (): void => {
+      if (frame) cancelAnimationFrame(frame)
+      frame = 0
+      const batch = pending
+      pending = []
+      for (const ev of batch) get().handleEvent(ev)
+    }
+    api.on('agent:event', (e) => {
+      if (e.type === 'text_delta' || e.type === 'thinking_delta') {
+        const last = pending[pending.length - 1]
+        if (last && last.type === e.type && last.workspaceId === e.workspaceId && last.itemId === e.itemId) pending[pending.length - 1] = { ...last, text: last.text + e.text }
+        else pending.push(e)
+        if (!frame) frame = requestAnimationFrame(flushDeltas)
+        return
+      }
+      flushDeltas()
+      get().handleEvent(e)
+    })
     // Browser-tool approvals are shown inline on the Browser pane (which is brought forward first),
     // so they skip this global modal — it would render behind the native page and double up the prompt.
     api.on('agent:permission', (p) => set((s) => (/browser/.test(p.toolName) ? s : { permissions: [...s.permissions, p], promptSeenAt: { ...s.promptSeenAt, [p.requestId]: Date.now() } })))
