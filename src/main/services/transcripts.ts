@@ -1,5 +1,6 @@
 import { app } from 'electron'
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'fs'
+import { rename, unlink, writeFile } from 'fs/promises'
 import { join } from 'path'
 import type { AgentEvent, ChatItem } from '@shared/types'
 import { applyEvent } from '@shared/transcript'
@@ -12,6 +13,12 @@ import { applyEvent } from '@shared/transcript'
 const cache = new Map<string, ChatItem[]>()
 const timers = new Map<string, NodeJS.Timeout>()
 const dirty = new Set<string>()
+/** Workspaces with an async write on the way; one at a time per file, so writes never interleave. */
+const inFlight = new Set<string>()
+/** Bumped by clearTranscript, so a write that finishes after a clear does not bring the file back. */
+const generation = new Map<string, number>()
+/** How long the last serialisation took, per workspace: big transcripts flush less often. */
+const stringifyMs = new Map<string, number>()
 
 function dir(): string {
   const d = join(app.getPath('userData'), 'chats')
@@ -53,32 +60,73 @@ export function recordEvent(e: AgentEvent): void {
 
 function scheduleFlush(id: string): void {
   if (timers.has(id)) return
+  // Serialising a multi-MB transcript blocks the main process, so wait about 20x as long as it took last time.
+  const delay = Math.min(5000, Math.max(400, (stringifyMs.get(id) ?? 0) * 20))
   timers.set(
     id,
     setTimeout(() => {
       timers.delete(id)
       flush(id)
-    }, 400)
+    }, delay)
   )
 }
 
-function flush(id: string): void {
+function clearTimer(id: string): void {
   const t = timers.get(id)
   if (t) {
     clearTimeout(t)
     timers.delete(id)
   }
+}
+
+/** Write without blocking on the disk: temp file, then rename over, so a crash never leaves half a transcript. */
+function flush(id: string): void {
+  clearTimer(id)
   if (!dirty.has(id)) return
+  // A write is already running; try again when it ends (the transcript is still marked dirty).
+  if (inFlight.has(id)) return
+  dirty.delete(id)
+  const started = performance.now()
+  let json: string
+  try {
+    json = JSON.stringify(cache.get(id) ?? [])
+  } catch (err) {
+    console.error(`Failed to serialise transcript ${id}`, err)
+    return
+  }
+  stringifyMs.set(id, performance.now() - started)
+  const gen = generation.get(id) ?? 0
+  const target = file(id)
+  const tmp = `${target}.${process.pid}.tmp`
+  inFlight.add(id)
+  void writeFile(tmp, json)
+    .then(async () => {
+      if ((generation.get(id) ?? 0) !== gen) return unlink(tmp).catch(() => undefined)
+      await rename(tmp, target)
+    })
+    .catch((err) => console.error(`Failed to write transcript ${id}`, err))
+    .finally(() => {
+      inFlight.delete(id)
+      if (dirty.has(id)) scheduleFlush(id)
+    })
+}
+
+/** Blocking write, for the moment the app quits and nothing may be left behind. */
+function flushSync(id: string): void {
+  clearTimer(id)
   dirty.delete(id)
   try {
-    writeFileSync(file(id), JSON.stringify(cache.get(id) ?? []))
+    const tmp = `${file(id)}.${process.pid}.tmp`
+    writeFileSync(tmp, JSON.stringify(cache.get(id) ?? []))
+    renameSync(tmp, file(id))
   } catch (err) {
     console.error(`Failed to write transcript ${id}`, err)
   }
 }
 
 export function flushAllTranscripts(): void {
-  for (const id of Array.from(dirty)) flush(id)
+  // Also redo the ones mid-write: the process may exit before their rename lands.
+  for (const id of new Set([...dirty, ...inFlight])) flushSync(id)
 }
 
 /** Replace a workspace's transcript wholesale (used when resuming a session recorded elsewhere). */
@@ -110,9 +158,8 @@ export function markInterrupted(workspaceId: string): boolean {
 export function clearTranscript(workspaceId: string): void {
   cache.set(workspaceId, [])
   dirty.delete(workspaceId)
-  const t = timers.get(workspaceId)
-  if (t) clearTimeout(t)
-  timers.delete(workspaceId)
+  generation.set(workspaceId, (generation.get(workspaceId) ?? 0) + 1)
+  clearTimer(workspaceId)
   try {
     if (existsSync(file(workspaceId))) unlinkSync(file(workspaceId))
   } catch (err) {
