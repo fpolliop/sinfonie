@@ -907,7 +907,7 @@ function NoticeText({ text }: { text: string }): React.JSX.Element {
   )
 }
 
-export function Message({ item }: { item: ChatItem }): React.JSX.Element | null {
+export const Message = React.memo(function Message({ item }: { item: ChatItem }): React.JSX.Element | null {
   const guided = useGuided()
   if (item.role === 'system') {
     const raw = item.blocks.map((b) => (b.type === 'text' ? b.text : '')).join('')
@@ -962,7 +962,7 @@ export function Message({ item }: { item: ChatItem }): React.JSX.Element | null 
       {groupBlocks(item.blocks).map((g, i) => (g.kind === 'tools' ? <ToolChips key={i} blocks={g.blocks} /> : g.kind === 'plan' ? <PlanBlock key={i} block={g.block} /> : <Block key={i} block={g.block} />))}
     </div>
   )
-}
+})
 
 type BlockGroup = { kind: 'one'; block: ChatBlock } | { kind: 'tools'; blocks: ChatToolBlock[] } | { kind: 'plan'; block: ChatToolBlock }
 const isDelegation = (b: ChatToolBlock): boolean => b.name === 'Agent' || b.name === 'Task'
