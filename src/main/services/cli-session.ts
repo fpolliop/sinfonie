@@ -7,7 +7,7 @@
  * this service tails that file and replays it as the same agent events the SDK path emits, so the
  * chat transcript, the phone, cost tracking and context size all keep working while the CLI runs.
  */
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'fs'
+import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readSync, statSync, writeFileSync } from 'fs'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'http'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk'
@@ -318,8 +318,22 @@ function poll(l: Live): void {
     if (!existsSync(l.file)) return
     const size = statSync(l.file).size
     if (size <= l.offset) return
-    // Byte-accurate: the offset is in bytes and the file has non-ASCII text.
-    const buf = readFileSync(l.file).subarray(l.offset)
+    // Byte-accurate: the offset is in bytes and the file has non-ASCII text. Read only what was appended;
+    // a long session's transcript runs to tens of MB and this runs every 700 ms.
+    const whole = Buffer.allocUnsafe(size - l.offset)
+    const fd = openSync(l.file, 'r')
+    let got = 0
+    try {
+      while (got < whole.length) {
+        const n = readSync(fd, whole, got, whole.length - got, l.offset + got)
+        if (n === 0) break
+        got += n
+      }
+    } finally {
+      closeSync(fd)
+    }
+    // The file can shrink between stat and read; use only what came back.
+    const buf = whole.subarray(0, got)
     // Only whole lines; a partially written line waits for the next poll.
     const cut = buf.lastIndexOf(0x0a)
     if (cut < 0) return
